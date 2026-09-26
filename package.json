@@ -14,6 +14,7 @@
   "devDependencies": {
     "@perpguard/shared": "workspace:*",
     "@types/node": "~24.13.6",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "viem": "^2.56.9"
   }
 }
