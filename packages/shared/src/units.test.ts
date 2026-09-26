@@ -4,6 +4,9 @@ import {
   ausdFromRaw,
   ausdToRaw,
   bpsToFraction,
+  fractionToMicros,
+  microsToBps,
+  microsToFraction,
   initialMarginRatioFromConfig,
   maintenanceMarginRatioFromConfig,
   maxLeverageFromConfig,
@@ -91,11 +94,30 @@ describe('price and size helpers', () => {
   });
 });
 
-describe('bpsToFraction', () => {
-  it('converts the taker fee field', () => {
-    assert.equal(bpsToFraction(345), 0.0345);
-    assert.equal(bpsToFraction(45), 0.0045);
-    assert.equal(bpsToFraction(0), 0);
+describe('fee units', () => {
+  it('reads fee fields as Micros, not basis points', () => {
+    // The docs' type glossary: "Fees use Micros (10^-6 fractions)". Reading
+    // taker_fee 345 as basis points would overstate the fee 1000x, as 3.45%
+    // rather than 0.0345%.
+    assert.equal(microsToFraction(345), 0.000345);
+    assert.equal(microsToFraction(45), 0.000045);
+    assert.equal(microsToFraction(0), 0);
+    assert.equal(microsToBps(345), 3.45);
+  });
+
+  it('round-trips micros', () => {
+    assert.equal(fractionToMicros(microsToFraction(345)), 345);
+  });
+
+  it('keeps a live taker fee inside a sane range for a perp venue', () => {
+    // A guard on the unit itself: 345 micros is 3.45bps. Anything above 1%
+    // would mean the exponent is wrong again.
+    assert.ok(microsToFraction(345) < 0.01);
+    assert.ok(microsToFraction(345) > 0.0001);
+  });
+
+  it('still converts real basis points where a caller has them', () => {
+    assert.ok(Math.abs(bpsToFraction(3.45) - 0.000345) < 1e-12);
   });
 });
 

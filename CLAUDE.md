@@ -51,6 +51,15 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   It suggests; the user confirms.
 - Every action gets an idempotency key and a row in `action_log`.
   One in-flight action per position.
+- Monitoring and actionability are SEPARATE. A market we can watch is not
+  always a market we can act on: the two networks do not list the same
+  markets (HYPE and VVV are mainnet-only), and markets can close. Ask the
+  ACTING venue `getActionAvailability(symbol)`. When it says no, keep
+  monitoring, keep alerting, and render the action buttons disabled with the
+  returned reason shown. NEVER hide the position, silently drop the alert, or
+  route the action to the analytics network instead. This is a permanent
+  product rule, not a demo workaround — a trader whose venue has halted a
+  market is exactly the trader who most needs the warning.
 - Never act on price data older than `STALE_MS`. Show staleness in the UI.
 - Prefer small, tested modules over large files.
 

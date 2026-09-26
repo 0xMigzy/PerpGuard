@@ -112,7 +112,25 @@ export function formatAusd(value: number, displayPrecision = 2): string {
   return `${value.toFixed(displayPrecision)} AUSD`;
 }
 
-/** Fee fields (`maker_fee`, `taker_fee`) are basis points: 345 bps is 3.45%. */
+/**
+ * Fee fields (`maker_fee`, `taker_fee`) are Micros — 10^-6 fractions — per the
+ * docs' type glossary, NOT basis points. `taker_fee: 345` is 0.0345%, i.e.
+ * 3.45 bps. Reading it as bps overstates fees by 1000x.
+ * https://docs.perpl.xyz/resources/for-developers/api/types-and-errors.md
+ */
+export function microsToFraction(micros: number): number {
+  return micros / 1_000_000;
+}
+
+export function fractionToMicros(fraction: number): number {
+  return fraction * 1_000_000;
+}
+
+/** Micros to basis points, for display: 345 micros is 3.45 bps. */
+export function microsToBps(micros: number): number {
+  return micros / 100;
+}
+
 export function bpsToFraction(bps: number): number {
   return bps / 10_000;
 }
@@ -122,18 +140,21 @@ export function fractionToBps(fraction: number): number {
 }
 
 /**
- * Market config encodes margin requirements as hundredths of a leverage
- * multiple, NOT as ratios:
+ * Market config encodes margin requirements as a leverage multiple in
+ * hundredths, NOT as a ratio:
  *
  *   initial_margin: 1500     -> 15x max leverage      -> 6.67% initial margin
  *   maintenance_margin: 2500 -> maintained at 25x     -> 4.00% maintenance margin
  *
- * This is not stated in the docs, so it is inferred, but it is the only reading
- * that fits: `maintenance_margin` exceeds `initial_margin` on every market, so
- * neither can be a ratio. It is corroborated by ground truth — BTC mainnet
- * carries 1500/2500, and fixtures/position1.json independently derives
- * mmr = 0.04 for a BTC position sitting at exactly 15x. See the assertion in
- * venues/perpl.test.ts, which fails loudly if this ever stops holding.
+ * The docs' type glossary says margins and ratios use `Fraction`, which is
+ * hundredths, so the raw ints divide by 100 to give 15 and 25:
+ * https://docs.perpl.xyz/resources/for-developers/api/types-and-errors.md
+ *
+ * Two independent checks agree. `maintenance_margin` exceeds `initial_margin`
+ * on every market, so neither field can itself be a ratio. And BTC mainnet
+ * carries 1500/2500 while fixtures/position1.json derives mmr = 0.04 from a real
+ * BTC position at exactly 15x. venues/perpl.test.ts asserts that match, so this
+ * fails loudly if it ever stops holding.
  */
 export function maxLeverageFromConfig(initialMargin: number): number {
   if (initialMargin <= 0) {

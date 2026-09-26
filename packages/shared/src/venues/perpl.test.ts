@@ -88,8 +88,8 @@ describe('toVenueMarket', () => {
       sizeDecimals: 5,
       maxLeverage: 15,
       maintenanceMarginRatio: 0.04,
-      makerFeeBps: 45,
-      takerFeeBps: 345,
+      makerFeeMicros: 45,
+      takerFeeMicros: 345,
       fundingIntervalSec: 2580,
       isOpen: true,
     });
@@ -229,6 +229,83 @@ describe('PerplVenue.getCollateralToken', () => {
       decimals: 6,
       address: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a',
     });
+  });
+});
+
+describe('PerplVenue.getActionAvailability', () => {
+  it('allows actions on a market the acting network lists', async () => {
+    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
+    assert.deepEqual(await venue.getActionAvailability('BTC'), {
+      actionable: true,
+      network: 'testnet',
+      // The acting network's own id, not mainnet's 1.
+      marketId: 16,
+    });
+  });
+
+  it('refuses a mainnet-only asset, with a reason fit to show in the UI', async () => {
+    // HYPE and VVV exist on mainnet only. They are still monitored; only the
+    // action controls are disabled.
+    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
+    for (const symbol of ['HYPE', 'VVV']) {
+      const availability = await venue.getActionAvailability(symbol);
+      assert.equal(availability.actionable, false);
+      assert.ok(!availability.actionable);
+      assert.equal(availability.code, 'not-listed-on-acting-network');
+      assert.match(availability.reason, new RegExp(symbol));
+      assert.match(availability.reason, /testnet/);
+      assert.match(availability.reason, /Monitoring and alerts continue/);
+    }
+  });
+
+  it('refuses a closed market', async () => {
+    const closed = structuredClone(testnetContext) as {
+      markets: Array<{ size_units: string; config: { is_open: boolean } }>;
+    };
+    const lit = closed.markets.find((m) => m.size_units === 'LIT');
+    assert.ok(lit !== undefined);
+    lit.config.is_open = false;
+
+    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(closed) });
+    const availability = await venue.getActionAvailability('LIT');
+    assert.ok(!availability.actionable);
+    assert.equal(availability.code, 'market-closed');
+  });
+
+  it('refuses everything on a read-only venue, without fetching', async () => {
+    // The mainnet analytics venue must never be a route to an action.
+    let calls = 0;
+    const venue = new PerplVenue(mainnet, {
+      readOnly: true,
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response(JSON.stringify(mainnetContext), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    const availability = await venue.getActionAvailability('BTC');
+    assert.ok(!availability.actionable);
+    assert.equal(availability.code, 'venue-read-only');
+    assert.equal(availability.network, 'mainnet');
+    assert.equal(calls, 0, 'a read-only refusal needs no network call');
+  });
+
+  it('answers for every mainnet symbol without throwing', async () => {
+    // Whatever the answer, asking must never fail: an unavailable action is a
+    // disabled button, not an error path.
+    const analytics = new PerplVenue(mainnet, { fetchImpl: stubFetch(mainnetContext) });
+    const acting = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
+
+    const monitored = await analytics.getMarkets();
+    const answers = await Promise.all(
+      monitored.map(async (m) => [m.symbol, await acting.getActionAvailability(m.symbol)] as const),
+    );
+
+    assert.equal(answers.length, 9);
+    const unavailable = answers.filter(([, a]) => !a.actionable).map(([symbol]) => symbol);
+    assert.deepEqual(unavailable.sort(), ['HYPE', 'VVV']);
   });
 });
 

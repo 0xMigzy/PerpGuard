@@ -4,6 +4,7 @@ import { NotImplementedError, VenueRequestError } from '../errors.ts';
 import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
 import type {
+  ActionAvailability,
   ActionResult,
   AddMarginRequest,
   CancelAllRequest,
@@ -26,6 +27,12 @@ export interface PerplVenueOptions {
   readonly timeoutMs?: number;
   /** How long a fetched context is reused before refetching. */
   readonly contextTtlMs?: number;
+  /**
+   * Mark this venue as analytics-only, so getActionAvailability refuses every
+   * market. Set it on the mainnet venue: reads may run against mainnet, actions
+   * never do.
+   */
+  readonly readOnly?: boolean;
   /** Injectable for tests. */
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
@@ -37,6 +44,7 @@ export class PerplVenue implements Venue {
 
   readonly #timeoutMs: number;
   readonly #contextTtlMs: number;
+  readonly #readOnly: boolean;
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
 
@@ -47,6 +55,7 @@ export class PerplVenue implements Venue {
     this.network = network;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#contextTtlMs = options.contextTtlMs ?? DEFAULT_CONTEXT_TTL_MS;
+    this.#readOnly = options.readOnly ?? false;
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
     this.#now = options.now ?? Date.now;
   }
@@ -138,6 +147,49 @@ export class PerplVenue implements Venue {
   }
 
   /**
+   * Whether actions for `symbol` can be sent on this venue's network.
+   *
+   * Not every asset exists on both networks — HYPE and VVV are mainnet-only —
+   * and a market can be closed. Either way the answer only gates action
+   * controls; the risk engine keeps monitoring and alerting on the position.
+   */
+  async getActionAvailability(symbol: string): Promise<ActionAvailability> {
+    const network = this.network.name;
+
+    if (this.#readOnly) {
+      return {
+        actionable: false,
+        network,
+        code: 'venue-read-only',
+        reason: `This venue is connected to Perpl ${network} for analytics only, so it never sends actions.`,
+      };
+    }
+
+    const markets = await this.getMarkets();
+    const market = markets.find((m) => m.symbol === symbol);
+
+    if (market === undefined) {
+      return {
+        actionable: false,
+        network,
+        code: 'not-listed-on-acting-network',
+        reason: `${symbol} is not listed on Perpl ${network}, so there is nothing to act on there. Monitoring and alerts continue.`,
+      };
+    }
+
+    if (!market.isOpen) {
+      return {
+        actionable: false,
+        network,
+        code: 'market-closed',
+        reason: `${symbol} is currently closed on Perpl ${network}. Monitoring and alerts continue.`,
+      };
+    }
+
+    return { actionable: true, network, marketId: market.marketId };
+  }
+
+  /**
    * Collateral token as the venue reports it, resolved through the protocol
    * instance collateral_token_id rather than assuming 6 decimals.
    */
@@ -207,8 +259,8 @@ export function toVenueMarket(market: PerplMarket, network: VenueMarket['network
     sizeDecimals: config.size_decimals,
     maxLeverage: maxLeverageFromConfig(config.initial_margin),
     maintenanceMarginRatio: maintenanceMarginRatioFromConfig(config.maintenance_margin),
-    makerFeeBps: config.maker_fee,
-    takerFeeBps: config.taker_fee,
+    makerFeeMicros: config.maker_fee,
+    takerFeeMicros: config.taker_fee,
     fundingIntervalSec: market.funding_interval_sec,
     isOpen: config.is_open,
   };

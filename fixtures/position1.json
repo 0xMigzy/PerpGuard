@@ -1,6 +1,7 @@
 {
   "_source": "Perpl app, position panel screenshot, 2026-09-26",
   "_note": "Ground-truth fixture. The risk engine must reproduce liqPrice and uPnl exactly.",
+  "_annotated": "2026-09-26: openQuestions answered against live GET /v1/pub/context (chain 143, captured in fixtures/context-mainnet.json). All values in position/expected below are the ORIGINAL observed and derived numbers and have not been changed.",
 
   "position": {
     "market": "BTC",
@@ -40,10 +41,42 @@
     "_comment": "liqBufferPct tolerance is loose because the two screenshots were taken seconds apart and mark moved between them."
   },
 
+  "marketContext": {
+    "_comment": "The BTC market config this position was opened against, from GET /v1/pub/context on chain 143. Recorded so the derivations below can be rechecked without refetching.",
+    "marketId": 1,
+    "instanceId": 1,
+    "priceDecimals": 1,
+    "sizeDecimals": 5,
+    "initialMargin": 1500,
+    "maintenanceMargin": 2500,
+    "makerFeeMicros": 45,
+    "takerFeeMicros": 345,
+    "_units": "initialMargin and maintenanceMargin are Fraction (hundredths of a leverage multiple): 1500 -> 15x, 2500 -> 25x -> mmr 0.04. Fees are Micros (10^-6 fractions): 345 -> 0.0345% -> 3.45bps. Both per the docs type glossary."
+  },
+
   "openQuestions": [
-    "mmr = 0.04 is derived from this single BTC position at 15x. Confirm whether it is per-market and whether it steps with leverage tier.",
-    "Check whether GET /v1/pub/context exposes the maintenance margin ratio per market. If it does, read it from there and never hard-code 0.04.",
-    "Posted margin (2810.33) exceeds notional/leverage (2800.98) by ~9.35, about 2.2bps of notional - likely an opening fee reserve. Never assume margin = notional / leverage; always use the actual margin field.",
-    "Confirm the liqBuffer denominator is markPrice rather than entryPrice by capturing a second position where mark and entry differ more."
+    {
+      "status": "answered",
+      "question": "mmr = 0.04 is derived from this single BTC position at 15x. Confirm whether it is per-market and whether it steps with leverage tier.",
+      "answer": "Per-market, and it does NOT step with leverage tier. Each market carries exactly one config.maintenance_margin value, with no tiering structure anywhere in the context response. Values differ by market: BTC 2500 (4%), ETH/SOL/MON 2000 (5%), ZEC 1800 (5.56%), LIT/VVV/PUMP 1000 (10%).",
+      "caveat": "This position sits at exactly 15x, which is BTC's max leverage, so it alone cannot separate 'per-market' from 'depends on chosen leverage'. fixtures/position2.json is being captured below max leverage to close that gap."
+    },
+    {
+      "status": "answered",
+      "question": "Check whether GET /v1/pub/context exposes the maintenance margin ratio per market. If it does, read it from there and never hard-code 0.04.",
+      "answer": "It does, as markets[].config.maintenance_margin, but NOT as a ratio. The docs type glossary says margins and ratios use the Fraction type, which is hundredths, so maintenance_margin 2500 means maintenance at 25x, i.e. a ratio of 100/2500 = 0.04 - reproducing the 0.04 derived here. The sibling initial_margin 1500 means 15x max leverage, matching this position. Corroborating check: maintenance_margin exceeds initial_margin on every market, so neither field can itself be a ratio.",
+      "implementation": "packages/shared/src/units.ts maintenanceMarginRatioFromConfig / maxLeverageFromConfig. 0.04 is not hard-coded anywhere; packages/shared/src/venues/perpl.test.ts asserts the decoded value equals expected.maintenanceMarginRatio here."
+    },
+    {
+      "status": "answered",
+      "question": "Posted margin (2810.33) exceeds notional/leverage (2800.98) by ~9.35, about 2.2bps of notional - likely an opening fee reserve. Never assume margin = notional / leverage; always use the actual margin field.",
+      "answer": "Not a plain taker fee, and still unexplained. BTC's config.taker_fee is 345 Micros = 0.0345% = 3.45bps, which on the 42014.75 entry notional is 14.50 AUSD. The observed excess is 9.35, or 2.22bps of entry notional - more than the 0.45bps maker fee (1.89) and less than one taker fee. So it is neither, and its composition is unknown.",
+      "carriedForward": "The operative instruction stands and is being followed: VenuePosition.margin is always the venue's reported figure, never notional / leverage. See the comment on VenuePosition in packages/shared/src/venues/types.ts. The remaining puzzle is only what the 9.35 is made of, which does not block the risk maths."
+    },
+    {
+      "status": "open",
+      "question": "Confirm the liqBuffer denominator is markPrice rather than entryPrice by capturing a second position where mark and entry differ more.",
+      "note": "Still open. Here mark and entry differ by only 22.2 (0.026%), so the two denominators give 0.026633 (mark) and 0.026626 (entry) - a gap of 7e-6, which is 70x smaller than the 0.0005 tolerance and so indistinguishable. fixtures/position2.json should be captured and left open long enough for mark to drift from entry."
+    }
   ]
 }

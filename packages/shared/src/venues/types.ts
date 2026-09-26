@@ -41,8 +41,9 @@ export interface VenueMarket {
   readonly maxLeverage: number;
   /** Derived from config.maintenance_margin. Fraction of notional. */
   readonly maintenanceMarginRatio: number;
-  readonly makerFeeBps: number;
-  readonly takerFeeBps: number;
+  /** Fee in Micros (10^-6 fractions), as the venue reports it: 345 is 3.45 bps. */
+  readonly makerFeeMicros: number;
+  readonly takerFeeMicros: number;
   readonly fundingIntervalSec: number;
   readonly isOpen: boolean;
 }
@@ -87,6 +88,37 @@ export interface PriceUpdate {
 }
 
 export type Unsubscribe = () => void;
+
+/** Why a market cannot be acted on, for the UI to show next to a disabled button. */
+export type ActionUnavailableCode =
+  /** The asset is monitored, but the acting network has no market for it. */
+  | 'not-listed-on-acting-network'
+  /** The market exists but the venue has it closed. */
+  | 'market-closed'
+  /** This venue is configured for analytics only and never acts. */
+  | 'venue-read-only';
+
+/**
+ * Whether actions can be sent for a market on this venue's network.
+ *
+ * Monitoring and actionability are separate concerns: a position is watched and
+ * alerted on regardless of the answer here. See the action availability rule in
+ * CLAUDE.md.
+ */
+export type ActionAvailability =
+  | {
+      readonly actionable: true;
+      readonly network: NetworkName;
+      /** The market id on the acting network, which actions must target. */
+      readonly marketId: number;
+    }
+  | {
+      readonly actionable: false;
+      readonly network: NetworkName;
+      readonly code: ActionUnavailableCode;
+      /** Human-readable, safe to render directly next to a disabled control. */
+      readonly reason: string;
+    };
 
 /**
  * Outcome of a state-changing request.
@@ -142,6 +174,18 @@ export interface Venue {
 
   /** All markets, with their per-network ids and scaling. */
   getMarkets(): Promise<VenueMarket[]>;
+
+  /**
+   * Whether actions for `symbol` can be sent on this venue's network.
+   *
+   * Callers ask this of the ACTING venue, which is not necessarily the venue a
+   * position was read from: analytics runs on mainnet while actions run on
+   * testnet, and the two do not list the same markets. A false answer disables
+   * the action controls and nothing else — monitoring and alerts continue.
+   *
+   * @param symbol canonical ticker, e.g. 'HYPE'.
+   */
+  getActionAvailability(symbol: string): Promise<ActionAvailability>;
 
   getPositions(address: string): Promise<VenuePosition[]>;
 
