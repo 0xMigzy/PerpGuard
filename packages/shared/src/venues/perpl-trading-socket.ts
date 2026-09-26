@@ -43,6 +43,8 @@ const DEFAULT_SIGN_IN_TIMEOUT_MS = 10_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
 const DEFAULT_RESULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PING_INTERVAL_MS = 30_000;
+/** Enough to hold the post-sign-in snapshots plus a burst of updates. */
+const HISTORY_LIMIT = 200;
 
 export interface Logger {
   log: (message: string) => void;
@@ -132,6 +134,8 @@ export class PerplTradingSocket {
   #localRequestId = 0;
 
   #accountId: number | undefined;
+  #accountFrozen = false;
+  #forwardingAllowed: boolean | undefined;
   #lastForwardedRequestId = 0;
   #headBlock: number | undefined;
   #lastSn: number | undefined;
@@ -142,6 +146,14 @@ export class PerplTradingSocket {
   readonly #pending = new Map<number, Pending>();
   readonly #listeners = new Set<(message: InboundMessage) => void>();
   readonly #closeWaiters = new Set<(error: Error) => void>();
+  /**
+   * A bounded record of what has already arrived.
+   *
+   * The snapshots that matter most — wallet, orders, positions — are pushed
+   * immediately after sign-in, which is before connect() has even returned, so
+   * anything that subscribes afterwards would otherwise never see them.
+   */
+  readonly #history: InboundMessage[] = [];
 
   constructor(options: TradingSocketOptions) {
     this.#options = options;
@@ -157,6 +169,23 @@ export class PerplTradingSocket {
     return this.#lastForwardedRequestId;
   }
 
+  /**
+   * Whether the account permits orders forwarded by an API key (`fw`).
+   *
+   * Undefined until a WalletSnapshot arrives. When false, a submission is
+   * admitted by the gateway and then fails on `mt: 24` with
+   * sr 34 OrderForwardingNotAllowed — worth saying before submitting, not
+   * after.
+   */
+  get forwardingAllowed(): boolean | undefined {
+    return this.#forwardingAllowed;
+  }
+
+  /** Whether the account is frozen (`fr`). Frozen accounts reject orders. */
+  get accountFrozen(): boolean {
+    return this.#accountFrozen;
+  }
+
   get headBlock(): number | undefined {
     return this.#headBlock;
   }
@@ -167,6 +196,11 @@ export class PerplTradingSocket {
 
   get knownOrderIds(): ReadonlySet<number> {
     return this.#knownOrderIds;
+  }
+
+  /** Frames already received, oldest first, capped at HISTORY_LIMIT. */
+  get recentMessages(): readonly InboundMessage[] {
+    return this.#history;
   }
 
   /** Observe every inbound frame. Returns an unsubscribe function. */
@@ -461,6 +495,9 @@ export class PerplTradingSocket {
 
     if (this.#options.verbose === true) this.#logger.log(`<- ${data}`);
 
+    this.#history.push(message);
+    if (this.#history.length > HISTORY_LIMIT) this.#history.shift();
+
     this.#track(message);
     for (const listener of this.#listeners) listener(message);
   }
@@ -474,6 +511,8 @@ export class PerplTradingSocket {
         const account = accounts[0];
         this.#accountId ??= numberAt(account, 'id');
         this.#lastForwardedRequestId = numberAt(account, 'lfr') ?? this.#lastForwardedRequestId;
+        if (typeof account['fw'] === 'boolean') this.#forwardingAllowed = account['fw'];
+        if (typeof account['fr'] === 'boolean') this.#accountFrozen = account['fr'];
       }
       this.#lastSn = numberAt(message, 'sn') ?? this.#lastSn;
       return;
