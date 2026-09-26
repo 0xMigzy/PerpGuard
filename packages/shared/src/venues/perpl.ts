@@ -3,6 +3,7 @@ import type { NetworkConfig } from '../config.ts';
 import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
 import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
+import { assertForwardingAllowed } from './perpl-forwarding.ts';
 import {
   buildCancelFrame,
   buildLimitOrderFrame,
@@ -307,6 +308,16 @@ export class PerplVenue implements Venue {
     timeoutMs?: number | undefined;
   }): Promise<ActionResult> {
     const socket = await this.connectTrading();
+
+    // Pre-flight, before a frame is sent and before an `rq` is spent. An
+    // account with `fw` false is admitted for forwarding and only rejected
+    // later on `mt: 24` with sr 34, which tells the user nothing useful and
+    // costs a round trip they may not have. Every action reaches this path.
+    assertForwardingAllowed({
+      forwardingAllowed: socket.forwardingAllowed,
+      accountId: socket.accountId,
+      network: this.network.name,
+    });
 
     const base = {
       idempotencyKey: params.idempotencyKey,

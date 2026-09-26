@@ -36,6 +36,27 @@ warns before liquidation, and lets the user add margin or close in one tap.
   the account does not permit API-key-forwarded orders. Check `fw` from the
   account snapshot and say so before submitting rather than after.
   `sr 15` = ForwardingReverted — the on-chain forwarding transaction reverted.
+- The Exchange at `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` (testnet) is a
+  PROXY. The implementation is at `0xbcbd3701...adbb`. Index the proxy address,
+  but the ABI can change on upgrade — the saved ABI is a snapshot, not a
+  guarantee. See `apps/indexer/abis/README.md` for provenance.
+- `createAccount(uint256)` takes the OPENING DEPOSIT in AUSD micros, not an id.
+  Minimum 100000000 (100 AUSD), enforced on chain as
+  `InsufficentAmountToOpenAccount`. It pulls the collateral with `transferFrom`,
+  so it needs an ERC-20 approve to the Exchange first or it reverts.
+- Forwarding is NOT set at account creation. The account owner enables it with
+  a separate wallet transaction, `allowOrderForwarding(true)`. New accounts
+  have it OFF. An API key cannot do this — it needs the owner's wallet.
+- There is NO on-chain getter for the forwarding flag. Read `fw` from the API's
+  `mt: 21` account snapshot. The indexer can only track it by watching
+  `OrderForwardingUpdated(accountId, bool)` events and assuming false until one
+  appears.
+- `getAccountCreationInfo()` does not exist on this contract.
+- PRE-FLIGHT: before submitting any order or collateral action, check `fw` from
+  the `mt: 21` snapshot. When it is false, fail fast with a message naming
+  `allowOrderForwarding(true)` and the owner wallet — do not submit and eat an
+  `sr 34`. This lives in the executor path (`PerplVenue.#execute`) so every
+  action inherits it; never re-implement it per action.
 - Docs index: https://docs.perpl.xyz/llms.txt — append `.md` to any page URL.
   ALWAYS read the relevant doc page before writing Perpl integration code.
   Do not guess endpoints, field names or message types.

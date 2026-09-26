@@ -26,6 +26,7 @@ import {
   chooseAccountId,
   collectAccountIds,
   formatAusd,
+  forwardingBlockReason,
   loadNetworkConfig,
   loadPerplCredentials,
   maskApiKey,
@@ -299,12 +300,24 @@ async function main(): Promise<number> {
       return EXIT_CONFIG;
     }
     if (socket.forwardingAllowed === false) {
-      heading('Warning: forwarding is disabled on this account');
-      console.log('  The WalletSnapshot reports fw: false, so orders submitted through an API');
-      console.log('  key are expected to come back on mt 24 as sr 34 OrderForwardingNotAllowed.');
-      console.log('  Enable API forwarding for the account at testnet.perpl.xyz, then re-run.');
-      console.log('\n  Continuing anyway: a real rejection reported faithfully is a better');
-      console.log('  answer than a guess, and it exercises the same mt 3 -> mt 24 path.');
+      heading('Stopping: forwarding is disabled on this account');
+      console.error('  The WalletSnapshot reports fw: false. The executor refuses to submit,');
+      console.error('  so nothing was sent and no request id was spent.');
+      console.error(
+        `\n  ${forwardingBlockReason({
+          forwardingAllowed: false,
+          accountId: socket.accountId,
+          network: network.name,
+        })}`,
+      );
+      console.error(
+        '\n  Fix it from the wallet that OWNS the exchange account, not from this key:\n' +
+          `    Exchange ${network.exchangeAddress} on ${network.name}\n` +
+          '    allowOrderForwarding(true)\n' +
+          '  then re-run. There is no on-chain getter for the flag; `fw` on the next\n' +
+          '  mt 21 snapshot is how we will see it flip.',
+      );
+      return EXIT_CONFIG;
     }
 
     const markets = await venue.getMarkets();
