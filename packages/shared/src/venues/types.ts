@@ -45,6 +45,11 @@ export interface VenueMarket {
   readonly makerFeeMicros: number;
   readonly takerFeeMicros: number;
   readonly fundingIntervalSec: number;
+  /**
+   * How many blocks past the head an order may remain executable. Bounds the
+   * `lb` field on a submission; 20 on testnet BTC, i.e. seconds, not minutes.
+   */
+  readonly orderTtlBlocks: number;
   readonly isOpen: boolean;
 }
 
@@ -148,6 +153,39 @@ export interface ActionRequest {
   /** Required on every action: one in-flight action per position. */
   readonly idempotencyKey: string;
   readonly symbol: string;
+  /**
+   * Called when the venue admits the request for forwarding — Perpl's
+   * `mt: 3` / `code: 0`. Provided so a caller can show "submitted" without any
+   * promise ever resolving on it: the action promise resolves only on the real
+   * outcome. Anything shown here must not read as success.
+   */
+  readonly onForwarded?: (ack: ActionResult) => void;
+  /** Overrides the venue default for how long to wait for the outcome. */
+  readonly timeoutMs?: number;
+}
+
+/**
+ * A resting limit order.
+ *
+ * Not a product action in itself — PerpGuard never asks a user to place one —
+ * but it is the primitive the day-1 connectivity check exercises and the one
+ * reduce/close will submit, so it goes through the same executor and the same
+ * result tracking as everything else.
+ */
+export interface PlaceLimitOrderRequest extends ActionRequest {
+  readonly side: Side;
+  /** Human units; scaled to the market's ticks by the venue. */
+  readonly price: number;
+  /** Human units, e.g. 0.00001 BTC. */
+  readonly size: number;
+  readonly leverage: number;
+  /** Maker-only. The order is rejected rather than allowed to cross. */
+  readonly postOnly?: boolean;
+}
+
+export interface CancelOrderRequest extends ActionRequest {
+  /** The venue's order id, as returned in a previous ActionResult.venueRef. */
+  readonly venueOrderId: string;
 }
 
 export interface AddMarginRequest extends ActionRequest {
@@ -194,6 +232,18 @@ export interface Venue {
     symbols: readonly string[],
     onUpdate: (update: PriceUpdate) => void,
   ): Promise<Unsubscribe>;
+
+  /**
+   * Place a resting limit order and resolve on the venue's real outcome.
+   *
+   * Never resolves on an admission acknowledgement: on Perpl that is `mt: 3`,
+   * which means forwarded, not posted and not filled. Use `onForwarded` to
+   * observe that stage. A timeout throws ActionTimeoutError rather than
+   * resolving, because the outcome is then unknown rather than failed.
+   */
+  placeLimitOrder(request: PlaceLimitOrderRequest): Promise<ActionResult>;
+
+  cancelOrder(request: CancelOrderRequest): Promise<ActionResult>;
 
   addMargin(request: AddMarginRequest): Promise<ActionResult>;
   reducePosition(request: ReducePositionRequest): Promise<ActionResult>;

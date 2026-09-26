@@ -50,6 +50,12 @@ export const MarketSchema = z.looseObject({
   id: int,
   instance_id: int,
   perpetual_id: int,
+  /**
+   * Upper bound on how far past the head block an order's `lb` may reach.
+   * 20 on testnet BTC — about ten seconds of Monad blocks, so a resting test
+   * order expires on its own well before a human would notice.
+   */
+  order_ttl_blocks: int,
   /** Empty string on every market today — do not use it. */
   symbol: z.string(),
   /** Display name. Differs by network: 'BTC' on mainnet, 'BTC Perp' on testnet. */
@@ -78,6 +84,17 @@ export const ProtocolInstanceSchema = z.looseObject({
 export const ChainSchema = z.looseObject({
   chain_id: int,
   name: z.string(),
+  /**
+   * Gas stats, which also carry `h`, the head block. Optional because we only
+   * use it to seed `lb` before the first websocket heartbeat arrives, and a
+   * missing field must not break every read of the context.
+   */
+  gas: z
+    .looseObject({
+      h: int.optional(),
+      at: AtSchema.optional(),
+    })
+    .optional(),
 });
 
 export const ContextSchema = z.looseObject({

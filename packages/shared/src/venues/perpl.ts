@@ -1,14 +1,28 @@
 import { z } from 'zod';
 import type { NetworkConfig } from '../config.ts';
-import { NotImplementedError, VenueRequestError } from '../errors.ts';
+import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
 import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
+import {
+  buildCancelFrame,
+  buildLimitOrderFrame,
+  computeLastExecBlock,
+  matchPlacement,
+  scaleLimitOrder,
+  type OrderIntent,
+  type OrderRequestFrame,
+  type OrderUpdateEntry,
+} from './perpl-orders.ts';
+import type { ApiSecret } from './perpl-signing.ts';
+import { PerplTradingSocket, type Logger } from './perpl-trading-socket.ts';
 import type {
   ActionAvailability,
   ActionResult,
   AddMarginRequest,
   CancelAllRequest,
+  CancelOrderRequest,
   ClosePositionRequest,
+  PlaceLimitOrderRequest,
   PriceUpdate,
   ReducePositionRequest,
   Unsubscribe,
@@ -33,10 +47,29 @@ export interface PerplVenueOptions {
    * never do.
    */
   readonly readOnly?: boolean;
+  /**
+   * API-key credentials. Required for anything that submits: without them the
+   * venue can read markets and answer availability, and nothing else.
+   */
+  readonly credentials?: { readonly apiKey: string; readonly secret: ApiSecret };
+  /** Where the executor narrates submissions. Silent when absent. */
+  readonly logger?: Logger;
+  /** Dump every websocket frame. */
+  readonly verbose?: boolean;
   /** Injectable for tests. */
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
 }
+
+/**
+ * How many blocks of the market's TTL to give up as a safety margin.
+ *
+ * The head block we hold comes from the last heartbeat, so it is always at
+ * least slightly behind. Shortening `lb` errs toward an order that expires
+ * early, which is recoverable; overshooting `head + order_ttl_blocks` gets the
+ * frame rejected outright with "last exec block too high".
+ */
+const LAST_EXEC_BLOCK_SAFETY = 2;
 
 export class PerplVenue implements Venue {
   readonly id = VENUE_ID;
@@ -48,11 +81,15 @@ export class PerplVenue implements Venue {
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
 
+  readonly #options: PerplVenueOptions;
+
   #cached: { context: PerplContext; fetchedAtMs: number } | undefined;
   #inFlight: Promise<PerplContext> | undefined;
+  #socket: PerplTradingSocket | undefined;
 
   constructor(network: NetworkConfig, options: PerplVenueOptions = {}) {
     this.network = network;
+    this.#options = options;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#contextTtlMs = options.contextTtlMs ?? DEFAULT_CONTEXT_TTL_MS;
     this.#readOnly = options.readOnly ?? false;
@@ -209,6 +246,236 @@ export class PerplVenue implements Venue {
     return { symbol: token.symbol, decimals: token.decimals, address: token.address };
   }
 
+  /**
+   * The authenticated trading socket, connected on first use.
+   *
+   * Exposed because a caller sometimes needs the session state directly — the
+   * account id it discovered, or the head block — but every submission goes
+   * through #execute below rather than touching it.
+   */
+  async connectTrading(): Promise<PerplTradingSocket> {
+    if (this.#socket !== undefined) return this.#socket;
+
+    const credentials = this.#options.credentials;
+    if (credentials === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'no API credentials configured — this venue can read markets but cannot submit anything',
+      );
+    }
+    if (this.#readOnly) {
+      throw new VenueError(
+        VENUE_ID,
+        `this venue is connected to ${this.network.name} for analytics only and never submits`,
+      );
+    }
+
+    const socket = new PerplTradingSocket({
+      network: this.network,
+      apiKey: credentials.apiKey,
+      secret: credentials.secret,
+      ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
+      ...(this.#options.verbose === undefined ? {} : { verbose: this.#options.verbose }),
+    });
+    await socket.connect();
+    this.#socket = socket;
+    return socket;
+  }
+
+  /** Close the trading socket, if one was opened. */
+  disconnect(): void {
+    this.#socket?.close();
+    this.#socket = undefined;
+  }
+
+  /**
+   * The one path every state-changing action takes.
+   *
+   * Builds nothing itself — the caller supplies a frame from perpl-orders.ts —
+   * so week 3's addMargin (`t: 6`) and closePosition (`t: 3`/`4`) reuse this
+   * unchanged. It resolves only on the `mt: 24` outcome; the `mt: 3`
+   * acknowledgement goes to `onForwarded`, which cannot be mistaken for
+   * completion, and a timeout throws rather than resolving.
+   */
+  async #execute(params: {
+    frame: OrderRequestFrame;
+    intent: OrderIntent;
+    idempotencyKey: string;
+    symbol: string;
+    matches: (order: OrderUpdateEntry) => boolean;
+    onForwarded?: ((ack: ActionResult) => void) | undefined;
+    timeoutMs?: number | undefined;
+  }): Promise<ActionResult> {
+    const socket = await this.connectTrading();
+
+    const base = {
+      idempotencyKey: params.idempotencyKey,
+      venue: VENUE_ID,
+      network: this.network.name,
+      symbol: params.symbol,
+    } as const;
+
+    const result = await socket.submit({
+      frame: params.frame,
+      intent: params.intent,
+      idempotencyKey: params.idempotencyKey,
+      matches: params.matches,
+      ...(params.timeoutMs === undefined ? {} : { resultTimeoutMs: params.timeoutMs }),
+      onForwarded: () => {
+        params.onForwarded?.({
+          ...base,
+          // Forwarded is NOT success: accepted for forwarding, nothing more.
+          status: 'forwarded',
+          at: this.#now(),
+        });
+      },
+    });
+
+    const venueRef = result.orderId === undefined ? undefined : String(result.orderId);
+    if (result.outcome === 'confirmed') {
+      return {
+        ...base,
+        status: 'confirmed',
+        at: this.#now(),
+        ...(venueRef === undefined ? {} : { venueRef }),
+      };
+    }
+    return {
+      ...base,
+      status: 'rejected',
+      reason: result.reason,
+      at: this.#now(),
+      ...(venueRef === undefined ? {} : { venueRef }),
+    };
+  }
+
+  /** Throws unless this venue can act on `symbol` right now. */
+  async #requireActionable(symbol: string): Promise<VenueMarket> {
+    const availability = await this.getActionAvailability(symbol);
+    if (!availability.actionable) {
+      throw new VenueError(VENUE_ID, availability.reason);
+    }
+    const market = (await this.getMarkets()).find((m) => m.symbol === symbol);
+    if (market === undefined) {
+      throw new VenueError(VENUE_ID, `${symbol} is not listed on Perpl ${this.network.name}`);
+    }
+    return market;
+  }
+
+  /**
+   * The head block `lb` is computed from. Prefers the live heartbeat; falls
+   * back to the context's gas stats, which are a REST snapshot and therefore
+   * older — only ever making `lb` shorter, never over the TTL ceiling.
+   */
+  async #headBlock(socket: PerplTradingSocket): Promise<number> {
+    const live = socket.headBlock;
+    if (live !== undefined) return live;
+
+    const context = await this.getContext();
+    const seeded = context.chain.gas?.h;
+    if (seeded === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'no head block available from either the heartbeat or the context; ' +
+          'cannot compute a last execution block',
+      );
+    }
+    this.#options.logger?.warn(
+      `no heartbeat yet — seeding the head block from GET /v1/pub/context (${seeded}), ` +
+        `which is already a little stale`,
+    );
+    return seeded;
+  }
+
+  async placeLimitOrder(request: PlaceLimitOrderRequest): Promise<ActionResult> {
+    const market = await this.#requireActionable(request.symbol);
+    const socket = await this.connectTrading();
+
+    const accountId = socket.accountId;
+    if (accountId === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'no account id: the WalletSnapshot carried none, so this key has no on-chain account ' +
+          'on this network yet',
+      );
+    }
+
+    const scaled = scaleLimitOrder(market, {
+      side: request.side,
+      price: request.price,
+      size: request.size,
+      leverage: request.leverage,
+    });
+    const frame = buildLimitOrderFrame({
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      marketId: market.marketId,
+      accountId,
+      side: request.side,
+      priceScaled: scaled.priceScaled,
+      sizeScaled: scaled.sizeScaled,
+      leverageHundredths: scaled.leverageHundredths,
+      postOnly: request.postOnly ?? true,
+      lastExecBlock: computeLastExecBlock(
+        await this.#headBlock(socket),
+        market.orderTtlBlocks,
+        LAST_EXEC_BLOCK_SAFETY,
+      ),
+    });
+
+    return this.#execute({
+      frame,
+      intent: 'place',
+      idempotencyKey: request.idempotencyKey,
+      symbol: request.symbol,
+      matches: matchPlacement(frame, socket.knownOrderIds),
+      onForwarded: request.onForwarded,
+      timeoutMs: request.timeoutMs,
+    });
+  }
+
+  async cancelOrder(request: CancelOrderRequest): Promise<ActionResult> {
+    const market = await this.#requireActionable(request.symbol);
+    const socket = await this.connectTrading();
+
+    const accountId = socket.accountId;
+    if (accountId === undefined) {
+      throw new VenueError(VENUE_ID, 'no account id; cannot cancel');
+    }
+
+    const orderId = Number(request.venueOrderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      throw new VenueError(
+        VENUE_ID,
+        `venueOrderId must be a positive integer order id, got ${JSON.stringify(request.venueOrderId)}`,
+      );
+    }
+
+    const frame = buildCancelFrame({
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      marketId: market.marketId,
+      accountId,
+      orderId,
+      lastExecBlock: computeLastExecBlock(
+        await this.#headBlock(socket),
+        market.orderTtlBlocks,
+        LAST_EXEC_BLOCK_SAFETY,
+      ),
+    });
+
+    return this.#execute({
+      frame,
+      intent: 'cancel',
+      idempotencyKey: request.idempotencyKey,
+      symbol: request.symbol,
+      // A cancel is unambiguous: the update we want is for that order id.
+      matches: (order) => order['id'] === orderId,
+      onForwarded: request.onForwarded,
+      timeoutMs: request.timeoutMs,
+    });
+  }
+
   // Not implemented yet. These reject rather than resolving to a neutral value,
   // so no caller can mistake an unbuilt path for a successful action.
 
@@ -262,6 +529,7 @@ export function toVenueMarket(market: PerplMarket, network: VenueMarket['network
     makerFeeMicros: config.maker_fee,
     takerFeeMicros: config.taker_fee,
     fundingIntervalSec: market.funding_interval_sec,
+    orderTtlBlocks: market.order_ttl_blocks,
     isOpen: config.is_open,
   };
 }

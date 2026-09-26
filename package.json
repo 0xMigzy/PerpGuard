@@ -3,15 +3,17 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=23.6"
+    "node": ">=22.9"
   },
   "scripts": {
-    "typecheck": "pnpm -r --no-bail typecheck",
+    "typecheck": "pnpm -r --no-bail typecheck && tsc --noEmit -p tsconfig.json",
     "test": "node --test \"packages/*/src/**/*.test.ts\"",
-    "markets": "node apps/backend/src/scripts/print-markets.ts"
+    "markets": "node apps/backend/src/scripts/print-markets.ts",
+    "order:test": "node --env-file-if-exists=.env scripts/placeTestOrder.ts"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@perpguard/shared": "workspace:*",
+    "@types/node": "~24.13.6",
     "typescript": "^5.9.0"
   }
 }

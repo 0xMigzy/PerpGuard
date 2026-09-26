@@ -91,6 +91,7 @@ describe('toVenueMarket', () => {
       makerFeeMicros: 45,
       takerFeeMicros: 345,
       fundingIntervalSec: 2580,
+      orderTtlBlocks: 20,
       isOpen: true,
     });
   });
