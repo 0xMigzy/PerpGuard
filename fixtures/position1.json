@@ -1,0 +1,49 @@
+{
+  "_source": "Perpl app, position panel screenshot, 2026-09-26",
+  "_note": "Ground-truth fixture. The risk engine must reproduce liqPrice and uPnl exactly.",
+
+  "position": {
+    "market": "BTC",
+    "side": "long",
+    "size": 0.5,
+    "entryPrice": 84029.5,
+    "markPrice": 84007.3,
+    "margin": 2810.33,
+    "marginMode": "isolated",
+    "leverage": 15,
+    "fundingAccrued": 0
+  },
+
+  "expected": {
+    "notionalAtMark": 42003.65,
+    "unrealizedPnl": -11.10,
+    "pnlPctOfMargin": -0.0039,
+    "liqPrice": 81770,
+    "liqBufferPct": 0.0268,
+    "maintenanceMargin": 1680.59,
+    "maintenanceMarginRatio": 0.04
+  },
+
+  "formulas": {
+    "notional": "size * markPrice",
+    "unrealizedPnl": "sideSign * size * (markPrice - entryPrice)",
+    "maintenanceMargin": "mmr * size * entryPrice   // NOTE: entry notional, not mark notional",
+    "liqPriceLong": "entryPrice - (margin - maintenanceMargin) / size",
+    "liqPriceShort": "entryPrice + (margin - maintenanceMargin) / size",
+    "liqBufferPct": "abs(markPrice - liqPrice) / markPrice"
+  },
+
+  "tolerances": {
+    "liqPrice": 1.0,
+    "unrealizedPnl": 0.01,
+    "liqBufferPct": 0.0005,
+    "_comment": "liqBufferPct tolerance is loose because the two screenshots were taken seconds apart and mark moved between them."
+  },
+
+  "openQuestions": [
+    "mmr = 0.04 is derived from this single BTC position at 15x. Confirm whether it is per-market and whether it steps with leverage tier.",
+    "Check whether GET /v1/pub/context exposes the maintenance margin ratio per market. If it does, read it from there and never hard-code 0.04.",
+    "Posted margin (2810.33) exceeds notional/leverage (2800.98) by ~9.35, about 2.2bps of notional - likely an opening fee reserve. Never assume margin = notional / leverage; always use the actual margin field.",
+    "Confirm the liqBuffer denominator is markPrice rather than entryPrice by capturing a second position where mark and entry differ more."
+  ]
+}
