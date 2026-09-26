@@ -1,0 +1,158 @@
+import type { NetworkConfig, NetworkName } from '../config.ts';
+
+/**
+ * The venue abstraction. Everything downstream — risk engine, bot, web — talks
+ * to this interface and never to a venue's API directly. Venue-specific code
+ * lives only in this directory.
+ */
+
+export type VenueId = 'perpl';
+
+export type Side = 'long' | 'short';
+
+/** +1 for a long, -1 for a short. Used by the risk maths. */
+export function sideSign(side: Side): 1 | -1 {
+  return side === 'long' ? 1 : -1;
+}
+
+export interface VenueMarket {
+  readonly venue: VenueId;
+  readonly network: NetworkName;
+  /**
+   * The venue's own market id. Differs per network for the same asset — BTC is
+   * 1 on mainnet and 16 on testnet — so it is never hard-coded anywhere.
+   */
+  readonly marketId: number;
+  readonly instanceId: number;
+  /**
+   * Canonical asset ticker, e.g. 'BTC'. Stable across networks, and the key to
+   * match a mainnet market to its testnet counterpart. Taken from
+   * `size_units`, because `symbol` comes back empty and `name` differs by
+   * network ('BTC' vs 'BTC Perp').
+   */
+  readonly symbol: string;
+  /** The venue's display name, for UI only. Never match on this. */
+  readonly displayName: string;
+  /** Decimal places for prices on this market, per network. */
+  readonly priceDecimals: number;
+  /** Decimal places for sizes. 0 on some markets, i.e. integer sizes only. */
+  readonly sizeDecimals: number;
+  /** Derived from config.initial_margin. See maxLeverageFromConfig. */
+  readonly maxLeverage: number;
+  /** Derived from config.maintenance_margin. Fraction of notional. */
+  readonly maintenanceMarginRatio: number;
+  readonly makerFeeBps: number;
+  readonly takerFeeBps: number;
+  readonly fundingIntervalSec: number;
+  readonly isOpen: boolean;
+}
+
+export interface VenuePosition {
+  readonly venue: VenueId;
+  readonly network: NetworkName;
+  readonly symbol: string;
+  readonly marketId: number;
+  readonly side: Side;
+  /** Absolute position size in base units. */
+  readonly size: number;
+  readonly entryPrice: number;
+  readonly markPrice: number;
+  /**
+   * Collateral posted to THIS position, in AUSD. Perpl is isolated margin:
+   * free account balance is never pulled in to rescue it. Always the venue's
+   * reported figure — never notional / leverage, which understates it.
+   */
+  readonly margin: number;
+  readonly marginMode: 'isolated';
+  readonly leverage: number;
+  readonly fundingAccrued: number;
+}
+
+/** One price tick for a market. Prices are already descaled to human numbers. */
+export interface PriceUpdate {
+  readonly venue: VenueId;
+  readonly network: NetworkName;
+  readonly symbol: string;
+  readonly marketId: number;
+  readonly markPrice: number;
+  readonly oraclePrice: number;
+  readonly midPrice: number;
+  readonly bid: number;
+  readonly ask: number;
+  readonly atBlock: number;
+  /** Venue timestamp for the data itself. */
+  readonly atMs: number;
+  /** When we received it. Both feed the STALE_MS check. */
+  readonly receivedAtMs: number;
+}
+
+export type Unsubscribe = () => void;
+
+/**
+ * Outcome of a state-changing request.
+ *
+ * `forwarded` is NOT success. Perpl answers a submission with `mt: 3` /
+ * `code: 0`, which means accepted for forwarding only — not posted, not
+ * filled. The real outcome arrives later on `mt: 24`, and only that produces
+ * `confirmed` or `rejected`. Never report success to a user on `forwarded`.
+ */
+export type ActionStatus = 'forwarded' | 'confirmed' | 'rejected';
+
+export interface ActionResult {
+  readonly status: ActionStatus;
+  /** Caller-supplied idempotency key, also the action_log row key. */
+  readonly idempotencyKey: string;
+  readonly venue: VenueId;
+  readonly network: NetworkName;
+  readonly symbol: string;
+  /** Venue order/request id once known. */
+  readonly venueRef?: string;
+  /** Present when status is 'rejected'. */
+  readonly reason?: string;
+  readonly at: number;
+}
+
+export interface ActionRequest {
+  /** Required on every action: one in-flight action per position. */
+  readonly idempotencyKey: string;
+  readonly symbol: string;
+}
+
+export interface AddMarginRequest extends ActionRequest {
+  /** AUSD to add to this position's isolated margin. */
+  readonly amount: number;
+}
+
+export interface ReducePositionRequest extends ActionRequest {
+  /** Base units to close. */
+  readonly size: number;
+}
+
+export type ClosePositionRequest = ActionRequest;
+
+/** Cancels every open order, optionally limited to one market. */
+export interface CancelAllRequest {
+  readonly idempotencyKey: string;
+  readonly symbol?: string;
+}
+
+export interface Venue {
+  readonly id: VenueId;
+  readonly network: NetworkConfig;
+
+  /** All markets, with their per-network ids and scaling. */
+  getMarkets(): Promise<VenueMarket[]>;
+
+  getPositions(address: string): Promise<VenuePosition[]>;
+
+  /** @param symbols canonical tickers, e.g. ['BTC', 'ETH']. */
+  subscribePrices(
+    symbols: readonly string[],
+    onUpdate: (update: PriceUpdate) => void,
+  ): Promise<Unsubscribe>;
+
+  addMargin(request: AddMarginRequest): Promise<ActionResult>;
+  reducePosition(request: ReducePositionRequest): Promise<ActionResult>;
+  closePosition(request: ClosePositionRequest): Promise<ActionResult>;
+  cancelAll(request: CancelAllRequest): Promise<ActionResult>;
+}

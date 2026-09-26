@@ -1,0 +1,834 @@
+{
+  "_source": "GET /v1/pub/context, mainnet, captured 2026-09-26",
+  "_note": "Verbatim capture, used by offline tests. Market ids, names and scaling differ between networks - that is the point.",
+  "chain": {
+    "ver": 264,
+    "chain_id": 143,
+    "name": "Monad",
+    "block_explorer_urls": [
+      "https://monadscan.com/"
+    ],
+    "gas": {
+      "at": {
+        "b": 108065182,
+        "t": 1790391297000
+      },
+      "h": 108065182,
+      "max": "220000000000",
+      "p95": "220000000000",
+      "p50": "103000000000",
+      "min": "0",
+      "base": "100000000000"
+    }
+  },
+  "instances": [
+    {
+      "ver": 264,
+      "id": 1,
+      "address": "0x34b6552d57a35a1d042ccae1951bd1c370112a6f",
+      "collateral_token_id": 1,
+      "min_account_open_amount": "10000000",
+      "min_deposit_amount": "10000000",
+      "min_withdraw_amount": "10000",
+      "max_account_equity": "1000000000000",
+      "max_account_trigger_orders": 16
+    }
+  ],
+  "tokens": [
+    {
+      "ver": 264,
+      "id": 1,
+      "address": "0x00000000efe302beaa2b3e6e1b18d08d69a9012a",
+      "symbol": "AUSD",
+      "name": "AUSD",
+      "decimals": 6,
+      "display_precision": 2,
+      "usd_index": "<index_name>"
+    }
+  ],
+  "markets": [
+    {
+      "ver": 264,
+      "id": 1,
+      "instance_id": 1,
+      "perpetual_id": 1,
+      "symbol": "",
+      "name": "BTC",
+      "size_units": "BTC",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 1,
+        "size_decimals": 5,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 0,
+        "initial_margin": 1500,
+        "maintenance_margin": 2500,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065166,
+          "t": 1790391292000
+        },
+        "orl": 840146,
+        "mrk": 839877,
+        "lst": 839862,
+        "mid": 839862,
+        "bid": 839862,
+        "ask": 839863,
+        "prv": 842156,
+        "dv": 5748313,
+        "dva": "4831947009261",
+        "oi": 837897,
+        "tvl": "260512556006"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 0,
+        "idx": 840204,
+        "ppl": 0,
+        "sum": -36526,
+        "div": 1
+      }
+    },
+    {
+      "ver": 264,
+      "id": 10,
+      "instance_id": 1,
+      "perpetual_id": 10,
+      "symbol": "",
+      "name": "MON",
+      "size_units": "MON",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 6,
+        "size_decimals": 0,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 2,
+        "initial_margin": 1000,
+        "maintenance_margin": 2000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065170,
+          "t": 1790391293000
+        },
+        "orl": 26272,
+        "mrk": 26278,
+        "lst": 26277,
+        "mid": 26303,
+        "bid": 26276,
+        "ask": 26331,
+        "prv": 24982,
+        "dv": 54419106,
+        "dva": "1398275077143",
+        "oi": 6598227,
+        "tvl": "108449100803"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 40,
+        "idx": 26367,
+        "ppl": 105,
+        "sum": 80879,
+        "div": 100
+      }
+    },
+    {
+      "ver": 264,
+      "id": 20,
+      "instance_id": 1,
+      "perpetual_id": 20,
+      "symbol": "ETH",
+      "name": "ETH",
+      "size_units": "ETH",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 2,
+        "size_decimals": 3,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 0,
+        "initial_margin": 1200,
+        "maintenance_margin": 2000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065172,
+          "t": 1790391294000
+        },
+        "orl": 269041,
+        "mrk": 269031,
+        "lst": 269101,
+        "mid": 269087,
+        "bid": 269086,
+        "ask": 269088,
+        "prv": 267613,
+        "dv": 734103,
+        "dva": "1978695784020",
+        "oi": 122531,
+        "tvl": "151458713139"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 10,
+        "idx": 269226,
+        "ppl": 2,
+        "sum": 1574,
+        "div": 1
+      }
+    },
+    {
+      "ver": 264,
+      "id": 31,
+      "instance_id": 1,
+      "perpetual_id": 31,
+      "symbol": "SOL",
+      "name": "SOL",
+      "size_units": "SOL",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 3,
+        "size_decimals": 3,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 2,
+        "initial_margin": 1200,
+        "maintenance_margin": 2000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065178,
+          "t": 1790391296000
+        },
+        "orl": 121584,
+        "mrk": 121602,
+        "lst": 121628,
+        "mid": 121643,
+        "bid": 121609,
+        "ask": 121678,
+        "prv": 116759,
+        "dv": 18601537,
+        "dva": "2231203706032",
+        "oi": 1886840,
+        "tvl": "113110822331"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 0,
+        "idx": 121754,
+        "ppl": 0,
+        "sum": -24300,
+        "div": 100
+      }
+    },
+    {
+      "ver": 264,
+      "id": 40,
+      "instance_id": 1,
+      "perpetual_id": 40,
+      "symbol": "HYPE",
+      "name": "HYPE",
+      "size_units": "HYPE",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 4,
+        "size_decimals": 2,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 1,
+        "initial_margin": 1000,
+        "maintenance_margin": 2000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065171,
+          "t": 1790391294000
+        },
+        "orl": 922623,
+        "mrk": 922373,
+        "lst": 923694,
+        "mid": 922706,
+        "bid": 922010,
+        "ask": 923402,
+        "prv": 910000,
+        "dv": 87438,
+        "dva": "80493076963",
+        "oi": 45459,
+        "tvl": "15022521011"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 0,
+        "idx": 922762,
+        "ppl": 0,
+        "sum": 186427,
+        "div": 10
+      }
+    },
+    {
+      "ver": 264,
+      "id": 50,
+      "instance_id": 1,
+      "perpetual_id": 50,
+      "symbol": "ZEC",
+      "name": "ZEC",
+      "size_units": "ZEC",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 2,
+        "size_decimals": 4,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 2,
+        "initial_margin": 1000,
+        "maintenance_margin": 1800,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065165,
+          "t": 1790391292000
+        },
+        "orl": 153644,
+        "mrk": 153497,
+        "lst": 153152,
+        "mid": 153391,
+        "bid": 153167,
+        "ask": 153616,
+        "prv": 153510,
+        "dv": 184794,
+        "dva": "28944760969",
+        "oi": 514429,
+        "tvl": "34651105072"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": -40,
+        "idx": 153897,
+        "ppl": -615,
+        "sum": 180423,
+        "div": 100
+      }
+    },
+    {
+      "ver": 264,
+      "id": 60,
+      "instance_id": 1,
+      "perpetual_id": 60,
+      "symbol": "LIT",
+      "name": "LIT",
+      "size_units": "LIT",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 5,
+        "size_decimals": 1,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 1,
+        "initial_margin": 300,
+        "maintenance_margin": 1000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065181,
+          "t": 1790391297000
+        },
+        "orl": 485623,
+        "mrk": 485349,
+        "lst": 484676,
+        "mid": 485686,
+        "bid": 485330,
+        "ask": 486042,
+        "prv": 492069,
+        "dv": 650367,
+        "dva": "315247237861",
+        "oi": 57477,
+        "tvl": "19336669291"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 0,
+        "idx": 485468,
+        "ppl": 0,
+        "sum": -41434,
+        "div": 10
+      }
+    },
+    {
+      "ver": 264,
+      "id": 70,
+      "instance_id": 1,
+      "perpetual_id": 70,
+      "symbol": "VVV",
+      "name": "VVV",
+      "size_units": "VVV",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 4,
+        "size_decimals": 2,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 2,
+        "initial_margin": 300,
+        "maintenance_margin": 1000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065181,
+          "t": 1790391297000
+        },
+        "orl": 303089,
+        "mrk": 302891,
+        "lst": 303567,
+        "mid": 302888,
+        "bid": 302560,
+        "ask": 303216,
+        "prv": 305312,
+        "dv": 714236,
+        "dva": "223100652463",
+        "oi": 16100,
+        "tvl": "3700072327"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": 0,
+        "idx": 303607,
+        "ppl": 0,
+        "sum": 21832,
+        "div": 100
+      }
+    },
+    {
+      "ver": 264,
+      "id": 90,
+      "instance_id": 1,
+      "perpetual_id": 90,
+      "symbol": "PUMP",
+      "name": "PUMP",
+      "size_units": "PUMP",
+      "icon": "",
+      "funding_interval_sec": 2580,
+      "funding_interval_blocks": 8571,
+      "order_ttl_blocks": 20,
+      "order_retry_blocks": 22,
+      "order_max_market_slippage_bps": 100,
+      "order_max_neg_pnl_collat_bps": 300,
+      "config": {
+        "at": {
+          "b": 107895844,
+          "t": 1790340158000
+        },
+        "is_open": true,
+        "price_decimals": 6,
+        "size_decimals": 0,
+        "min_posting_amount": "0",
+        "min_settle_amount": "0",
+        "funding_sum_scaling_exp": 2,
+        "initial_margin": 500,
+        "maintenance_margin": 1000,
+        "maker_fee": 45,
+        "taker_fee": 345,
+        "maker_fees": [
+          45,
+          25,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "taker_fees": [
+          345,
+          300,
+          250,
+          210,
+          175,
+          150,
+          125,
+          0
+        ],
+        "recycle_fee": "0",
+        "contract_version": [
+          1,
+          7,
+          5
+        ]
+      },
+      "state": {
+        "at": {
+          "b": 108065181,
+          "t": 1790391297000
+        },
+        "orl": 4339,
+        "mrk": 4339,
+        "lst": 4336,
+        "mid": 4335,
+        "bid": 4329,
+        "ask": 4341,
+        "prv": 3852,
+        "dv": 71481528,
+        "dva": "297963675739",
+        "oi": 7764505,
+        "tvl": "16398053381"
+      },
+      "funding": {
+        "at": {
+          "b": 108063168,
+          "t": 1790390689000
+        },
+        "feb": 108063168,
+        "rate": -40,
+        "idx": 4335,
+        "ppl": -17,
+        "sum": 1977,
+        "div": 100
+      }
+    }
+  ]
+}
