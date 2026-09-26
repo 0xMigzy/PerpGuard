@@ -24,6 +24,18 @@ warns before liquidation, and lets the user add margin or close in one tap.
   and not filled. The real outcome arrives later on `mt: 24`.
   NEVER report success to a user before `mt: 24`.
 - API keys can never withdraw or transfer funds out; those need a wallet signature.
+- Orders self-expire fast. `order_ttl_blocks` is a per-market field on
+  `GET /v1/pub/context`; it is 20 (~10s) on testnet BTC, and currently 20 on
+  every market in both context fixtures. An order's last block `lb` may be no
+  more than `head_block + market.order_ttl_blocks`. Read it per market, never
+  hard-code it. Resting-order logic must treat expiry as normal: a resting
+  order is gone within seconds unless re-posted, so never assume an order we
+  placed is still live, and re-check before cancelling or amending.
+- Order rejection reasons (`sr`) worth handling by name:
+  `sr 34` = OrderForwardingNotAllowed — the account's `fw` flag is false, so
+  the account does not permit API-key-forwarded orders. Check `fw` from the
+  account snapshot and say so before submitting rather than after.
+  `sr 15` = ForwardingReverted — the on-chain forwarding transaction reverted.
 - Docs index: https://docs.perpl.xyz/llms.txt — append `.md` to any page URL.
   ALWAYS read the relevant doc page before writing Perpl integration code.
   Do not guess endpoints, field names or message types.
