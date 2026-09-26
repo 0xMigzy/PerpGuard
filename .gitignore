@@ -4,3 +4,4 @@ dist/
 .DS_Store
 generated/
 *.tsbuildinfo
+scripts/.tmp-*
