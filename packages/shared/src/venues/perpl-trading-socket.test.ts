@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { loadNetworkConfig } from '../config.ts';
 import { ActionTimeoutError, VenueAuthError } from '../errors.ts';
-import { matchPlacement } from './perpl-orders.ts';
+import { matchPlacement, orderIdOf, reconcileOrderState } from './perpl-orders.ts';
 import { ApiSecret, wsSignInCanonical } from './perpl-signing.ts';
 import { PerplTradingSocket } from './perpl-trading-socket.ts';
 
@@ -186,7 +186,7 @@ describe('submit', () => {
     await new Promise((r) => setTimeout(r, 5));
     assert.equal(settled, false, 'must not resolve on mt 3');
 
-    fake.deliver({ mt: 24, at: { b: 1, t: 2 }, d: [{ id: 777, st: 2, sr: 0, r: false }] });
+    fake.deliver({ mt: 24, at: { b: 1, t: 2 }, d: [{ oid: 777, st: 2, sr: 0, r: false }] });
     const result = await submitted;
     assert.equal(result.outcome, 'confirmed');
     assert.equal(result.orderId, 777);
@@ -234,8 +234,8 @@ describe('submit', () => {
     fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
     await new Promise((r) => setTimeout(r, 5));
 
-    fake.deliver({ mt: 24, d: [{ id: 778, st: 1, sr: 0, r: false }] });
-    fake.deliver({ mt: 24, d: [{ id: 778, st: 4, sr: 43, r: true }] });
+    fake.deliver({ mt: 24, d: [{ oid: 778, st: 1, sr: 0, r: false }] });
+    fake.deliver({ mt: 24, d: [{ oid: 778, st: 4, sr: 43, r: true }] });
 
     const result = await submitted;
     assert.equal(result.outcome, 'confirmed');
@@ -245,7 +245,7 @@ describe('submit', () => {
   it('does not claim someone else’s order', async () => {
     const { socket, fake } = await connected();
     // An order already open at sign-in must never be mistaken for ours.
-    fake.deliver({ mt: 23, d: [{ id: 555, st: 2 }] });
+    fake.deliver({ mt: 23, d: [{ oid: 555, st: 2 }] });
     const frame = placeFrame(socket);
     const submitted = socket.submit({
       frame,
@@ -258,8 +258,8 @@ describe('submit', () => {
     fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
     await new Promise((r) => setTimeout(r, 5));
 
-    fake.deliver({ mt: 24, d: [{ id: 555, st: 5, sr: 28, r: true }] });
-    fake.deliver({ mt: 24, d: [{ id: 999, st: 2, mkt: 99, r: false }] });
+    fake.deliver({ mt: 24, d: [{ oid: 555, st: 5, sr: 28, r: true }] });
+    fake.deliver({ mt: 24, d: [{ oid: 999, st: 2, mkt: 99, r: false }] });
 
     await assert.rejects(submitted, ActionTimeoutError);
   });
@@ -334,5 +334,151 @@ describe('session tracking', () => {
 
     fake.deliver({ mt: 100, sn: 103, h: 65_740_997 });
     assert.equal(socket.sequenceGapDetected, true, 'a skipped sn means lost messages');
+  });
+});
+
+describe('lastOrderState', () => {
+  it('knows nothing about an order it never heard of', async () => {
+    const { socket } = await connected();
+    assert.equal(socket.lastOrderState(4312150769680), undefined);
+  });
+
+  it('records the sign-in snapshot, marked as coming from one', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 23, d: [{ oid: 4312150769680, st: 2, sr: 0 }] });
+    assert.deepEqual(socket.lastOrderState(4312150769680), {
+      orderId: 4312150769680,
+      st: 2,
+      sr: 0,
+      source: 'snapshot',
+    });
+  });
+
+  it('keeps the latest update, which is how a TTL expiry is found later', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, st: 2, sr: 0, r: false }] });
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, st: 6, sr: 14, r: true }] });
+
+    const last = socket.lastOrderState(4312150769680);
+    assert.equal(last?.st, 6, 'Expired');
+    assert.equal(last?.sr, 14, 'ExceedsLastExecutionBlock');
+    assert.equal(last?.source, 'update');
+  });
+
+  it('never lets a late snapshot overwrite what a live update said', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 24, d: [{ oid: 777, st: 5, sr: 28, r: true }] });
+    fake.deliver({ mt: 23, d: [{ oid: 777, st: 2, sr: 0 }] });
+    assert.equal(socket.lastOrderState(777)?.st, 5, 'the update still wins');
+  });
+
+  it('records orders that were never ours, so any id can be reconciled', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 24, d: [{ oid: 999, st: 2, mkt: 99, r: false }] });
+    assert.equal(socket.lastOrderState(999)?.st, 2);
+  });
+});
+
+describe('cancel', () => {
+  /** What PerplVenue.cancelOrder pairs with a cancel frame: match on `oid`. */
+  const cancelMatches = (orderId: number) => (order: Record<string, unknown>) =>
+    orderIdOf(order) === orderId;
+
+  function cancelFrame(socket: PerplTradingSocket, orderId: number) {
+    return {
+      mt: 22 as const,
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      mkt: 16,
+      acc: 9001,
+      oid: orderId,
+      t: 5 as const,
+      s: 0,
+      fl: 0 as const,
+      lv: 0,
+      lb: 65_741_015,
+    };
+  }
+
+  it('confirms on the Canceled update for that oid', async () => {
+    const { socket, fake } = await connected();
+    const frame = cancelFrame(socket, 4312150769680);
+    const submitted = socket.submit({
+      frame,
+      intent: 'cancel',
+      idempotencyKey: 'cancel-1',
+      matches: cancelMatches(4312150769680),
+      ackTimeoutMs: 500,
+      resultTimeoutMs: 500,
+    });
+    fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
+    await new Promise((r) => setTimeout(r, 5));
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, scid: 65, st: 5, sr: 28, r: true }] });
+
+    const result = await submitted;
+    assert.equal(result.outcome, 'confirmed');
+    assert.equal(result.orderId, 4312150769680);
+  });
+
+  it('would never confirm if the outcome were matched on `id` — the real bug', async () => {
+    const { socket, fake } = await connected();
+    const frame = cancelFrame(socket, 4312150769680);
+    const submitted = socket.submit({
+      frame,
+      intent: 'cancel',
+      idempotencyKey: 'cancel-2',
+      // The old matcher. The wire sends no `id`, so this matches nothing and
+      // the wait runs to its timeout even though the answer did arrive.
+      matches: (order) => order['id'] === 4312150769680,
+      ackTimeoutMs: 500,
+      resultTimeoutMs: 40,
+    });
+    fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
+    await new Promise((r) => setTimeout(r, 5));
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, scid: 65, st: 5, sr: 28, r: true }] });
+
+    await assert.rejects(submitted, ActionTimeoutError);
+  });
+
+  it('leaves the expiry behind for reconciliation when the cancel times out', async () => {
+    const { socket, fake } = await connected();
+    const frame = cancelFrame(socket, 4312150769680);
+    const submitted = socket.submit({
+      frame,
+      intent: 'cancel',
+      idempotencyKey: 'cancel-3',
+      // Nothing will ever match: the order expired before the cancel landed,
+      // which is the run recorded in docs/evidence.md.
+      matches: () => false,
+      ackTimeoutMs: 500,
+      resultTimeoutMs: 40,
+    });
+    fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
+    await new Promise((r) => setTimeout(r, 5));
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, st: 6, sr: 14, r: true }] });
+
+    await assert.rejects(submitted, ActionTimeoutError);
+    // The timeout is not the end of the story: the expiry is still on record.
+    assert.equal(reconcileOrderState(socket.lastOrderState(4312150769680)).state, 'gone');
+  });
+
+  it('reports a cancel of an order that is gone as rejected, not confirmed', async () => {
+    const { socket, fake } = await connected();
+    const frame = cancelFrame(socket, 4312150769680);
+    const submitted = socket.submit({
+      frame,
+      intent: 'cancel',
+      idempotencyKey: 'cancel-4',
+      matches: cancelMatches(4312150769680),
+      ackTimeoutMs: 500,
+      resultTimeoutMs: 500,
+    });
+    fake.deliver({ mt: 3, sid: 100, cid: frame.sn, status: { code: 0, error: '' } });
+    await new Promise((r) => setTimeout(r, 5));
+    fake.deliver({ mt: 24, d: [{ oid: 4312150769680, st: 6, sr: 14, r: true }] });
+
+    const result = await submitted;
+    assert.equal(result.outcome, 'rejected');
+    assert.match(result.reason, /last execution block before the cancel landed/);
   });
 });

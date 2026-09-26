@@ -31,9 +31,11 @@ import {
   loadPerplCredentials,
   maskApiKey,
   priceFromRaw,
+  reconcileOrderState,
   scalePriceAwayFromMarket,
   type AccountIdCandidate,
   type ActionResult,
+  type PerplTradingSocket,
   type Side,
   type Venue,
   type VenueMarket,
@@ -165,9 +167,32 @@ async function discoverAccountId(venue: PerplVenue): Promise<number> {
   return chosen;
 }
 
+/**
+ * How much of the order's TTL window is left, in blocks.
+ *
+ * Approximate on purpose: it is measured from the head block we held just
+ * before submitting, and the `lb` actually sent is a couple of blocks shorter
+ * than the full TTL. Printed as context, never used to decide anything — the
+ * authoritative signal is the order's own status.
+ */
+function ttlBlocksLeft(
+  headNow: number | undefined,
+  headAtPlacement: number | undefined,
+  market: VenueMarket,
+): number | undefined {
+  if (headNow === undefined || headAtPlacement === undefined) return undefined;
+  return headAtPlacement + market.orderTtlBlocks - headNow;
+}
+
 /** Place the order, follow it to mt 24, then cancel it and follow that too. */
 async function placeAndCancel(
   venue: Venue,
+  /**
+   * The live session, for READING only: the order's last known status and the
+   * head block. Every submission below still goes through the Venue interface,
+   * which is the whole point of this script.
+   */
+  session: PerplTradingSocket,
   market: VenueMarket,
   params: { side: Side; price: number; size: number; leverage: number; timeoutMs: number },
 ): Promise<number> {
@@ -179,6 +204,10 @@ async function placeAndCancel(
       `@ ${params.price.toFixed(market.priceDecimals)} ` +
       `(${params.leverage}x, PostOnly, market ${market.marketId})`,
   );
+
+  // Read before submitting: the TTL clock starts from the block the order is
+  // sent at, not from the block its outcome arrives at.
+  const headAtPlacement = session.headBlock;
 
   let placed: ActionResult;
   try {
@@ -197,7 +226,7 @@ async function placeAndCancel(
       },
     });
   } catch (error) {
-    return reportUnknown(error, 'the order');
+    return reportPlacementUnknown(error);
   }
 
   console.log(`  mt 24  ${describeResult(placed)}`);
@@ -210,8 +239,34 @@ async function placeAndCancel(
     return EXIT_REJECTED;
   }
 
+  const orderId = Number(placed.venueRef);
+
   heading('2/2  Cancel');
-  console.log(`  cancelling order ${placed.venueRef}`);
+
+  const blocksLeft = ttlBlocksLeft(session.headBlock, headAtPlacement, market);
+  if (blocksLeft !== undefined) {
+    console.log(
+      `  ttl window       ~${blocksLeft} of ${market.orderTtlBlocks} blocks left before the ` +
+        `order expires on its own`,
+    );
+  }
+
+  // Never assume an order we placed is still live. It self-expires at its last
+  // execution block within seconds, and cancelling something already gone can
+  // produce no mt 24 at all — a 30s wait for an answer that will never come.
+  const before = reconcileOrderState(session.lastOrderState(orderId));
+  console.log(`  order ${orderId}  ${before.reason}`);
+
+  if (before.state === 'gone') {
+    console.log(
+      '\n  The order is already gone, so no cancel was sent and no request id was spent.',
+    );
+    console.log('  An order expiring on its TTL is normal, not a failure — but note that this');
+    console.log('  run did NOT exercise the cancel path. Re-run to try again.');
+    return EXIT_OK;
+  }
+
+  console.log(`  cancelling order ${orderId}`);
 
   let cancelled: ActionResult;
   try {
@@ -225,13 +280,13 @@ async function placeAndCancel(
       },
     });
   } catch (error) {
-    return reportUnknown(error, `the cancel of order ${placed.venueRef}`);
+    return reportCancelTimeout(error, session, orderId);
   }
 
   console.log(`  mt 24  ${describeResult(cancelled)}`);
   if (cancelled.status !== 'confirmed') {
     console.log(
-      `\nThe order is no longer cancellable. Check order ${placed.venueRef} on ` +
+      `\nThe order is no longer cancellable. Check order ${orderId} on ` +
         `testnet.perpl.xyz before assuming it is gone.`,
     );
     return EXIT_REJECTED;
@@ -242,13 +297,48 @@ async function placeAndCancel(
   return EXIT_OK;
 }
 
-/** A timeout is neither success nor failure, and is never reported as either. */
-function reportUnknown(error: unknown, what: string): number {
+/** A placement timeout is neither success nor failure, and is never reported as either. */
+function reportPlacementUnknown(error: unknown): number {
   if (!(error instanceof ActionTimeoutError)) throw error;
   console.log(`\n  TIMED OUT after ${error.waitedMs}ms waiting for the ${error.stage}.`);
-  console.log(`  OUTCOME UNKNOWN — ${what} may still be live.`);
+  console.log('  OUTCOME UNKNOWN — the order may still be live.');
   console.log(`  Reconcile against rq ${error.requestId ?? '?'} in the order history before`);
   console.log('  retrying; a retry with a new request id could place a second order.');
+  return EXIT_UNKNOWN;
+}
+
+/**
+ * A cancel timeout, reconciled rather than reported as failure.
+ *
+ * Cancelling an order that has already expired or is otherwise gone may never
+ * produce an mt 24, so the wait expiring tells us nothing by itself. What the
+ * session last saw for the order id does. The cancel is never re-sent with a
+ * fresh request id: the first one may still land.
+ */
+function reportCancelTimeout(
+  error: unknown,
+  session: PerplTradingSocket,
+  orderId: number,
+): number {
+  if (!(error instanceof ActionTimeoutError)) throw error;
+
+  console.log(`\n  TIMED OUT after ${error.waitedMs}ms waiting for the ${error.stage}.`);
+  console.log('  Not a failure by itself — reconciling against the order instead.');
+
+  const reconciled = reconcileOrderState(session.lastOrderState(orderId));
+  console.log(`\n  order ${orderId}  ${reconciled.reason}`);
+
+  if (reconciled.state === 'gone') {
+    console.log('\n  RECONCILED — the order is no longer live, so nothing is left dangling.');
+    console.log('  The cancel itself was never confirmed on mt 24, so do not record it as the');
+    console.log('  reason the order went away. Nothing was re-sent.');
+    return EXIT_OK;
+  }
+
+  console.log(`\n  OUTCOME UNKNOWN — order ${orderId} may still be resting.`);
+  console.log(`  Reconcile against rq ${error.requestId ?? '?'} and the order history on`);
+  console.log('  testnet.perpl.xyz. Do NOT re-send the cancel with a new request id: the');
+  console.log('  first one may still land, and a second is a new action, not a retry.');
   return EXIT_UNKNOWN;
 }
 
@@ -377,7 +467,7 @@ async function main(): Promise<number> {
     );
     console.log(`  notional         ${formatAusd(price * size)} at ${leverage}x`);
 
-    return await placeAndCancel(venue, market, {
+    return await placeAndCancel(venue, socket, market, {
       side,
       price,
       size,

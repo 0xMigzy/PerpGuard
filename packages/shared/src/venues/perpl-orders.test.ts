@@ -9,7 +9,10 @@ import {
   isDefinitiveStatus,
   matchPlacement,
   nextRequestId,
+  orderIdOf,
+  reconcileOrderState,
   scaleLimitOrder,
+  shortOrderIdOf,
   scalePriceAwayFromMarket,
 } from './perpl-orders.ts';
 import type { VenueMarket } from './types.ts';
@@ -266,25 +269,25 @@ describe('matchPlacement', () => {
 
   it('trusts an explicit request id over everything else', () => {
     const matches = matchPlacement(frame, new Set());
-    assert.ok(matches({ id: 777, rq: 531, st: 2 }));
-    assert.ok(!matches({ id: 777, rq: 530, st: 2 }), 'a different rq is not ours');
+    assert.ok(matches({ oid: 777, rq: 531, st: 2 }));
+    assert.ok(!matches({ oid: 777, rq: 530, st: 2 }), 'a different rq is not ours');
     // Whichever name the field turns out to have, an explicit id is decisive.
-    assert.ok(matches({ id: 777, di: 531 }));
-    assert.ok(!matches({ id: 777, di: 999 }));
+    assert.ok(matches({ oid: 777, di: 531 }));
+    assert.ok(!matches({ oid: 777, di: 999 }));
   });
 
   it('falls back to a new order id whose contents agree', () => {
     const matches = matchPlacement(frame, new Set([555]));
-    assert.ok(matches({ id: 777, st: 2, mkt: 16, acc: 9001, t: 1, p: 420000, s: 1 }));
-    assert.ok(matches({ id: 777, st: 2, sr: 0, r: false }), 'sparse entries still match');
+    assert.ok(matches({ oid: 777, st: 2, mkt: 16, acc: 9001, t: 1, p: 420000, s: 1 }));
+    assert.ok(matches({ oid: 777, st: 2, sr: 0, r: false }), 'sparse entries still match');
   });
 
   it('never claims an order that was already open, or one on another market', () => {
     const matches = matchPlacement(frame, new Set([555]));
-    assert.ok(!matches({ id: 555, st: 5, sr: 28 }), 'open before we submitted');
-    assert.ok(!matches({ id: 778, st: 2, mkt: 99 }), 'different market');
-    assert.ok(!matches({ id: 778, st: 2, acc: 9002 }), 'different account');
-    assert.ok(!matches({ id: 778, st: 2, p: 1 }), 'different price');
+    assert.ok(!matches({ oid: 555, st: 5, sr: 28 }), 'open before we submitted');
+    assert.ok(!matches({ oid: 778, st: 2, mkt: 99 }), 'different market');
+    assert.ok(!matches({ oid: 778, st: 2, acc: 9002 }), 'different account');
+    assert.ok(!matches({ oid: 778, st: 2, p: 1 }), 'different price');
     assert.ok(!matches({ st: 2 }), 'no order id at all');
   });
 
@@ -293,8 +296,144 @@ describe('matchPlacement', () => {
     // set would make the second update for our own order look like a stranger's.
     const live = new Set<number>([555]);
     const matches = matchPlacement(frame, live);
-    assert.ok(matches({ id: 778, st: 1 }));
+    assert.ok(matches({ oid: 778, st: 1 }));
     live.add(778);
-    assert.ok(matches({ id: 778, st: 2 }), 'still ours on the next update');
+    assert.ok(matches({ oid: 778, st: 2 }), 'still ours on the next update');
+  });
+});
+
+/**
+ * The real shape, captured from a testnet OrdersSnapshot for account 710.
+ * Note `oid` (wide, what a cancel must address) alongside `scid` (short, what
+ * perpl-cli and the explorer display) — and no `id` field at all.
+ */
+const REAL_ENTRY = {
+  at: { b: 65793436, t: 1790407639000, tx: 1 },
+  rq: 1,
+  mkt: 16,
+  acc: 710,
+  oid: 4311838621696,
+  scid: 65,
+  st: 2,
+  sr: 0,
+  t: 1,
+  p: 419921,
+  os: 1,
+  fl: 1,
+  lv: 200,
+};
+
+describe('orderIdOf', () => {
+  it('reads the wide oid, which is what a cancel must address', () => {
+    assert.equal(orderIdOf(REAL_ENTRY), 4311838621696);
+  });
+
+  it('does not fall back to the short display id', () => {
+    assert.equal(orderIdOf({ scid: 65 }), undefined);
+  });
+
+  it('ignores the `id` field the docs show but the wire never sends', () => {
+    assert.equal(orderIdOf({ id: 65 }), undefined);
+  });
+});
+
+describe('shortOrderIdOf', () => {
+  it('reads scid, the id perpl-cli and the explorer print', () => {
+    assert.equal(shortOrderIdOf(REAL_ENTRY), 65);
+  });
+});
+
+describe('matchPlacement against a real entry', () => {
+  const frame = buildLimitOrderFrame({
+    sn: 1,
+    rq: 1,
+    marketId: 16,
+    accountId: 710,
+    side: 'long',
+    priceScaled: 419921,
+    sizeScaled: 1,
+    leverageHundredths: 200,
+    postOnly: true,
+    lastExecBlock: 65793440,
+  });
+
+  it('matches on rq', () => {
+    assert.equal(matchPlacement(frame, new Set())(REAL_ENTRY), true);
+  });
+
+  it('rejects an entry carrying someone else’s rq', () => {
+    assert.equal(matchPlacement(frame, new Set())({ ...REAL_ENTRY, rq: 2 }), false);
+  });
+
+  it('falls back to oid for an entry with no rq, and skips ids seen at sign-in', () => {
+    const { rq: _rq, ...noRq } = REAL_ENTRY;
+    assert.equal(matchPlacement(frame, new Set())(noRq), true);
+    assert.equal(matchPlacement(frame, new Set([4311838621696]))(noRq), false);
+  });
+});
+
+describe('reconcileOrderState', () => {
+  it('knows nothing when no update for the id ever arrived', () => {
+    const { state, reason } = reconcileOrderState(undefined);
+    assert.equal(state, 'unknown');
+    assert.match(reason, /no update for this order id/);
+  });
+
+  it('reports an expired order as gone — the TTL case behind a cancel timeout', () => {
+    const { state, reason } = reconcileOrderState({
+      orderId: 4312150769680,
+      st: 6,
+      sr: 0,
+      source: 'update',
+    });
+    assert.equal(state, 'gone');
+    assert.match(reason, /st: 6 Expired/);
+    assert.match(reason, /terminal/);
+  });
+
+  it('treats every terminal status as gone, whatever removed the order', () => {
+    // 4 Filled, 5 Canceled, 6 Expired, 7 Failed, 10 Executed.
+    for (const st of [4, 5, 6, 7, 10]) {
+      const { state } = reconcileOrderState({ orderId: 1, st, sr: 0, source: 'update' });
+      assert.equal(state, 'gone', `st ${st}`);
+    }
+  });
+
+  it('reports a resting or pending order as live, never as gone', () => {
+    // 1 Pending, 2 Open, 3 PartiallyFilled all still have something to cancel.
+    for (const st of [1, 2, 3]) {
+      const { state } = reconcileOrderState({ orderId: 1, st, sr: 0, source: 'update' });
+      assert.equal(state, 'live', `st ${st}`);
+    }
+  });
+
+  it('never claims our cancel caused the removal', () => {
+    // sr 30 says a liquidator pulled it. Gone, but not by us.
+    const { state, reason } = reconcileOrderState({
+      orderId: 1,
+      st: 5,
+      sr: 30,
+      source: 'update',
+    });
+    assert.equal(state, 'gone');
+    assert.match(reason, /OrderCancelledByLiquidator/);
+    assert.doesNotMatch(reason, /cancel(led)? by us|our cancel/i);
+  });
+
+  it('says where the status was seen, so a stale snapshot reads as one', () => {
+    assert.match(
+      reconcileOrderState({ orderId: 1, st: 2, sr: 0, source: 'snapshot' }).reason,
+      /in the sign-in snapshot/,
+    );
+    assert.match(
+      reconcileOrderState({ orderId: 1, st: 2, sr: 0, source: 'update' }).reason,
+      /on a live update/,
+    );
+  });
+
+  it('is live rather than gone when the status is missing entirely', () => {
+    // An entry with no `st` proves nothing, and "nothing to cancel" is the one
+    // conclusion that must never be reached by default.
+    assert.equal(reconcileOrderState({ orderId: 1, st: undefined, sr: 0, source: 'update' }).state, 'live');
   });
 });

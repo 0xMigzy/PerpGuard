@@ -197,6 +197,58 @@ export function classifyOrderUpdate(
   return { outcome: 'pending', reason };
 }
 
+/**
+ * The last state we saw for one order id, as the socket records it.
+ *
+ * Only what reconciliation needs: the status, its reason, and whether it came
+ * from the sign-in snapshot or a live update.
+ */
+export interface LastOrderState {
+  readonly orderId: number;
+  readonly st: number | undefined;
+  readonly sr: number | undefined;
+  readonly source: 'snapshot' | 'update';
+}
+
+/**
+ * Whether an order id is definitively no longer live.
+ *
+ * `gone` covers every terminal status — Filled, Canceled, Expired, Failed,
+ * Executed. It deliberately does NOT claim our cancel caused it: an order that
+ * expired at its `lb`, was filled, or was pulled by a liquidator is equally
+ * gone, and the reason string says which.
+ */
+export type ReconciledOrderState = 'gone' | 'live' | 'unknown';
+
+const TERMINAL_STATUSES = new Set([4, 5, 6, 7, 10]);
+
+/**
+ * Reconcile an order id against the last status seen for it.
+ *
+ * Exists because a cancel of an order that has already expired or is otherwise
+ * gone may never produce an `mt: 24` at all, so the cancel's wait expiring is
+ * not a failure — it is a prompt to look up what actually became of the order.
+ *
+ * States facts only, never policy: it reports what was last seen and leaves
+ * "so retry" or "so give up" to the caller, which must never turn `unknown`
+ * into a retry with a fresh request id.
+ */
+export function reconcileOrderState(
+  last: LastOrderState | undefined,
+): { state: ReconciledOrderState; reason: string } {
+  if (last === undefined) {
+    return { state: 'unknown', reason: 'no update for this order id arrived on this session' };
+  }
+
+  const seen = last.source === 'snapshot' ? 'in the sign-in snapshot' : 'on a live update';
+  const described = describeOrderStatus(last.st, last.sr);
+
+  if (last.st !== undefined && TERMINAL_STATUSES.has(last.st)) {
+    return { state: 'gone', reason: `last seen ${seen} as ${described}, which is terminal` };
+  }
+  return { state: 'live', reason: `last seen ${seen} as ${described}` };
+}
+
 /** An `mt: 22` frame exactly as it goes on the wire. */
 export interface OrderRequestFrame {
   readonly mt: typeof MT.OrderRequest;
@@ -302,16 +354,36 @@ export type OrderUpdateEntry = Record<string, unknown>;
 /**
  * Field names an Order might carry its originating request id under.
  *
- * The docs say to "track `rq` to correlate updates" but never document the
- * Order object's full shape — `mt: 24` is only ever shown as
- * `{ id, st, sr, r }`, and `r` there is the boolean remove flag, not the
- * `r: RequestID` that appears on AccountEvent. So we look for the id under the
- * plausible names and fall back to matching the order's own contents.
- *
- * TODO: once a real testnet `mt: 24` has been seen (run with --verbose, which
- * prints unmatched entries raw), replace this with the single real field.
+ * `rq` is the real one, confirmed against a testnet OrdersSnapshot:
+ * `{"rq":1,"mkt":16,"acc":710,"oid":4311838621696,"scid":65,"st":2,...}`.
+ * The others stay as a cheap hedge — the docs never publish the Order shape,
+ * so a rename would otherwise silently fall through to content matching.
  */
 const REQUEST_ID_FIELDS = ['rq', 'di', 'rid'] as const;
+
+/**
+ * The order id to address a cancel or amend to.
+ *
+ * It is `oid`, NOT `id`: the docs show `mt: 24` entries as `{ id, st, sr, r }`,
+ * but the wire carries `oid` — a wide, globally unique id — alongside `scid`,
+ * the short per-contract id the explorer and perpl-cli display. Reading `id`
+ * yields undefined for every order, which loses the handle on a live order.
+ */
+export function orderIdOf(order: OrderUpdateEntry): number | undefined {
+  const oid = order['oid'];
+  return typeof oid === 'number' ? oid : undefined;
+}
+
+/**
+ * The short per-contract order id (`scid`), for display only.
+ *
+ * This is what `perpl-cli show account` prints under "Order ID" and what the
+ * explorer shows. Never send it as `oid` — the contract wants the wide id.
+ */
+export function shortOrderIdOf(order: OrderUpdateEntry): number | undefined {
+  const scid = order['scid'];
+  return typeof scid === 'number' ? scid : undefined;
+}
 
 /**
  * A predicate deciding whether an `mt: 24` entry is the outcome of `frame`.
@@ -337,8 +409,8 @@ export function matchPlacement(
       if (typeof value === 'number') return value === frame.rq;
     }
 
-    const id = order['id'];
-    if (typeof id !== 'number' || preexisting.has(id)) return false;
+    const id = orderIdOf(order);
+    if (id === undefined || preexisting.has(id)) return false;
 
     const agrees = (key: string, expected: number | undefined): boolean => {
       const value = order[key];

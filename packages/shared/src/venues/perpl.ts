@@ -9,6 +9,7 @@ import {
   buildLimitOrderFrame,
   computeLastExecBlock,
   matchPlacement,
+  orderIdOf,
   scaleLimitOrder,
   type OrderIntent,
   type OrderRequestFrame,
@@ -480,8 +481,10 @@ export class PerplVenue implements Venue {
       intent: 'cancel',
       idempotencyKey: request.idempotencyKey,
       symbol: request.symbol,
-      // A cancel is unambiguous: the update we want is for that order id.
-      matches: (order) => order['id'] === orderId,
+      // A cancel is unambiguous: the update we want is for that order id. It
+      // must be read with orderIdOf — the wire carries `oid`, never `id`, so
+      // matching on `id` matches nothing and looks exactly like a timeout.
+      matches: (order) => orderIdOf(order) === orderId,
       onForwarded: request.onForwarded,
       timeoutMs: request.timeoutMs,
     });

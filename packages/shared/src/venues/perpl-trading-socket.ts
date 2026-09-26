@@ -27,10 +27,12 @@ import {
   type OrderIntent,
   type OrderOutcome,
   type OrderRequestFrame,
+  orderIdOf,
   type OrderUpdateEntry,
+  type LastOrderState,
 } from './perpl-orders.ts';
 
-export type { OrderUpdateEntry };
+export type { OrderUpdateEntry, LastOrderState };
 
 const VENUE_ID = 'perpl';
 
@@ -143,6 +145,15 @@ export class PerplTradingSocket {
 
   /** Order ids already open at sign-in, so a new one can be told apart. */
   readonly #knownOrderIds = new Set<number>();
+  /**
+   * The last status seen for every order id this session has heard about.
+   *
+   * Kept so a timed-out action can be reconciled against what actually became
+   * of the order instead of being reported as unknown. A cancel of an order
+   * that already expired may never produce an `mt: 24` of its own, but the
+   * expiry itself does arrive, and it lands here.
+   */
+  readonly #orderStates = new Map<number, LastOrderState>();
   readonly #pending = new Map<number, Pending>();
   readonly #listeners = new Set<(message: InboundMessage) => void>();
   readonly #closeWaiters = new Set<(error: Error) => void>();
@@ -196,6 +207,15 @@ export class PerplTradingSocket {
 
   get knownOrderIds(): ReadonlySet<number> {
     return this.#knownOrderIds;
+  }
+
+  /**
+   * The last status seen for `orderId`, or undefined if this session never
+   * heard about it. Feed it to reconcileCancelTimeout() after a cancel times
+   * out; never use it to decide that an action succeeded.
+   */
+  lastOrderState(orderId: number): LastOrderState | undefined {
+    return this.#orderStates.get(orderId);
   }
 
   /** Frames already received, oldest first, capped at HISTORY_LIMIT. */
@@ -408,7 +428,7 @@ export class PerplTradingSocket {
     const st = numberAt(order, 'st');
     const sr = numberAt(order, 'sr');
     const { outcome, reason } = classifyOrderUpdate(st, sr, options.intent);
-    return { ack, outcome, reason, order, orderId: numberAt(order, 'id') };
+    return { ack, outcome, reason, order, orderId: orderIdOf(order) };
   }
 
   close(): void {
@@ -539,8 +559,10 @@ export class PerplTradingSocket {
 
     if (mt === MT.OrdersSnapshot) {
       for (const order of this.#orderEntries(message)) {
-        const id = numberAt(order, 'id');
-        if (id !== undefined) this.#knownOrderIds.add(id);
+        const id = orderIdOf(order);
+        if (id === undefined) continue;
+        this.#knownOrderIds.add(id);
+        this.#recordOrderState(id, order, 'snapshot');
       }
       return;
     }
@@ -584,7 +606,7 @@ export class PerplTradingSocket {
   #onOrdersUpdate(message: InboundMessage): void {
     for (const order of this.#orderEntries(message)) {
       const st = numberAt(order, 'st');
-      const id = numberAt(order, 'id');
+      const id = orderIdOf(order);
 
       for (const pending of this.#pending.values()) {
         if (pending.settled || !pending.matches(order)) continue;
@@ -601,7 +623,26 @@ export class PerplTradingSocket {
         break;
       }
 
-      if (id !== undefined) this.#knownOrderIds.add(id);
+      if (id !== undefined) {
+        this.#knownOrderIds.add(id);
+        this.#recordOrderState(id, order, 'update');
+      }
     }
+  }
+
+  /**
+   * Remember an order's latest status. A live update always wins over the
+   * sign-in snapshot; between two updates the later one wins, which is simply
+   * arrival order — the socket does not reorder frames.
+   */
+  #recordOrderState(orderId: number, order: OrderUpdateEntry, source: 'snapshot' | 'update'): void {
+    const existing = this.#orderStates.get(orderId);
+    if (existing?.source === 'update' && source === 'snapshot') return;
+    this.#orderStates.set(orderId, {
+      orderId,
+      st: numberAt(order, 'st'),
+      sr: numberAt(order, 'sr'),
+      source,
+    });
   }
 }

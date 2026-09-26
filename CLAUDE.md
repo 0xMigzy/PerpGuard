@@ -31,6 +31,19 @@ warns before liquidation, and lets the user add margin or close in one tap.
   hard-code it. Resting-order logic must treat expiry as normal: a resting
   order is gone within seconds unless re-posted, so never assume an order we
   placed is still live, and re-check before cancelling or amending.
+- A cancel of an order that has already expired or is otherwise gone may never
+  produce an `mt: 24` at all. So a cancel timeout is NOT a failure and NOT a
+  success: the executor must treat it as "reconcile against order history" —
+  look up what actually became of the order id — and report the reconciled
+  state. It must NEVER blind-retry a cancel with a new request id: the original
+  cancel may still land, and a second `rq` against a filled or re-used order id
+  is a new action, not a retry of the old one.
+- Order updates are keyed by `oid`, the wide globally-unique order id, NOT by
+  `id`. The docs render `mt: 24` entries as `{ id, st, sr, r }`, but the wire
+  sends `oid` plus `scid`, the short per-contract id the explorer and
+  perpl-cli display. Address cancels and amends to `oid`; read outcomes by
+  `oid`. Reading `id` silently matches nothing, which looks exactly like a
+  timeout.
 - Order rejection reasons (`sr`) worth handling by name:
   `sr 34` = OrderForwardingNotAllowed — the account's `fw` flag is false, so
   the account does not permit API-key-forwarded orders. Check `fw` from the
