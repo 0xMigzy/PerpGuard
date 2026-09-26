@@ -1,0 +1,17 @@
+{
+  "name": "perpguard",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "test": "node --test \"packages/*/src/**/*.test.ts\"",
+    "markets": "node apps/backend/src/scripts/print-markets.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
