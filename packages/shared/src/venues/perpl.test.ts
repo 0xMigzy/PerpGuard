@@ -317,7 +317,6 @@ describe('unimplemented venue actions', () => {
   // completed action, and no action is complete before mt: 24 anyway.
   const cases: Array<[string, () => Promise<unknown>]> = [
     ['getPositions', () => venue.getPositions('0x0000000000000000000000000000000000000001')],
-    ['subscribePrices', () => venue.subscribePrices(['BTC'], () => {})],
     ['addMargin', () => venue.addMargin({ idempotencyKey: 'k', symbol: 'BTC', amount: 10 })],
     ['reducePosition', () => venue.reducePosition({ idempotencyKey: 'k', symbol: 'BTC', size: 1 })],
     ['closePosition', () => venue.closePosition({ idempotencyKey: 'k', symbol: 'BTC' })],

@@ -5,6 +5,11 @@ import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../unit
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
 import { assertForwardingAllowed } from './perpl-forwarding.ts';
 import {
+  PerplMarketDataSocket,
+  toMarketDescriptor,
+  type FeedStatus,
+} from './perpl-market-data.ts';
+import {
   buildCancelFrame,
   buildLimitOrderFrame,
   computeLastExecBlock,
@@ -89,6 +94,10 @@ export class PerplVenue implements Venue {
   #cached: { context: PerplContext; fetchedAtMs: number } | undefined;
   #inFlight: Promise<PerplContext> | undefined;
   #socket: PerplTradingSocket | undefined;
+  #marketData: PerplMarketDataSocket | undefined;
+  #marketDataStarting: Promise<PerplMarketDataSocket> | undefined;
+  /** Live subscribePrices callers. The shared feed closes when it hits zero. */
+  #priceSubscribers = 0;
 
   constructor(network: NetworkConfig, options: PerplVenueOptions = {}) {
     this.network = network;
@@ -285,10 +294,51 @@ export class PerplVenue implements Venue {
     return socket;
   }
 
-  /** Close the trading socket, if one was opened. */
+  /** Close both sockets, if they were opened. */
   disconnect(): void {
     this.#socket?.close();
     this.#socket = undefined;
+    this.#marketData?.close();
+    this.#marketData = undefined;
+    this.#priceSubscribers = 0;
+  }
+
+  /**
+   * The shared market-data feed, started on first use.
+   *
+   * One connection serves every subscriber: `market-state@<chainId>` already
+   * carries all markets in a single frame, and the docs cap us at five
+   * connections per IP. Concurrent callers share one start, the way
+   * getContext() shares one fetch.
+   */
+  async #connectMarketData(): Promise<PerplMarketDataSocket> {
+    if (this.#marketData !== undefined) return this.#marketData;
+
+    this.#marketDataStarting ??= (async () => {
+      // Every market, not just the requested symbols: the frame carries them
+      // all anyway, and ids and price scaling must come from the context.
+      const markets = await this.getMarkets();
+      const socket = new PerplMarketDataSocket({
+        network: this.network,
+        markets: markets.map(toMarketDescriptor),
+        ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
+        ...(this.#options.verbose === undefined ? {} : { verbose: this.#options.verbose }),
+        ...(this.#options.now === undefined ? {} : { now: this.#options.now }),
+      });
+      await socket.start();
+      this.#marketData = socket;
+      return socket;
+    })().finally(() => {
+      this.#marketDataStarting = undefined;
+    });
+
+    return this.#marketDataStarting;
+  }
+
+  /** Observe feed health — connects, drops and reconnects. */
+  async onFeedStatus(listener: (status: FeedStatus) => void): Promise<Unsubscribe> {
+    const socket = await this.#connectMarketData();
+    return socket.onStatus(listener);
   }
 
   /**
@@ -491,22 +541,63 @@ export class PerplVenue implements Venue {
     });
   }
 
+  /**
+   * Stream prices for `symbols` off the public market-data websocket.
+   *
+   * Works on a read-only venue: market data is public and unauthenticated, and
+   * analytics reads mainnet precisely so the demo shows real prices. The feed
+   * reconnects on its own, so an Unsubscribe is the only way it stops.
+   *
+   * An unknown symbol throws rather than going quiet — a ticker that never
+   * ticks is indistinguishable from a typo, and silence is the one failure a
+   * risk monitor must never have.
+   */
+  async subscribePrices(
+    symbols: readonly string[],
+    onUpdate: (update: PriceUpdate) => void,
+  ): Promise<Unsubscribe> {
+    if (symbols.length === 0) {
+      throw new VenueError(VENUE_ID, 'subscribePrices needs at least one symbol');
+    }
+
+    const markets = await this.getMarkets();
+    const listed = new Set(markets.map((m) => m.symbol));
+    const missing = symbols.filter((symbol) => !listed.has(symbol));
+    if (missing.length > 0) {
+      throw new VenueError(
+        VENUE_ID,
+        `not listed on Perpl ${this.network.name}: ${missing.join(', ')}. ` +
+          `Available: ${[...listed].sort().join(', ')}`,
+      );
+    }
+
+    const wanted = new Set(symbols);
+    const socket = await this.#connectMarketData();
+    const off = socket.onPrice((update) => {
+      if (wanted.has(update.symbol)) onUpdate(update);
+    });
+    this.#priceSubscribers += 1;
+
+    let live = true;
+    return () => {
+      if (!live) return;
+      live = false;
+      off();
+      this.#priceSubscribers -= 1;
+      if (this.#priceSubscribers <= 0) {
+        this.#marketData?.close();
+        this.#marketData = undefined;
+        this.#priceSubscribers = 0;
+      }
+    };
+  }
+
   // Not implemented yet. These reject rather than resolving to a neutral value,
   // so no caller can mistake an unbuilt path for a successful action.
 
   getPositions(_address: string): Promise<VenuePosition[]> {
     // Needs the authenticated account endpoint plus an Ed25519 API key.
     return Promise.reject(new NotImplementedError(VENUE_ID, 'getPositions'));
-  }
-
-  subscribePrices(
-    _symbols: readonly string[],
-    _onUpdate: (update: PriceUpdate) => void,
-  ): Promise<Unsubscribe> {
-    // wss://<host>/ws/v1/market-data: subscribe with
-    // {mt: 5, subs: [{stream: "market-state@<chainId>", subscribe: true}]},
-    // updates arrive as mt: 9 carrying orl/mrk/lst/mid/bid/ask as scaled ints.
-    return Promise.reject(new NotImplementedError(VENUE_ID, 'subscribePrices'));
   }
 
   addMargin(_request: AddMarginRequest): Promise<ActionResult> {

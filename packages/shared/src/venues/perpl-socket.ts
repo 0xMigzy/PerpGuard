@@ -53,6 +53,13 @@ export interface SocketConnectionOptions {
   /** Dump every inbound frame. Never includes anything derived from a key. */
   readonly verbose?: boolean;
   readonly historyLimit?: number;
+  /**
+   * Extra diagnosis appended to a 1011 close, which means only "the server
+   * could not process a frame". What that implies is caller-specific — on the
+   * trading socket it is usually an unknown market or an account the key does
+   * not own — so the transport does not guess.
+   */
+  readonly failedToProcessHint?: string;
   readonly now?: () => number;
   /** Injectable for tests. Defaults to the global WebSocket Node ships. */
   readonly webSocketImpl?: typeof WebSocket;
@@ -222,11 +229,12 @@ export class PerplSocketConnection {
       );
     }
     if (code === CLOSE_FAILED_TO_PROCESS) {
+      const hint = this.#options.failedToProcessHint;
       return new VenueRequestError(
         this.#options.venueId,
         this.#options.url,
-        `server closed with ${code}${detail} — an unknown market, an account this key does not ` +
-          `own, or an unparseable frame. No status will arrive for anything in flight.`,
+        `socket closed with ${code}${detail} — the server could not process a frame` +
+          `${hint === undefined ? '.' : `. ${hint}`}`,
       );
     }
     return new VenueRequestError(

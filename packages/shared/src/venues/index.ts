@@ -3,6 +3,7 @@ export * from './perpl-account-scan.ts';
 export * from './perpl-context.ts';
 export * from './perpl-credentials.ts';
 export * from './perpl-forwarding.ts';
+export * from './perpl-market-data.ts';
 export * from './perpl-orders.ts';
 export * from './perpl-signing.ts';
 export * from './perpl-socket.ts';

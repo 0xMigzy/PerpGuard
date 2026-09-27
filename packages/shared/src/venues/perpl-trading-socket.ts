@@ -142,6 +142,9 @@ export class PerplTradingSocket {
     this.#conn = new PerplSocketConnection({
       venueId: VENUE_ID,
       url: options.network.tradingWsUrl,
+      failedToProcessHint:
+        'Likely an unknown market, an account this key does not own, or an unparseable frame. ' +
+        'No status will arrive for anything in flight.',
       ...(options.logger === undefined ? {} : { logger: options.logger }),
       ...(options.verbose === undefined ? {} : { verbose: options.verbose }),
       ...(options.now === undefined ? {} : { now: options.now }),
