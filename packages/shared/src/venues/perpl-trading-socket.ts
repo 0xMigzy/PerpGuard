@@ -8,7 +8,9 @@
  * carry one request from submission through to its real outcome.
  *
  * What it explicitly does NOT do is decide what any of that means — frames are
- * built and statuses decoded in perpl-orders.ts, which is pure and tested.
+ * built and statuses decoded in perpl-orders.ts, which is pure and tested —
+ * nor move bytes, which is PerplSocketConnection in perpl-socket.ts, shared
+ * with the public market-data socket.
  *
  * The two-stage result is the whole point. `mt: 3` with `code: 0` means
  * accepted for forwarding: not posted, not filled. Only `mt: 24` carries the
@@ -16,8 +18,16 @@
  * callback that cannot be mistaken for completion.
  */
 import type { NetworkConfig } from '../config.ts';
-import { ActionTimeoutError, VenueAuthError, VenueRequestError } from '../errors.ts';
+import { ActionTimeoutError, VenueRequestError } from '../errors.ts';
 import { buildApiKeySignInFrame, type ApiSecret } from './perpl-signing.ts';
+import {
+  PerplSocketConnection,
+  isRecord,
+  numberAt,
+  silentLogger,
+  type InboundMessage,
+  type Logger,
+} from './perpl-socket.ts';
 import {
   COMMAND_STATUS_SID,
   MT,
@@ -36,27 +46,10 @@ export type { OrderUpdateEntry, LastOrderState };
 
 const VENUE_ID = 'perpl';
 
-/** Close code the server uses when the signed sign-in frame is rejected. */
-const CLOSE_AUTH_FAILURE = 3401;
-/** Close code when the server could not process a frame at all. */
-const CLOSE_FAILED_TO_PROCESS = 1011;
-
 const DEFAULT_SIGN_IN_TIMEOUT_MS = 10_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
 const DEFAULT_RESULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PING_INTERVAL_MS = 30_000;
-/** Enough to hold the post-sign-in snapshots plus a burst of updates. */
-const HISTORY_LIMIT = 200;
-
-export interface Logger {
-  log: (message: string) => void;
-  warn: (message: string) => void;
-}
-
-const silentLogger: Logger = { log: () => {}, warn: () => {} };
-
-/** Any inbound frame, already parsed. */
-export type InboundMessage = Record<string, unknown>;
 
 /** The `mt: 3` command status. */
 export interface CommandStatus {
@@ -113,24 +106,11 @@ export interface TradingSocketOptions {
   readonly webSocketImpl?: typeof WebSocket;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function numberAt(node: Record<string, unknown>, key: string): number | undefined {
-  const value = node[key];
-  return typeof value === 'number' ? value : undefined;
-}
-
 export class PerplTradingSocket {
   readonly #options: TradingSocketOptions;
   readonly #logger: Logger;
-  readonly #now: () => number;
-
-  #ws: WebSocket | undefined;
-  #pingTimer: ReturnType<typeof setInterval> | undefined;
-  #closed = false;
-  #closeReason: Error | undefined;
+  /** The transport. Everything else in this class is session state on top. */
+  readonly #conn: PerplSocketConnection;
 
   #nextSn = 1;
   #localRequestId = 0;
@@ -155,21 +135,24 @@ export class PerplTradingSocket {
    */
   readonly #orderStates = new Map<number, LastOrderState>();
   readonly #pending = new Map<number, Pending>();
-  readonly #listeners = new Set<(message: InboundMessage) => void>();
-  readonly #closeWaiters = new Set<(error: Error) => void>();
-  /**
-   * A bounded record of what has already arrived.
-   *
-   * The snapshots that matter most — wallet, orders, positions — are pushed
-   * immediately after sign-in, which is before connect() has even returned, so
-   * anything that subscribes afterwards would otherwise never see them.
-   */
-  readonly #history: InboundMessage[] = [];
 
   constructor(options: TradingSocketOptions) {
     this.#options = options;
     this.#logger = options.logger ?? silentLogger;
-    this.#now = options.now ?? Date.now;
+    this.#conn = new PerplSocketConnection({
+      venueId: VENUE_ID,
+      url: options.network.tradingWsUrl,
+      ...(options.logger === undefined ? {} : { logger: options.logger }),
+      ...(options.verbose === undefined ? {} : { verbose: options.verbose }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.webSocketImpl === undefined ? {} : { webSocketImpl: options.webSocketImpl }),
+    });
+
+    // Both registered first, so session state is updated before any external
+    // observer sees a frame, and so a close fails everything in flight before
+    // it reaches anyone waiting on the connection.
+    this.#conn.onMessage((message) => this.#track(message));
+    this.#conn.onClose((error) => this.#failPending(error));
   }
 
   get accountId(): number | undefined {
@@ -218,15 +201,14 @@ export class PerplTradingSocket {
     return this.#orderStates.get(orderId);
   }
 
-  /** Frames already received, oldest first, capped at HISTORY_LIMIT. */
+  /** Frames already received, oldest first, capped by the connection. */
   get recentMessages(): readonly InboundMessage[] {
-    return this.#history;
+    return this.#conn.recentMessages;
   }
 
   /** Observe every inbound frame. Returns an unsubscribe function. */
   onMessage(listener: (message: InboundMessage) => void): () => void {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+    return this.#conn.onMessage(listener);
   }
 
   /**
@@ -238,37 +220,7 @@ export class PerplTradingSocket {
    * and the caller can report it rather than being told the connection failed.
    */
   async connect(): Promise<void> {
-    const url = this.#options.network.tradingWsUrl;
-    const WebSocketImpl = this.#options.webSocketImpl ?? globalThis.WebSocket;
-    if (WebSocketImpl === undefined) {
-      throw new VenueRequestError(VENUE_ID, url, 'no WebSocket implementation available');
-    }
-
-    const ws = new WebSocketImpl(url);
-    this.#ws = ws;
-
-    // Registered before the open handshake is awaited: a frame that arrives in
-    // the same turn as `open` must not fall between the two.
-    ws.addEventListener('message', (event: MessageEvent) => this.#onFrame(event.data));
-    ws.addEventListener('close', (event: CloseEvent) => {
-      this.#onClosed(this.#closeError(event.code, event.reason));
-    });
-    ws.addEventListener('error', () => {
-      this.#onClosed(new VenueRequestError(VENUE_ID, url, 'websocket error'));
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      const settle = (action: () => void): void => {
-        ws.removeEventListener('open', onOpen);
-        this.#closeWaiters.delete(onClosedDuringHandshake);
-        action();
-      };
-      const onOpen = (): void => settle(resolve);
-      const onClosedDuringHandshake = (error: Error): void => settle(() => reject(error));
-
-      ws.addEventListener('open', onOpen);
-      this.#closeWaiters.add(onClosedDuringHandshake);
-    });
+    await this.#conn.open();
 
     // Must be the first frame on the socket.
     this.#send(buildApiKeySignInFrame({
@@ -277,23 +229,20 @@ export class PerplTradingSocket {
       secret: this.#options.secret,
     }));
 
-    this.#pingTimer = setInterval(() => {
-      if (this.#ws?.readyState === 1) this.#send({ mt: MT.Ping, t: this.#now() });
-    }, this.#options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
-    this.#pingTimer.unref?.();
+    this.#conn.startPing(this.#options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
 
     await this.#awaitWalletSnapshot(this.#options.signInTimeoutMs ?? DEFAULT_SIGN_IN_TIMEOUT_MS);
   }
 
   #awaitWalletSnapshot(timeoutMs: number): Promise<void> {
     if (this.#accountId !== undefined) return Promise.resolve();
-    if (this.#closeReason !== undefined) return Promise.reject(this.#closeReason);
+    if (this.#conn.closeReason !== undefined) return Promise.reject(this.#conn.closeReason);
 
     return new Promise<void>((resolve, reject) => {
       const finish = (settle: () => void): void => {
         clearTimeout(timer);
-        unsubscribeMessage();
-        this.#closeWaiters.delete(onClose);
+        unsubscribeMessage?.();
+        unsubscribeClose?.();
         settle();
       };
 
@@ -311,10 +260,13 @@ export class PerplTradingSocket {
       }, timeoutMs);
 
       // A close during sign-in — 3401 above all — must surface as auth failure.
-      const onClose = (error: Error): void => finish(() => reject(error));
-      this.#closeWaiters.add(onClose);
+      // Declared before they are assigned: finish() may run on either signal,
+      // and must be able to drop whichever of the two did not fire.
+      let unsubscribeClose: (() => void) | undefined;
+      let unsubscribeMessage: (() => void) | undefined;
 
-      const unsubscribeMessage = this.onMessage((message) => {
+      unsubscribeClose = this.#conn.onClose((error) => finish(() => reject(error)));
+      unsubscribeMessage = this.#conn.onMessage((message) => {
         if (message['mt'] === MT.WalletSnapshot) finish(resolve);
       });
     });
@@ -346,8 +298,8 @@ export class PerplTradingSocket {
    */
   async submit(options: SubmitOptions): Promise<SubmitResult> {
     const { frame } = options;
-    if (this.#closed || this.#ws?.readyState !== 1) {
-      throw this.#closeReason ??
+    if (!this.#conn.isOpen) {
+      throw this.#conn.closeReason ??
         new VenueRequestError(VENUE_ID, this.#options.network.tradingWsUrl, 'socket is not open');
     }
 
@@ -432,18 +384,11 @@ export class PerplTradingSocket {
   }
 
   close(): void {
-    this.#onClosed(
-      new VenueRequestError(VENUE_ID, this.#options.network.tradingWsUrl, 'socket closed locally'),
-    );
-    try {
-      this.#ws?.close();
-    } catch {
-      // Already closing; nothing to do.
-    }
+    this.#conn.close();
   }
 
   #send(frame: unknown): void {
-    this.#ws?.send(JSON.stringify(frame));
+    this.#conn.send(frame);
   }
 
   #withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
@@ -462,64 +407,15 @@ export class PerplTradingSocket {
     });
   }
 
-  #closeError(code: number, reason: string): Error {
-    const detail = reason === '' ? '' : ` (${reason})`;
-    if (code === CLOSE_AUTH_FAILURE) {
-      return new VenueAuthError(
-        VENUE_ID,
-        `sign-in rejected, close ${code}${detail}. Check the key, its scope, and that the ` +
-          `clock is within 30s of the server.`,
-        { closeCode: code },
-      );
-    }
-    if (code === CLOSE_FAILED_TO_PROCESS) {
-      return new VenueRequestError(
-        VENUE_ID,
-        this.#options.network.tradingWsUrl,
-        `server closed with ${code}${detail} — an unknown market, an account this key does not ` +
-          `own, or an unparseable frame. No status will arrive for anything in flight.`,
-      );
-    }
-    return new VenueRequestError(
-      VENUE_ID,
-      this.#options.network.tradingWsUrl,
-      `socket closed with ${code}${detail}`,
-    );
-  }
-
-  #onClosed(error: Error): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#closeReason = error;
-    if (this.#pingTimer !== undefined) clearInterval(this.#pingTimer);
-    // An unexpected close fails every request still in flight rather than
-    // leaving it to time out against a socket that will never answer.
+  /**
+   * A close fails every request still in flight rather than leaving it to time
+   * out against a socket that will never answer.
+   */
+  #failPending(error: Error): void {
     for (const [sn, pending] of this.#pending) {
       pending.reject?.(error);
       this.#pending.delete(sn);
     }
-    for (const waiter of [...this.#closeWaiters]) waiter(error);
-    this.#closeWaiters.clear();
-  }
-
-  #onFrame(data: unknown): void {
-    if (typeof data !== 'string') return;
-    let message: unknown;
-    try {
-      message = JSON.parse(data);
-    } catch {
-      this.#logger.warn(`ignoring a frame that is not JSON (${data.length} bytes)`);
-      return;
-    }
-    if (!isRecord(message)) return;
-
-    if (this.#options.verbose === true) this.#logger.log(`<- ${data}`);
-
-    this.#history.push(message);
-    if (this.#history.length > HISTORY_LIMIT) this.#history.shift();
-
-    this.#track(message);
-    for (const listener of this.#listeners) listener(message);
   }
 
   #track(message: InboundMessage): void {

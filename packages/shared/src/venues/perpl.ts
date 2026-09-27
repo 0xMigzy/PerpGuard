@@ -16,7 +16,8 @@ import {
   type OrderUpdateEntry,
 } from './perpl-orders.ts';
 import type { ApiSecret } from './perpl-signing.ts';
-import { PerplTradingSocket, type Logger } from './perpl-trading-socket.ts';
+import type { Logger } from './perpl-socket.ts';
+import { PerplTradingSocket } from './perpl-trading-socket.ts';
 import type {
   ActionAvailability,
   ActionResult,
