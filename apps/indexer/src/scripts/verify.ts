@@ -106,19 +106,60 @@ record(
   `${rate.rows[0].bad} trader(s) inconsistent`,
 );
 
-const openCount = await db.query(
+// Open-position counters, checked on ALL THREE entities that carry one.
+//
+// This check used to cover Market alone, and Exchange.openPositionCount sat at
+// 0 through 20.8M events because nothing ever incremented it: Market and Trader
+// were threaded through the position lifecycle and Exchange was not. The bug
+// was invisible for exactly as long as the verification was partial. So when
+// the same quantity is counted in more than one place, every copy gets checked
+// against the rows -- not one of them, and not against each other.
+
+const marketOpen = await db.query(
   `select m.name, m."openPositionCount" as counted,
           (select count(*) from "Position" p
              where p.market_id = m.id and p.status = 'OPEN')::int as actual
      from "Market" m`,
 );
-const openBad = openCount.rows.filter((r) => Number(r.counted) !== Number(r.actual));
+const marketBad = marketOpen.rows.filter((r) => Number(r.counted) !== Number(r.actual));
 record(
   "Market.openPositionCount matches the open Position rows",
-  openBad.length === 0,
-  openBad.length === 0
-    ? "all markets agree"
-    : openBad.map((r) => `${r.name}: counter ${r.counted} vs ${r.actual} rows`).join(", "),
+  marketBad.length === 0,
+  marketBad.length === 0
+    ? `${marketOpen.rows.length} markets agree`
+    : marketBad.map((r) => `${r.name}: counter ${r.counted} vs ${r.actual} rows`).join(", "),
+);
+
+const traderOpen = await db.query(
+  `select t.id, t."openPositionCount" as counted,
+          coalesce(p.actual, 0)::int as actual
+     from "Trader" t
+     left join (select trader_id, count(*)::int as actual from "Position"
+                 where status = 'OPEN' group by trader_id) p on p.trader_id = t.id
+    where t."openPositionCount" <> coalesce(p.actual, 0)`,
+);
+record(
+  "Trader.openPositionCount matches the open Position rows",
+  traderOpen.rows.length === 0,
+  traderOpen.rows.length === 0
+    ? "every trader agrees"
+    : traderOpen.rows
+        .slice(0, 5)
+        .map((r) => `account ${r.id}: counter ${r.counted} vs ${r.actual} rows`)
+        .join(", ") + (traderOpen.rows.length > 5 ? ` (+${traderOpen.rows.length - 5} more)` : ""),
+);
+
+const exchangeOpen = await db.query(
+  `select (select "openPositionCount" from "Exchange") as counted,
+          (select count(*) from "Position" where status = 'OPEN')::int as actual`,
+);
+const eo = exchangeOpen.rows[0];
+record(
+  "Exchange.openPositionCount matches the open Position rows",
+  eo !== undefined && Number(eo.counted) === Number(eo.actual),
+  eo === undefined
+    ? "no Exchange row"
+    : `counter ${eo.counted} vs ${eo.actual} rows`,
 );
 
 // ── 3. the rescuable-liquidation figures are populated ──────────────────────

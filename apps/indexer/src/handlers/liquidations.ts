@@ -79,10 +79,13 @@ async function recordForcedExit(
   // A forced exit is not a match, but it does close a position, so it takes the
   // actor slot for any fill that follows it in the transaction.
   await claimTradeAndBecomeActor(context, meta, exit.perpId, exit.accountId);
+  // After loadMarket and loadTrader, both of which may have written Exchange.
+  const exchange = await loadExchange(context, meta);
 
   const side = sideOf(exit.positionType);
   const opened = await ensurePosition(
     context,
+    exchange,
     market,
     trader,
     {
@@ -97,9 +100,11 @@ async function recordForcedExit(
   );
   let position = opened.position;
   trader = opened.trader;
-  // ensurePosition may have written Market (adopting a position bumps its open
-  // count), so every later change must build on the copy it returned.
+  // ensurePosition may have written Market and Exchange (adopting a position
+  // bumps both open counts), so every later change must build on the copies it
+  // returned.
   const marketAfterAdopt = opened.market;
+  let nextExchange = opened.exchange;
 
   const depositBeforeCNS = position.depositCNS;
   const marginLostCNS =
@@ -210,6 +215,7 @@ async function recordForcedExit(
     const closed = await closePosition(
       context,
       position,
+      nextExchange,
       nextMarket,
       trader,
       { status: exit.closedStatus, forced: true },
@@ -217,6 +223,7 @@ async function recordForcedExit(
     );
     trader = closed.trader;
     nextMarket = closed.market;
+    nextExchange = closed.exchange;
   }
 
   const day = await loadMarketDay(context, nextMarket, meta);
@@ -242,18 +249,20 @@ async function recordForcedExit(
     losses: traderDay.losses + (exit.remainingLotLNS === 0n ? 1 : 0),
   });
 
-  const exchange = await loadExchange(context, meta);
+  // Built on nextExchange, the copy the position lifecycle returned -- NOT on a
+  // fresh loadExchange, which would drop the openPositionCount decrement that
+  // closePosition just made.
   context.Exchange.set({
-    ...exchange,
-    liquidationCount: exchange.liquidationCount + 1,
-    liquidatedNotionalCNS: exchange.liquidatedNotionalCNS + notionalCNS,
+    ...nextExchange,
+    liquidationCount: nextExchange.liquidationCount + 1,
+    liquidatedNotionalCNS: nextExchange.liquidatedNotionalCNS + notionalCNS,
     liquidationsWithSpareBalanceCount:
-      exchange.liquidationsWithSpareBalanceCount + (hadSpareBalance ? 1 : 0),
+      nextExchange.liquidationsWithSpareBalanceCount + (hadSpareBalance ? 1 : 0),
     rescuableLiquidationCount:
-      exchange.rescuableLiquidationCount + (wasRescuable === true ? 1 : 0),
-    spareBalanceAtLiquidationCNS: exchange.spareBalanceAtLiquidationCNS + freeBalanceBeforeCNS,
+      nextExchange.rescuableLiquidationCount + (wasRescuable === true ? 1 : 0),
+    spareBalanceAtLiquidationCNS: nextExchange.spareBalanceAtLiquidationCNS + freeBalanceBeforeCNS,
     liquidationsWithUnknownPositionCount:
-      exchange.liquidationsWithUnknownPositionCount + (marginToSurvive === undefined ? 1 : 0),
+      nextExchange.liquidationsWithUnknownPositionCount + (marginToSurvive === undefined ? 1 : 0),
     updatedBlock: meta.blockNumber,
   });
 }

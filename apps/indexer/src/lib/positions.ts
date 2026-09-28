@@ -9,7 +9,7 @@
  * copies. Nothing re-reads an entity it has already written, so two updates in
  * one handler can never lose each other.
  */
-import type { EvmOnEventContext, Market, MarketDay, Position, Trader } from "envio";
+import type { EvmOnEventContext, Exchange, Market, MarketDay, Position, Trader } from "envio";
 import { loadMarketDay, netPnl, withOiDelta, withOiObservation, withRoundTrip } from "./entities.ts";
 import type { EventMeta } from "./entities.ts";
 import { positionCursorId, positionId } from "./ids.ts";
@@ -43,6 +43,13 @@ export interface Changed {
   readonly position: Position;
   readonly market: Market;
   readonly trader: Trader;
+  /**
+   * The Exchange row, threaded through for the same reason Market and Trader
+   * are: a caller that changes it afterwards must build on the copy returned
+   * here, not on a fresh read. `openPositionCount` was silently stuck at 0 for
+   * exactly this reason -- it was the one counter nothing threaded.
+   */
+  readonly exchange: Exchange;
 }
 
 /**
@@ -53,6 +60,7 @@ export interface Changed {
  */
 export async function openPosition(
   context: Context,
+  exchange: Exchange,
   market: Market,
   trader: Trader,
   args: OpenArgs,
@@ -118,7 +126,17 @@ export async function openPosition(
   };
   context.Trader.set(nextTrader);
 
-  return { position, market: nextMarket, trader: nextTrader };
+  // Counted for an adopted position too, exactly as Market and Trader are: the
+  // row stands for a position that really is open, and the three counters are
+  // verified against each other and against the open rows.
+  const nextExchange: Exchange = {
+    ...exchange,
+    openPositionCount: exchange.openPositionCount + 1,
+    updatedBlock: meta.blockNumber,
+  };
+  context.Exchange.set(nextExchange);
+
+  return { position, market: nextMarket, trader: nextTrader, exchange: nextExchange };
 }
 
 /**
@@ -147,14 +165,15 @@ export async function livePosition(
  */
 export async function ensurePosition(
   context: Context,
+  exchange: Exchange,
   market: Market,
   trader: Trader,
   args: OpenArgs,
   meta: EventMeta,
 ): Promise<Changed> {
   const existing = await livePosition(context, market.perpId, trader.accountId);
-  if (existing) return { position: existing, market, trader };
-  return openPosition(context, market, trader, { ...args, adopted: true }, meta);
+  if (existing) return { position: existing, market, trader, exchange };
+  return openPosition(context, exchange, market, trader, { ...args, adopted: true }, meta);
 }
 
 export interface CloseArgs {
@@ -170,6 +189,7 @@ export interface CloseArgs {
 export async function closePosition(
   context: Context,
   position: Position,
+  exchange: Exchange,
   market: Market,
   trader: Trader,
   args: CloseArgs,
@@ -222,7 +242,14 @@ export async function closePosition(
   };
   context.Trader.set(nextTrader);
 
-  return { position: closed, market: nextMarket, trader: nextTrader };
+  const nextExchange: Exchange = {
+    ...exchange,
+    openPositionCount: Math.max(0, exchange.openPositionCount - 1),
+    updatedBlock: meta.blockNumber,
+  };
+  context.Exchange.set(nextExchange);
+
+  return { position: closed, market: nextMarket, trader: nextTrader, exchange: nextExchange };
 }
 
 /** Roll the day's open-interest observation after a size change. */

@@ -16,6 +16,7 @@
  */
 import { indexer } from "envio";
 import {
+  loadExchange,
   loadMarket,
   loadTrader,
   loadTraderDay,
@@ -33,9 +34,9 @@ import { markTraderActive } from "../lib/entities.ts";
 const fields = { transaction: ["hash"], block: ["timestamp"] } as const;
 
 /**
- * Shared prologue: load the market and trader, claim any maker fill in this
- * transaction that was waiting to learn its taker, and register this account as
- * the taker of any fill that follows.
+ * Shared prologue: load the exchange, market and trader, claim any maker fill
+ * in this transaction that was waiting to learn its taker, and register this
+ * account as the taker of any fill that follows.
  */
 async function enter(
   context: Parameters<typeof loadMarket>[0],
@@ -51,7 +52,12 @@ async function enter(
     const day = await context.MarketDay.get(`${perpId}-${meta.day.toISOString().slice(0, 10)}`);
     if (day) context.MarketDay.set({ ...day, activeTraderCount: day.activeTraderCount + 1 });
   }
-  return { market, trader };
+  // LAST, deliberately. loadMarket and loadTrader each bump a counter on the
+  // Exchange row when they create something, so a copy taken before them would
+  // be stale and the caller's write would silently drop marketCount or
+  // accountCount. Read it once everything that might touch it is done.
+  const exchange = await loadExchange(context, meta);
+  return { exchange, market, trader };
 }
 
 /** Record realized PnL and funding on the position, the trader and the day. */
@@ -105,7 +111,7 @@ async function realize(
 for (const event of ["PositionOpenedV2", "PositionOpened"] as const) {
   indexer.onEvent({ contract: "Exchange", event, fields }, async ({ event, context }) => {
     const meta = metaOf(event);
-    const { market, trader } = await enter(
+    const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
       event.params.accountId,
@@ -113,6 +119,7 @@ for (const event of ["PositionOpenedV2", "PositionOpened"] as const) {
     );
     await openPosition(
       context,
+      exchange,
       market,
       trader,
       {
@@ -134,7 +141,7 @@ for (const event of ["PositionIncreasedV2", "PositionIncreased"] as const) {
   indexer.onEvent({ contract: "Exchange", event, fields }, async ({ event, context }) => {
     const meta = metaOf(event);
     const side = sideOf(event.params.positionType);
-    const { market, trader } = await enter(
+    const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
       event.params.accountId,
@@ -151,7 +158,7 @@ for (const event of ["PositionIncreasedV2", "PositionIncreased"] as const) {
       leverageHdths: event.params.leverageHdths,
       entryPriceKnown: true,
     };
-    const opened = await ensurePosition(context, market, trader, adoptArgs, meta);
+    const opened = await ensurePosition(context, exchange, market, trader, adoptArgs, meta);
     // Deltas come from the contract's own start/end figures, not from what we
     // have stored. Every match moves both sides by the same number of lots, so
     // using the published delta is what keeps long == short exact.
@@ -201,7 +208,7 @@ indexer.onEvent(
   async ({ event, context }) => {
     const meta = metaOf(event);
     const side = sideOf(event.params.positionType);
-    const { market, trader } = await enter(
+    const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
       event.params.accountId,
@@ -209,6 +216,7 @@ indexer.onEvent(
     );
     const opened = await ensurePosition(
       context,
+      exchange,
       market,
       trader,
       {
@@ -258,7 +266,7 @@ indexer.onEvent(
   async ({ event, context }) => {
     const meta = metaOf(event);
     const side = sideOf(event.params.positionType);
-    const { market, trader } = await enter(
+    const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
       event.params.accountId,
@@ -269,6 +277,7 @@ indexer.onEvent(
     // the fill that follows in this transaction says how many lots were matched.
     const opened = await ensurePosition(
       context,
+      exchange,
       market,
       trader,
       {
@@ -302,6 +311,7 @@ indexer.onEvent(
     const closed = await closePosition(
       context,
       realized.position,
+      opened.exchange,
       opened.market,
       realized.trader,
       { status: "CLOSED", forced: false },
@@ -333,7 +343,7 @@ indexer.onEvent(
   { contract: "Exchange", event: "PositionInverted", fields },
   async ({ event, context }) => {
     const meta = metaOf(event);
-    const { market, trader } = await enter(
+    const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
       event.params.accountId,
@@ -344,6 +354,7 @@ indexer.onEvent(
 
     const opened = await ensurePosition(
       context,
+      exchange,
       market,
       trader,
       {
@@ -367,6 +378,7 @@ indexer.onEvent(
     const closed = await closePosition(
       context,
       realized.position,
+      opened.exchange,
       opened.market,
       realized.trader,
       { status: "CLOSED", forced: false },
@@ -375,6 +387,7 @@ indexer.onEvent(
 
     await openPosition(
       context,
+      closed.exchange,
       closed.market,
       closed.trader,
       {
