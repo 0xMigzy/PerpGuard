@@ -127,13 +127,20 @@ run with the feed perfectly healthy. Staleness means "this price is old", not
 "the feed is broken", and the UI needs to say so — worth deciding before the
 risk engine treats the two the same.
 
-### The 30-second outage
+### The 30-second outage (test double — superseded by the live run below)
 
 Run against a local test double that speaks the same protocol on the real
 mainnet market ids, **not** against the Perpl host — simulating the outage by
 firewalling the real host was not permitted in this environment. The client
 code, sockets, TCP resets, timers and backoff are all real; only the upstream
 is local. Timings below are from `scratchpad/outage.log`.
+
+**Superseded:** the same outage has since been run against the real mainnet
+host by cutting the machine's network — see
+[the live outage run](#2026-09-28--live-mainnet-outage-real-network-30s-wifi-cut).
+That run is the evidence for the submission; this one is kept because its
+millisecond timings and the three failures it exposed are what the
+implementation was built against.
 
 | t | event |
 | --- | --- |
@@ -208,3 +215,51 @@ only in what the UI may claim. A feed keeps calling itself `reconnecting` for
 60s and then admits `disconnected`, because "reconnecting…" for ten minutes
 while a monitor is blind is the kind of reassuring lie this product cannot
 afford. It keeps retrying either way.
+
+## 2026-09-28 — live mainnet outage: real network, 30s wifi cut
+
+The outage test re-run against the **real Perpl mainnet host**, with the outage
+caused by physically cutting the machine's wifi rather than by a local test
+double. **This is the run that replaces the test-double outage run above**: the
+upstream is now Perpl's own `wss://app.perpl.xyz/ws/v1/market-data`, so the DNS
+failures, TCP resets and real reconnect handshake are all against production
+infrastructure.
+
+| | |
+| --- | --- |
+| network | Perpl **mainnet**, chain **143** |
+| socket | `wss://app.perpl.xyz/ws/v1/market-data` (real host) |
+| outage | wifi disabled at the OS level for **~30s** |
+| observed by | `pnpm prices` status line, watched live by the operator |
+
+| phase | what the feed reported |
+| --- | --- |
+| wifi down | `feed=RECONNECTING`, every market **BLOCKED** |
+| wifi still down | stayed `RECONNECTING` and blocked for the whole ~30s |
+| wifi back | recovered to `feed=CONNECTED` **within a few seconds** |
+| after recovery | prices ticking again, ages back to fresh, nothing blocked |
+
+### What this run proves that the test double could not
+
+- The reconnect path works against Perpl's real websocket endpoint, including a
+  real TLS and subscribe handshake after the interface came back — not just
+  against a loopback server we wrote.
+- Losing the network mid-run is detected and surfaced as `RECONNECTING`, and
+  **every market is blocked for the entire outage**, so no action could have
+  been taken on a frozen price. This is the rule from the quiet-market entry
+  holding on the real network: the prices on screen looked recent, and were
+  refused anyway because the connection, not the age, is the gate.
+- The monitor never looked healthy while it was blind. The status line said
+  `RECONNECTING` and stayed saying it, which is what the product rule requires.
+- Recovery is automatic and fast — no restart, no manual resubscribe — and the
+  post-recovery prices are fresh rather than the pre-outage values replayed.
+
+### Precision of this entry
+
+The timings here are as observed on the status line, not parsed from a log: no
+log file was captured for this run, and the ~30s outage and "within a few
+seconds" recovery are the operator's reading rather than measured intervals.
+The millisecond figures worth quoting — 8ms to notice the close, the backoff
+ladder, the 1.9s recovery, the 11955ms stall detection — remain the test-double
+run's, where the log exists. What this run adds is that the same behaviour holds
+against the real host under a real network failure.
