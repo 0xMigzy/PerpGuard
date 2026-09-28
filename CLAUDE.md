@@ -62,8 +62,11 @@ warns before liquidation, and lets the user add margin or close in one tap.
   `TakerOrderFilled`, `OrderRequest`, `ContractAdded`, plus `MakerFeeUpdated`,
   `TakerFeeUpdated`, `RecycleFeeToAccount`, `AdminChanged`, `BeaconUpgraded`.
   Read the V2 forms for anything current, and keep the V1 forms decodable: mainnet
-  history still contains them, and 5 of the 9 live markets were listed with V1
-  `ContractAdded` rather than `ContractAddedV2`. 16 function selectors are likewise
+  history still contains them, and only 4 of the 10 live markets were listed with
+  `ContractAddedV2` at all — the other 6 used V1 `ContractAdded`, and none of the
+  listings fall inside a recent start window, so `apps/indexer` reads a market's
+  scaling off the contract rather than relying on either event being in range.
+  16 function selectors are likewise
   absent (`execOrder*`, `liquidation*`, `execFwdPositionOps*`, `getPerpetualInfo`,
   `setAccountFeeTiers`) — do not call those on mainnet off this ABI.
   See `apps/indexer/abis/README.md` for provenance and

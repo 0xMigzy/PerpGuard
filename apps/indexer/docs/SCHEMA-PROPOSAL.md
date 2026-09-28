@@ -1,10 +1,12 @@
-# apps/indexer — schema proposal (awaiting approval)
+# apps/indexer — schema proposal (APPROVED, implemented)
 
 Target: Envio HyperIndex against the Perpl Exchange proxy
 `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` on **Monad mainnet, chain 143**
 (read-only analytics network, per CLAUDE.md).
 
-Nothing here is implemented yet. No `config.yaml`, no handlers.
+**Status: approved and built.** `config.yaml`, `schema.graphql` and the handlers
+are in place and running. What the schema below says still holds; §8 records the
+five places reality moved it, and §6's open questions are resolved in §9.
 
 ---
 
@@ -574,3 +576,90 @@ handler. It is not reimplemented in the indexer.
    function in `packages/shared`, unit-tested against `fixtures/position1.json`.
 
 Each step is a commit with its verification output pasted in, per CLAUDE.md.
+
+---
+
+## 8. Where the built schema differs from this proposal
+
+Five changes, all forced by what mainnet actually emits.
+
+**Open interest is a signed delta series, not a level.** `longLotsLNS` /
+`shortLotsLNS` / `openInterestLNS` became `longLotsDeltaLNS` /
+`shortLotsDeltaLNS` / `openInterestDeltaLNS`. There is no exact anchor available
+at our start block: the public RPC serves archive state only a few days back, and
+`eth_call` at block 100,000,000 is rejected outright. An approximate anchor would
+have broken the long == short check, which is the one thing that makes a handler
+bug visible, so the series starts at zero and carries only real deltas. Absolute
+open interest comes from the venue's own market state. The day buckets follow:
+`oiDeltaOpenLNS` and friends.
+
+**`Position.lotKnown`.** A full close emits ONLY `PositionClosed`, and that event
+publishes no lot figure at all. A position first seen there has an unknown size,
+so it contributes nothing to the open-interest series until the fill that follows
+it in the same transaction supplies the lots. `Market.oiUnverifiedCloseCount`
+counts any that are still unresolved, so long == short is exact whenever it is
+zero rather than approximately true.
+
+**`Position.entryPriceKnown`.** `PositionDecreased` carries no price, so a
+position first seen decreasing has no entry price and `marginToSurviveCNS` and
+`wasRescuable` are null on any liquidation of it. `PositionIncreasedV2` does
+publish the blended entry, so a position adopted there keeps a real entry price.
+
+**`Liquidation.hadSpareBalance` joined `wasRescuable`.** `wasRescuable` is the
+strong claim and is null when the entry price is unknown; `hadSpareBalance` is
+always computable and never null, so the headline never has a hole. Both are
+counted on `Exchange`, `Market`, `MarketDay` and `Trader`, and
+`Exchange.liquidationsWithUnknownPositionCount` keeps the gap visible.
+
+**`TxScope` and `Exchange.unattributedTakerFeeCNS`.** `TakerOrderFilledV2` names
+no account, so the taker is whoever the preceding position event belonged to;
+`TxScope` is the per-transaction scratch row that joins them, and also recovers
+unsized closes. When no join is possible the fee lands in
+`unattributedTakerFeeCNS` instead of being dropped.
+
+Fees are taken from the fill events only. `insFeeCNS` + `protFeeCNS` on a
+position event is the taker fee decomposed — 3150 + 17848 exactly equals the
+20998 on the matching `TakerOrderFilledV2` — so counting both would double count.
+
+---
+
+## 9. The open questions, resolved
+
+1. **`Trade.taker`** — shipped nullable with the transaction-scope heuristic, not
+   validated over thousands of transactions. A null is honest.
+2. **Backfill depth** — a recent window, `ENVIO_PERPGUARD_START_BLOCK`, default
+   100,000,000 (~30 days). Measured rate on this box is ~15,200 blocks/min, so a
+   full 30-day backfill is about 9 hours; it runs once. For reference, the full
+   history the scan measured, across all 53.8M blocks:
+
+   | event | count |
+   | - | - |
+   | `PositionIncreasedV2` | 11,195,216 |
+   | `MakerOrderFilledV2` | 8,713,152 |
+   | `PositionDecreased` | 8,598,428 |
+   | `PositionClosed` | 6,568,145 |
+   | `PositionOpenedV2` | 6,192,462 |
+   | `TakerOrderFilledV2` | 5,448,175 |
+   | `PositionInverted` | 662,136 |
+   | `FundingEventCompleted` | 35,424 |
+   | `CollateralDeposit` | 15,270 |
+   | `IncreasePositionCollateral` | 15,090 |
+   | `CollateralWithdrawal` | 10,927 |
+   | `OrderForwardingUpdated` | 5,351 |
+   | `AccountCreated` | 5,341 |
+   | `PositionLiquidated` | 3,388 |
+   | `ContractPaused` | 18 |
+   | `PositionDeleveragedV2` | 11 |
+   | `ContractAddedV2` | 4 |
+   | `PositionUnwoundV2`, `PositionLiquidationCredit`, `PositionCollateralDecreased`, `CollateralDecreaseRequested`, `ContractRemoved`, `ExchangeHalted`, `BuyToLiquidate*` | 0 |
+
+   `AccountCreated` = 5,341 matches `numberOfAccounts()` on chain exactly, which
+   is a useful independent check on the scan itself. Note `ContractAddedV2` = 4
+   against 10 live markets: the other six were listed with the V1 form, which is
+   why market scaling is bootstrapped from the contract.
+3. **No Docker** — local Postgres instead, one database for the indexer and the
+   backend. Hasura is not running, so `ENVIO_HASURA=false`; the GraphQL layer
+   comes with the Envio Cloud deployment. Indexing is unaffected.
+4. **Venue rule** — added to CLAUDE.md as an amendment: `apps/indexer` is a
+   venue-specific data source, and consumers go through a venue-agnostic
+   analytics interface in `packages/shared`.
