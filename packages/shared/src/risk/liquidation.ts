@@ -21,6 +21,7 @@
  * None of those exponents may be hard-coded; they are read from the market.
  */
 
+import { numberToScaled } from '../units.ts';
 import { type Side, sideSign } from '../venues/types.ts';
 
 /** The three scaling exponents a market's raw integers are expressed in. */
@@ -153,36 +154,80 @@ export function liquidationPricePNS(
   return position.entryPricePNS + s(position.side) * deltaPNS;
 }
 
+/** Scale used to carry a caller-supplied fraction into integer maths. */
+const FRACTION_DECIMALS = 9;
+
 /**
- * The extra collateral that would have to be added to THIS position for it to
- * sit exactly at its maintenance margin at `markPricePNS`. Zero when the
- * position is already above maintenance.
+ * The mark price a position would have to be liquidated at for its liquidation
+ * price to sit `bufferFraction` away from the CURRENT mark.
+ *
+ *   P_target = P_Mark * (1 - s * b)
+ *
+ * so a long's target sits below the mark and a short's above it, which is the
+ * direction each one is in danger from.
+ */
+function targetLiquidationPricePNS(
+  markPricePNS: bigint,
+  side: Side,
+  bufferFraction: number,
+): bigint {
+  if (!Number.isFinite(bufferFraction) || bufferFraction < 0) {
+    throw new RangeError(`bufferFraction must be a non-negative number, got ${bufferFraction}`);
+  }
+  // FLOAT BOUNDARY: the caller's fraction is rounded to 9 decimal places once,
+  // here, and everything after it is integer.
+  const scaled = numberToScaled(bufferFraction, FRACTION_DECIMALS);
+  const offsetPNS = (markPricePNS * scaled) / pow10(FRACTION_DECIMALS);
+  return markPricePNS - s(side) * offsetPNS;
+}
+
+/**
+ * The extra collateral this position needs for its liquidation price to sit
+ * `bufferFraction` away from `markPricePNS`. Zero when it is already there.
+ *
+ *   X = C_MMR - C_Funding - C_Deposit - s * L * (P_target - P_Entry)
+ *
+ * At `bufferFraction` 0 the target is the mark itself and this collapses to
  *
  *   X = C_MMR - uPnl - C_Funding - C_Deposit
  *
- * This is the number behind PerpGuard's "add margin" button, and behind the
- * claim that a liquidation was avoidable. It is a floor, not a cushion: adding
- * exactly this much leaves the position AT the liquidation threshold, so a
- * caller offering the trader a survivable top-up should add a buffer.
+ * which is `marginToSurviveCNS` below. That is the number behind the claim that
+ * a liquidation was avoidable; a non-zero buffer is what the rescue button uses,
+ * because surviving *at* the threshold is not surviving for long.
  */
-export function marginToSurviveCNS(
+export function marginToReachBufferCNS(
   position: IsolatedPosition,
   markPricePNS: bigint,
+  bufferFraction: number,
   scale: MarketScale,
 ): bigint {
+  if (position.lotLNS === 0n) return 0n;
   const mmrCNS = maintenanceMarginCNS(
     position.entryPricePNS,
     position.lotLNS,
     position.maintMarginFracHdths,
     scale,
   );
-  const uPnlCNS = unrealizedPnlCNS(
-    position.side,
-    position.lotLNS,
-    position.entryPricePNS,
-    markPricePNS,
-    scale,
-  );
-  const needed = mmrCNS - uPnlCNS - position.fundingCNS - position.depositCNS;
+  const targetPNS = targetLiquidationPricePNS(markPricePNS, position.side, bufferFraction);
+  const gapCNS =
+    s(position.side) * notionalCNS(targetPNS - position.entryPricePNS, position.lotLNS, scale);
+  const needed = mmrCNS - position.fundingCNS - position.depositCNS - gapCNS;
   return needed > 0n ? needed : 0n;
+}
+
+/**
+ * The extra collateral that would have to be added to THIS position for it to
+ * sit exactly at its maintenance margin at `markPricePNS`. Zero when the
+ * position is already above maintenance.
+ *
+ * It is a floor, not a cushion: adding exactly this much leaves the position AT
+ * the liquidation threshold, so a caller offering the trader a survivable top-up
+ * wants `marginToReachBufferCNS` with a real buffer instead.
+ */
+export function marginToSurviveCNS(
+  position: IsolatedPosition,
+  markPricePNS: bigint,
+  scale: MarketScale,
+): bigint {
+  return marginToReachBufferCNS(position, markPricePNS, 0, scale);
 }
