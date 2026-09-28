@@ -49,6 +49,35 @@ const DEFAULT_PING_INTERVAL_MS = 30_000;
  */
 const DEFAULT_STABLE_AFTER_MS = 10_000;
 
+/** Enough for a connect, its subscribe, and a run of gap-driven resubscribes. */
+const STATUS_LOG_LIMIT = 16;
+
+/**
+ * Silence that means the connection is dead, even though TCP has not noticed.
+ *
+ * A dropped route — a cut cable, a blackholed host, a laptop that slept — does
+ * not produce a close event. The socket stays "open" and delivers nothing
+ * while TCP retransmits for minutes. Measured against mainnet, frames arrive
+ * every ~165ms (p95 402ms, max 543ms) because the heartbeat stream alone ticks
+ * several times a second, so ten seconds of total silence is ~20x the worst
+ * healthy gap and cannot happen on a live connection.
+ *
+ * This is the failure a price monitor must not sit through quietly: isStale()
+ * would correctly report the prices as stale, but nothing would ever go and
+ * reconnect.
+ */
+const DEFAULT_STALL_TIMEOUT_MS = 10_000;
+
+/**
+ * How long to let a handshake hang before calling the attempt failed.
+ *
+ * Reconnecting into a blackholed route means the SYN is dropped, and Linux
+ * will retry it for roughly two minutes before reporting anything. Without
+ * this the feed sits in a "connecting" limbo long after the network came
+ * back, which is indistinguishable from being broken.
+ */
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+
 /** Exponential backoff, bounded. Defaults chosen for the documented limits. */
 export interface BackoffPolicy {
   /** Delay before the first retry. */
@@ -121,6 +150,13 @@ export interface MarketDataSocketOptions {
   readonly pingIntervalMs?: number;
   readonly backoff?: Partial<BackoffPolicy>;
   readonly stableAfterMs?: number;
+  /**
+   * Treat the connection as dead after this much total silence. Set to 0 to
+   * disable the watchdog.
+   */
+  readonly stallTimeoutMs?: number;
+  /** Give up on a handshake that never completes. See connectTimeoutMs. */
+  readonly connectTimeoutMs?: number;
   readonly now?: () => number;
   /** Injectable so the backoff schedule is testable. */
   readonly random?: () => number;
@@ -135,12 +171,21 @@ export class PerplMarketDataSocket {
   readonly #random: () => number;
   readonly #backoff: BackoffPolicy;
   readonly #stableAfterMs: number;
+  readonly #stallTimeoutMs: number;
   readonly #markets = new Map<number, MarketDescriptor>();
 
   readonly #priceListeners = new Set<(update: PriceUpdate) => void>();
   readonly #statusListeners = new Set<(status: FeedStatus) => void>();
   /** The most recent update per market id — the per-market lastUpdate stamp. */
   readonly #latest = new Map<number, PriceUpdate>();
+  /**
+   * Status events for the current connection, replayed to late subscribers.
+   *
+   * Connecting and subscribing both happen inside start(), so a caller that
+   * registers a listener afterwards would otherwise never learn the feed came
+   * up — it would see only the next drop.
+   */
+  readonly #statusLog: FeedStatus[] = [];
 
   #conn: PerplSocketConnection | undefined;
   #started = false;
@@ -148,6 +193,8 @@ export class PerplMarketDataSocket {
   #attempt = 0;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   #stableTimer: ReturnType<typeof setTimeout> | undefined;
+  #stallTimer: ReturnType<typeof setInterval> | undefined;
+  #lastFrameAtMs = 0;
   #headBlock: number | undefined;
   #lastSn: number | undefined;
 
@@ -158,6 +205,7 @@ export class PerplMarketDataSocket {
     this.#random = options.random ?? Math.random;
     this.#backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
     this.#stableAfterMs = options.stableAfterMs ?? DEFAULT_STABLE_AFTER_MS;
+    this.#stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
     for (const market of options.markets) this.#markets.set(market.marketId, market);
   }
 
@@ -195,7 +243,13 @@ export class PerplMarketDataSocket {
     return () => this.#priceListeners.delete(listener);
   }
 
+  /**
+   * Observe feed health. A new listener is immediately replayed the status of
+   * the current connection, so registering late still tells you where things
+   * stand rather than leaving you guessing until the next event.
+   */
   onStatus(listener: (status: FeedStatus) => void): () => void {
+    for (const status of this.#statusLog) listener(status);
     this.#statusListeners.add(listener);
     return () => this.#statusListeners.delete(listener);
   }
@@ -233,6 +287,7 @@ export class PerplMarketDataSocket {
       ...(options.verbose === undefined ? {} : { verbose: options.verbose }),
       ...(options.now === undefined ? {} : { now: options.now }),
       ...(options.webSocketImpl === undefined ? {} : { webSocketImpl: options.webSocketImpl }),
+      connectTimeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
     });
     this.#conn = conn;
 
@@ -253,6 +308,8 @@ export class PerplMarketDataSocket {
       this.#attempt = 0;
     }, this.#stableAfterMs);
     this.#stableTimer.unref?.();
+
+    this.#armStallWatchdog();
   }
 
   /**
@@ -276,6 +333,7 @@ export class PerplMarketDataSocket {
     if (!this.#started || this.#stopped) return;
     if (this.#stableTimer !== undefined) clearTimeout(this.#stableTimer);
     this.#stableTimer = undefined;
+    this.#stopStallWatchdog();
     if (this.#reconnectTimer !== undefined) return;
 
     this.#attempt += 1;
@@ -307,18 +365,58 @@ export class PerplMarketDataSocket {
     }
   }
 
+  /**
+   * Watch for total silence and force a reconnect.
+   *
+   * Polls rather than resetting a timer on every frame: frames arrive several
+   * times a second, and re-arming a timeout that often is pure churn.
+   */
+  #armStallWatchdog(): void {
+    this.#stopStallWatchdog();
+    if (this.#stallTimeoutMs <= 0) return;
+
+    this.#lastFrameAtMs = this.#now();
+    const tick = Math.max(1, Math.floor(this.#stallTimeoutMs / 2));
+    this.#stallTimer = setInterval(() => {
+      const silentFor = this.#now() - this.#lastFrameAtMs;
+      if (silentFor < this.#stallTimeoutMs) return;
+
+      this.#logger.warn(
+        `no market-data frames for ${silentFor}ms — the connection is open but dead. ` +
+          `Dropping it so the reconnect path can take over.`,
+      );
+      this.#stopStallWatchdog();
+      // Closing routes into the normal disconnect path, backoff and all.
+      this.#conn?.close(`stalled: no frames for ${silentFor}ms`);
+    }, tick);
+    this.#stallTimer.unref?.();
+  }
+
+  #stopStallWatchdog(): void {
+    if (this.#stallTimer !== undefined) clearInterval(this.#stallTimer);
+    this.#stallTimer = undefined;
+  }
+
   #clearTimers(): void {
     if (this.#reconnectTimer !== undefined) clearTimeout(this.#reconnectTimer);
     if (this.#stableTimer !== undefined) clearTimeout(this.#stableTimer);
     this.#reconnectTimer = undefined;
     this.#stableTimer = undefined;
+    this.#stopStallWatchdog();
   }
 
   #emitStatus(status: FeedStatus): void {
+    // A fresh connection supersedes whatever the last one was doing.
+    if (status.kind === 'connected') this.#statusLog.length = 0;
+    this.#statusLog.push(status);
+    if (this.#statusLog.length > STATUS_LOG_LIMIT) this.#statusLog.shift();
     for (const listener of this.#statusListeners) listener(status);
   }
 
   #onFrame(message: InboundMessage): void {
+    // Any frame at all is proof of life, including ones we do not decode.
+    this.#lastFrameAtMs = this.#now();
+
     const mt = message['mt'];
     if (mt === MT.MarketStateUpdate) {
       this.#onMarketState(message);

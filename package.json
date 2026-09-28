@@ -9,6 +9,7 @@
     "typecheck": "pnpm -r --no-bail typecheck && tsc --noEmit -p tsconfig.json",
     "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\"",
     "markets": "node apps/backend/src/scripts/print-markets.ts",
+    "prices": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-prices.ts",
     "order:test": "node --env-file-if-exists=.env scripts/placeTestOrder.ts"
   },
   "devDependencies": {

@@ -406,3 +406,146 @@ describe('PerplMarketDataSocket reconnection', () => {
     assert.equal(FakeSocket.created, 1, 'a startup failure must not retry behind the caller');
   });
 });
+
+describe('PerplMarketDataSocket status replay', () => {
+  it('tells a late subscriber the feed is already up', async () => {
+    const { socket } = await started();
+
+    // start() connects and subscribes before any caller can register, so a
+    // listener added afterwards must still learn the current state.
+    const seen: FeedStatus[] = [];
+    socket.onStatus((status) => seen.push(status));
+
+    assert.deepEqual(
+      seen.map((s) => s.kind),
+      ['connected', 'subscribed'],
+    );
+    socket.close();
+  });
+
+  it('replays the outage, not a stale connected, while down', async () => {
+    const { socket, fake } = await started();
+    fake.serverClose();
+
+    const seen: FeedStatus[] = [];
+    socket.onStatus((status) => seen.push(status));
+    assert.equal(seen.at(-1)?.kind, 'disconnected');
+
+    socket.close();
+  });
+});
+
+describe('PerplMarketDataSocket stall watchdog', () => {
+  /** A connection that goes silent without ever closing — a blackholed route. */
+  async function stalling(): Promise<Harness> {
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 1, maxMs: 2, factor: 2, jitter: 0 },
+      stableAfterMs: 10_000,
+      stallTimeoutMs: 20,
+    });
+    const statuses: FeedStatus[] = [];
+    socket.onStatus((status) => statuses.push(status));
+    const starting = socket.start();
+    const fake = FakeSocket.requireLast();
+    fake.open();
+    await starting;
+    return { socket, fake, prices: [], statuses };
+  }
+
+  it('reconnects when an open connection goes silent', async () => {
+    const { socket, statuses } = await stalling();
+
+    // The socket never closes — it just stops delivering, the way a dropped
+    // route behaves. Nothing else would ever notice.
+    await waitFor(() => FakeSocket.created === 2, 'the stalled connection to be replaced');
+
+    const dropped = statuses.find((s) => s.kind === 'disconnected');
+    assert.ok(dropped);
+    assert.match(dropped.error.message, /stalled: no frames/);
+
+    FakeSocket.requireLast().open();
+    await waitFor(() => socket.connected, 'the feed to recover');
+    socket.close();
+  });
+
+  it('does not fire while frames keep arriving', async () => {
+    const { socket, fake } = await stalling();
+
+    for (let i = 0; i < 8; i += 1) {
+      fake.deliver({ mt: 100, sn: i + 1, h: 100 + i });
+      await sleep(5);
+    }
+    assert.equal(FakeSocket.created, 1, 'a live connection must not be dropped');
+
+    socket.close();
+  });
+
+  it('can be disabled', async () => {
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      stallTimeoutMs: 0,
+    });
+    const starting = socket.start();
+    FakeSocket.requireLast().open();
+    await starting;
+
+    await sleep(30);
+    assert.equal(FakeSocket.created, 1);
+    socket.close();
+  });
+});
+
+describe('PerplMarketDataSocket connect timeout', () => {
+  it('gives up on a handshake that never completes and retries', async () => {
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 1, maxMs: 2, factor: 2, jitter: 0 },
+      connectTimeoutMs: 15,
+      stallTimeoutMs: 0,
+    });
+
+    // Never call open(): a blackholed route swallows the SYN, so the socket
+    // neither opens nor closes.
+    const starting = socket.start();
+    await assert.rejects(starting, /handshake did not complete within 15ms/);
+
+    socket.close();
+  });
+
+  it('a mid-life reconnect that hangs still backs off instead of stalling', async () => {
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 1, maxMs: 2, factor: 2, jitter: 0 },
+      connectTimeoutMs: 15,
+      stallTimeoutMs: 0,
+      stableAfterMs: 10_000,
+    });
+    const starting = socket.start();
+    FakeSocket.requireLast().open();
+    await starting;
+
+    // Drop it, and let every replacement hang rather than open.
+    FakeSocket.requireLast().serverClose();
+    await waitFor(() => FakeSocket.created === 2, 'a second attempt');
+    await waitFor(() => FakeSocket.created === 3, 'a third attempt after the timeout', 2000);
+    assert.ok(socket.reconnectAttempt >= 2, 'the backoff keeps climbing through hung attempts');
+
+    socket.close();
+  });
+});

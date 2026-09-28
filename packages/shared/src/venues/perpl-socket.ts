@@ -60,6 +60,13 @@ export interface SocketConnectionOptions {
    * not own — so the transport does not guess.
    */
   readonly failedToProcessHint?: string;
+  /**
+   * Give up on an unfinished handshake after this long. 0 (the default) waits
+   * for the OS, which on a blackholed route means minutes of SYN retries.
+   * Anything that reconnects should set it, so a dead attempt fails fast and
+   * the retry policy — not the TCP stack — decides when to try again.
+   */
+  readonly connectTimeoutMs?: number;
   readonly now?: () => number;
   /** Injectable for tests. Defaults to the global WebSocket Node ships. */
   readonly webSocketImpl?: typeof WebSocket;
@@ -173,14 +180,28 @@ export class PerplSocketConnection {
       this.#onClosed(new VenueRequestError(this.#options.venueId, url, 'websocket error'));
     });
 
+    const connectTimeoutMs = this.#options.connectTimeoutMs ?? 0;
+
     await new Promise<void>((resolve, reject) => {
       const settle = (action: () => void): void => {
+        if (timer !== undefined) clearTimeout(timer);
         ws.removeEventListener('open', onOpen);
         this.#closeWaiters.delete(onClosedDuringHandshake);
         action();
       };
       const onOpen = (): void => settle(resolve);
       const onClosedDuringHandshake = (error: Error): void => settle(() => reject(error));
+
+      // close() routes through #onClosed, so the timeout rejects this promise
+      // AND tells everyone watching the connection — one path, not two.
+      const timer =
+        connectTimeoutMs > 0
+          ? setTimeout(() => {
+              this.close(`handshake did not complete within ${connectTimeoutMs}ms`);
+            }, connectTimeoutMs)
+          : undefined;
+      // Deliberately not unref'd: a real socket keeps the loop alive through
+      // its own handshake anyway, and the timer is always cleared on settle.
 
       ws.addEventListener('open', onOpen);
       this.#closeWaiters.add(onClosedDuringHandshake);
