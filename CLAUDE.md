@@ -106,7 +106,26 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   route the action to the analytics network instead. This is a permanent
   product rule, not a demo workaround — a trader whose venue has halted a
   market is exactly the trader who most needs the warning.
-- Never act on price data older than `STALE_MS`. Show staleness in the UI.
+- Connection health and price age are SEPARATE questions, and `isStale` alone
+  must never gate an action. On Perpl a mark price only changes when it moves,
+  so a market nobody has traded for a minute has a minute-old price that is the
+  venue's current truth. That is a QUIET MARKET, not a broken feed.
+  - Ask the feed `feedStatus()` for connection health: `connected` /
+    `reconnecting` / `disconnected`.
+  - Ask `lastUpdate` / `ageMs` for how old one market's price is.
+  - REFUSE TO ACT when the feed is not `connected`. Every price we hold is then
+    frozen at whatever it was when the connection died, and the real market may
+    have moved arbitrarily far since. Age cannot detect this — for the first
+    few seconds a frozen price looks exactly like a fresh one.
+  - KEEP WORKING NORMALLY on a quiet market whose price is merely old. Show the
+    age; do not block on it, and never render a quiet market as a broken feed.
+  - `STALE_MS` labels a price as old for the UI. It is not an action gate.
+  Use `MarketFeed.canAct(marketId, feedStatus())`, which encodes exactly this.
+- When the feed is down, keep monitoring, keep the last known state visible,
+  and say plainly that the feed is down. A risk monitor that has gone blind
+  must never look healthy — that is the same principle as the action
+  availability rule above: the trader whose data we have lost is the one most
+  exposed.
 - Prefer small, tested modules over large files.
 
 ## Working style

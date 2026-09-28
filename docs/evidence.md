@@ -170,3 +170,41 @@ feed stayed dark **~25s after connectivity was already back**, because the
 delay had grown past the outage. The ceiling is the worst-case blind window
 after recovery, not a tuning knob, so it is now 10s — at most six attempts a
 minute, far inside the documented ~5 connections per IP.
+
+## 2026-09-28 — a quiet market is not a broken feed
+
+`isStale()` conflated two different questions, so a caller could not tell "this
+price is correct but old" from "we have lost the connection". Connection health
+is now asked separately, via `feedStatus()` → `connected` / `reconnecting` /
+`disconnected`, and `MarketFeed.canAct(marketId, feedStatus())` is the only
+action gate. Both halves verified.
+
+**Old price, healthy feed → actionable.** Live mainnet, `STALE_MS=1500` to
+surface quiet markets inside a short run:
+
+```
+[00:30:59.400] feed=CONNECTED 18 ticks | BTC 84,702.30 184ms | ETH 2,696.60 8827ms quiet | SOL 122.61 4026ms quiet
+[00:31:02.403] feed=CONNECTED 23 ticks | BTC 84,702.30 2467ms quiet | ETH 2,696.60 432ms | SOL 122.61 33ms
+```
+
+ETH's price was **10.8s old** and never blocked: nobody had traded it, so that
+was the venue's current mark. **0 BLOCKED lines in the whole run.** ETH then
+ticked and its age dropped back to 432ms on its own.
+
+**Fresh-looking price, dead feed → refused.** From the outage run, the moment
+the connection dropped:
+
+```
+[00:28:10.705] DISCONNECTED (socket closed with 1006) — retrying in 447ms, attempt 1
+[00:28:10.999] feed=RECONNECTING 81 ticks | BTC 84,383.50 494ms BLOCKED | ETH 2,693.15 495ms BLOCKED | SOL 121.91 495ms BLOCKED
+```
+
+The price was **494ms old** — by age alone, indistinguishable from perfectly
+healthy — and already frozen and unusable. This is the case age can never
+catch, and the reason connection health has to be a separate question.
+
+`reconnecting` blocks actions exactly as `disconnected` does; the two differ
+only in what the UI may claim. A feed keeps calling itself `reconnecting` for
+60s and then admits `disconnected`, because "reconnecting…" for ten minutes
+while a monitor is blind is the kind of reassuring lie this product cannot
+afford. It keeps retrying either way.

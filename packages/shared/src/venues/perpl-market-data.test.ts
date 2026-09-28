@@ -6,7 +6,7 @@ import {
   PerplMarketDataSocket,
   backoffDelayMs,
   toMarketDescriptor,
-  type FeedStatus,
+  type FeedEvent,
   type MarketDescriptor,
 } from './perpl-market-data.ts';
 import type { PriceUpdate, VenueMarket } from './types.ts';
@@ -85,7 +85,7 @@ interface Harness {
   socket: PerplMarketDataSocket;
   fake: FakeSocket;
   prices: PriceUpdate[];
-  statuses: FeedStatus[];
+  statuses: FeedEvent[];
 }
 
 async function started(
@@ -106,9 +106,9 @@ async function started(
   });
 
   const prices: PriceUpdate[] = [];
-  const statuses: FeedStatus[] = [];
+  const statuses: FeedEvent[] = [];
   socket.onPrice((update) => prices.push(update));
-  socket.onStatus((status) => statuses.push(status));
+  socket.onEvent((status) => statuses.push(status));
 
   const starting = socket.start();
   const fake = FakeSocket.requireLast();
@@ -413,8 +413,8 @@ describe('PerplMarketDataSocket status replay', () => {
 
     // start() connects and subscribes before any caller can register, so a
     // listener added afterwards must still learn the current state.
-    const seen: FeedStatus[] = [];
-    socket.onStatus((status) => seen.push(status));
+    const seen: FeedEvent[] = [];
+    socket.onEvent((status) => seen.push(status));
 
     assert.deepEqual(
       seen.map((s) => s.kind),
@@ -427,8 +427,8 @@ describe('PerplMarketDataSocket status replay', () => {
     const { socket, fake } = await started();
     fake.serverClose();
 
-    const seen: FeedStatus[] = [];
-    socket.onStatus((status) => seen.push(status));
+    const seen: FeedEvent[] = [];
+    socket.onEvent((status) => seen.push(status));
     assert.equal(seen.at(-1)?.kind, 'disconnected');
 
     socket.close();
@@ -448,8 +448,8 @@ describe('PerplMarketDataSocket stall watchdog', () => {
       stableAfterMs: 10_000,
       stallTimeoutMs: 20,
     });
-    const statuses: FeedStatus[] = [];
-    socket.onStatus((status) => statuses.push(status));
+    const statuses: FeedEvent[] = [];
+    socket.onEvent((status) => statuses.push(status));
     const starting = socket.start();
     const fake = FakeSocket.requireLast();
     fake.open();
@@ -617,5 +617,113 @@ describe('PerplMarketDataSocket stall watchdog: what counts as proof of life', (
       clearInterval(beats);
       socket.close();
     }
+  });
+});
+
+describe('PerplMarketDataSocket.feedStatus', () => {
+  it('is disconnected before anything has connected', () => {
+    FakeSocket.last = undefined;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+    const health = socket.feedStatus();
+    assert.equal(health.state, 'disconnected');
+    assert.equal(health.lastConnectedAtMs, undefined);
+    assert.match(health.reason ?? '', /has not connected yet/);
+  });
+
+  it('is connected once subscribed, and says since when', async () => {
+    const { socket } = await started();
+    const health = socket.feedStatus();
+    assert.equal(health.state, 'connected');
+    assert.equal(health.reconnectAttempt, 0);
+    assert.equal(health.reason, undefined, 'a healthy feed needs no excuse');
+    assert.ok((health.connectedSinceMs ?? 0) > 0);
+    assert.equal(health.downForMs, undefined);
+    socket.close();
+  });
+
+  it('is reconnecting immediately after a drop', async () => {
+    const { socket, fake } = await started();
+    fake.serverClose();
+
+    const health = socket.feedStatus();
+    assert.equal(health.state, 'reconnecting');
+    assert.equal(health.connectedSinceMs, undefined);
+    assert.ok((health.lastConnectedAtMs ?? 0) > 0, 'remembers when it was last healthy');
+    assert.ok((health.downForMs ?? -1) >= 0);
+    socket.close();
+  });
+
+  it('stops claiming to be reconnecting once it has been down too long', async () => {
+    let t = 1_000_000;
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 50_000, maxMs: 50_000, factor: 1, jitter: 0 },
+      stallTimeoutMs: 0,
+      disconnectedAfterMs: 60_000,
+      now: () => t,
+    });
+    const starting = socket.start();
+    FakeSocket.requireLast().open();
+    await starting;
+
+    FakeSocket.requireLast().serverClose();
+    assert.equal(socket.feedStatus().state, 'reconnecting');
+
+    // Ten minutes of "reconnecting…" would be a lie to anyone reading it.
+    t += 600_000;
+    const health = socket.feedStatus();
+    assert.equal(health.state, 'disconnected');
+    assert.match(health.reason ?? '', /no market data for 600s/);
+    assert.equal(health.downForMs, 600_000);
+
+    socket.close();
+  });
+
+  it('a failed retry does not make the outage look shorter than it was', async () => {
+    let t = 1_000_000;
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 1, maxMs: 2, factor: 2, jitter: 0 },
+      stallTimeoutMs: 0,
+      now: () => t,
+    });
+    const starting = socket.start();
+    FakeSocket.requireLast().open();
+    await starting;
+
+    FakeSocket.requireLast().serverClose();
+    const downAt = socket.feedStatus().lastConnectedAtMs;
+
+    t += 5_000;
+    await waitFor(() => FakeSocket.created === 2, 'a retry');
+    FakeSocket.requireLast().serverClose();
+
+    assert.equal(
+      socket.feedStatus().lastConnectedAtMs,
+      downAt,
+      'only a connection that actually came up may move the last-healthy mark',
+    );
+    assert.equal(socket.feedStatus().downForMs, 5_000);
+    socket.close();
+  });
+
+  it('is disconnected after close', async () => {
+    const { socket } = await started();
+    socket.close();
+    const health = socket.feedStatus();
+    assert.equal(health.state, 'disconnected');
+    assert.match(health.reason ?? '', /was closed/);
   });
 });

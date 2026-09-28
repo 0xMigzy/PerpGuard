@@ -94,6 +94,48 @@ export interface PriceUpdate {
 
 export type Unsubscribe = () => void;
 
+/**
+ * Connection health of a price feed.
+ *
+ * This is NOT the same question as how old a given price is, and conflating
+ * the two is a real hazard. On Perpl a mark price only changes when it moves,
+ * so a market that has not traded for a minute has a one-minute-old price that
+ * is nonetheless the venue's current truth. That is a QUIET MARKET, and it is
+ * perfectly safe to act on.
+ *
+ * A feed that is not `connected` is the opposite: the prices we hold are
+ * frozen at whatever they were when the connection died, and the real market
+ * may have moved arbitrarily far since. Age cannot tell the two apart — a
+ * frozen price looks exactly like a quiet one for the first few seconds — so
+ * connection health has to be asked separately.
+ */
+export type FeedConnectionState =
+  /** Live and subscribed. Prices are arriving, or the market is simply quiet. */
+  | 'connected'
+  /** The connection dropped and is being retried. Prices are frozen. */
+  | 'reconnecting'
+  /** No connection, and not about to have one soon. Prices are frozen. */
+  | 'disconnected';
+
+export interface FeedHealth {
+  readonly state: FeedConnectionState;
+  /** Human-readable, safe to render directly. Present when not connected. */
+  readonly reason?: string;
+  /** Consecutive failed reconnect attempts. 0 while healthy. */
+  readonly reconnectAttempt: number;
+  /** When the current healthy connection was established. Only when connected. */
+  readonly connectedSinceMs?: number;
+  /** When we last had a working connection. Absent if we never have. */
+  readonly lastConnectedAtMs?: number;
+  /** How long we have been without one. Absent while connected. */
+  readonly downForMs?: number;
+}
+
+/** Whether prices from a feed in this state can be acted on at all. */
+export function feedIsActionable(health: FeedHealth): boolean {
+  return health.state === 'connected';
+}
+
 /** Why a market cannot be acted on, for the UI to show next to a disabled button. */
 export type ActionUnavailableCode =
   /** The asset is monitored, but the acting network has no market for it. */
@@ -226,6 +268,19 @@ export interface Venue {
   getActionAvailability(symbol: string): Promise<ActionAvailability>;
 
   getPositions(address: string): Promise<VenuePosition[]>;
+
+  /**
+   * Connection health of this venue's price feed.
+   *
+   * Synchronous by design: something deciding whether to act must not have to
+   * await an answer about whether its own data can be trusted.
+   *
+   * Ask this, never price age, to decide whether acting is safe. Price age
+   * answers a different question — "how old is this number" — and a quiet
+   * market gives an old number on a perfectly healthy feed. See
+   * FeedConnectionState.
+   */
+  feedStatus(): FeedHealth;
 
   /** @param symbols canonical tickers, e.g. ['BTC', 'ETH']. */
   subscribePrices(

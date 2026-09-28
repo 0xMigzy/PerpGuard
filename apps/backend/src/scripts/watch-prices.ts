@@ -15,7 +15,7 @@
 import {
   PerplVenue,
   loadAppConfig,
-  type FeedStatus,
+  type FeedEvent,
   type PriceUpdate,
 } from '@perpguard/shared';
 import { MarketFeed } from '../ingest/marketFeed.ts';
@@ -30,7 +30,7 @@ function event(message: string): void {
   process.stdout.write(`[${clock()}] ${message}\n`);
 }
 
-function describeStatus(status: FeedStatus): string {
+function describeEvent(status: FeedEvent): string {
   switch (status.kind) {
     case 'connected':
       return status.attempt === 0
@@ -69,8 +69,8 @@ async function main(): Promise<void> {
   event(`symbols: ${symbols.join(', ')}`);
 
   let ticks = 0;
-  const unsubscribeStatus = await venue.onFeedStatus((status) => {
-    event(describeStatus(status));
+  const unsubscribeEvents = await venue.onFeedEvent((status) => {
+    event(describeEvent(status));
   });
 
   const unsubscribe = await venue.subscribePrices(symbols, (update: PriceUpdate) => {
@@ -79,16 +79,25 @@ async function main(): Promise<void> {
   });
 
   const render = (): void => {
+    // Connection health and price age are shown as two separate things,
+    // because they answer different questions. A quiet market is old and
+    // fine; a frozen one can look young and be dangerous.
+    const health = venue.feedStatus();
     const cells = symbols.map((symbol) => {
       const market = bySymbol.get(symbol);
       if (market === undefined) return `${symbol} ?`;
       const update = feed.get(market.marketId);
-      const { stale, ageMs, reason } = feed.staleness(market.marketId);
-      if (update === undefined) return `${symbol} —(${reason})`;
-      const age = ageMs === undefined ? '—' : `${ageMs}ms`;
-      return `${symbol} ${formatPrice(update.markPrice)} ${age}${stale ? ' STALE' : ''}`;
+      const gate = feed.canAct(market.marketId, health);
+      if (update === undefined) return `${symbol} no-price`;
+      const age = gate.ageMs === undefined ? '—' : `${gate.ageMs}ms`;
+      // 'quiet' = old price, healthy feed: actionable. 'BLOCKED' = not.
+      const tag = gate.ok ? (gate.priceIsOld ? ' quiet' : '') : ' BLOCKED';
+      return `${symbol} ${formatPrice(update.markPrice)} ${age}${tag}`;
     });
-    process.stdout.write(`[${clock()}] ${ticks} ticks | ${cells.join('  |  ')}\n`);
+    const feedTag = health.state.toUpperCase();
+    process.stdout.write(
+      `[${clock()}] feed=${feedTag} ${ticks} ticks | ${cells.join('  |  ')}\n`,
+    );
   };
 
   const timer = setInterval(render, REFRESH_MS);
@@ -96,7 +105,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     clearInterval(timer);
     unsubscribe();
-    unsubscribeStatus();
+    unsubscribeEvents();
     venue.disconnect();
     event('stopped');
     process.exit(0);

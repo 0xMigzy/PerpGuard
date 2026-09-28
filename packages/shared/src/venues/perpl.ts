@@ -7,7 +7,7 @@ import { assertForwardingAllowed } from './perpl-forwarding.ts';
 import {
   PerplMarketDataSocket,
   toMarketDescriptor,
-  type FeedStatus,
+  type FeedEvent,
 } from './perpl-market-data.ts';
 import {
   buildCancelFrame,
@@ -27,6 +27,7 @@ import type {
   ActionAvailability,
   ActionResult,
   AddMarginRequest,
+  FeedHealth,
   CancelAllRequest,
   CancelOrderRequest,
   ClosePositionRequest,
@@ -335,10 +336,31 @@ export class PerplVenue implements Venue {
     return this.#marketDataStarting;
   }
 
-  /** Observe feed health — connects, drops and reconnects. */
-  async onFeedStatus(listener: (status: FeedStatus) => void): Promise<Unsubscribe> {
+  /**
+   * Connection health of this venue's price feed.
+   *
+   * Answers "can these prices be trusted at all", which is NOT "how old is
+   * this price". A quiet market gives an old price on a healthy feed and is
+   * perfectly actionable; a frozen price on a dead feed is not, and only this
+   * can tell them apart. Reports disconnected before anything has subscribed,
+   * so a caller that forgot to start the feed is never told it is fine.
+   */
+  feedStatus(): FeedHealth {
+    const socket = this.#marketData;
+    if (socket === undefined) {
+      return {
+        state: 'disconnected',
+        reason: `no price feed is open for Perpl ${this.network.name}; nothing has subscribed yet`,
+        reconnectAttempt: 0,
+      };
+    }
+    return socket.feedStatus();
+  }
+
+  /** Observe feed lifecycle events — connects, drops and reconnects. */
+  async onFeedEvent(listener: (status: FeedEvent) => void): Promise<Unsubscribe> {
     const socket = await this.#connectMarketData();
-    return socket.onStatus(listener);
+    return socket.onEvent(listener);
   }
 
   /**

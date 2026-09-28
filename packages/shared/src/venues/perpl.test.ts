@@ -329,3 +329,24 @@ describe('unimplemented venue actions', () => {
     });
   }
 });
+
+describe('PerplVenue.feedStatus', () => {
+  it('reports disconnected before anything has subscribed', () => {
+    const venue = new PerplVenue(mainnet, { fetchImpl: stubFetch(mainnetContext) });
+    const health = venue.feedStatus();
+
+    // The dangerous default would be "connected": a caller that forgot to
+    // start the feed would be told its empty cache is trustworthy.
+    assert.equal(health.state, 'disconnected');
+    assert.equal(health.reconnectAttempt, 0);
+    assert.match(health.reason ?? '', /nothing has subscribed yet/);
+  });
+
+  it('is available on a read-only analytics venue, which is where prices live', () => {
+    const venue = new PerplVenue(mainnet, {
+      readOnly: true,
+      fetchImpl: stubFetch(mainnetContext),
+    });
+    assert.equal(venue.feedStatus().state, 'disconnected');
+  });
+});

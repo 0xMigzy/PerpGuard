@@ -34,7 +34,7 @@ import {
   type InboundMessage,
   type Logger,
 } from './perpl-socket.ts';
-import type { PriceUpdate, VenueMarket } from './types.ts';
+import type { FeedHealth, PriceUpdate, VenueMarket } from './types.ts';
 
 const VENUE_ID = 'perpl' as const;
 
@@ -50,7 +50,7 @@ const DEFAULT_PING_INTERVAL_MS = 30_000;
 const DEFAULT_STABLE_AFTER_MS = 10_000;
 
 /** Enough for a connect, its subscribe, and a run of gap-driven resubscribes. */
-const STATUS_LOG_LIMIT = 16;
+const EVENT_LOG_LIMIT = 16;
 
 /**
  * Silence that means the connection is dead, even though TCP has not noticed.
@@ -77,6 +77,18 @@ const DEFAULT_STALL_TIMEOUT_MS = 10_000;
  * back, which is indistinguishable from being broken.
  */
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+
+/**
+ * How long a feed keeps calling itself 'reconnecting' before it admits it is
+ * 'disconnected'.
+ *
+ * Both states block acting, so this changes nothing about safety — it changes
+ * what the UI is allowed to claim. "Reconnecting" implies a blip that is about
+ * to fix itself, and saying that for ten minutes while a monitor is blind is a
+ * lie of exactly the kind this product cannot afford. We keep retrying either
+ * way.
+ */
+const DEFAULT_DISCONNECTED_AFTER_MS = 60_000;
 
 /**
  * Exponential backoff, bounded.
@@ -141,7 +153,7 @@ export function toMarketDescriptor(market: VenueMarket): MarketDescriptor {
 }
 
 /** Connection-level events, for logging and for showing feed health in the UI. */
-export type FeedStatus =
+export type FeedEvent =
   | { readonly kind: 'connected'; readonly attempt: number }
   | { readonly kind: 'subscribed'; readonly reason: 'connect' | 'sequence-gap' }
   | { readonly kind: 'disconnected'; readonly error: Error; readonly retryInMs: number; readonly attempt: number }
@@ -166,6 +178,8 @@ export interface MarketDataSocketOptions {
   readonly stallTimeoutMs?: number;
   /** Give up on a handshake that never completes. See connectTimeoutMs. */
   readonly connectTimeoutMs?: number;
+  /** Stop calling it 'reconnecting' and call it 'disconnected' after this. */
+  readonly disconnectedAfterMs?: number;
   readonly now?: () => number;
   /** Injectable so the backoff schedule is testable. */
   readonly random?: () => number;
@@ -181,10 +195,11 @@ export class PerplMarketDataSocket {
   readonly #backoff: BackoffPolicy;
   readonly #stableAfterMs: number;
   readonly #stallTimeoutMs: number;
+  readonly #disconnectedAfterMs: number;
   readonly #markets = new Map<number, MarketDescriptor>();
 
   readonly #priceListeners = new Set<(update: PriceUpdate) => void>();
-  readonly #statusListeners = new Set<(status: FeedStatus) => void>();
+  readonly #eventListeners = new Set<(status: FeedEvent) => void>();
   /** The most recent update per market id — the per-market lastUpdate stamp. */
   readonly #latest = new Map<number, PriceUpdate>();
   /**
@@ -194,7 +209,7 @@ export class PerplMarketDataSocket {
    * registers a listener afterwards would otherwise never learn the feed came
    * up — it would see only the next drop.
    */
-  readonly #statusLog: FeedStatus[] = [];
+  readonly #eventLog: FeedEvent[] = [];
 
   #conn: PerplSocketConnection | undefined;
   #started = false;
@@ -206,6 +221,10 @@ export class PerplMarketDataSocket {
   #lastFrameAtMs = 0;
   #headBlock: number | undefined;
   #lastSn: number | undefined;
+  /** True only between a successful subscribe and the next disconnect. */
+  #subscribed = false;
+  #connectedSinceMs: number | undefined;
+  #lastConnectedAtMs: number | undefined;
 
   constructor(options: MarketDataSocketOptions) {
     this.#options = options;
@@ -215,11 +234,62 @@ export class PerplMarketDataSocket {
     this.#backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
     this.#stableAfterMs = options.stableAfterMs ?? DEFAULT_STABLE_AFTER_MS;
     this.#stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
+    this.#disconnectedAfterMs = options.disconnectedAfterMs ?? DEFAULT_DISCONNECTED_AFTER_MS;
     for (const market of options.markets) this.#markets.set(market.marketId, market);
   }
 
   get connected(): boolean {
     return this.#conn?.isOpen === true;
+  }
+
+  /**
+   * Connection health, which is a different question from how old any one
+   * price is. See FeedConnectionState: a quiet market on a healthy feed gives
+   * an old price that is perfectly good, and only this can tell that apart
+   * from a frozen one.
+   */
+  feedStatus(): FeedHealth {
+    const downForMs =
+      this.#lastConnectedAtMs === undefined ? undefined : this.#now() - this.#lastConnectedAtMs;
+
+    const common = {
+      reconnectAttempt: this.#attempt,
+      ...(this.#lastConnectedAtMs === undefined
+        ? {}
+        : { lastConnectedAtMs: this.#lastConnectedAtMs }),
+    };
+    const down = { ...common, ...(downForMs === undefined ? {} : { downForMs }) };
+
+    if (this.#subscribed && this.#conn?.isOpen === true && !this.#stopped) {
+      return {
+        state: 'connected',
+        ...common,
+        ...(this.#connectedSinceMs === undefined
+          ? {}
+          : { connectedSinceMs: this.#connectedSinceMs }),
+      };
+    }
+
+    if (this.#stopped) {
+      return { state: 'disconnected', reason: 'the price feed was closed', ...down };
+    }
+    if (!this.#started) {
+      return { state: 'disconnected', reason: 'the price feed has not connected yet', ...down };
+    }
+    if (downForMs !== undefined && downForMs > this.#disconnectedAfterMs) {
+      return {
+        state: 'disconnected',
+        reason:
+          `no market data for ${Math.round(downForMs / 1000)}s after ` +
+          `${this.#attempt} reconnect attempt(s); still retrying`,
+        ...down,
+      };
+    }
+    return {
+      state: 'reconnecting',
+      reason: `the market-data connection dropped; retrying (attempt ${this.#attempt})`,
+      ...down,
+    };
   }
 
   /** Latest head block from the heartbeat, if one has arrived. */
@@ -257,10 +327,10 @@ export class PerplMarketDataSocket {
    * the current connection, so registering late still tells you where things
    * stand rather than leaving you guessing until the next event.
    */
-  onStatus(listener: (status: FeedStatus) => void): () => void {
-    for (const status of this.#statusLog) listener(status);
-    this.#statusListeners.add(listener);
-    return () => this.#statusListeners.delete(listener);
+  onEvent(listener: (status: FeedEvent) => void): () => void {
+    for (const status of this.#eventLog) listener(status);
+    this.#eventListeners.add(listener);
+    return () => this.#eventListeners.delete(listener);
   }
 
   /**
@@ -281,10 +351,13 @@ export class PerplMarketDataSocket {
   close(): void {
     if (this.#stopped) return;
     this.#stopped = true;
+    if (this.#subscribed) this.#lastConnectedAtMs = this.#now();
+    this.#subscribed = false;
+    this.#connectedSinceMs = undefined;
     this.#clearTimers();
     this.#conn?.close('market-data socket closed locally');
     this.#conn = undefined;
-    this.#emitStatus({ kind: 'closed' });
+    this.#emitEvent({ kind: 'closed' });
   }
 
   async #connectOnce(): Promise<void> {
@@ -309,7 +382,9 @@ export class PerplMarketDataSocket {
     // Only now: a failed first open must not leave a reconnect loop running
     // behind a start() that threw.
     this.#started = true;
-    this.#emitStatus({ kind: 'connected', attempt: this.#attempt });
+    this.#subscribed = true;
+    this.#connectedSinceMs = this.#now();
+    this.#emitEvent({ kind: 'connected', attempt: this.#attempt });
     this.#subscribe('connect');
 
     // The backoff resets only once this connection has proved it survives.
@@ -334,12 +409,17 @@ export class PerplMarketDataSocket {
         { stream: `heartbeat@${chainId}`, subscribe: true },
       ],
     });
-    this.#emitStatus({ kind: 'subscribed', reason });
+    this.#emitEvent({ kind: 'subscribed', reason });
   }
 
   #onDisconnected(error: Error): void {
     // A close during the very first connect is reported by start() throwing.
     if (!this.#started || this.#stopped) return;
+    // Only a connection that was actually up moves the "last healthy" mark; a
+    // failed retry must not make the outage look shorter than it is.
+    if (this.#subscribed) this.#lastConnectedAtMs = this.#now();
+    this.#subscribed = false;
+    this.#connectedSinceMs = undefined;
     if (this.#stableTimer !== undefined) clearTimeout(this.#stableTimer);
     this.#stableTimer = undefined;
     this.#stopStallWatchdog();
@@ -347,7 +427,7 @@ export class PerplMarketDataSocket {
 
     this.#attempt += 1;
     const retryInMs = backoffDelayMs(this.#attempt, this.#backoff, this.#random);
-    this.#emitStatus({ kind: 'disconnected', error, retryInMs, attempt: this.#attempt });
+    this.#emitEvent({ kind: 'disconnected', error, retryInMs, attempt: this.#attempt });
     this.#logger.warn(
       `market data disconnected (${error.message}); reconnecting in ${retryInMs}ms ` +
         `(attempt ${this.#attempt})`,
@@ -414,12 +494,12 @@ export class PerplMarketDataSocket {
     this.#stopStallWatchdog();
   }
 
-  #emitStatus(status: FeedStatus): void {
+  #emitEvent(status: FeedEvent): void {
     // A fresh connection supersedes whatever the last one was doing.
-    if (status.kind === 'connected') this.#statusLog.length = 0;
-    this.#statusLog.push(status);
-    if (this.#statusLog.length > STATUS_LOG_LIMIT) this.#statusLog.shift();
-    for (const listener of this.#statusListeners) listener(status);
+    if (status.kind === 'connected') this.#eventLog.length = 0;
+    this.#eventLog.push(status);
+    if (this.#eventLog.length > EVENT_LOG_LIMIT) this.#eventLog.shift();
+    for (const listener of this.#eventListeners) listener(status);
   }
 
   #onFrame(message: InboundMessage): void {
