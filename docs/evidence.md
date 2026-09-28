@@ -92,3 +92,81 @@ Distance from mark does not govern how long an order lives; `lb` does.
   separately (`mt: 24`). Nothing is reported as success before `mt: 24`.
 - Order outcomes are correlated by `oid`, verified against live frames.
 - A cancel that returns nothing is reconciled, not guessed at.
+
+## 2026-09-28 — mainnet market-data feed: live prices, and a 30s outage
+
+The price path, `pnpm prices` (`apps/backend/src/scripts/watch-prices.ts`).
+Read-only: the public market-data websocket needs no key and cannot submit.
+
+### Live prices from mainnet
+
+| | |
+| --- | --- |
+| network | Perpl **mainnet**, chain **143** |
+| socket | `wss://app.perpl.xyz/ws/v1/market-data` |
+| subscribe | `mt: 5` → `market-state@143`, `heartbeat@143` |
+| updates | `mt: 9`, keyed by market id; `mt: 100` heartbeat |
+
+Decoding was cross-checked against `GET /v1/pub/context` on three markets with
+three *different* `price_decimals`, so a wrong exponent could not pass:
+
+| market | id | `price_decimals` | raw `mrk` | REST | websocket |
+| --- | --- | --- | --- | --- | --- |
+| BTC | 1 | 1 | 844111 | 84411.10 | 84,425.30 |
+| ETH | 20 | 2 | 269228 | 2692.28 | 2,693.13 |
+| SOL | 31 | 3 | 121912 | 121.91 | 121.94 |
+
+Frame arrival measured over 25s on mainnet: **157 frames** (74 × `mt: 9`,
+82 × `mt: 100`), inter-frame gap **median 165ms, p95 402ms, max 543ms**. That
+measurement is what the 10s stall timeout is set against — ~20x the worst
+healthy gap.
+
+Also observed on mainnet: a quiet market goes `STALE` under a 10s `STALE_MS`
+simply because its mark price has not moved. ETH sat stale for ~20s during one
+run with the feed perfectly healthy. Staleness means "this price is old", not
+"the feed is broken", and the UI needs to say so — worth deciding before the
+risk engine treats the two the same.
+
+### The 30-second outage
+
+Run against a local test double that speaks the same protocol on the real
+mainnet market ids, **not** against the Perpl host — simulating the outage by
+firewalling the real host was not permitted in this environment. The client
+code, sockets, TCP resets, timers and backoff are all real; only the upstream
+is local. Timings below are from `scratchpad/outage.log`.
+
+| t | event |
+| --- | --- |
+| `00:16:18.312` | upstream killed |
+| `00:16:18.320` | `DISCONNECTED (socket closed with 1006)` — **8ms** to notice |
+| | retries at **405ms, 980ms, 1835ms, 3566ms, 7812ms, 8348ms, 8963ms** |
+| `00:16:28.8` | prices flip **STALE** (10s after the last tick, = `STALE_MS`) |
+| `00:16:48.321` | upstream back |
+| `00:16:50.257` | `RECONNECTED after 7 failed attempt(s)`, resubscribed |
+| `00:16:50.559` | `subscribed (sequence-gap)` — heartbeat `sn` restarted, caught |
+| `00:16:51.719` | prices flowing again, staleness cleared |
+
+Recovered **1.9s** after the upstream returned, having been down 30s.
+
+### Two failures this run exposed
+
+**A dead connection that never closes.** A blackholed route produces no close
+event: the socket stays open and silent while TCP retransmits for minutes. A
+stall watchdog now treats 10s of silence as death and drops into the normal
+backoff path. Verified: silence at `00:17:08.327`, caught at `00:17:20.260`
+(`stalled: no frames for 11955ms`), reconnected **457ms** later.
+
+**Our own keep-alive was hiding it.** The first version counted *any* inbound
+frame as proof of life, including the `mt: 2` pong answering our own `mt: 1`
+ping. A server that answers pings while pushing no market data is exactly the
+dead feed the watchdog exists to catch, and with a 30s ping and a 10s stall
+timeout the two timers aligned and the pong reset the clock — the watchdog
+silently never fired through 17.5s of real silence. Proof of life is now
+restricted to frames the server pushes on its own; replies (`mt: 2`, `mt: 6`)
+do not count.
+
+**A backoff ceiling that was a product decision in disguise.** At a 30s cap the
+feed stayed dark **~25s after connectivity was already back**, because the
+delay had grown past the outage. The ceiling is the worst-case blind window
+after recovery, not a tuning knob, so it is now 10s — at most six attempts a
+minute, far inside the documented ~5 connections per IP.

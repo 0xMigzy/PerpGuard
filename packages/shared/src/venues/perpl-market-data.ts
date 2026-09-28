@@ -78,7 +78,16 @@ const DEFAULT_STALL_TIMEOUT_MS = 10_000;
  */
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
-/** Exponential backoff, bounded. Defaults chosen for the documented limits. */
+/**
+ * Exponential backoff, bounded.
+ *
+ * The ceiling is the interesting number, because it is the worst case for how
+ * long the feed stays dark AFTER connectivity comes back — not how long the
+ * outage was. A 30s cap measured out at ~25s of avoidable blindness following
+ * a 30s outage, which is far too long for something whose job is to warn
+ * before a liquidation. 10s keeps retries to at most six a minute, which is
+ * nowhere near the documented limits, and bounds recovery to ten seconds.
+ */
 export interface BackoffPolicy {
   /** Delay before the first retry. */
   readonly baseMs: number;
@@ -94,7 +103,7 @@ export interface BackoffPolicy {
 
 export const DEFAULT_BACKOFF: BackoffPolicy = {
   baseMs: 500,
-  maxMs: 30_000,
+  maxMs: 10_000,
   factor: 2,
   jitter: 0.2,
 };
@@ -414,10 +423,17 @@ export class PerplMarketDataSocket {
   }
 
   #onFrame(message: InboundMessage): void {
-    // Any frame at all is proof of life, including ones we do not decode.
-    this.#lastFrameAtMs = this.#now();
-
     const mt = message['mt'];
+
+    // Proof of life has to be something the server pushed on its own. A pong
+    // is an echo of our own keep-alive, and a subscription response is a reply
+    // to our subscribe: a server that answers both while sending no market
+    // data is exactly the dead feed this watchdog exists to catch. Counting
+    // them also lets a ping that happens to land on the watchdog's tick reset
+    // the clock and mask a real stall, which is how this was found.
+    if (mt !== MT.Pong && mt !== MT.SubscriptionResponse) {
+      this.#lastFrameAtMs = this.#now();
+    }
     if (mt === MT.MarketStateUpdate) {
       this.#onMarketState(message);
       return;

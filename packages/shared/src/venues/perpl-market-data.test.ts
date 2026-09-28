@@ -148,7 +148,7 @@ describe('backoffDelayMs', () => {
 
   it('doubles from the base and stops at the ceiling', () => {
     const schedule = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => backoffDelayMs(n, noJitter));
-    assert.deepEqual(schedule, [500, 1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+    assert.deepEqual(schedule, [500, 1000, 2000, 4000, 8000, 10000, 10000, 10000]);
   });
 
   it('never exceeds the ceiling, even after a very long outage', () => {
@@ -159,8 +159,8 @@ describe('backoffDelayMs', () => {
 
   it('applies jitter downward only, so the ceiling stays a ceiling', () => {
     // random() === 1 is the most jitter possible.
-    assert.equal(backoffDelayMs(99, DEFAULT_BACKOFF, () => 1), 24_000);
-    assert.equal(backoffDelayMs(99, DEFAULT_BACKOFF, () => 0), 30_000);
+    assert.equal(backoffDelayMs(99, DEFAULT_BACKOFF, () => 1), 8_000);
+    assert.equal(backoffDelayMs(99, DEFAULT_BACKOFF, () => 0), 10_000);
 
     for (const r of [0, 0.25, 0.5, 0.75, 1]) {
       const delay = backoffDelayMs(3, DEFAULT_BACKOFF, () => r);
@@ -547,5 +547,75 @@ describe('PerplMarketDataSocket connect timeout', () => {
     assert.ok(socket.reconnectAttempt >= 2, 'the backoff keeps climbing through hung attempts');
 
     socket.close();
+  });
+});
+
+describe('backoff recovery latency', () => {
+  it('bounds how long the feed stays dark after connectivity returns', () => {
+    // The ceiling IS the worst-case blind window once the network is back, so
+    // it is a product constraint, not a tuning knob. A 30s cap measured out at
+    // ~25s of avoidable blindness after a 30s outage.
+    assert.ok(
+      DEFAULT_BACKOFF.maxMs <= 10_000,
+      `a ${DEFAULT_BACKOFF.maxMs}ms ceiling leaves a liquidation monitor blind too long`,
+    );
+  });
+
+  it('still backs off hard enough to be polite through a long outage', () => {
+    // Ten minutes of retries at the ceiling, well inside the documented
+    // ~5 connections per IP.
+    const perMinute = 60_000 / DEFAULT_BACKOFF.maxMs;
+    assert.ok(perMinute <= 6, `${perMinute} attempts a minute is too chatty`);
+  });
+});
+
+describe('PerplMarketDataSocket stall watchdog: what counts as proof of life', () => {
+  async function silentButPolite(): Promise<{ socket: PerplMarketDataSocket; fake: FakeSocket }> {
+    FakeSocket.last = undefined;
+    FakeSocket.created = 0;
+    const socket = new PerplMarketDataSocket({
+      network: mainnet,
+      markets,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      backoff: { baseMs: 1, maxMs: 2, factor: 2, jitter: 0 },
+      stallTimeoutMs: 40,
+      stableAfterMs: 10_000,
+    });
+    const starting = socket.start();
+    const fake = FakeSocket.requireLast();
+    fake.open();
+    await starting;
+    return { socket, fake };
+  }
+
+  it('a pong does not keep a dead feed alive', async () => {
+    const { socket, fake } = await silentButPolite();
+
+    // The server answers our keep-alive but pushes no market data — a feed
+    // that is dead for every purpose we care about.
+    const pongs = setInterval(() => fake.deliver({ mt: 2, t: 1 }), 5);
+    try {
+      await waitFor(() => FakeSocket.created === 2, 'the stall to be caught anyway', 1500);
+    } finally {
+      clearInterval(pongs);
+      socket.close();
+    }
+  });
+
+  it('a heartbeat does keep it alive, because the server pushed it', async () => {
+    const { socket, fake } = await silentButPolite();
+
+    let sn = 0;
+    const beats = setInterval(() => {
+      sn += 1;
+      fake.deliver({ mt: 100, sn, h: 100 + sn });
+    }, 5);
+    try {
+      await sleep(150);
+      assert.equal(FakeSocket.created, 1, 'server-pushed heartbeats mean the feed is live');
+    } finally {
+      clearInterval(beats);
+      socket.close();
+    }
   });
 });
