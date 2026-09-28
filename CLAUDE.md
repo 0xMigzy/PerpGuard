@@ -49,14 +49,33 @@ warns before liquidation, and lets the user add margin or close in one tap.
   the account does not permit API-key-forwarded orders. Check `fw` from the
   account snapshot and say so before submitting rather than after.
   `sr 15` = ForwardingReverted — the on-chain forwarding transaction reverted.
-- The Exchange at `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` (testnet) is a
-  PROXY. The implementation is at `0xbcbd3701...adbb`. Index the proxy address,
-  but the ABI can change on upgrade — the saved ABI is a snapshot, not a
-  guarantee. See `apps/indexer/abis/README.md` for provenance.
+- The Exchange is a PROXY on both networks. Index the proxy address; events are
+  emitted by the proxy, never by the implementation.
+  - testnet `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` -> impl `0xbcbd3701...adbb`
+  - mainnet `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` -> impl `0xa9ab97a4...791b2a`
+  Both report `getContractVersion()` 1.7.5.
+- The saved ABI is a snapshot taken from the TESTNET build, not a guarantee, and
+  mainnet has drifted from it. 14 of its 204 event topics are absent from the
+  deployed mainnet implementation, and all 14 are the V1 forms of events that now
+  have a V2: `PositionOpened`, `PositionIncreased`, `PositionDeleveraged`,
+  `PositionUnwound`, `PositionUnwoundWithoutPayment`, `MakerOrderFilled`,
+  `TakerOrderFilled`, `OrderRequest`, `ContractAdded`, plus `MakerFeeUpdated`,
+  `TakerFeeUpdated`, `RecycleFeeToAccount`, `AdminChanged`, `BeaconUpgraded`.
+  Read the V2 forms for anything current, and keep the V1 forms decodable: mainnet
+  history still contains them, and 5 of the 9 live markets were listed with V1
+  `ContractAdded` rather than `ContractAddedV2`. 16 function selectors are likewise
+  absent (`execOrder*`, `liquidation*`, `execFwdPositionOps*`, `getPerpetualInfo`,
+  `setAccountFeeTiers`) — do not call those on mainnet off this ABI.
+  See `apps/indexer/abis/README.md` for provenance and
+  `apps/indexer/docs/EVENTS.md` for every event and what it means.
+- `positionType` on every position event is `0` = LONG, `1` = SHORT. Measured over
+  496 real mainnet round trips, not inferred from the field order.
 - `createAccount(uint256)` takes the OPENING DEPOSIT in AUSD micros, not an id.
-  Minimum 100000000 (100 AUSD), enforced on chain as
-  `InsufficentAmountToOpenAccount`. It pulls the collateral with `transferFrom`,
-  so it needs an ERC-20 approve to the Exchange first or it reverts.
+  The minimum differs per network and is enforced on chain as
+  `InsufficentAmountToOpenAccount`: mainnet 10000000 (10 AUSD), testnet
+  100000000 (100 AUSD). Read it with `getMinAccountOpenCNS()`; never assume.
+  It pulls the collateral with `transferFrom`, so it needs an ERC-20 approve to
+  the Exchange first or it reverts.
 - Forwarding is NOT set at account creation. The account owner enables it with
   a separate wallet transaction, `allowOrderForwarding(true)`. New accounts
   have it OFF. An API key cannot do this — it needs the owner's wallet.
@@ -91,6 +110,12 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk
   engine, bot and web use the `Venue` interface, never Perpl directly.
+  - AMENDMENT, for `apps/indexer` only: an indexer is a venue-specific DATA
+    SOURCE, not a consumer, so it is allowed to speak Perpl directly — it indexes
+    the Perpl Exchange contract and nothing else could. The line holds one step
+    later instead: nothing downstream reads the indexer's GraphQL directly.
+    The bot, web and risk engine go through a venue-agnostic analytics interface
+    in `packages/shared`, so no consumer ever learns the word `perpId`.
 - Secrets only via environment variables. Never log or print keys.
 - Risk maths must be pure functions with unit tests. No I/O inside them.
 - AI output must be validated against a schema. AI NEVER triggers a trade.

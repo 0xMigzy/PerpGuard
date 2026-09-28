@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# PerpGuard indexer: the Perpl Exchange proxy on Monad mainnet (chain 143).
+# Read-only analytics run against mainnet so the demo shows real data.
+#
+# Everything network-shaped is an env var. Envio requires the ENVIO_ prefix for
+# any variable interpolated here, and the defaults below are the mainnet values
+# also carried in packages/shared/src/config.ts.
+#
+# Which of the Exchange's 204 events each entry below is, and why it is or is
+# not here, is documented event by event in docs/EVENTS.md.
+
+name: perpguard
+description: Perpl risk, PnL and liquidation analytics on Monad
+
+contracts:
+  - name: Exchange
+    abi_file_path: ./abis/Exchange.json
+    events:
+      # ── markets ──────────────────────────────────────────────────────────
+      # Scaling (priceDecimals/lotDecimals) and margin fractions come from here.
+      # Only 4 of the 9 live markets were listed with the V2 form, so the V1
+      # form is not optional. Both are named so handlers can share logic.
+      - event: ContractAddedV2
+      - event: ContractAdded
+      - event: ContractPaused
+      - event: ContractRemoved
+      - event: InitialMarginFractionUpdated
+      - event: MaintenanceMarginFractionUpdated
+      - event: MaxOpenInterestUpdated
+
+      # ── accounts and free balance ────────────────────────────────────────
+      - event: AccountCreated
+      - event: CollateralDeposit
+      - event: CollateralWithdrawal
+      - event: OrderForwardingUpdated
+      - event: AccountFeeTierSet
+
+      # ── position changes ─────────────────────────────────────────────────
+      # positionType is 0 = LONG, 1 = SHORT (measured; see CLAUDE.md).
+      - event: PositionOpenedV2
+      - event: PositionOpened
+      - event: PositionIncreasedV2
+      - event: PositionIncreased
+      - event: PositionDecreased
+      - event: PositionClosed
+      - event: PositionInverted
+
+      # ── isolated margin ──────────────────────────────────────────────────
+      # IncreasePositionCollateral is exactly the action PerpGuard offers.
+      - event: IncreasePositionCollateral
+      - event: PositionCollateralDecreased
+      - event: CollateralDecreaseRequested
+      - event: CollateralDecreaseRequestCancelled
+      - event: CollateralDecreaseRequestExpired
+      - event: CollateralDecreaseDeclined
+
+      # ── forced exits ─────────────────────────────────────────────────────
+      - event: PositionLiquidated
+      - event: PositionLiquidationCredit
+      - event: PositionDeleveragedV2
+      - event: PositionDeleveraged
+      - event: PositionUnwoundV2
+      - event: PositionUnwound
+      - event: PositionUnwoundWithoutPaymentV2
+      - event: PositionUnwoundWithoutPayment
+
+      # ── trades ───────────────────────────────────────────────────────────
+      # The maker fill is the one fill event that names its own account, and
+      # there is exactly one per match, so it is the per-trade record.
+      - event: MakerOrderFilledV2
+      - event: MakerOrderFilled
+      # The taker fill names no account and aggregates a whole order. It is here
+      # for one reason: feeCNS is the only published figure for the taker's fee
+      # on a reducing fill. Position events publish insFeeCNS + protFeeCNS,
+      # which is the same money decomposed (3150 + 17848 = 20998 on a real
+      # fill), so fees are taken from the fill events only, never from both.
+      - event: TakerOrderFilledV2
+      - event: TakerOrderFilled
+
+      # ── prices and funding ───────────────────────────────────────────────
+      # MarkUpdated keeps only the latest price and the day's OHLC. Live prices
+      # come off the websocket; this is not a price archive.
+      - event: MarkUpdated
+      - event: FundingEventCompleted
+
+      # ── exchange ─────────────────────────────────────────────────────────
+      - event: ExchangeInitialized
+      - event: ExchangeHalted
+      # An upgrade is when to re-check the ABI snapshot.
+      - event: Upgraded
+
+chains:
+    # The chain id is a literal on purpose. It must be an integer here, and the
+    # CLI resolves the HyperSync endpoint for the network from it while parsing
+    # this file: interpolating it yields a string, which silently leaves the
+    # chain with no HyperSync source and no RPC either, so nothing is ever
+    # fetched. (Interpolation applies to comments too, so no placeholder syntax
+    # can be written here.) The things that do vary per deployment -- address,
+    # start block, endpoints -- are env vars below.
+  - id: 143
+    # Config value, deliberately not the exchange's first block (54,773,010).
+    # 100,000,000 is ~30 days of Monad at ~0.30s per block. Widen it to backfill
+    # further; the handlers bootstrap any market they have not seen listed.
+    start_block: ${ENVIO_PERPGUARD_START_BLOCK:-100000000}
+    # Unset in normal operation. Set it to bound a run for verification against
+    # an independent replay of the same blocks.
+    end_block: ${ENVIO_PERPGUARD_END_BLOCK:-0}
+    hypersync_config:
+      url: ${ENVIO_PERPL_HYPERSYNC_URL:-https://143.hypersync.xyz}
+    contracts:
+      - name: Exchange
+        address: ${ENVIO_PERPL_EXCHANGE:-0x34B6552d57a35a1D042CcAe1951BD1C370112a6F}

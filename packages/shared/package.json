@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./venues": "./src/venues/index.ts"
+    "./venues": "./src/venues/index.ts",
+    "./risk": "./src/risk/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

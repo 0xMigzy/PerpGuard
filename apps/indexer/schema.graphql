@@ -1,0 +1,466 @@
+# PerpGuard indexer — Perpl Exchange on Monad mainnet (chain 143).
+#
+# Design notes live in docs/SCHEMA-PROPOSAL.md; the per-event reasoning is in
+# docs/EVENTS.md. Conventions:
+#
+#   ...CNS  collateral (AUSD) micros, 6 decimals
+#   ...PNS  price, in the market's own priceDecimals
+#   ...LNS  lots, in the market's own lotDecimals
+#
+# Raw integers are stored unscaled, because the scale is per market and is read
+# from chain — never hard-coded. `notionalCNS` is the one derived money figure.
+#
+# Volume is counted ONCE PER MATCH, from the maker fill. The taker fill is an
+# aggregate over a whole order, so counting both would double count.
+#
+# This indexer is single-chain. Ids are therefore not chain-prefixed; adding a
+# second chain would require prefixing every id below.
+
+enum Side {
+  LONG
+  SHORT
+}
+
+enum PositionStatus {
+  OPEN
+  CLOSED
+  LIQUIDATED
+  DELEVERAGED
+  UNWOUND
+}
+
+# One forced exit feed, whatever mechanism took the position away.
+enum ForcedExitKind {
+  LIQUIDATION
+  BUY_TO_LIQUIDATE
+  DELEVERAGE
+  UNWIND
+  UNWIND_UNPAID
+}
+
+enum MarginActionKind {
+  ADD
+  REMOVE_REQUESTED
+  REMOVE_SETTLED
+  REMOVE_CANCELLED
+  REMOVE_EXPIRED
+  REMOVE_DECLINED
+}
+
+enum CollateralFlowKind {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+# ───────────────────────────── reference ─────────────────────────────────────
+
+type Exchange {
+  id: ID! # the chain id
+  address: String!
+  implementation: String!
+  contractVersion: String!
+  halted: Boolean!
+  collateralToken: String!
+  collateralDecimals: Int!
+
+  accountCount: Int!
+  marketCount: Int!
+  openPositionCount: Int!
+
+  tradeCount: BigInt!
+  volumeCNS: BigInt!
+  feesCNS: BigInt!
+
+  liquidationCount: Int!
+  liquidatedNotionalCNS: BigInt!
+  # The product thesis, as three numbers anyone can query directly.
+  liquidationsWithSpareBalanceCount: Int!
+  rescuableLiquidationCount: Int!
+  spareBalanceAtLiquidationCNS: BigInt!
+  # Liquidations of positions opened before our start block, where the position
+  # state needed for `rescuable` is unknown. Kept visible instead of silently
+  # dropping them from the denominator.
+  liquidationsWithUnknownPositionCount: Int!
+  # Taker fees we could not attribute to an account, because the taker fill had
+  # no position event before it in the transaction to name the taker. Surfaced
+  # rather than dropped, so the fee totals can be audited.
+  unattributedTakerFeeCNS: BigInt!
+
+  lastUpgradeBlock: BigInt
+  lastUpgradeAt: Timestamp
+  updatedBlock: BigInt!
+}
+
+type Market {
+  id: ID! # perpId, which is also the REST API's market id
+  perpId: BigInt!
+  name: String!
+  symbol: String!
+  # Scaling. Learned from ContractAdded(V2), or read off the contract when the
+  # market was listed before our start block. Never hard-coded.
+  priceDecimals: Int!
+  lotDecimals: Int!
+
+  status: Int!
+  paused: Boolean!
+  listed: Boolean!
+
+  initMarginFracHdths: BigInt!
+  maintMarginFracHdths: BigInt!
+  maxOpenInterestLNS: BigInt!
+
+  markPricePNS: BigInt
+  markUpdatedBlock: BigInt
+  markUpdatedAt: Timestamp
+  lastFundingRatePct100k: BigInt
+  lastFundingAt: Timestamp
+
+  # Open interest as a DELTA SERIES from our start block, not an absolute.
+  #
+  # Every match moves both sides by the same number of lots, so these two must
+  # stay equal: tracking both makes a handler bug loud instead of silent. They
+  # are signed, because a position opened before our start block can close
+  # inside it. Absolute open interest is not derivable here -- the public RPC
+  # serves archive state only a few days back, so there is no exact anchor at
+  # the start block, and an approximate one would corrupt the self-check.
+  # For the absolute level, read the venue's own market state (context
+  # markets[].state.oi); this series is the exact history of the change.
+  longLotsDeltaLNS: BigInt!
+  shortLotsDeltaLNS: BigInt!
+  openInterestDeltaLNS: BigInt!
+  openPositionCount: Int!
+
+  tradeCount: BigInt!
+  volumeCNS: BigInt!
+  feesCNS: BigInt!
+  liquidationCount: Int!
+  liquidatedNotionalCNS: BigInt!
+  rescuableLiquidationCount: Int!
+  # Closes whose size could not be recovered, so their lots never left the
+  # open-interest series. Non-zero means longLotsDeltaLNS and shortLotsDeltaLNS
+  # may differ by that much; zero means the two must be equal exactly.
+  oiUnverifiedCloseCount: Int!
+
+  firstSeenBlock: BigInt!
+  firstSeenAt: Timestamp!
+
+  days: [MarketDay!]! @derivedFrom(field: "market")
+  positions: [Position!]! @derivedFrom(field: "market")
+}
+
+type Trader {
+  id: ID! # accountId
+  accountId: BigInt!
+  # Wallet address. Only AccountCreated links the two, so this is unknown (empty)
+  # for accounts created before our start block.
+  owner: String! @index
+  createdBlock: BigInt
+  createdAt: Timestamp
+
+  # The `fw` flag. There is no on-chain getter; OrderForwardingUpdated is the
+  # only source, so this is false until one is seen.
+  forwardingAllowed: Boolean!
+  feeTier: Int!
+
+  freeBalanceCNS: BigInt!
+  depositedCNS: BigInt!
+  withdrawnCNS: BigInt!
+  marginDeployedCNS: BigInt!
+
+  realizedPnlCNS: BigInt!
+  fundingCNS: BigInt!
+  feesPaidCNS: BigInt!
+  netPnlCNS: BigInt!
+  volumeCNS: BigInt!
+  tradeCount: Int!
+  makerTradeCount: Int!
+  takerTradeCount: Int!
+
+  # Win rate is per ROUND TRIP: one Position from open to flat, won if its
+  # lifetime netPnlCNS > 0. A forced exit is a loss whatever the arithmetic.
+  roundTrips: Int!
+  wins: Int!
+  losses: Int!
+  winRate: BigDecimal! @config(precision: 10, scale: 4)
+  bestRoundTripCNS: BigInt!
+  worstRoundTripCNS: BigInt!
+
+  liquidationCount: Int!
+  liquidatedNotionalCNS: BigInt!
+  liquidationsWithSpareBalanceCount: Int!
+  rescuableLiquidationCount: Int!
+  spareBalanceAtLiquidationCNS: BigInt!
+
+  marginAddCount: Int!
+  marginAddedCNS: BigInt!
+  marginRemovedCNS: BigInt!
+
+  openPositionCount: Int!
+  firstTradeAt: Timestamp
+  lastActiveAt: Timestamp!
+
+  positions: [Position!]! @derivedFrom(field: "trader")
+  liquidations: [Liquidation!]! @derivedFrom(field: "trader")
+  days: [TraderDay!]! @derivedFrom(field: "trader")
+}
+
+# ──────────────────────── positions (isolated margin) ────────────────────────
+
+type Position @index(fields: ["trader", "status"]) {
+  id: ID! # "<perpId>-<accountId>-<epoch>"
+  market: Market!
+  trader: Trader!
+  # A flat (market, trader) pair can open a new position later; epoch keeps the
+  # history of each one instead of overwriting.
+  epoch: Int!
+  side: Side!
+  status: PositionStatus!
+
+  lotLNS: BigInt!
+  # False only for a position whose very first event we saw was PositionClosed,
+  # which publishes no lot figures at all. Its size is then recovered from the
+  # fill that follows in the same transaction; until it is, the position
+  # contributes nothing to the open-interest series.
+  lotKnown: Boolean!
+  peakLotLNS: BigInt!
+  entryPricePNS: BigInt!
+  # False when the position was already open at our start block and the first
+  # event we saw for it (a decrease) carries no price. Every derived number that
+  # needs the entry price is null in that case rather than wrong.
+  entryPriceKnown: Boolean!
+  # THE isolated margin. Free account balance is never pulled in to rescue it.
+  depositCNS: BigInt!
+  peakDepositCNS: BigInt!
+  leverageHdths: BigInt!
+
+  marginAddedCNS: BigInt!
+  marginRemovedCNS: BigInt!
+  marginActionCount: Int!
+
+  realizedPnlCNS: BigInt!
+  fundingCNS: BigInt!
+  feesCNS: BigInt!
+  netPnlCNS: BigInt!
+  isWin: Boolean
+
+  openedBlock: BigInt!
+  openedAt: Timestamp! @index
+  openTxHash: String!
+  closedBlock: BigInt
+  closedAt: Timestamp
+  closeTxHash: String
+
+  marginActions: [MarginAction!]! @derivedFrom(field: "position")
+  liquidations: [Liquidation!]! @derivedFrom(field: "position")
+}
+
+# Which epoch is currently live for a (market, trader) pair. Internal: handlers
+# need it, the API does not.
+type PositionCursor @internal {
+  id: ID! # "<perpId>-<accountId>"
+  epoch: Int!
+  openPositionId: String
+}
+
+# Per-transaction scratch space for the events that carry no ids of their own.
+#
+# Order and fill events on this contract are scoped by position in the log, not
+# by an account id: TakerOrderFilledV2 names no account at all, and the taker of
+# a match is whoever the next position event belongs to. One row per transaction
+# carries just enough to join them:
+#
+#   PositionDecreased(maker) -> MakerOrderFilledV2(maker) ->
+#   PositionIncreasedV2(taker) -> TakerOrderFilledV2(no ids)
+#
+# Internal, and never a source of truth: when a join does not line up the field
+# stays empty and the dependent column is left null.
+type TxScope @internal {
+  id: ID! # transaction hash
+  # A maker fill waiting to learn who took it.
+  pendingTradeId: String
+  pendingTradePerpId: BigInt
+  pendingTradeMakerId: String
+  # The account of the most recent position event in this transaction: the taker
+  # of any fill that follows.
+  lastActorId: String
+  lastActorPerpId: BigInt
+  # A liquidation waiting for its insurance credit, if one follows.
+  pendingLiquidationId: String
+  # A PositionClosed whose size is unknown, waiting for the fill that follows it
+  # in this transaction to say how many lots were matched.
+  pendingCloseId: String
+  pendingClosePerpId: BigInt
+  pendingCloseAccountId: String
+}
+
+# ─────────────────────────────── feeds ───────────────────────────────────────
+
+type Trade {
+  id: ID! # "<txHash>-<logIndex>" of the maker fill
+  market: Market!
+  pricePNS: BigInt!
+  lotLNS: BigInt!
+  notionalCNS: BigInt!
+  # The maker is named by the fill event itself. The taker is not: it is paired
+  # within the transaction, and stays null when the pairing is inconclusive
+  # rather than being guessed.
+  maker: Trader!
+  taker: Trader
+  takerSide: Side
+  makerFeeCNS: BigInt!
+  # Short, per-market, RECYCLED slot id — not a stable key for an order.
+  makerOrderId: BigInt!
+  builderId: BigInt!
+
+  blockNumber: BigInt!
+  timestamp: Timestamp! @index
+  txHash: String!
+  logIndex: Int!
+}
+
+type Liquidation @index(fields: ["market", ["timestamp", "DESC"]]) {
+  id: ID! # "<txHash>-<logIndex>"
+  kind: ForcedExitKind!
+  market: Market!
+  trader: Trader!
+  position: Position!
+  side: Side!
+
+  markPricePNS: BigInt!
+  # The price the engine actually closed at (the event's liqPricePNS /
+  # deleveragePricePNS / unwind pricePNS), not a computed threshold.
+  execPricePNS: BigInt!
+  lotLNS: BigInt!
+  remainingLotLNS: BigInt!
+  isFull: Boolean!
+  notionalCNS: BigInt!
+
+  realizedPnlCNS: BigInt!
+  fundingCNS: BigInt!
+  marginLostCNS: BigInt!
+  insuranceCreditCNS: BigInt!
+  badDebtCNS: BigInt!
+  onOrderBook: Boolean!
+
+  # ── the PerpGuard columns ─────────────────────────────────────────────────
+  # Free account balance immediately BEFORE the event, derived exactly from the
+  # event's own accBalanceCNS - accAmountCNS. Isolated margin means none of it
+  # was available to save the position.
+  freeBalanceBeforeCNS: BigInt!
+  # Always known: the trader was holding spare AUSD at all.
+  hadSpareBalance: Boolean!
+  # The stronger claim: that spare AUSD covered the top-up that would have kept
+  # the position above maintenance margin. Null when the position was opened
+  # before our start block, so we cannot know — never guessed.
+  marginToSurviveCNS: BigInt
+  wasRescuable: Boolean
+
+  blockNumber: BigInt!
+  timestamp: Timestamp! @index
+  txHash: String!
+  logIndex: Int!
+}
+
+type MarginAction {
+  id: ID! # "<txHash>-<logIndex>"
+  kind: MarginActionKind!
+  market: Market!
+  trader: Trader!
+  position: Position!
+  amountCNS: BigInt!
+  positionDepositAfterCNS: BigInt!
+  freeBalanceAfterCNS: BigInt!
+  reason: String
+  blockNumber: BigInt!
+  timestamp: Timestamp! @index
+  txHash: String!
+}
+
+type CollateralFlow {
+  id: ID! # "<txHash>-<logIndex>"
+  kind: CollateralFlowKind!
+  trader: Trader!
+  amountCNS: BigInt!
+  balanceAfterCNS: BigInt!
+  blockNumber: BigInt!
+  timestamp: Timestamp! @index
+  txHash: String!
+}
+
+type FundingEvent {
+  id: ID! # "<perpId>-<fundingEventBlock>"
+  market: Market!
+  specifiedRatePct100k: BigInt!
+  actualRatePct100k: BigInt!
+  fundingPricePNS: BigInt!
+  fundingPaymentPNS: BigInt!
+  fundingSumPNS: BigInt!
+  blockNumber: BigInt!
+  timestamp: Timestamp! @index
+}
+
+# ────────────────────────── daily aggregates ─────────────────────────────────
+
+type MarketDay {
+  id: ID! # "<perpId>-<YYYY-MM-DD>" in UTC
+  market: Market!
+  day: Timestamp! @index
+
+  volumeCNS: BigInt!
+  tradeCount: Int!
+  feesCNS: BigInt!
+  activeTraderCount: Int!
+
+  # Open/high/low/close of Market.openInterestDeltaLNS through the day: signed,
+  # and a change rather than a level. See the note on Market.
+  oiDeltaOpenLNS: BigInt!
+  oiDeltaCloseLNS: BigInt!
+  oiDeltaHighLNS: BigInt!
+  oiDeltaLowLNS: BigInt!
+
+  markOpenPNS: BigInt!
+  markHighPNS: BigInt!
+  markLowPNS: BigInt!
+  markClosePNS: BigInt!
+
+  liquidationCount: Int!
+  liquidatedNotionalCNS: BigInt!
+  liquidatedMarginCNS: BigInt!
+  liquidationsWithSpareBalanceCount: Int!
+  rescuableLiquidationCount: Int!
+  spareBalanceAtLiquidationCNS: BigInt!
+
+  positionsOpened: Int!
+  positionsClosed: Int!
+  marginAddedCNS: BigInt!
+  marginRemovedCNS: BigInt!
+
+  fundingRateSumPct100k: BigInt!
+  fundingEventCount: Int!
+}
+
+# Set membership behind MarketDay.activeTraderCount.
+type MarketDayTrader @internal {
+  id: ID! # "<perpId>-<YYYY-MM-DD>-<accountId>"
+}
+
+type TraderDay {
+  id: ID! # "<accountId>-<YYYY-MM-DD>" in UTC
+  trader: Trader!
+  day: Timestamp! @index
+  volumeCNS: BigInt!
+  tradeCount: Int!
+  realizedPnlCNS: BigInt!
+  fundingCNS: BigInt!
+  feesCNS: BigInt!
+  netPnlCNS: BigInt!
+  wins: Int!
+  losses: Int!
+  liquidationCount: Int!
+  rescuableLiquidationCount: Int!
+  marginAddedCNS: BigInt!
+  marginRemovedCNS: BigInt!
+  depositedCNS: BigInt!
+  withdrawnCNS: BigInt!
+  endFreeBalanceCNS: BigInt!
+}
