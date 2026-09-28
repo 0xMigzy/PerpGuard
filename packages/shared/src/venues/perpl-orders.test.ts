@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 import {
+  ORDER_FLAGS,
+  ORDER_TYPE,
   buildCancelFrame,
+  buildClosePositionFrame,
   buildLimitOrderFrame,
+  buildMarketOrderFrame,
   classifyOrderUpdate,
   computeLastExecBlock,
   describeOrderStatus,
@@ -436,4 +440,126 @@ describe('reconcileOrderState', () => {
     // conclusion that must never be reached by default.
     assert.equal(reconcileOrderState({ orderId: 1, st: undefined, sr: 0, source: 'update' }).state, 'live');
   });
+});
+
+// ── market and close frames ──────────────────────────────────────────────────
+
+test('buildMarketOrderFrame sends a zero price with ImmediateOrCancel', () => {
+  const frame = buildMarketOrderFrame({
+    sn: 1,
+    rq: 9,
+    marketId: 16,
+    accountId: 710,
+    side: 'long',
+    sizeScaled: 1,
+    leverageHundredths: 1500,
+    lastExecBlock: 100,
+  });
+  assert.equal(frame.t, ORDER_TYPE.OpenLong);
+  // A market order is p:0 + IOC, per the docs' own client. Both are required:
+  // p:0 with GTC would be a resting order at zero.
+  assert.equal(frame.p, 0);
+  assert.equal(frame.fl, ORDER_FLAGS.ImmediateOrCancel);
+  assert.equal(frame.lv, 1500);
+});
+
+test('buildMarketOrderFrame maps short to OpenShort', () => {
+  const frame = buildMarketOrderFrame({
+    sn: 1,
+    rq: 9,
+    marketId: 16,
+    accountId: 710,
+    side: 'short',
+    sizeScaled: 1,
+    leverageHundredths: 1500,
+    lastExecBlock: 100,
+  });
+  assert.equal(frame.t, ORDER_TYPE.OpenShort);
+});
+
+test('buildLimitOrderFrame still refuses a zero price', () => {
+  assert.throws(
+    () =>
+      buildLimitOrderFrame({
+        sn: 1,
+        rq: 9,
+        marketId: 16,
+        accountId: 710,
+        side: 'long',
+        priceScaled: 0,
+        sizeScaled: 1,
+        leverageHundredths: 1500,
+        postOnly: true,
+        lastExecBlock: 100,
+      }),
+    /p \(limit price, scaled\)/,
+  );
+});
+
+test('buildClosePositionFrame takes the POSITION side, not the order side', () => {
+  const frame = buildClosePositionFrame({
+    sn: 1,
+    rq: 9,
+    marketId: 16,
+    accountId: 710,
+    positionSide: 'long',
+    positionId: 55,
+    sizeScaled: 1,
+    lastExecBlock: 100,
+  });
+  // Closing a long is a sell, and it is still CloseLong. Reading this as the
+  // order's direction would send CloseShort and double the position.
+  assert.equal(frame.t, ORDER_TYPE.CloseLong);
+  assert.equal(frame.lp, 55);
+  // Leverage belongs to the position; a close does not set it.
+  assert.equal(frame.lv, 0);
+  assert.equal(frame.p, 0);
+  assert.equal(frame.fl, ORDER_FLAGS.ImmediateOrCancel);
+});
+
+test('buildClosePositionFrame closes a short with CloseShort', () => {
+  const frame = buildClosePositionFrame({
+    sn: 1,
+    rq: 9,
+    marketId: 16,
+    accountId: 710,
+    positionSide: 'short',
+    positionId: 55,
+    sizeScaled: 1,
+    lastExecBlock: 100,
+  });
+  assert.equal(frame.t, ORDER_TYPE.CloseShort);
+});
+
+test('buildClosePositionFrame with a limit price rests instead of crossing', () => {
+  const frame = buildClosePositionFrame({
+    sn: 1,
+    rq: 9,
+    marketId: 16,
+    accountId: 710,
+    positionSide: 'long',
+    positionId: 55,
+    sizeScaled: 1,
+    priceScaled: 830000,
+    lastExecBlock: 100,
+  });
+  assert.equal(frame.p, 830000);
+  assert.equal(frame.fl, ORDER_FLAGS.GoodTillCancel);
+});
+
+test('buildClosePositionFrame requires a position id', () => {
+  assert.throws(
+    () =>
+      buildClosePositionFrame({
+        sn: 1,
+        rq: 9,
+        marketId: 16,
+        accountId: 710,
+        positionSide: 'long',
+        positionId: 0,
+        sizeScaled: 1,
+        lastExecBlock: 100,
+      }),
+    /lp \(position id\)/,
+  );
 });

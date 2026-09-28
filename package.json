@@ -10,7 +10,8 @@
     "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\"",
     "markets": "node apps/backend/src/scripts/print-markets.ts",
     "prices": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-prices.ts",
-    "order:test": "node --env-file-if-exists=.env scripts/placeTestOrder.ts"
+    "order:test": "node --env-file-if-exists=.env scripts/placeTestOrder.ts",
+    "positions:probe": "node --env-file-if-exists=.env scripts/probePositions.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",

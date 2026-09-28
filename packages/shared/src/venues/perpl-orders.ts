@@ -268,6 +268,8 @@ export interface OrderRequestFrame {
   readonly lb: number;
   readonly p?: number;
   readonly oid?: number;
+  /** Linked position id, on a close. */
+  readonly lp?: number;
 }
 
 export interface LimitOrderFrameParams {
@@ -314,6 +316,113 @@ export function buildLimitOrderFrame(params: LimitOrderFrameParams): OrderReques
     s: params.sizeScaled,
     fl: params.postOnly ? ORDER_FLAGS.PostOnly : ORDER_FLAGS.GoodTillCancel,
     lv: params.leverageHundredths,
+    lb: params.lastExecBlock,
+  };
+}
+
+export interface MarketOrderFrameParams {
+  readonly sn: number;
+  readonly rq: number;
+  readonly marketId: number;
+  readonly accountId: number;
+  readonly side: Side;
+  readonly sizeScaled: number;
+  readonly leverageHundredths: number;
+  readonly lastExecBlock: number;
+}
+
+/**
+ * A market order that OPENS or adds to a position.
+ *
+ * A market order on Perpl is a zero price with the ImmediateOrCancel flag:
+ * `p: price ?? 0, fl: price ? 0 : 4` in the docs' own client. Zero price is
+ * therefore meaningful here and is sent explicitly, which is exactly why
+ * buildLimitOrderFrame refuses it — the two cannot be confused.
+ *
+ * IOC matters beyond speed. An order that cannot fill now is cancelled rather
+ * than left resting, so a market order can never quietly become a resting
+ * order we then have to remember to clean up.
+ *
+ * https://docs.perpl.xyz/resources/for-developers/api/typescript.md
+ */
+export function buildMarketOrderFrame(params: MarketOrderFrameParams): OrderRequestFrame {
+  assertPositiveInt(params.sn, 'sn');
+  assertPositiveInt(params.rq, 'rq');
+  assertPositiveInt(params.marketId, 'mkt');
+  assertPositiveInt(params.accountId, 'acc');
+  assertPositiveInt(params.sizeScaled, 's (size, scaled)');
+  assertPositiveInt(params.leverageHundredths, 'lv (leverage, hundredths)');
+  assertPositiveInt(params.lastExecBlock, 'lb (last execution block)');
+
+  return {
+    mt: MT.OrderRequest,
+    sn: params.sn,
+    rq: params.rq,
+    mkt: params.marketId,
+    acc: params.accountId,
+    t: params.side === 'long' ? ORDER_TYPE.OpenLong : ORDER_TYPE.OpenShort,
+    p: 0,
+    s: params.sizeScaled,
+    fl: ORDER_FLAGS.ImmediateOrCancel,
+    lv: params.leverageHundredths,
+    lb: params.lastExecBlock,
+  };
+}
+
+export interface ClosePositionFrameParams {
+  readonly sn: number;
+  readonly rq: number;
+  readonly marketId: number;
+  readonly accountId: number;
+  /**
+   * The side of the POSITION being closed, not the side of the order that
+   * closes it. Closing a long sends CloseLong, which is itself a sell.
+   * Passing the order's direction here reverses the trade and doubles the
+   * position instead of flattening it.
+   */
+  readonly positionSide: Side;
+  /** `lp`, the position to close. Read it off the position, never guess it. */
+  readonly positionId: number;
+  readonly sizeScaled: number;
+  /** Omit for a market close, which is what a kill switch wants. */
+  readonly priceScaled?: number;
+  readonly lastExecBlock: number;
+}
+
+/**
+ * Close (or reduce) an existing position.
+ *
+ * `lv` is 0 on a close: leverage belongs to the position, and the close is not
+ * setting it. `lp` names the position, which is why the position id has to be
+ * read off the live position rather than reconstructed.
+ *
+ * https://docs.perpl.xyz/resources/for-developers/api/typescript.md
+ */
+export function buildClosePositionFrame(params: ClosePositionFrameParams): OrderRequestFrame {
+  assertPositiveInt(params.sn, 'sn');
+  assertPositiveInt(params.rq, 'rq');
+  assertPositiveInt(params.marketId, 'mkt');
+  assertPositiveInt(params.accountId, 'acc');
+  assertPositiveInt(params.positionId, 'lp (position id)');
+  assertPositiveInt(params.sizeScaled, 's (size, scaled)');
+  assertPositiveInt(params.lastExecBlock, 'lb (last execution block)');
+  if (params.priceScaled !== undefined) {
+    assertPositiveInt(params.priceScaled, 'p (limit price, scaled)');
+  }
+
+  const isMarket = params.priceScaled === undefined;
+  return {
+    mt: MT.OrderRequest,
+    sn: params.sn,
+    rq: params.rq,
+    mkt: params.marketId,
+    acc: params.accountId,
+    t: params.positionSide === 'long' ? ORDER_TYPE.CloseLong : ORDER_TYPE.CloseShort,
+    p: isMarket ? 0 : params.priceScaled,
+    s: params.sizeScaled,
+    fl: isMarket ? ORDER_FLAGS.ImmediateOrCancel : ORDER_FLAGS.GoodTillCancel,
+    lp: params.positionId,
+    lv: 0,
     lb: params.lastExecBlock,
   };
 }

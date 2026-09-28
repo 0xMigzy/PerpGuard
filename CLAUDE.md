@@ -107,6 +107,36 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   `apps/indexer/docs/EVENTS.md` for every event and what it means.
 - `positionType` on every position event is `0` = LONG, `1` = SHORT. Measured over
   496 real mainnet round trips, not inferred from the field order.
+- TWO DIFFERENT SIDE ENCODINGS LIVE IN THIS REPO, AND `1` MEANS OPPOSITE THINGS
+  IN THEM. Contract events (what `apps/indexer` reads) use `positionType`
+  `0` = LONG, `1` = SHORT. The API wire (what the venue adapters read) uses `sd`
+  `1` = Long, `2` = Short, with `0` = Unspecified. Both measured, the second off
+  a real testnet position.
+  - `sideOf()` in `apps/indexer/src/lib/scale.ts` is for CONTRACT EVENTS ONLY.
+    Never point it at wire data: it would read `sd: 1` as SHORT.
+  - An unrecognised value THROWS. It never defaults to long. A silently
+    inverted position is a risk tool telling someone to add margin when they
+    are short the other way — worse than no tool at all.
+- The Perpl `Position` wire object is NOT DOCUMENTED — `types-and-errors.md`,
+  `rest.md` and `websocket.md` circular-reference each other for it. The shape
+  was read off the wire and is recorded in `fixtures/positions-testnet.json`
+  and `docs/evidence.md`; `scripts/probePositions.ts` re-captures it. Key
+  fields: `pid` position id (the `lp` a close is addressed to), `sd` side,
+  `st` status, `s` size, `ep` entry price, `xp` exit price (CLOSE ONLY),
+  `c` isolated margin, `lv` leverage hundredths, `dpnl` realized PnL,
+  `fnd` funding. There is no mark price and no liquidation price on a
+  position: both are ours to compute.
+  - `c`, `fee`, `dpnl`, `fnd` and friends are AUSD `Amount` DECIMAL STRINGS.
+    Parse them exactly — never `Number()`. The docs say so and money maths in
+    this repo is integer-only anyway.
+  - A SNAPSHOT IS NOT AN UPDATE. The same position in `mt: 26` carries
+    `sr: 0` Unspecified, an empty `at: {}` and no `e[]` history; the `mt: 27`
+    update carries the real reason. Never read a reason off a snapshot.
+  - A CLOSED POSITION IS STILL DELIVERED, as a row with `st: 2` and `s: 0` —
+    not as an omission. Drop anything whose `st` is not `1`; that is also the
+    right handling for the forced exits (3 Liquidated, 4 Deleveraged,
+    5 Unwound), whose exact field shapes we have NOT observed and must not
+    assume.
 - `createAccount(uint256)` takes the OPENING DEPOSIT in AUSD micros, not an id.
   The minimum differs per network and is enforced on chain as
   `InsufficentAmountToOpenAccount`: mainnet 10000000 (10 AUSD), testnet
@@ -134,6 +164,14 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
 - Read-only analytics run against MAINNET (chain 143) so the demo shows real data.
 - All trading actions run against TESTNET (chain 10143) with our own wallet.
 - Network config comes from env vars, never hard-coded. Both must be selectable.
+- ONE NETWORK PER RISK LOOP, ENFORCED AT CONSTRUCTION. A position and the mark
+  price it is assessed against MUST come from the same network. This is a rule,
+  not a convention, and it is checked in code rather than left to care: both
+  networks list BTC, so a testnet position priced off a mainnet mark produces
+  entirely wrong numbers that look completely plausible — a liquidation price,
+  a buffer percentage and an alert, all confidently derived from two unrelated
+  markets. Nothing about the output would look off. Mixing must be impossible
+  to express, not merely discouraged.
 
 ## Stack
 TypeScript everywhere, pnpm workspaces.

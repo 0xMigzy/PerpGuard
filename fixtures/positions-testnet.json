@@ -1,0 +1,256 @@
+{
+  "_source": "scripts/probePositions.ts against Perpl testnet (chain 10143), account 710",
+  "_captured": "2026-09-28",
+  "_why": "Perpl does not document the Position wire object anywhere. types-and-errors.md defers to the REST/WebSocket pages; both defer back to Types. The Rust SDK is unpublished and the TypeScript docs type positions as any[]. This is the shape read off the wire, for one real position opened and closed at the exchange minimum size.",
+  "_market": {
+    "marketId": 16,
+    "symbol": "BTC",
+    "priceDecimals": 1,
+    "sizeDecimals": 5
+  },
+  "_ledger": {
+    "startBalanceCNS": "10000000000",
+    "openFeeCNS": "288",
+    "closeFeeCNS": "288",
+    "realizedPnlCNS": "638",
+    "endBalanceCNS": "10000000062",
+    "_check": "10000000000 - 288 - 288 + 638 = 10000000062, confirmed against the mt:19 WalletSnapshot after the close."
+  },
+  "lifecycle": [
+    {
+      "stage": "snapshot-empty",
+      "note": "mt 26 at sign-in with no position. d is [] — this is why the shape cannot be learned without opening one.",
+      "frame": {
+        "mt": 26,
+        "sid": 50,
+        "sn": 66450420,
+        "at": {
+          "b": 66450420,
+          "t": 1790611775000
+        },
+        "d": []
+      }
+    },
+    {
+      "stage": "open",
+      "note": "mt 27. st 1 Open, sr 21 PositionOpened. Carries the e[] event history.",
+      "frame": {
+        "mt": 27,
+        "sid": 50,
+        "sn": 66450433,
+        "at": {
+          "b": 66450433,
+          "t": 1790611779000
+        },
+        "d": [
+          {
+            "at": {
+              "b": 66450433,
+              "t": 1790611779000,
+              "tx": 2,
+              "txid": "6308b26df68cef35218c24140c5cf0d921407f76ad45b5c687bf1402a1d63e41",
+              "l": 3
+            },
+            "mkt": 16,
+            "acc": 710,
+            "pid": 4354895577089,
+            "rq": 0,
+            "oid": 0,
+            "st": 1,
+            "sr": 21,
+            "sd": 1,
+            "c": "417125",
+            "ep": 833798,
+            "s": 1,
+            "fee": "288",
+            "cfee": "0",
+            "efs": 117606,
+            "lv": 200,
+            "cpnl": "0",
+            "dpnl": "0",
+            "fnd": "0",
+            "pay": "0",
+            "xfs": 0,
+            "ots": {
+              "b": 66450433,
+              "t": 1790611779000,
+              "tx": 2
+            },
+            "e": [
+              {
+                "at": {
+                  "b": 66450433,
+                  "t": 1790611779000,
+                  "tx": 2,
+                  "txid": "6308b26df68cef35218c24140c5cf0d921407f76ad45b5c687bf1402a1d63e41",
+                  "l": 3
+                },
+                "mkt": 16,
+                "acc": 710,
+                "pid": 4354895577089,
+                "rq": 9,
+                "oid": 4354895577104,
+                "st": 1,
+                "sr": 21,
+                "sd": 1,
+                "c": "417125",
+                "ep": 833798,
+                "s": 1,
+                "fee": "288",
+                "cfee": "0",
+                "efs": 117606,
+                "lv": 200,
+                "cpnl": "226",
+                "dpnl": "0",
+                "fnd": "0",
+                "pay": "0",
+                "xfs": 0,
+                "ots": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stage": "snapshot-open",
+      "note": "mt 26 on a later sign-in, same position. NOTE the differences from the update: sr is 0 Unspecified rather than 21, at is {}, and there is no e[]. A snapshot is state; an update is state plus why.",
+      "frame": {
+        "mt": 26,
+        "sid": 50,
+        "sn": 66450576,
+        "at": {
+          "b": 66450576,
+          "t": 1790611822000
+        },
+        "d": [
+          {
+            "at": {},
+            "mkt": 16,
+            "acc": 710,
+            "pid": 4354895577089,
+            "rq": 0,
+            "oid": 0,
+            "st": 1,
+            "sr": 0,
+            "sd": 1,
+            "c": "417125",
+            "ep": 833798,
+            "s": 1,
+            "fee": "288",
+            "cfee": "0",
+            "efs": 117606,
+            "lv": 200,
+            "cpnl": "0",
+            "dpnl": "0",
+            "fnd": "0",
+            "pay": "0",
+            "xfs": 0,
+            "ots": {
+              "b": 66450433,
+              "t": 1790611779000,
+              "tx": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stage": "close",
+      "note": "mt 27. st 2 Closed, sr 13 PositionClosed, s 0, c \"0\". xp (exit price) and xfs appear only here. A closed position is STILL DELIVERED in d — it is not omitted — so a tracker must drop anything whose st is not 1.",
+      "frame": {
+        "mt": 27,
+        "sid": 50,
+        "sn": 66450644,
+        "at": {
+          "b": 66450644,
+          "t": 1790611844000
+        },
+        "d": [
+          {
+            "at": {
+              "b": 66450644,
+              "t": 1790611844000,
+              "tx": 1,
+              "txid": "3de90b77165ca414fbfee10ccba3baade1fcd0b54a9b715675feb2060c20306d",
+              "l": 3
+            },
+            "mkt": 16,
+            "acc": 710,
+            "pid": 4354895577089,
+            "rq": 0,
+            "oid": 0,
+            "st": 2,
+            "sr": 13,
+            "sd": 1,
+            "c": "0",
+            "ep": 833798,
+            "s": 0,
+            "fee": "0",
+            "cfee": "0",
+            "efs": 117606,
+            "lv": 200,
+            "cpnl": "0",
+            "dpnl": "638",
+            "fnd": "0",
+            "pay": "0",
+            "xp": 834436,
+            "xfs": 117606,
+            "ots": {
+              "b": 66450433,
+              "t": 1790611779000,
+              "tx": 2
+            },
+            "e": [
+              {
+                "at": {
+                  "b": 66450644,
+                  "t": 1790611844000,
+                  "tx": 1,
+                  "txid": "3de90b77165ca414fbfee10ccba3baade1fcd0b54a9b715675feb2060c20306d",
+                  "l": 3
+                },
+                "mkt": 16,
+                "acc": 710,
+                "pid": 4354895577089,
+                "rq": 10,
+                "oid": 4354909405184,
+                "st": 2,
+                "sr": 13,
+                "sd": 1,
+                "c": "-417125",
+                "ep": 833798,
+                "s": 1,
+                "fee": "576",
+                "cfee": "288",
+                "efs": 117606,
+                "lv": 200,
+                "cpnl": "0",
+                "dpnl": "638",
+                "fnd": "0",
+                "pay": "0",
+                "xp": 834436,
+                "xfs": 117606,
+                "ots": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stage": "snapshot-after",
+      "note": "mt 26 on a fresh sign-in after the close. d is [] again.",
+      "frame": {
+        "mt": 26,
+        "sid": 50,
+        "sn": 66450754,
+        "at": {
+          "b": 66450754,
+          "t": 1790611877000
+        },
+        "d": []
+      }
+    }
+  ]
+}

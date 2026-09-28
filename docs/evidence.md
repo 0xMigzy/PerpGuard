@@ -263,3 +263,94 @@ The millisecond figures worth quoting — 8ms to notice the close, the backoff
 ladder, the 1.9s recovery, the 11955ms stall detection — remain the test-double
 run's, where the log exists. What this run adds is that the same behaviour holds
 against the real host under a real network failure.
+
+## 2026-09-28 — the Position wire shape, read off testnet
+
+`Position` is the one wire object Perpl does not document.
+`types-and-errors.md` says the full shapes are "documented alongside the
+endpoints that return them"; `rest.md` and `websocket.md` both say see Types.
+The reference is circular. The Rust SDK is a path dependency on an unpublished
+crate, and the TypeScript docs type position history as `any[]`. CLAUDE.md
+forbids guessing field names, so the wire was the only source left — and an
+account with no position receives `mt: 26` with `d: []`, which teaches nothing.
+
+So one real position was opened and closed on testnet at the exchange minimum,
+with `scripts/probePositions.ts`. Account 710, BTC market 16, **0.00001 BTC**
+(one size unit) at 2x — about **$0.83** of notional. Frames in
+`fixtures/positions-testnet.json`.
+
+### The shape
+
+```json
+{"at":{},"mkt":16,"acc":710,"pid":4354895577089,"rq":0,"oid":0,
+ "st":1,"sr":0,"sd":1,"c":"417125","ep":833798,"s":1,
+ "fee":"288","cfee":"0","efs":117606,"lv":200,
+ "cpnl":"0","dpnl":"0","fnd":"0","pay":"0","xfs":0,
+ "ots":{"b":66450433,"t":1790611779000,"tx":2}}
+```
+
+| Field | Meaning | Confirmed by |
+| --- | --- | --- |
+| `pid` | Position id — the `lp` a close is addressed to | the close was accepted against it |
+| `mkt` / `acc` | market id, account id | 16 / 710, both known independently |
+| `sd` | side. **1 = Long, 2 = Short** | docs' PositionType table, and the long we opened came back 1 |
+| `st` | PositionStatus. 1 Open, 2 Closed | 1 while open, 2 after the close |
+| `sr` | PositionStatusReason. 21 PositionOpened, 13 PositionClosed | both observed |
+| `s` | size, scaled by `size_decimals` | 1 unit = 0.00001 BTC, and 0 after the close |
+| `ep` | entry price, scaled by `price_decimals` | 833798 = $83,379.8 |
+| `xp` | EXIT price. **Present only on a close** | 834436 = $83,443.6 |
+| `c` | isolated margin, AUSD **decimal string** | "417125" = 0.417125 AUSD |
+| `lv` | leverage, hundredths | 200 = 2x, as sent |
+| `fee` / `cfee` | fee and cumulative fee, decimal strings | "288" = 3.45bps of $0.8338, the taker fee exactly |
+| `dpnl` | realized PnL, decimal string | "638" — see the ledger below |
+| `fnd` / `pay` | funding accrued / paid, decimal strings | "0" over a 65-second position |
+| `efs` / `xfs` | funding sum at entry / at exit | 117606 both, no funding event in between |
+| `ots` | opening block timestamp | matches the opening transaction |
+
+There is **no mark price and no liquidation price on the position**. Both are
+ours to compute — which is what the risk engine is for.
+
+### The ledger closes exactly
+
+    start   10000000000 micros
+    open      -     288   taker fee, 3.45bps of $0.8338
+    close     -     288   taker fee
+    pnl       +     638   (834436 - 833798) / 10 * 0.00001 BTC
+    -------------------
+    end     10000000062   — exactly what the mt:19 WalletSnapshot then reported
+
+Every published figure reconciles to the micro, which is the real check that
+the field meanings above are right rather than merely plausible.
+
+### Three things that will bite later
+
+**A snapshot is not an update.** The same position in `mt: 26` and in `mt: 27`
+differs: the snapshot carries `sr: 0` (Unspecified) rather than the real
+reason, an empty `at: {}`, and no `e[]` event history. State versus state plus
+why. Reading a reason off a snapshot gets Unspecified, not the truth.
+
+**A closed position is still delivered.** The close arrives as a row in `d`
+with `st: 2`, `s: 0`, `c: "0"` — not as an omission. A tracker that upserts
+whatever arrives will hold a zero-size position forever. Drop anything whose
+`st` is not 1. Only a *later* sign-in omits it: the snapshot after the close
+was `d: []`.
+
+**`sd` is not `positionType`.** The API wire uses 1 = Long, 2 = Short. The
+contract events the indexer reads use 0 = LONG, 1 = SHORT. The value `1` is
+therefore Long on one and SHORT on the other, and nothing about either
+encoding is self-describing. `sideOf()` in `apps/indexer/src/lib/scale.ts`
+must never be pointed at wire data.
+
+### UNVERIFIED: a liquidated position may not look like this
+
+Everything above is one position closed **by the user**, on purpose, at a
+profit. A position closed by LIQUIDATION, deleveraging or unwinding is
+documented to carry a different `st` (3 Liquidated, 4 Deleveraged, 5 Unwound)
+and a different `sr` (19 PositionLiquidated, 15 PositionDeleveraged,
+22 PositionUnwound), but we have not seen one on the wire and cannot force the
+case today — it would mean deliberately losing a real position to the engine.
+
+Treat the forced-exit shapes as **assumed, not measured**. In particular do not
+assume `xp` is present, or that `c` returns to "0", on a liquidation. The
+decoder should handle any `st` outside 1 by treating the position as gone,
+which is correct for all of 2–5 regardless of what the other fields do.
