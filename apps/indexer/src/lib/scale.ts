@@ -9,9 +9,27 @@
 import type { Market } from "envio";
 import { type MarketScale, notionalCNS, type Side } from "@perpguard/shared/risk";
 
-/** Perpl's on-chain `positionType`: 0 = LONG, 1 = SHORT. Measured, not assumed. */
+/**
+ * Perpl's on-chain `positionType`: 0 = LONG, 1 = SHORT. Measured over 496 real
+ * mainnet round trips, not assumed from the field order.
+ *
+ * FOR CONTRACT EVENTS ONLY. The API wire uses a DIFFERENT encoding for the
+ * same idea — `sd` 1 = Long, 2 = Short — so `1` is SHORT here and Long there.
+ * Decode wire data with `sideFromWire` from @perpguard/shared and never with
+ * this. The two are deliberately separate; src/tests/side-encodings.test.ts
+ * asserts the asymmetry so they cannot be quietly merged.
+ *
+ * An unrecognised value throws rather than falling through to SHORT. Halting
+ * on data we do not understand is recoverable — the indexer re-runs. Silently
+ * recording every unknown position as short is not: it corrupts open interest,
+ * win rates and the liquidation analysis, invisibly and permanently.
+ */
 export function sideOf(positionType: bigint): "LONG" | "SHORT" {
-  return positionType === 0n ? "LONG" : "SHORT";
+  if (positionType === 0n) return "LONG";
+  if (positionType === 1n) return "SHORT";
+  throw new RangeError(
+    `unrecognised positionType ${positionType}; expected 0 (LONG) or 1 (SHORT)`,
+  );
 }
 
 export const flipSide = (side: "LONG" | "SHORT"): "LONG" | "SHORT" =>

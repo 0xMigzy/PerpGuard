@@ -62,7 +62,14 @@ export interface VenuePosition {
   /** Absolute position size in base units. */
   readonly size: number;
   readonly entryPrice: number;
-  readonly markPrice: number;
+  /**
+   * OPTIONAL, because a Perpl position does not carry one. The wire publishes
+   * no mark price and no liquidation price on a Position — both are computed
+   * by the risk engine from the live feed, which is the only source that can
+   * say how old the number is. Present only when a caller has attached a mark
+   * it got from somewhere it can vouch for.
+   */
+  readonly markPrice?: number;
   /**
    * Collateral posted to THIS position, in AUSD. Perpl is isolated margin:
    * free account balance is never pulled in to rescue it. Always the venue's
