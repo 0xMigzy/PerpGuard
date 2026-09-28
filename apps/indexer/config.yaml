@@ -103,9 +103,6 @@ chains:
     # 100,000,000 is ~30 days of Monad at ~0.30s per block. Widen it to backfill
     # further; the handlers bootstrap any market they have not seen listed.
     start_block: ${ENVIO_PERPGUARD_START_BLOCK:-100000000}
-    # Unset in normal operation. Set it to bound a run for verification against
-    # an independent replay of the same blocks.
-    end_block: ${ENVIO_PERPGUARD_END_BLOCK:-0}
     hypersync_config:
       url: ${ENVIO_PERPL_HYPERSYNC_URL:-https://143.hypersync.xyz}
     contracts:

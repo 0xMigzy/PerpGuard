@@ -8,11 +8,16 @@
     "dev": "envio dev",
     "start": "envio start",
     "stop": "envio stop",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "node --env-file-if-exists=../../.env src/scripts/verify.ts"
   },
   "dependencies": {
     "envio": "3.12.1",
     "viem": "^2.56.9",
-    "@perpguard/shared": "workspace:*"
+    "@perpguard/shared": "workspace:*",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
   }
 }
