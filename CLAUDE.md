@@ -15,6 +15,14 @@ warns before liquidation, and lets the user add margin or close in one tap.
 
 ## Critical domain facts
 - Isolated margin: margin is per position. Adding margin is explicit, per position.
+- `liqBufferPct` is SIGNED, not absolute. Negative means the position is already
+  PAST its liquidation price. `abs()` makes a doomed position sort as the safest
+  thing in the book — never reintroduce it. The UI renders a negative buffer as
+  "past liquidation", never as a negative percentage.
+- Reducing a position with proportional margin release leaves the liquidation
+  price EXACTLY unchanged: size, margin, funding and the maintenance requirement
+  all scale by the same factor and it cancels. Only adding margin, or keeping
+  margin while reducing, buys room.
 - Collateral is AUSD, 6 decimals (100000000 = 100.0 AUSD).
 - NEVER hard-code market IDs, tick sizes or scaling. They differ between
   testnet and mainnet. Load them from `GET /v1/pub/context` at startup.
