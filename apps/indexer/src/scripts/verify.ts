@@ -12,7 +12,13 @@
  * Exits non-zero on any failure, so it can gate a commit.
  */
 import { Client } from "pg";
-import { PerplVenue, loadNetworkConfig } from "@perpguard/shared";
+import {
+  PerplVenue,
+  classifyIndexerHealth,
+  describeIndexerHealth,
+  loadNetworkConfig,
+  type IndexerProgress,
+} from "@perpguard/shared";
 
 interface Check {
   readonly name: string;
@@ -37,21 +43,86 @@ const db = new Client({
 });
 await db.connect();
 
-const progress = await db.query(
+/**
+ * Real chain head, from the RPC — NOT from the indexer.
+ *
+ * `chain_metadata.block_height` is the indexer's own reading, written by the
+ * same process, so a dead indexer reports itself 0 blocks behind. Observed
+ * live: the indexer said 0 while the RPC put it 152 back. One independent
+ * number is the entire difference between catching that and not.
+ */
+async function rpcChainHead(): Promise<number | undefined> {
+  const url = process.env.ENVIO_PERPL_RPC_URL ?? "https://rpc.monad.xyz";
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = (await response.json()) as { result?: string };
+    return json.result === undefined ? undefined : Number.parseInt(json.result, 16);
+  } catch {
+    // No head means we cannot certify synced, which classifyIndexerHealth
+    // already handles by refusing to. Say so rather than failing the run.
+    console.log("NOTE  could not reach the RPC for a real chain head; health is unverified\n");
+    return undefined;
+  }
+}
+
+const result = await db.query(
   `select latest_processed_block, num_events_processed, block_height, start_block
      from chain_metadata where chain_id = 143`,
 );
-const row = progress.rows[0];
-if (!row) {
+const metadata = result.rows[0];
+if (!metadata) {
   console.error("no chain_metadata row: has the indexer ever run?");
   process.exit(1);
 }
-const behind = Number(row.block_height) - Number(row.latest_processed_block);
+const chainHead = await rpcChainHead();
+const row: IndexerProgress = {
+  chainId: 143,
+  startBlock: Number(metadata.start_block),
+  latestProcessedBlock: Number(metadata.latest_processed_block),
+  blockHeight: Number(metadata.block_height),
+  eventsProcessed: Number(metadata.num_events_processed),
+  ...(chainHead === undefined ? {} : { chainHead }),
+  observedAtMs: Date.now(),
+};
+
+// One reading, because chain_metadata is written in bursts every one to three
+// minutes: a healthy indexer shows no progress at all over a 60-second window,
+// so a second reading taken seconds later proves nothing and would only invite
+// a false alarm. Freshness against real head is instant and is the property
+// that matters here. Distinguishing halted from lagging needs a window longer
+// than the commit cadence, which belongs to a long-running monitor rather than
+// a one-shot script.
+const health = classifyIndexerHealth(row, undefined);
+const behind = health.blocksBehind;
+
 console.log(
-  `indexed blocks ${row.start_block} .. ${row.latest_processed_block} ` +
-    `(${Number(row.num_events_processed).toLocaleString("en-US")} events, ` +
-    `${behind.toLocaleString("en-US")} behind head)\n`,
+  `indexed blocks ${row.startBlock} .. ${row.latestProcessedBlock} ` +
+    `(${row.eventsProcessed.toLocaleString("en-US")} events, ` +
+    `${behind.toLocaleString("en-US")} behind ` +
+    `${health.headIsIndependent ? "real head" : "its own head"})`,
 );
+console.log(`indexer health: ${describeIndexerHealth(health)}\n`);
+
+// Every check below reads rows that stopped changing at latest_processed_block.
+// Passing them while the indexer is not current would report a frozen snapshot
+// as a healthy one — the analytics equivalent of a dead feed that still looks
+// live.
+record(
+  "the indexer is caught up, so these figures are current",
+  health.serveAsCurrent,
+  health.serveAsCurrent ? `state ${health.state}` : (health.reason ?? health.state),
+);
+if (!health.serveAsCurrent) {
+  console.log(
+    `NOTE  the figures below are NOT current. ${health.reason ?? health.state}\n` +
+      `      They are what the indexer had at block ${row.latestProcessedBlock}.\n`,
+  );
+}
 
 // ── 1. open interest: every match moves both sides equally ───────────────────
 const oi = await db.query(

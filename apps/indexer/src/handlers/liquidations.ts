@@ -82,7 +82,13 @@ async function recordForcedExit(
   // After loadMarket and loadTrader, both of which may have written Exchange.
   const exchange = await loadExchange(context, meta);
 
-  const side = sideOf(exit.positionType);
+  const side = sideOf(exit.positionType, {
+    event: `forced exit (${exit.kind})`,
+    perpId: exit.perpId,
+    accountId: exit.accountId,
+    blockNumber: meta.blockNumber,
+    txHash: meta.txHash,
+  });
   const opened = await ensurePosition(
     context,
     exchange,

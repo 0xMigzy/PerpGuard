@@ -10,6 +10,32 @@ import type { Market } from "envio";
 import { type MarketScale, notionalCNS, type Side } from "@perpguard/shared/risk";
 
 /**
+ * Where a `positionType` came from, so a failure to decode it is a two-minute
+ * fix rather than an investigation.
+ *
+ * Every field is optional because not every event publishes every one —
+ * `PositionInverted` has no account on some paths — but the block and tx
+ * always come from EventMeta and are what actually locate the log.
+ */
+export interface SideContext {
+  /** The event name, e.g. "PositionOpenedV2". */
+  readonly event: string;
+  readonly perpId?: bigint;
+  readonly accountId?: bigint;
+  readonly blockNumber?: bigint;
+  readonly txHash?: string;
+}
+
+function describeSideContext(where: SideContext): string {
+  const parts = [where.event];
+  if (where.perpId !== undefined) parts.push(`market ${where.perpId}`);
+  if (where.accountId !== undefined) parts.push(`account ${where.accountId}`);
+  if (where.blockNumber !== undefined) parts.push(`block ${where.blockNumber}`);
+  if (where.txHash !== undefined) parts.push(`tx ${where.txHash}`);
+  return parts.join(", ");
+}
+
+/**
  * Perpl's on-chain `positionType`: 0 = LONG, 1 = SHORT. Measured over 496 real
  * mainnet round trips, not assumed from the field order.
  *
@@ -19,16 +45,29 @@ import { type MarketScale, notionalCNS, type Side } from "@perpguard/shared/risk
  * this. The two are deliberately separate; src/tests/side-encodings.test.ts
  * asserts the asymmetry so they cannot be quietly merged.
  *
- * An unrecognised value throws rather than falling through to SHORT. Halting
- * on data we do not understand is recoverable — the indexer re-runs. Silently
- * recording every unknown position as short is not: it corrupts open interest,
- * win rates and the liquidation analysis, invisibly and permanently.
+ * An unrecognised value throws rather than falling through to SHORT, which
+ * HALTS THE INDEXER. That is the intended trade: halting is recoverable,
+ * because the indexer re-runs and the data is on chain either way, whereas
+ * silently recording every unknown position as short corrupts open interest,
+ * win rates and the whole liquidation analysis, invisibly and permanently.
+ *
+ * Because a halt has a real cost, the error carries everything needed to fix
+ * it: the value, the market, the account, and the block and transaction the
+ * log is in. Look the tx up, see what the contract actually emitted, and add
+ * the case here.
  */
-export function sideOf(positionType: bigint): "LONG" | "SHORT" {
+export function sideOf(positionType: bigint, where: SideContext): "LONG" | "SHORT" {
   if (positionType === 0n) return "LONG";
   if (positionType === 1n) return "SHORT";
   throw new RangeError(
-    `unrecognised positionType ${positionType}; expected 0 (LONG) or 1 (SHORT)`,
+    `unrecognised positionType ${positionType} on ${describeSideContext(where)} — ` +
+      `expected 0 (LONG) or 1 (SHORT).\n` +
+      `The indexer has HALTED rather than record a side it did not read: guessing ` +
+      `would invert this position and silently corrupt open interest, win rates ` +
+      `and the liquidation analysis.\n` +
+      `To fix: look up the transaction above, confirm what the contract emitted, ` +
+      `and add the case to sideOf in apps/indexer/src/lib/scale.ts. Do NOT widen ` +
+      `the fallback.`,
   );
 }
 

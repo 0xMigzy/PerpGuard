@@ -27,7 +27,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sideFromWire } from "@perpguard/shared";
-import { sideOf } from "../lib/scale.ts";
+import { sideOf, type SideContext } from "../lib/scale.ts";
+
+/** Somewhere for the decoder to say the value came from. */
+const WHERE: SideContext = {
+  event: "PositionOpenedV2",
+  perpId: 20n,
+  accountId: 4242n,
+  blockNumber: 108790038n,
+  txHash: "0x6308b26df68cef35218c24140c5cf0d921407f76ad45b5c687bf1402a1d63e41",
+};
 
 test("the value 1 means opposite sides on the two encodings", () => {
   // API wire: PositionType 1 = Long. Measured — the long we opened on testnet
@@ -36,12 +45,12 @@ test("the value 1 means opposite sides on the two encodings", () => {
 
   // Contract events: positionType 1 = SHORT. Measured over 496 mainnet round
   // trips. THE SAME NUMBER, THE OPPOSITE SIDE.
-  assert.equal(sideOf(1n), "SHORT");
+  assert.equal(sideOf(1n, WHERE), "SHORT");
 
   // Stated as one assertion so the asymmetry is impossible to read past.
   assert.notEqual(
     sideFromWire(1).toUpperCase(),
-    sideOf(1n),
+    sideOf(1n, WHERE),
     "sd=1 and positionType=1 must decode to OPPOSITE sides; if this passes " +
       "trivially someone has unified the two encodings",
   );
@@ -50,7 +59,7 @@ test("the value 1 means opposite sides on the two encodings", () => {
 test("the other values line up the same way round", () => {
   // Wire: 2 = Short. Contract: 0 = LONG.
   assert.equal(sideFromWire(2), "short");
-  assert.equal(sideOf(0n), "LONG");
+  assert.equal(sideOf(0n, WHERE), "LONG");
 });
 
 test("neither decoder invents a side it did not read", () => {
@@ -62,5 +71,23 @@ test("neither decoder invents a side it did not read", () => {
   assert.throws(() => sideFromWire("long"), /unrecognised position side/);
 
   // The contract's positionType is documented as 0 or 1 and nothing else.
-  assert.throws(() => sideOf(2n), /unrecognised positionType/);
+  assert.throws(() => sideOf(2n, WHERE), /unrecognised positionType/);
+
+  // A halt costs real time during judging week, so it must be fixable from
+  // the message alone: the value, the market, the account, and the exact log.
+  assert.throws(
+    () => sideOf(2n, WHERE),
+    (error: Error) => {
+      const m = error.message;
+      assert.match(m, /positionType 2/, "names the value it could not decode");
+      assert.match(m, /PositionOpenedV2/, "names the event");
+      assert.match(m, /market 20/, "names the market");
+      assert.match(m, /account 4242/, "names the account");
+      assert.match(m, /block 108790038/, "names the block");
+      assert.match(m, /tx 0x6308b26d/, "names the transaction");
+      assert.match(m, /HALTED/, "says plainly that the indexer stopped");
+      assert.match(m, /scale\.ts/, "says where to fix it");
+      return true;
+    },
+  );
 });

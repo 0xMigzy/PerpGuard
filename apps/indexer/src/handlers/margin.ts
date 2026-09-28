@@ -162,7 +162,17 @@ for (const [event, kind] of requestOutcomes) {
     // what happened to it, not how much.
     const amountCNS = "amountCNS" in event.params ? event.params.amountCNS : 0n;
     // `positionType` rides along on the request, and is the usual 0/1.
-    if ("positionType" in event.params && position.side !== sideOf(event.params.positionType)) {
+    if (
+      "positionType" in event.params &&
+      position.side !==
+        sideOf(event.params.positionType, {
+          event: "margin request",
+          perpId: event.params.perpId,
+          accountId: event.params.accountId,
+          blockNumber: meta.blockNumber,
+          txHash: meta.txHash,
+        })
+    ) {
       context.log.warn(
         `margin request side ${event.params.positionType} disagrees with position ${position.id} (${position.side})`,
       );

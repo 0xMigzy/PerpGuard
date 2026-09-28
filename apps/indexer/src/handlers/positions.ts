@@ -26,12 +26,29 @@ import {
 import type { EventMeta } from "../lib/entities.ts";
 import { closePosition, ensurePosition, livePosition, observeOi, openPosition } from "../lib/positions.ts";
 import { withOiDelta } from "../lib/entities.ts";
-import { flipSide, sideOf } from "../lib/scale.ts";
+import { flipSide, sideOf, type SideContext } from "../lib/scale.ts";
 import { attributeTaker } from "../lib/takers.ts";
 import { claimTradeAndBecomeActor, offerUnsizedClose } from "../lib/txScope.ts";
 import { markTraderActive } from "../lib/entities.ts";
 
 const fields = { transaction: ["hash"], block: ["timestamp"] } as const;
+
+/**
+ * Locate a positionType for the error sideOf throws when it cannot decode one.
+ * A halted indexer is a real cost, so the halt has to say exactly which log
+ * did it.
+ */
+const at = (
+  event: string,
+  params: { perpId: bigint; accountId: bigint },
+  meta: EventMeta,
+): SideContext => ({
+  event,
+  perpId: params.perpId,
+  accountId: params.accountId,
+  blockNumber: meta.blockNumber,
+  txHash: meta.txHash,
+});
 
 /**
  * Shared prologue: load the exchange, market and trader, claim any maker fill
@@ -108,8 +125,8 @@ async function realize(
 
 // ──────────────────────────────── open ───────────────────────────────────────
 
-for (const event of ["PositionOpenedV2", "PositionOpened"] as const) {
-  indexer.onEvent({ contract: "Exchange", event, fields }, async ({ event, context }) => {
+for (const eventName of ["PositionOpenedV2", "PositionOpened"] as const) {
+  indexer.onEvent({ contract: "Exchange", event: eventName, fields }, async ({ event, context }) => {
     const meta = metaOf(event);
     const { exchange, market, trader } = await enter(
       context,
@@ -123,7 +140,7 @@ for (const event of ["PositionOpenedV2", "PositionOpened"] as const) {
       market,
       trader,
       {
-        side: sideOf(event.params.positionType),
+        side: sideOf(event.params.positionType, at(eventName, event.params, meta)),
         lotLNS: event.params.lotLNS,
         entryPricePNS: event.params.pricePNS,
         depositCNS: event.params.depositCNS,
@@ -137,10 +154,10 @@ for (const event of ["PositionOpenedV2", "PositionOpened"] as const) {
 
 // ─────────────────────────────── increase ────────────────────────────────────
 
-for (const event of ["PositionIncreasedV2", "PositionIncreased"] as const) {
-  indexer.onEvent({ contract: "Exchange", event, fields }, async ({ event, context }) => {
+for (const eventName of ["PositionIncreasedV2", "PositionIncreased"] as const) {
+  indexer.onEvent({ contract: "Exchange", event: eventName, fields }, async ({ event, context }) => {
     const meta = metaOf(event);
-    const side = sideOf(event.params.positionType);
+    const side = sideOf(event.params.positionType, at(eventName, event.params, meta));
     const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
@@ -207,7 +224,7 @@ indexer.onEvent(
   { contract: "Exchange", event: "PositionDecreased", fields },
   async ({ event, context }) => {
     const meta = metaOf(event);
-    const side = sideOf(event.params.positionType);
+    const side = sideOf(event.params.positionType, at("PositionDecreased", event.params, meta));
     const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
@@ -265,7 +282,7 @@ indexer.onEvent(
   { contract: "Exchange", event: "PositionClosed", fields },
   async ({ event, context }) => {
     const meta = metaOf(event);
-    const side = sideOf(event.params.positionType);
+    const side = sideOf(event.params.positionType, at("PositionClosed", event.params, meta));
     const { exchange, market, trader } = await enter(
       context,
       event.params.perpId,
@@ -350,7 +367,7 @@ indexer.onEvent(
       meta,
     );
     const existing = await livePosition(context, event.params.perpId, event.params.accountId);
-    const oldSide = existing?.side ?? flipSide(sideOf(event.params.positionType));
+    const oldSide = existing?.side ?? flipSide(sideOf(event.params.positionType, at("PositionInverted", event.params, meta)));
 
     const opened = await ensurePosition(
       context,
