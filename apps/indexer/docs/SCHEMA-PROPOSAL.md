@@ -607,9 +607,25 @@ publish the blended entry, so a position adopted there keeps a real entry price.
 
 **`Liquidation.hadSpareBalance` joined `wasRescuable`.** `wasRescuable` is the
 strong claim and is null when the entry price is unknown; `hadSpareBalance` is
-always computable and never null, so the headline never has a hole. Both are
-counted on `Exchange`, `Market`, `MarketDay` and `Trader`, and
-`Exchange.liquidationsWithUnknownPositionCount` keeps the gap visible.
+always computable and never null. Both are counted on `Exchange`, `Market`,
+`MarketDay` and `Trader`, and `Exchange.liquidationsWithUnknownPositionCount`
+keeps the gap visible.
+
+> **Corrected 2026-09-28, against 654 indexed mainnet liquidations.** This
+> section originally went on to say that `hadSpareBalance` could serve as the
+> headline, "so the headline never has a hole". The data says otherwise. It is
+> `freeBalanceBeforeCNS > 0`, and it is true for **654 of 654** liquidations,
+> because the smallest free balance is 240 micros — 0.00024 AUSD — and 137 of
+> them are under 1 AUSD. A metric that counts dust is not a finding; 100% reads
+> as a broken indexer. `hadSpareBalance` is therefore a DIAGNOSTIC for reading a
+> single liquidation, never a headline.
+>
+> The headline is `rescuableLiquidationCount`: **463 of the 622 liquidations we
+> can judge, 74%**, where the spare AUSD genuinely covered the top-up that would
+> have kept the position above maintenance margin. The hole is real and is
+> quoted with it — 32 liquidations of positions opened before our start block
+> cannot be judged, and they are excluded from the denominator rather than
+> silently counted as failures.
 
 **`TxScope` and `Exchange.unattributedTakerFeeCNS`.** `TakerOrderFilledV2` names
 no account, so the taker is whoever the preceding position event belonged to;

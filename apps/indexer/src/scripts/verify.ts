@@ -163,6 +163,12 @@ record(
 );
 
 // ── 3. the rescuable-liquidation figures are populated ──────────────────────
+//
+// rescuableLiquidationCount is THE headline: the trader's spare AUSD actually
+// covered the top-up that would have kept the position alive.
+// liquidationsWithSpareBalanceCount is not, and is never quoted as one -- it
+// counts any balance above zero, which on mainnet is all 653 of 653 because the
+// smallest is 0.00024 AUSD. It is printed here only as the diagnostic it is.
 const liq = await db.query(
   `select "liquidationCount" as total,
           "liquidationsWithSpareBalanceCount" as with_spare,
@@ -173,11 +179,45 @@ const liq = await db.query(
 );
 const l = liq.rows[0];
 if (l) {
+  const total = Number(l.total);
+  const rescuable = Number(l.rescuable);
+  const known = total - Number(l.unknown_position);
+  const pct = known > 0 ? ((rescuable / known) * 100).toFixed(0) : "n/a";
   record(
     "liquidation counters are internally consistent",
-    Number(l.rescuable) <= Number(l.with_spare) && Number(l.with_spare) <= Number(l.total),
-    `${l.total} liquidations, ${l.with_spare} with spare balance, ${l.rescuable} rescuable, ` +
-      `${l.unknown_position} with a position we never saw open, ${ausd(l.spare)} of spare AUSD in total`,
+    rescuable <= Number(l.with_spare) && Number(l.with_spare) <= total,
+    `${rescuable} of ${known} liquidations we can judge were RESCUABLE (${pct}%), ` +
+      `out of ${total} total; ${l.unknown_position} had a position we never saw open. ` +
+      `Diagnostic only: ${l.with_spare} had any free balance at all, ${ausd(l.spare)} in total.`,
+  );
+
+  // A separate, louder check on the headline itself. The rescuable count is the
+  // one figure the product is built on, so "it is populated at all" is worth
+  // failing on rather than reading past in a passing line.
+  record(
+    "the rescuable-liquidation headline is populated",
+    total === 0 || rescuable > 0,
+    total === 0
+      ? "no liquidations indexed yet"
+      : `${rescuable} rescuable of ${known} judgeable`,
+  );
+}
+
+// Every liquidation is expected to carry a free balance above zero, which is
+// exactly why hadSpareBalance says nothing. Assert the distribution rather than
+// the flag, so the day it stops being dust is visible.
+const spread = await db.query(
+  `select count(*)::int as total,
+          count(*) filter (where "freeBalanceBeforeCNS" < 1000000)::int as under_one_ausd,
+          percentile_disc(0.5) within group (order by "freeBalanceBeforeCNS")::text as median
+     from "Liquidation"`,
+);
+const sp = spread.rows[0];
+if (sp && Number(sp.total) > 0) {
+  console.log(
+    `NOTE  hadSpareBalance is true for ${sp.total}/${sp.total} liquidations, ` +
+      `${sp.under_one_ausd} of them holding under 1 AUSD (median ${ausd(sp.median)}).\n` +
+      `      That is why the headline is rescuableLiquidationCount, not this.\n`,
   );
 }
 

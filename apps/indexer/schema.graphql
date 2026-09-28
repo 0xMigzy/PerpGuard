@@ -73,8 +73,16 @@ type Exchange {
 
   liquidationCount: Int!
   liquidatedNotionalCNS: BigInt!
-  # The product thesis, as three numbers anyone can query directly.
+  # DIAGNOSTIC, NEVER A HEADLINE. This counts any free balance above zero, and
+  # measured over 653 real mainnet liquidations it came to 653 — every single
+  # one — because the smallest was 240 micros, i.e. 0.00024 AUSD. Counting dust
+  # makes 653/653 read as a broken indexer rather than as a finding. It is kept
+  # because "was there anything at all in the account" is a real question when
+  # auditing a single liquidation; it is not the number we quote.
   liquidationsWithSpareBalanceCount: Int!
+  # THE HEADLINE. The strong claim, and the one the product rests on: the
+  # trader's spare AUSD actually covered the top-up that would have kept the
+  # position above maintenance margin. 462 of 653 on mainnet — 71%.
   rescuableLiquidationCount: Int!
   spareBalanceAtLiquidationCNS: BigInt!
   # Liquidations of positions opened before our start block, where the position
@@ -187,6 +195,8 @@ type Trader {
 
   liquidationCount: Int!
   liquidatedNotionalCNS: BigInt!
+  # Diagnostic, never a headline — see the note on Exchange. Quote
+  # rescuableLiquidationCount.
   liquidationsWithSpareBalanceCount: Int!
   rescuableLiquidationCount: Int!
   spareBalanceAtLiquidationCNS: BigInt!
@@ -347,11 +357,16 @@ type Liquidation @index(fields: ["market", ["timestamp", "DESC"]]) {
   # event's own accBalanceCNS - accAmountCNS. Isolated margin means none of it
   # was available to save the position.
   freeBalanceBeforeCNS: BigInt!
-  # Always known: the trader was holding spare AUSD at all.
+  # DIAGNOSTIC, NEVER A HEADLINE. Literally freeBalanceBeforeCNS > 0, so it is
+  # true for dust: on mainnet it is true for all 653 liquidations, the smallest
+  # balance being 0.00024 AUSD. Useful when reading one liquidation, worthless
+  # as a statistic. Aggregate wasRescuable instead.
   hadSpareBalance: Boolean!
-  # The stronger claim: that spare AUSD covered the top-up that would have kept
-  # the position above maintenance margin. Null when the position was opened
-  # before our start block, so we cannot know — never guessed.
+  # The stronger claim, and THE headline: that spare AUSD covered the top-up
+  # that would have kept the position above maintenance margin. Null when the
+  # position was opened before our start block, so we cannot know — never
+  # guessed. Null is not false, so a count of rescuable liquidations must test
+  # `wasRescuable = true` and carry its own unknown count alongside.
   marginToSurviveCNS: BigInt
   wasRescuable: Boolean
 
@@ -426,6 +441,7 @@ type MarketDay {
   liquidationCount: Int!
   liquidatedNotionalCNS: BigInt!
   liquidatedMarginCNS: BigInt!
+  # Diagnostic, never a headline — see the note on Exchange.
   liquidationsWithSpareBalanceCount: Int!
   rescuableLiquidationCount: Int!
   spareBalanceAtLiquidationCNS: BigInt!

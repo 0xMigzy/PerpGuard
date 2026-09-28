@@ -13,6 +13,19 @@ account balance is NEVER pulled in to rescue a losing position. Traders get
 liquidated while holding plenty of spare AUSD. PerpGuard watches each position,
 warns before liquidation, and lets the user add margin or close in one tap.
 
+THE NUMBER WE QUOTE IS `rescuableLiquidationCount`: 463 of the 622 mainnet
+liquidations we can judge, 74%, where the trader's free AUSD would have covered
+the top-up that kept the position above maintenance margin. Quote it with its
+hole — 32 liquidations are of positions opened before the indexer's start block
+and cannot be judged, so they are excluded from the denominator, never counted
+as failures.
+
+NEVER quote `liquidationsWithSpareBalanceCount` or `hadSpareBalance` as a
+headline. That flag is `freeBalanceBeforeCNS > 0`, so it counts dust: it is true
+for 654 of 654 mainnet liquidations, the smallest balance being 0.00024 AUSD and
+137 of them under 1 AUSD. 100% reads as a broken indexer, not as a finding. It
+stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all.
+
 ## Critical domain facts
 - Isolated margin: margin is per position. Adding margin is explicit, per position.
 - `liqBufferPct` is SIGNED, not absolute. Negative means the position is already
@@ -26,6 +39,19 @@ warns before liquidation, and lets the user add margin or close in one tap.
 - Collateral is AUSD, 6 decimals (100000000 = 100.0 AUSD).
 - NEVER hard-code market IDs, tick sizes or scaling. They differ between
   testnet and mainnet. Load them from `GET /v1/pub/context` at startup.
+- MARKET IDENTITY IS THE MARKET ID, NEVER THE NAME. The market id is the only
+  key shared by the contract, the indexer and the API; names disagree across
+  them. Mainnet market 31 is `SOL` in the context's `size_units` and `SOL_v2`
+  on chain, which is what the indexer stores. So anything joining indexer data
+  to venue data joins on the market id and takes the canonical ticker from the
+  context, the way `toVenueMarket` already does. Matching on a name silently
+  drops that market.
+- A MARKET BEING LISTED ON CHAIN DOES NOT MAKE IT VISIBLE IN THE API. The
+  indexer sees 10 markets listed on mainnet; `GET /v1/pub/context` returns 9.
+  Market 80 (TAO) is listed on chain, has real scaling and zero open positions,
+  and the API does not mention it. Anything user-facing — symbols, prices,
+  action availability — follows the CONTEXT, not the chain. The chain is the
+  history; the context is what a trader can see and touch today.
 - Trading requests are signed locally with an Ed25519 API key and sent through
   Perpl's forwarder.
 - `mt: 3` with `code: 0` means ACCEPTED FOR FORWARDING ONLY. It is not posted
