@@ -1,0 +1,354 @@
+/**
+ * Turning an assessment into the words a trader reads. Pure: no I/O, no clock,
+ * and nothing recomputed.
+ *
+ * EVERY NUMBER HERE ALREADY EXISTS ON THE ASSESSMENT. This module formats and
+ * nothing else — it never adds margin to a position to find out where the
+ * liquidation price would land, because then two code paths would be deriving
+ * the figure a trader acts on and they would eventually disagree.
+ *
+ * Three rules run through all of it:
+ *
+ *   PRECISION COMES FROM THE MARKET. Prices render at the market's own
+ *   `priceDecimals`, amounts at its `collateralDecimals`. Hard-coding either is
+ *   the same class of bug as hard-coding a maintenance margin ratio: it would
+ *   look right on BTC and be wrong everywhere else.
+ *
+ *   TOP-UPS CEIL, NEVER ROUND. See CLAUDE.md. A rounded-down figure prints an
+ *   amount that does not reach the buffer it claims, and the user tops up short.
+ *
+ *   THE CHEAP OPTION IS NEVER CALLED SAFE. Each option line states what it buys
+ *   and carries no adjective at all. "Clears the danger band" is a fact;
+ *   "safe", "secure" and "fine" are claims the cheap option cannot support.
+ */
+import { scaledToNumber, type MarketRiskConfig } from '@perpguard/shared';
+import type { RiskAssessment, TopUpOption } from '../risk/types.ts';
+import type {
+  AlertAction,
+  AlertActionIntent,
+  AlertConfig,
+  AlertKind,
+  AlertMessage,
+} from './types.ts';
+
+/**
+ * Grouped decimal formatting, pinned to en-US.
+ *
+ * The locale is explicit because the default follows the host: a German runner
+ * would render 76.446,7 and a message is not the place to discover that.
+ */
+function group(value: number, decimals: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/** A price in the market's own units -> the string a user sees. */
+export function formatPricePNS(pricePNS: bigint, market: MarketRiskConfig): string {
+  return group(scaledToNumber(pricePNS, market.priceDecimals), market.priceDecimals);
+}
+
+/**
+ * A top-up amount, CEILED to the displayed precision.
+ *
+ * Returns the ceiled micros alongside the text so the action can send exactly
+ * what was shown. The two must not be derived separately — that is the whole
+ * point of returning them together.
+ *
+ * Ceiling in integers, never through a float: `561460000` micros at 0 displayed
+ * decimals is 562, and `562000000` is what the button sends.
+ */
+export function ceilAusd(
+  amountCNS: bigint,
+  market: MarketRiskConfig,
+  displayDecimals: number,
+): { readonly amountCNS: bigint; readonly text: string } {
+  if (amountCNS < 0n) {
+    throw new RangeError(`a top-up amount cannot be negative, got ${amountCNS}`);
+  }
+  // Past the market's own precision there is nothing more to show, so the figure
+  // is already exact and ceiling is a no-op.
+  const decimals = Math.min(displayDecimals, market.collateralDecimals);
+  const divisor = 10n ** BigInt(market.collateralDecimals - decimals);
+  const units = (amountCNS + divisor - 1n) / divisor;
+  const ceiled = units * divisor;
+  return {
+    amountCNS: ceiled,
+    text: group(scaledToNumber(ceiled, market.collateralDecimals), decimals),
+  };
+}
+
+/** A signed buffer fraction as a percentage. Sign preserved; callers gate on it. */
+export function formatBufferPct(buffer: number, decimals: number): string {
+  return `${(buffer * 100).toFixed(decimals)}%`;
+}
+
+/**
+ * How the CURRENT buffer reads.
+ *
+ * A NEGATIVE BUFFER IS NEVER SHOWN AS A NEGATIVE PERCENTAGE. `liqBufferPct` is
+ * signed, and negative means the position is already past its liquidation price;
+ * "-1.4%" invites the reader to see a small number rather than a doomed position.
+ * The words say what it is. (CLAUDE.md.)
+ */
+export function describeBuffer(buffer: number | undefined, decimals: number): string {
+  if (buffer === undefined) return 'no buffer: the position has no size';
+  if (buffer < 0) return 'past liquidation';
+  return `buffer ${formatBufferPct(buffer, decimals)}`;
+}
+
+/**
+ * How old a price is, in words.
+ *
+ * Used only when `priceIsOld` is set, so STALE NUMBERS ARE NEVER PRESENTED AS
+ * CURRENT. Note what this is not: an old price on Perpl is a QUIET MARKET, which
+ * is the venue's current truth and perfectly fine to act on. The sentence says
+ * the age and passes no judgement on it.
+ */
+export function describeAge(ageMs: number | undefined): string {
+  if (ageMs === undefined) return 'price age unknown';
+  if (ageMs < 1_000) return `price is ${ageMs} ms old`;
+  const seconds = Math.floor(ageMs / 1_000);
+  if (seconds < 60) return `price is ${seconds} second${seconds === 1 ? '' : 's'} old`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `price is ${minutes} minute${minutes === 1 ? '' : 's'} old`;
+  const hours = Math.floor(minutes / 60);
+  return `price is ${hours} hour${hours === 1 ? '' : 's'} old`;
+}
+
+/** Title-cased state, for a headline. */
+function headline(state: RiskAssessment['state']): string {
+  return state.replace(/_/g, ' ');
+}
+
+/**
+ * One option line: what it costs, and what it buys. Nothing else.
+ *
+ *   Add 562 → buffer 4.0%, liquidation 80,647.1
+ *
+ * The buffer and liquidation price quoted are for the EXACT unrounded amount,
+ * while the amount shown is ceiled. So the action lands a shade better than the
+ * line claims. That asymmetry is deliberate and only runs one way: a top-up may
+ * over-deliver against its stated buffer, never under.
+ */
+function optionLine(
+  option: TopUpOption,
+  market: MarketRiskConfig,
+  config: AlertConfig,
+): { readonly label: string; readonly amountCNS: bigint } {
+  const { amountCNS, text } = ceilAusd(option.amountCNS, market, config.ausdDisplayDecimals);
+  const buffer =
+    option.resultingBufferPct === undefined
+      ? `buffer ${formatBufferPct(option.targetBufferPct, config.bufferDecimals)}`
+      : `buffer ${formatBufferPct(option.resultingBufferPct, config.bufferDecimals)}`;
+  const liquidation =
+    option.resultingLiquidationPricePNS === undefined
+      ? 'liquidation n/a'
+      : `liquidation ${formatPricePNS(option.resultingLiquidationPricePNS, market)}`;
+  return { label: `Add ${text} → ${buffer}, ${liquidation}`, amountCNS };
+}
+
+/**
+ * The top-up block, cheap option first.
+ *
+ * An option whose amount is zero is OMITTED rather than rendered as "add 0": the
+ * position already has that much room, so there is nothing to offer. A position
+ * at an 8% buffer therefore gets one option, not two, and a SAFE one gets none.
+ *
+ * The unit is stated once, in the label, rather than repeated on every line.
+ */
+function topUpBlock(
+  assessment: RiskAssessment,
+  market: MarketRiskConfig,
+  config: AlertConfig,
+): { readonly lines: readonly string[]; readonly actions: readonly AlertAction[] } {
+  const topUp = assessment.topUp;
+  if (topUp === undefined) return { lines: [], actions: [] };
+
+  const lines: string[] = [];
+  const actions: AlertAction[] = [];
+  const candidates: ReadonlyArray<readonly [AlertActionIntent, TopUpOption]> = [
+    ['clear-danger', topUp.clearDanger],
+    ['to-safe', topUp.toSafe],
+  ];
+
+  for (const [intent, option] of candidates) {
+    if (option.amountCNS <= 0n) continue;
+    const { label, amountCNS } = optionLine(option, market, config);
+    lines.push(label);
+    actions.push({
+      type: 'add-margin',
+      intent,
+      marketId: assessment.marketId,
+      symbol: assessment.symbol,
+      positionId: assessment.positionId,
+      amountCNS,
+      label,
+    });
+  }
+
+  if (lines.length === 0) return { lines: [], actions: [] };
+  return { lines: ['Top up (AUSD):', ...lines], actions };
+}
+
+const capitalize = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The buffer / liquidation / mark line every assessed message opens with. */
+function positionLine(
+  assessment: RiskAssessment,
+  market: MarketRiskConfig,
+  config: AlertConfig,
+): string {
+  const parts = [capitalize(describeBuffer(assessment.liqBufferPct, config.bufferDecimals))];
+  if (assessment.liquidationPricePNS !== undefined) {
+    parts.push(`liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`);
+  }
+  parts.push(`mark ${formatPricePNS(assessment.markPricePNS, market)}`);
+  return `${parts[0]!} — ${parts.slice(1).join(', ')}`;
+}
+
+/**
+ * What we last knew, for a message sent while blind.
+ *
+ * Labelled as the past, because that is what it is. Keeping it is the same rule
+ * as the UI's: a monitor that has gone blind must not look healthy, and must not
+ * pretend it knows nothing either.
+ */
+function lastKnownLine(assessment: RiskAssessment, market: MarketRiskConfig, config: AlertConfig): string | undefined {
+  const last = assessment.lastKnownState;
+  if (last === undefined) return undefined;
+  const detail =
+    assessment.liqBufferPct === undefined
+      ? ''
+      : `, ${describeBuffer(assessment.liqBufferPct, config.bufferDecimals)}` +
+        (assessment.liquidationPricePNS === undefined
+          ? ''
+          : `, liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`);
+  return `Last known before this: ${headline(last)}${detail}.`;
+}
+
+/**
+ * ISOLATED MARGIN, said out loud.
+ *
+ * The single most important thing a Perpl trader can misunderstand, and the
+ * reason this product exists: free account balance is NEVER pulled in to rescue a
+ * losing position. Someone reading a DANGER alert while holding plenty of spare
+ * AUSD needs to know it will not save them on its own.
+ */
+const ISOLATED_MARGIN_NOTE =
+  'Isolated margin: your free AUSD is not used to rescue this position automatically.';
+
+export interface RenderedAlert {
+  readonly title: string;
+  readonly lines: readonly string[];
+  readonly text: string;
+  readonly actions: readonly AlertAction[];
+}
+
+/**
+ * Render one alert.
+ *
+ * The caller has already decided this message should exist and what kind it is;
+ * this only writes it. Blind kinds carry NO ACTIONS — we cannot vouch for a price,
+ * so we do not invite anyone to act on one.
+ */
+export function renderAlert(
+  assessment: RiskAssessment,
+  kind: AlertKind,
+  context: { readonly alerts: AlertConfig; readonly market: MarketRiskConfig },
+): RenderedAlert {
+  const { alerts: config, market } = context;
+  if (market.marketId !== assessment.marketId) {
+    // Rendering one market's position against another's scaling produces prices
+    // that are wrong by a power of ten and look entirely plausible.
+    throw new RangeError(
+      `cannot render a market ${assessment.marketId} assessment against market ` +
+        `${market.marketId} (${market.symbol}) config: every price and amount ` +
+        `would be scaled by the wrong market's decimals.`,
+    );
+  }
+
+  const title = `${headline(assessment.state)} · ${assessment.symbol}`;
+  const lines: string[] = [];
+  let actions: readonly AlertAction[] = [];
+
+  switch (kind) {
+    case 'feed-down': {
+      lines.push("Price feed is down. I can't assess your positions until it's back.");
+      const last = lastKnownLine(assessment, market, config);
+      if (last !== undefined) lines.push(last);
+      break;
+    }
+    case 'positions-untrusted': {
+      lines.push("I've lost track of your positions. What you see may no longer be true.");
+      const last = lastKnownLine(assessment, market, config);
+      if (last !== undefined) lines.push(last);
+      break;
+    }
+    case 'past-liquidation': {
+      lines.push(positionLine(assessment, market, config));
+      lines.push('The mark has passed this position’s liquidation price.');
+      lines.push(ISOLATED_MARGIN_NOTE);
+      break;
+    }
+    case 'danger': {
+      lines.push(positionLine(assessment, market, config));
+      lines.push(ISOLATED_MARGIN_NOTE);
+      break;
+    }
+    case 'watch': {
+      lines.push(positionLine(assessment, market, config));
+      break;
+    }
+    case 'recovered': {
+      lines.push(positionLine(assessment, market, config));
+      const target = assessment.topUp?.toSafe.targetBufferPct;
+      lines.push(
+        target === undefined
+          ? 'Back above the safe threshold.'
+          : `Back above the ${formatBufferPct(target, config.bufferDecimals)} safe threshold.`,
+      );
+      break;
+    }
+  }
+
+  if (kind !== 'feed-down' && kind !== 'positions-untrusted') {
+    const block = topUpBlock(assessment, market, config);
+    lines.push(...block.lines);
+    actions = block.actions;
+
+    // STALE NUMBERS ARE NEVER PRESENTED AS CURRENT. Said last so it qualifies
+    // everything above it, and in words rather than as a timestamp.
+    if (assessment.priceIsOld) {
+      lines.push(`Note: ${describeAge(assessment.priceAgeMs)}.`);
+    }
+  }
+
+  // The loop's own account of why the state is what it is. Safe to render.
+  if (assessment.reason !== '') lines.push(`Why: ${assessment.reason}`);
+
+  return { title, lines, text: [title, ...lines].join('\n'), actions };
+}
+
+/** Assemble the full message. `kind` and `atMs` come from the caller's decision. */
+export function buildMessage(
+  assessment: RiskAssessment,
+  kind: AlertKind,
+  context: { readonly alerts: AlertConfig; readonly market: MarketRiskConfig },
+): AlertMessage {
+  const rendered = renderAlert(assessment, kind, context);
+  return {
+    kind,
+    state: assessment.state,
+    previousState: assessment.previousState,
+    marketId: assessment.marketId,
+    symbol: assessment.symbol,
+    positionId: assessment.positionId,
+    title: rendered.title,
+    lines: rendered.lines,
+    text: rendered.text,
+    actions: rendered.actions,
+    atMs: assessment.atMs,
+  };
+}

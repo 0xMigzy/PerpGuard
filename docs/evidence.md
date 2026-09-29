@@ -508,3 +508,42 @@ margin is now 0.08316 AUSD (was 0.0557): 27460 micros applied, 27460 requested
   (`feed=connected positions=live`), which is what makes "position data is stale"
   sayable at all.
 - The position opened and closed cleanly. No position was left open.
+
+## 2026-09-29 — alert cooldown state is in memory: a known limitation
+
+The alerts layer keeps its per-position history — cooldown timestamps, the
+once-per-entry WATCH latch, the once-per-outage blind latches — in a `Map` in the
+`AlertEngine` process, not in Postgres. `alert_log` records what was *delivered*;
+it is not read back to reconstruct cooldowns.
+
+**The consequence, stated plainly: a restart may re-alert a position once.** If
+the process dies 30 seconds after sending a DANGER alert and comes back, the next
+assessment of that position looks like the first one it has ever seen, and the
+alert goes out again. The trader gets a duplicate warning.
+
+**Why that is the right failure direction.** The alternative is persisting the
+cooldown, and its failure mode is the mirror image: a cooldown that survives a
+restart can *swallow* the first DANGER alert after one. Those two are not
+symmetric.
+
+- A duplicate warning costs the trader a few seconds and some annoyance. They
+  look at the position, see it is the one they already knew about, move on.
+- A swallowed warning costs them the position. They are never told, and the thing
+  that would have told them is sitting in a database saying "already handled".
+
+A risk monitor gets to be wrong in one of those two directions, and it should
+always be the noisy one. Same principle as escalation never being gated on dwell
+time in `risk/state.ts`: a warning is never delayed, only an all-clear is.
+
+**What would change this.** Persisting cooldowns is only safe alongside a
+liveness record — something that says "this process was alerting continuously
+across that window" — so a cooldown loaded from the database can be distinguished
+from one that merely predates a gap. Without that distinction the persisted
+version cannot tell "I already said this a minute ago" from "I was dead for an
+hour and have no idea what happened". That is worth building if PerpGuard ever
+runs multiple alerting processes, because then the in-memory version also stops
+working: two processes would each alert once. It is not worth building for one.
+
+Recorded because it is a real limitation of a shipped component, not a TODO: the
+behaviour is deliberate, tested, and documented in `alerts/types.ts` on
+`AlertHistory` and in `alerts/schema.sql`.
