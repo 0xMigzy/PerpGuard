@@ -8,6 +8,8 @@ import type {
   FeedConnectionState,
   MarketRiskConfig,
   PositionMetrics,
+  PositionSourceState,
+  PositionSourceStatus,
   Unsubscribe,
   VenuePosition,
 } from '@perpguard/shared';
@@ -15,13 +17,40 @@ import type {
 /**
  * Risk severity for one position.
  *
- * `FEED_DOWN` is not a severity — it is the absence of one. It means we cannot
- * see, and a monitor that cannot see must never look healthy.
+ * `FEED_DOWN` and `POSITIONS_UNTRUSTED` are not severities — they are the
+ * absence of one. Each means we cannot see, and a monitor that cannot see must
+ * never look healthy.
+ *
+ * They are two states rather than one because they have different causes and
+ * different fixes, and a message must be able to name the right one. "The price
+ * feed is down" when in truth the account socket died is a false explanation,
+ * which in a risk tool is its own kind of lie.
+ *
+ * `POSITIONS_UNTRUSTED`, not `POSITIONS_STALE`, on purpose. In this codebase
+ * "stale" is the BENIGN word: a stale price is a quiet market and is perfectly
+ * safe to act on. Nothing about an untrustworthy position set is benign, so it
+ * does not borrow the word that means "fine, just old".
  */
-export type RiskState = 'SAFE' | 'WATCH' | 'DANGER' | 'PAST_LIQUIDATION' | 'FEED_DOWN';
+export type RiskState =
+  | 'SAFE'
+  | 'WATCH'
+  | 'DANGER'
+  | 'PAST_LIQUIDATION'
+  | 'FEED_DOWN'
+  | 'POSITIONS_UNTRUSTED';
 
-/** Ordering of the real severities. FEED_DOWN is handled outside this ladder. */
-export const SEVERITY: Readonly<Record<Exclude<RiskState, 'FEED_DOWN'>, number>> = {
+/** The states that mean "we cannot see", as opposed to a real severity. */
+export type BlindState = 'FEED_DOWN' | 'POSITIONS_UNTRUSTED';
+
+/** A real severity: something we actually assessed. */
+export type Severity = Exclude<RiskState, BlindState>;
+
+export function isBlind(state: RiskState): state is BlindState {
+  return state === 'FEED_DOWN' || state === 'POSITIONS_UNTRUSTED';
+}
+
+/** Ordering of the real severities. The blind states sit outside this ladder. */
+export const SEVERITY: Readonly<Record<Severity, number>> = {
   SAFE: 0,
   WATCH: 1,
   DANGER: 2,
@@ -87,6 +116,14 @@ export interface RiskAssessment {
   readonly metrics: PositionMetrics;
 
   readonly feed: FeedConnectionState;
+  /**
+   * Health of the POSITION set this assessment was made over, asked separately
+   * from the price feed. `live` means the set is the truth; anything else means
+   * the position may not even still be open.
+   */
+  readonly positions: PositionSourceState;
+  /** How old the position set is. Undefined before anything has arrived. */
+  readonly positionsAgeMs: number | undefined;
   /** Undefined when the feed has never sent a price for this market. */
   readonly priceAgeMs: number | undefined;
   /** Age exceeds STALE_MS. A quiet market, not a broken one. */
@@ -117,13 +154,20 @@ export interface RiskChange {
 /**
  * Where open positions come from.
  *
- * A port rather than the venue itself: `PerplVenue.getPositions` is not built
- * yet, and the loop must not name a venue in any case — the risk engine, bot and
- * web all speak to interfaces, never to Perpl directly.
+ * A port rather than the venue itself: the loop must not name a venue — the risk
+ * engine, bot and web all speak to interfaces, never to Perpl directly.
+ *
+ * `status()` IS REQUIRED, not optional. The set of open positions can be frozen
+ * or incomplete with nothing about the set itself revealing it, so the loop has
+ * to ask. An optional health question is one every caller forgets, and forgetting
+ * it would silently mean "assume the set is fine" — which is exactly the
+ * assumption that turns a dead socket into a confident all-clear.
  */
 export interface PositionSource {
   snapshot(): readonly VenuePosition[];
   onSnapshot(listener: (positions: readonly VenuePosition[]) => void): Unsubscribe;
+  /** Whether the set above reflects reality. See `positionsAreUsable`. */
+  status(): PositionSourceStatus;
 }
 
 /** Market configs the risk engine needs, keyed by market id. */

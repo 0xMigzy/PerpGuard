@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { loadNetworkConfig } from '../config.ts';
-import { PerplPositionSource, positionsAreUsable } from './perpl-position-source.ts';
+import { PerplPositionSource } from './perpl-position-source.ts';
+import { positionsAreUsable } from './types.ts';
 import { ApiSecret } from './perpl-signing.ts';
 import { PerplTradingSocket } from './perpl-trading-socket.ts';
 import type { VenueMarket } from './types.ts';

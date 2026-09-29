@@ -143,6 +143,54 @@ export function feedIsActionable(health: FeedHealth): boolean {
   return health.state === 'connected';
 }
 
+/**
+ * Whether the set of open positions reflects reality right now.
+ *
+ * The SECOND health question, and deliberately separate from {@link FeedHealth}
+ * — a message must be able to say "position data is stale" rather than "price
+ * feed is down", because they have different causes and different fixes.
+ *
+ * A FROZEN POSITION SET IS WORSE THAN A FROZEN PRICE. A price at least carries
+ * a timestamp, so age is some evidence. A position closed a minute ago looks
+ * exactly like one still open: nothing about the set reveals the problem, and
+ * there is no field to inspect. So the source has to volunteer the answer and
+ * the consumer has to ask for it.
+ */
+export type PositionSourceState =
+  /** Subscribed, snapshot received, no gaps. The set is the truth. */
+  | 'live'
+  /**
+   * Connected but not yet told what is open. NOT the same as "nothing open",
+   * and must never be rendered as an empty portfolio.
+   */
+  | 'awaiting-snapshot'
+  /**
+   * The set is frozen or possibly incomplete: the socket closed, or a sequence
+   * gap means an update may have been missed. What we hold is the last known,
+   * not the current.
+   */
+  | 'stale';
+
+export interface PositionSourceStatus {
+  readonly state: PositionSourceState;
+  /** Human-readable, safe to render directly. Absent when live. */
+  readonly reason?: string;
+  /** When the set last changed, or was last confirmed by a snapshot. */
+  readonly lastUpdateMs: number | undefined;
+  /** How old that is. Undefined before anything has arrived. */
+  readonly ageMs: number | undefined;
+}
+
+/**
+ * Whether positions from a source in this state may be assessed.
+ *
+ * `live` only. Both other states mean we do not know what is open, and a risk
+ * number computed over a set we cannot vouch for is worse than no number.
+ */
+export function positionsAreUsable(status: PositionSourceStatus): boolean {
+  return status.state === 'live';
+}
+
 /** Why a market cannot be acted on, for the UI to show next to a disabled button. */
 export type ActionUnavailableCode =
   /** The asset is monitored, but the acting network has no market for it. */

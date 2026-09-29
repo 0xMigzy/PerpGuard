@@ -13,9 +13,14 @@
  *    severity on an old price. It may never be softened by one. Escalation on
  *    fresh data only; de-escalation on fresh data only; stale means hold.
  */
-import { DEFAULT_THRESHOLDS, SEVERITY, type RiskState, type RiskThresholds } from './types.ts';
-
-type Severity = Exclude<RiskState, 'FEED_DOWN'>;
+import {
+  DEFAULT_THRESHOLDS,
+  SEVERITY,
+  isBlind,
+  type RiskState,
+  type RiskThresholds,
+  type Severity,
+} from './types.ts';
 
 export interface StateInput {
   /** Undefined the first time a position is seen. */
@@ -44,7 +49,7 @@ export interface StateDecision {
   readonly reason: string;
 }
 
-const isSeverity = (state: RiskState): state is Severity => state !== 'FEED_DOWN';
+const isSeverity = (state: RiskState): state is Severity => !isBlind(state);
 
 /**
  * Severity implied by the buffer using the ENTER thresholds: how bad things are
@@ -85,9 +90,10 @@ const hold = (
 /**
  * Decide the next state for one position.
  *
- * `FEED_DOWN` is not decided here — the loop sets it, because only the loop
- * knows the connection is gone. This function handles resuming from it: the
- * severity held before the outage comes back in as `current`.
+ * The BLIND states are not decided here — the loop sets them, because only the
+ * loop knows the price connection is gone or the position set cannot be
+ * believed. This function handles resuming from them: the severity held before
+ * going blind comes back in as `current`.
  */
 export function nextState(input: StateInput): StateDecision {
   const t = input.thresholds ?? DEFAULT_THRESHOLDS;
@@ -129,9 +135,9 @@ export function nextState(input: StateInput): StateDecision {
   }
 
   if (!isSeverity(current)) {
-    // Should not happen: the loop resumes from the remembered severity, not
-    // from FEED_DOWN itself.
-    return hold(current, enteredAtMs, 'feed is down');
+    // Should not happen: the loop resumes from the remembered severity, never
+    // from a blind state itself.
+    return hold(current, enteredAtMs, `cannot assess: ${current}`);
   }
 
   const escalateTo = escalationTarget(buffer, t);

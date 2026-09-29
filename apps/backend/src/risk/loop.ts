@@ -21,6 +21,16 @@
  *   not a broken feed. The loop keeps assessing it, shows the age, and refuses
  *   only to publish a NEW severity from it.
  *
+ *   POSITION TRUSTWORTHINESS is a THIRD question, asked of the position source
+ *   rather than the feed, and it gates evaluation exactly as connection health
+ *   does. A price at least carries a timestamp; a position closed a minute ago
+ *   looks exactly like one still open, and no field on it reveals the
+ *   difference. So when the source says the set is frozen or may be incomplete,
+ *   the loop refuses to assess and says THAT, not that the price feed is down.
+ *   Getting the cause right matters: the two have different fixes, and naming
+ *   the wrong one is a false explanation from a tool whose whole job is to be
+ *   believed.
+ *
  * `MarketFeed.canAct` is deliberately not reused for the second one: it is the
  * ACTION gate and is permissive about age by design. Evaluation needs a stricter
  * rule, and the two staying separate is the whole point of that design.
@@ -29,9 +39,12 @@ import {
   fromVenuePosition,
   marginToReachBuffer,
   positionMetrics,
+  positionsAreUsable,
   priceToPNS,
   type FeedHealth,
   type MarketRiskConfig,
+  type NetworkName,
+  type PositionSourceStatus,
   type Unsubscribe,
   type VenuePosition,
 } from '@perpguard/shared';
@@ -39,6 +52,8 @@ import type { MarketFeed } from '../ingest/marketFeed.ts';
 import { nextState } from './state.ts';
 import {
   DEFAULT_THRESHOLDS,
+  isBlind,
+  type BlindState,
   type MarketConfigs,
   type PositionSource,
   type RiskAssessment,
@@ -48,6 +63,11 @@ import {
 } from './types.ts';
 
 export interface RiskLoopOptions {
+  /**
+   * The ONE network this loop assesses. Checked against the feed at
+   * construction and against every position at evaluation.
+   */
+  readonly network: NetworkName;
   readonly feed: MarketFeed;
   readonly positions: PositionSource;
   /** Connection health, asked synchronously. Never inferred from price age. */
@@ -68,6 +88,7 @@ interface Tracked {
 }
 
 export class RiskLoop {
+  readonly #network: NetworkName;
   readonly #feed: MarketFeed;
   readonly #positions: PositionSource;
   readonly #feedStatus: () => FeedHealth;
@@ -80,6 +101,19 @@ export class RiskLoop {
   #unsubscribe: Unsubscribe | undefined;
 
   constructor(options: RiskLoopOptions) {
+    // ONE NETWORK PER RISK LOOP, enforced here rather than left to care. Both
+    // networks list BTC, so a testnet position priced off a mainnet mark yields
+    // a liquidation price, a buffer percentage and an alert that are all wrong
+    // and all completely plausible — nothing about the output would look off.
+    if (options.feed.network !== options.network) {
+      throw new RangeError(
+        `risk loop is for ${options.network} but its market feed is for ` +
+          `${options.feed.network}. A position and the mark price it is assessed ` +
+          `against must come from the same network; mixing them cannot be detected ` +
+          `from the numbers, so it is refused at construction.`,
+      );
+    }
+    this.#network = options.network;
     this.#feed = options.feed;
     this.#positions = options.positions;
     this.#feedStatus = options.feedStatus;
@@ -90,6 +124,11 @@ export class RiskLoop {
 
   get thresholds(): RiskThresholds {
     return this.#thresholds;
+  }
+
+  /** The one network this loop assesses. */
+  get network(): NetworkName {
+    return this.#network;
   }
 
   /** Subscribe to position snapshots and assess what is already there. */
@@ -127,25 +166,61 @@ export class RiskLoop {
   evaluate(): readonly RiskAssessment[] {
     const nowMs = this.#now();
     const health = this.#feedStatus();
+    const posStatus = this.#positions.status();
     const positions = this.#positions.snapshot();
     const changes: RiskChange[] = [];
     const produced: RiskAssessment[] = [];
     const seen = new Set<number>();
 
+    // Two independent ways of being blind. Either one stops us assessing.
+    const positionsUsable = positionsAreUsable(posStatus);
+    const feedUsable = health.state === 'connected';
+
     for (const position of positions) {
+      if (position.network !== this.#network) {
+        // A position source that starts handing over another network's positions
+        // is a wiring bug, and the resulting numbers would look fine. The loop
+        // stops rather than assess it.
+        throw new RangeError(
+          `refusing a ${position.network} position in ${position.symbol} (market ` +
+            `${position.marketId}) on a ${this.#network} risk loop. Its mark price ` +
+            `would come from a different market of the same name.`,
+        );
+      }
       seen.add(position.marketId);
       const assessment =
-        health.state === 'connected'
-          ? this.#assess(position, health, nowMs)
-          : this.#assessFeedDown(position, health, nowMs);
+        feedUsable && positionsUsable
+          ? this.#assess(position, health, posStatus, nowMs)
+          : this.#assessBlind(position, health, posStatus, nowMs);
       if (!assessment) continue;
       produced.push(assessment.assessment);
       if (assessment.changed) changes.push(assessment);
     }
 
-    // A position that has gone is no longer our concern.
-    for (const marketId of [...this.#tracked.keys()]) {
-      if (!seen.has(marketId)) this.#tracked.delete(marketId);
+    // A position that has gone is no longer our concern — but ONLY when the set
+    // can be believed. While it cannot, absence is not evidence of closure: a
+    // missed `mt: 27` looks identical to a position that never existed, and
+    // forgetting a position on that basis is how a monitor stops watching the
+    // one thing it was asked to watch.
+    for (const [marketId, tracked] of [...this.#tracked]) {
+      if (seen.has(marketId)) continue;
+      if (positionsUsable) {
+        this.#tracked.delete(marketId);
+        continue;
+      }
+      // Keep tracking it — and SAY we cannot see it. Leaving its last
+      // assessment standing untouched would be worse than dropping it: the UI
+      // would go on rendering a severity, with numbers, as though it were
+      // current, when we no longer know the position is even open.
+      const blind = this.#assessBlind(
+        { marketId, symbol: tracked.assessment.symbol },
+        health,
+        posStatus,
+        nowMs,
+      );
+      if (!blind) continue;
+      produced.push(blind.assessment);
+      if (blind.changed) changes.push(blind);
     }
 
     for (const change of changes) {
@@ -154,31 +229,62 @@ export class RiskLoop {
     return produced;
   }
 
+  /** Health of the position set, for the UI to render alongside feed health. */
+  positionsStatus(): PositionSourceStatus {
+    return this.#positions.status();
+  }
+
   /**
-   * The feed is down, so every price we hold is frozen and nothing may be
-   * computed from it. The last known severity is kept and reported alongside,
-   * because a monitor that has gone blind must never look healthy — and must not
-   * pretend it knows nothing either.
+   * We cannot see, so nothing may be computed. The last known severity is kept
+   * and reported alongside, because a monitor that has gone blind must never
+   * look healthy — and must not pretend it knows nothing either.
+   *
+   * Covers both blind causes. Which one is reported matters: the states have
+   * different fixes, and saying "the price feed is down" when the account socket
+   * died would be a confident false explanation.
+   *
+   * POSITION TRUST LOSES TO NOTHING. When the set cannot be believed we do not
+   * know the position is still open, which undercuts everything a price would
+   * tell us about it, so it is the state reported even if the feed is also down.
+   * The reason names EVERY active cause, so nothing is hidden by that choice.
    */
-  #assessFeedDown(
-    position: VenuePosition,
+  #assessBlind(
+    position: { readonly marketId: number; readonly symbol: string },
     health: FeedHealth,
+    posStatus: PositionSourceStatus,
     nowMs: number,
   ): (RiskChange & { changed: boolean }) | undefined {
+    const positionsUsable = positionsAreUsable(posStatus);
+    const state: BlindState = positionsUsable ? 'FEED_DOWN' : 'POSITIONS_UNTRUSTED';
+
     const existing = this.#tracked.get(position.marketId);
     const previousState = existing?.state;
     const lastKnownState =
       existing === undefined
         ? undefined
-        : existing.state === 'FEED_DOWN'
+        : isBlind(existing.state)
           ? existing.lastKnownState
           : existing.state;
+
+    const causes: string[] = [];
+    if (!positionsUsable) {
+      causes.push(
+        posStatus.reason ??
+          `the position set is ${posStatus.state}, so this position may not still be open`,
+      );
+    }
+    if (health.state !== 'connected') {
+      causes.push(
+        health.reason ??
+          `the price feed is ${health.state}, so every price we hold is frozen and may be wrong`,
+      );
+    }
 
     const base = existing?.assessment;
     const assessment: RiskAssessment = {
       marketId: position.marketId,
       symbol: position.symbol,
-      state: 'FEED_DOWN',
+      state,
       previousState,
       lastKnownState,
       // The last numbers we had, kept visible and plainly labelled as frozen.
@@ -189,18 +295,22 @@ export class RiskLoop {
       marginToSurviveCNS: base?.marginToSurviveCNS ?? 0n,
       metrics: base?.metrics ?? EMPTY_METRICS,
       feed: health.state,
+      positions: posStatus.state,
+      positionsAgeMs: posStatus.ageMs,
       priceAgeMs: this.#feed.ageMs(position.marketId),
+      // The price may in fact be fresh when only the position set is broken, but
+      // the severity is being HELD either way, and the alerts layer reads this
+      // flag to know it must not reassure. Marking it true keeps that contract
+      // whole rather than leaving a gap for an all-clear to slip through.
       priceIsOld: true,
       heldOnStalePrice: true,
-      reason:
-        health.reason ??
-        `the price feed is ${health.state}, so every price we hold is frozen and may be wrong`,
+      reason: causes.join('; '),
       atMs: nowMs,
     };
 
-    const changed = previousState !== 'FEED_DOWN';
+    const changed = previousState !== state;
     this.#tracked.set(position.marketId, {
-      state: 'FEED_DOWN',
+      state,
       // Re-serve the dwell time on recovery: an outage must not become a
       // shortcut to an all-clear.
       enteredAtMs: nowMs,
@@ -213,6 +323,7 @@ export class RiskLoop {
   #assess(
     position: VenuePosition,
     health: FeedHealth,
+    posStatus: PositionSourceStatus,
     nowMs: number,
   ): (RiskChange & { changed: boolean }) | undefined {
     const config = this.#configs.get(position.marketId);
@@ -230,11 +341,12 @@ export class RiskLoop {
     const priceIsOld = this.#feed.isPriceOld(position.marketId);
 
     const existing = this.#tracked.get(position.marketId);
-    // Resume from the severity held before an outage, never from FEED_DOWN.
+    // Resume from the severity held before we went blind, never from the blind
+    // state itself.
     const resumeFrom =
       existing === undefined
         ? undefined
-        : existing.state === 'FEED_DOWN'
+        : isBlind(existing.state)
           ? existing.lastKnownState
           : existing.state;
 
@@ -265,6 +377,8 @@ export class RiskLoop {
       marginToSurviveCNS: metrics.marginToSurviveCNS,
       metrics,
       feed: health.state,
+      positions: posStatus.state,
+      positionsAgeMs: posStatus.ageMs,
       priceAgeMs,
       priceIsOld,
       heldOnStalePrice: decision.heldOnStalePrice,
@@ -272,9 +386,9 @@ export class RiskLoop {
       atMs: nowMs,
     };
 
-    // A change of severity is a change. Coming back from FEED_DOWN to the same
-    // severity we went down with is also a change, because the UI has to stop
-    // showing the outage.
+    // A change of severity is a change. Coming back from a blind state to the
+    // same severity we went blind with is also a change, because the UI has to
+    // stop showing the outage.
     const changed = existing?.state !== decision.state;
     this.#tracked.set(position.marketId, {
       state: decision.state,
@@ -286,7 +400,7 @@ export class RiskLoop {
   }
 }
 
-/** Placeholder metrics for a position the feed went down on before we saw it. */
+/** Placeholder metrics for a position we went blind on before ever assessing it. */
 const EMPTY_METRICS = {
   notionalCNS: 0n,
   entryNotionalCNS: 0n,

@@ -18,8 +18,14 @@
  * Age alone must never gate an action. For the first few seconds a dead feed
  * and a quiet market look identical, and after that the quiet market is still
  * fine while the dead one is dangerous.
+ *
+ * ONE NETWORK PER FEED, enforced in `record`. Both networks list BTC, so a
+ * testnet position priced off a mainnet mark produces a liquidation price, a
+ * buffer and an alert that are all entirely wrong and all completely plausible.
+ * Nothing about the output would look off, which is why this is a thrown error
+ * and not a warning.
  */
-import type { FeedHealth, PriceUpdate } from '@perpguard/shared';
+import type { FeedHealth, NetworkName, PriceUpdate } from '@perpguard/shared';
 
 /** Why a market cannot be acted on right now. */
 export type PriceGateCode =
@@ -48,6 +54,7 @@ export interface PriceGate {
 }
 
 export class MarketFeed {
+  readonly #network: NetworkName;
   readonly #staleMs: number;
   readonly #now: () => number;
   readonly #byMarketId = new Map<number, PriceUpdate>();
@@ -55,16 +62,25 @@ export class MarketFeed {
   readonly #bySymbol = new Map<string, number>();
 
   /**
+   * @param network the ONE network this feed holds prices for. Fixed at
+   * construction so a mismatch is a thrown error rather than a plausible
+   * number.
    * @param staleMs from STALE_MS, via loadAppConfig. Passed in rather than
    * read here so this stays pure and testable. It decides when a price is
    * LABELLED old, not when acting is refused.
    */
-  constructor(staleMs: number, now: () => number = Date.now) {
+  constructor(network: NetworkName, staleMs: number, now: () => number = Date.now) {
     if (!Number.isFinite(staleMs) || staleMs <= 0) {
       throw new RangeError(`staleMs must be a positive number, got ${staleMs}`);
     }
+    this.#network = network;
     this.#staleMs = staleMs;
     this.#now = now;
+  }
+
+  /** The one network this feed is for. */
+  get network(): NetworkName {
+    return this.#network;
   }
 
   get staleMs(): number {
@@ -81,6 +97,19 @@ export class MarketFeed {
    * after a newer one must not make the cache go backwards in time.
    */
   record(update: PriceUpdate): void {
+    if (update.network !== this.#network) {
+      // Both networks list BTC under different market ids, so the wrong-network
+      // price would be recorded happily and every number derived from it would
+      // be wrong and look right.
+      throw new RangeError(
+        `refusing a ${update.network} price for ${update.symbol} (market ` +
+          `${update.marketId}) on a ${this.#network} feed. A position and the mark ` +
+          `price it is assessed against must come from the same network: both ` +
+          `networks list the same assets under different market ids, so mixing them ` +
+          `produces a liquidation price and an alert that are entirely wrong and ` +
+          `completely plausible.`,
+      );
+    }
     const existing = this.#byMarketId.get(update.marketId);
     if (existing !== undefined && existing.receivedAtMs > update.receivedAtMs) return;
     this.#byMarketId.set(update.marketId, update);

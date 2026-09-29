@@ -20,34 +20,11 @@
 import type { NetworkName } from '../config.ts';
 import { parsePositionFrame, type PerplPosition } from './perpl-positions.ts';
 import type { PerplTradingSocket } from './perpl-trading-socket.ts';
-import type { Unsubscribe, VenueMarket } from './types.ts';
-
-/** Whether the position set reflects reality right now. */
-export type PositionSourceState =
-  /** Subscribed, snapshot received, no gaps. The set is the truth. */
-  | 'live'
-  /** Connected but not yet told what is open. Not the same as "nothing open". */
-  | 'awaiting-snapshot'
-  /**
-   * The set is frozen: the socket closed, or a sequence gap means we may have
-   * missed an update. Positions shown are the last known, not the current.
-   */
-  | 'stale';
-
-export interface PositionSourceStatus {
-  readonly state: PositionSourceState;
-  /** Human-readable, safe to render directly. Absent when live. */
-  readonly reason?: string;
-  /** When the set last changed, or was last confirmed by a snapshot. */
-  readonly lastUpdateMs: number | undefined;
-  /** How old that is. Undefined before anything has arrived. */
-  readonly ageMs: number | undefined;
-}
-
-/** Whether positions from a source in this state may be assessed. */
-export function positionsAreUsable(status: PositionSourceStatus): boolean {
-  return status.state === 'live';
-}
+import type {
+  PositionSourceStatus,
+  Unsubscribe,
+  VenueMarket,
+} from './types.ts';
 
 export interface PerplPositionSourceOptions {
   readonly socket: PerplTradingSocket;
@@ -62,9 +39,10 @@ export interface PerplPositionSourceOptions {
 /**
  * Decoded positions off one authenticated socket.
  *
- * Implements the shape the risk loop's `PositionSource` port expects —
- * `snapshot()` and `onSnapshot()` — and adds `status()` alongside, which the
- * loop gates on.
+ * Implements the risk loop's `PositionSource` port in full: `snapshot()`,
+ * `onSnapshot()` and `status()`. All three are required by the port, `status()`
+ * included — an optional health question is one every caller forgets to ask,
+ * which silently means "assume the set is fine".
  */
 export class PerplPositionSource {
   readonly #socket: PerplTradingSocket;

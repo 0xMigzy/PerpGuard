@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     requested.length > 0 ? requested : markets.map((m) => m.symbol).sort().slice(0, 8);
 
   const bySymbol = new Map(markets.map((m) => [m.symbol, m]));
-  const feed = new MarketFeed(config.staleMs);
+  const feed = new MarketFeed(config.analytics.name, config.staleMs);
 
   event(
     `watching ${symbols.length} market(s) on Perpl ${config.analytics.name} ` +

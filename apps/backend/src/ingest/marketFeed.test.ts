@@ -43,13 +43,13 @@ function clock(start = 1_000): { now: () => number; advance: (ms: number) => voi
 
 describe('MarketFeed', () => {
   it('rejects a nonsensical staleMs rather than silently never expiring', () => {
-    assert.throws(() => new MarketFeed(0), RangeError);
-    assert.throws(() => new MarketFeed(-1), RangeError);
-    assert.throws(() => new MarketFeed(Number.NaN), RangeError);
+    assert.throws(() => new MarketFeed('mainnet', 0), RangeError);
+    assert.throws(() => new MarketFeed('mainnet', -1), RangeError);
+    assert.throws(() => new MarketFeed('mainnet', Number.NaN), RangeError);
   });
 
   it('stores and returns the latest price by id and by symbol', () => {
-    const feed = new MarketFeed(10_000);
+    const feed = new MarketFeed('mainnet', 10_000);
     feed.record(priceUpdate({ markPrice: 100 }));
 
     assert.equal(feed.get(1)?.markPrice, 100);
@@ -60,7 +60,7 @@ describe('MarketFeed', () => {
   });
 
   it('keeps markets apart', () => {
-    const feed = new MarketFeed(10_000);
+    const feed = new MarketFeed('mainnet', 10_000);
     feed.record(priceUpdate({ marketId: 1, symbol: 'BTC', markPrice: 100 }));
     feed.record(priceUpdate({ marketId: 2, symbol: 'ETH', markPrice: 20 }));
 
@@ -70,7 +70,7 @@ describe('MarketFeed', () => {
   });
 
   it('newest wins, and a late out-of-order frame does not rewind the cache', () => {
-    const feed = new MarketFeed(10_000);
+    const feed = new MarketFeed('mainnet', 10_000);
     feed.record(priceUpdate({ markPrice: 100, receivedAtMs: 1_000 }));
     feed.record(priceUpdate({ markPrice: 110, receivedAtMs: 2_000 }));
     assert.equal(feed.get(1)?.markPrice, 110);
@@ -82,7 +82,7 @@ describe('MarketFeed', () => {
 
 describe('MarketFeed price age', () => {
   it('treats a market it has never heard from as having no usable age', () => {
-    const feed = new MarketFeed(10_000);
+    const feed = new MarketFeed('mainnet', 10_000);
     assert.equal(feed.ageMs(1), undefined);
     assert.equal(feed.isPriceOld(1), true, 'nothing here could be fresh');
     assert.equal(feed.isPriceOldBySymbol('BTC'), true);
@@ -90,7 +90,7 @@ describe('MarketFeed price age', () => {
 
   it('is fresh up to and including STALE_MS, old after it', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: time.now() }));
 
     assert.equal(feed.isPriceOld(1), false);
@@ -104,7 +104,7 @@ describe('MarketFeed price age', () => {
 
   it('measures age from when we received it, not the venue clock', () => {
     const time = clock(5_000);
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     // A venue timestamp far in the future must not make a dead feed look live.
     feed.record(priceUpdate({ receivedAtMs: 1_000, atMs: 9_999_999_999_999 }));
 
@@ -115,14 +115,14 @@ describe('MarketFeed price age', () => {
 
   it('never reports a negative age when a clock steps backwards', () => {
     const time = clock(1_000);
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: 2_000 }));
     assert.equal(feed.ageMs(1), 0);
   });
 
   it('lists exactly the markets whose price is old', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ marketId: 1, symbol: 'BTC', receivedAtMs: time.now() }));
     time.advance(20_000);
     feed.record(priceUpdate({ marketId: 2, symbol: 'ETH', receivedAtMs: time.now() }));
@@ -134,7 +134,7 @@ describe('MarketFeed price age', () => {
 describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
   it('acts on a quiet market whose price is old but whose feed is healthy', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: time.now() }));
 
     // On Perpl a mark price only changes when it moves. Five minutes of quiet
@@ -150,7 +150,7 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
 
   it('refuses to act on a fresh-looking price when the feed is disconnected', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: time.now() }));
 
     // Age says fresh. It is frozen: the connection died a moment ago and the
@@ -164,7 +164,7 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
 
   it('refuses while reconnecting too, because prices are frozen either way', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: time.now() }));
 
     const gate = feed.canAct(1, RECONNECTING);
@@ -174,7 +174,7 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
   });
 
   it('refuses when the feed is healthy but this market never arrived', () => {
-    const feed = new MarketFeed(10_000);
+    const feed = new MarketFeed('mainnet', 10_000);
     const gate = feed.canAct(42, CONNECTED);
     assert.equal(gate.ok, false);
     assert.equal(gate.code, 'no-price');
@@ -183,7 +183,7 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
 
   it('answers by symbol as well', () => {
     const time = clock();
-    const feed = new MarketFeed(10_000, time.now);
+    const feed = new MarketFeed('mainnet', 10_000, time.now);
     feed.record(priceUpdate({ marketId: 1, symbol: 'BTC', receivedAtMs: time.now() }));
     time.advance(60_000);
 
@@ -195,7 +195,7 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
 
   it('never blocks on age alone, at any age, while connected', () => {
     const time = clock();
-    const feed = new MarketFeed(1_000, time.now);
+    const feed = new MarketFeed('mainnet', 1_000, time.now);
     feed.record(priceUpdate({ receivedAtMs: time.now() }));
 
     for (const advance of [0, 1_000, 10_000, 3_600_000]) {

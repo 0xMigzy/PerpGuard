@@ -6,7 +6,13 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { FeedHealth, MarketRiskConfig, PriceUpdate, VenuePosition } from '@perpguard/shared';
+import type {
+  FeedHealth,
+  MarketRiskConfig,
+  PositionSourceStatus,
+  PriceUpdate,
+  VenuePosition,
+} from '@perpguard/shared';
 import { MarketFeed } from '../ingest/marketFeed.ts';
 import { RiskLoop } from './loop.ts';
 import { DEFAULT_THRESHOLDS, type PositionSource, type RiskChange } from './types.ts';
@@ -71,6 +77,12 @@ const ethShort: VenuePosition = {
   leverage: 10,
 };
 
+const liveStatus: PositionSourceStatus = {
+  state: 'live',
+  lastUpdateMs: 1_000_000,
+  ageMs: 0,
+};
+
 const priceUpdate = (marketId: number, symbol: string, markPrice: number, atMs: number): PriceUpdate => ({
   venue: 'perpl',
   network: 'mainnet',
@@ -90,21 +102,35 @@ class Harness {
   nowMs = 1_000_000;
   health: FeedHealth = { state: 'connected', reconnectAttempt: 0 };
   positions: VenuePosition[] = [];
+  /** Position-set health, driven independently of the price feed. */
+  positionsState: PositionSourceStatus['state'] = 'live';
+  positionsReason: string | undefined;
+  positionsUpdatedAtMs: number | undefined = 1_000_000;
   readonly feed: MarketFeed;
   readonly loop: RiskLoop;
   readonly changes: RiskChange[] = [];
   readonly #listeners = new Set<(p: readonly VenuePosition[]) => void>();
 
   constructor(thresholds?: Partial<typeof DEFAULT_THRESHOLDS>) {
-    this.feed = new MarketFeed(STALE_MS, () => this.nowMs);
+    this.feed = new MarketFeed('mainnet', STALE_MS, () => this.nowMs);
     const source: PositionSource = {
       snapshot: () => this.positions,
       onSnapshot: (listener) => {
         this.#listeners.add(listener);
         return () => this.#listeners.delete(listener);
       },
+      status: () => ({
+        state: this.positionsState,
+        ...(this.positionsReason === undefined ? {} : { reason: this.positionsReason }),
+        lastUpdateMs: this.positionsUpdatedAtMs,
+        ageMs:
+          this.positionsUpdatedAtMs === undefined
+            ? undefined
+            : this.nowMs - this.positionsUpdatedAtMs,
+      }),
     };
     this.loop = new RiskLoop({
+      network: 'mainnet',
       feed: this.feed,
       positions: source,
       feedStatus: () => this.health,
@@ -282,6 +308,243 @@ test('a feed outage does not emit a second FEED_DOWN on every tick', () => {
   }
   const feedDownEvents = h.changes.filter((c) => c.assessment.state === 'FEED_DOWN');
   assert.equal(feedDownEvents.length, 1);
+});
+
+// ── one network per loop ──────────────────────────────────────────────────────
+//
+// Both networks list BTC. A testnet position priced off a mainnet mark produces
+// a liquidation price, a buffer and an alert that are all wrong and all
+// completely plausible, so mixing has to be impossible to express rather than
+// merely discouraged.
+
+test('a loop cannot be built over a feed for another network', () => {
+  const testnetFeed = new MarketFeed('testnet', STALE_MS);
+  assert.throws(
+    () =>
+      new RiskLoop({
+        network: 'mainnet',
+        feed: testnetFeed,
+        positions: { snapshot: () => [], onSnapshot: () => () => {}, status: () => liveStatus },
+        feedStatus: () => ({ state: 'connected', reconnectAttempt: 0 }),
+        configs,
+      }),
+    (error: unknown) =>
+      error instanceof RangeError && /mainnet but its market feed is for testnet/.test(error.message),
+  );
+});
+
+test('a feed refuses a price from the wrong network rather than recording it', () => {
+  const feed = new MarketFeed('mainnet', STALE_MS);
+  assert.throws(
+    () => feed.record({ ...priceUpdate(16, 'BTC', 84_000, 1), network: 'testnet' }),
+    (error: unknown) =>
+      error instanceof RangeError && /refusing a testnet price for BTC/.test(error.message),
+  );
+  assert.equal(feed.size, 0, 'and nothing was recorded');
+});
+
+test('a position from the wrong network halts the loop rather than being assessed', () => {
+  const h = new Harness();
+  h.price(1, 'BTC', 84_007.3);
+  // The same asset, the same symbol, a different network: everything the risk
+  // maths reads would be present and wrong.
+  h.positions = [{ ...btcSafe, network: 'testnet' }];
+  assert.throws(
+    () => h.loop.evaluate(),
+    (error: unknown) =>
+      error instanceof RangeError &&
+      /refusing a testnet position in BTC/.test(error.message),
+  );
+});
+
+// ── positions untrustworthy ──────────────────────────────────────────────────
+//
+// The THIRD health question, separate from both connection health and price age.
+// A price at least carries a timestamp; a position closed a minute ago looks
+// exactly like one still open, so the source has to volunteer the answer and the
+// loop has to refuse on it.
+
+test('an untrustworthy position set refuses to evaluate, and blames the positions rather than the feed', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'DANGER');
+
+  // The socket dropped. The price feed is perfectly healthy.
+  h.advance(1_000);
+  h.positionsState = 'stale';
+  h.positionsReason = 'the trading socket is closed, so the positions we hold are frozen';
+  const [assessment] = h.loop.evaluate();
+
+  assert.equal(assessment!.state, 'POSITIONS_UNTRUSTED');
+  assert.equal(assessment!.feed, 'connected', 'the price feed was never the problem');
+  assert.equal(assessment!.positions, 'stale');
+  assert.match(assessment!.reason, /trading socket is closed/);
+  assert.doesNotMatch(
+    assessment!.reason,
+    /price feed/,
+    'naming the wrong cause is a false explanation',
+  );
+  assert.equal(assessment!.lastKnownState, 'DANGER', 'the last thing we knew stays visible');
+  assert.equal(assessment!.liquidationPricePNS, 817_701n, 'and its numbers, not blanked');
+});
+
+test('an untrustworthy set can never produce an all-clear, whatever the price says', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'DANGER');
+
+  // A fresh price arrives showing a huge recovery, while the position set is
+  // frozen. The recovery may be real; whether this position still exists is not
+  // something we know, so it buys no reassurance.
+  h.positionsState = 'stale';
+  h.positionsReason = 'a heartbeat sequence gap means a position update may have been missed';
+  h.advance(DEFAULT_THRESHOLDS.minDwellMs * 2);
+  h.price(1, 'BTC', 95000);
+  const [assessment] = h.loop.evaluate();
+
+  assert.equal(assessment!.state, 'POSITIONS_UNTRUSTED');
+  assert.equal(
+    assessment!.heldOnStalePrice,
+    true,
+    'the alerts contract must still forbid a reassuring message',
+  );
+});
+
+test('a position is NOT forgotten while the set cannot be believed', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'DANGER');
+
+  // A missed update could remove a position from the set that is in fact still
+  // open. Absence is only evidence of closure when the set can be believed.
+  h.positionsState = 'stale';
+  h.positionsReason = 'a heartbeat sequence gap means a position update may have been missed';
+  h.positions = [];
+  h.advance(1_000);
+  h.loop.evaluate();
+
+  assert.equal(
+    h.stateOf(1),
+    'POSITIONS_UNTRUSTED',
+    'still tracked, and still saying we cannot see it',
+  );
+
+  // Once the set is trustworthy again, the same absence IS evidence.
+  h.positionsState = 'live';
+  h.positionsReason = undefined;
+  h.advance(1_000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), undefined, 'now it really is gone');
+});
+
+test('awaiting the first snapshot is not the same answer as an empty portfolio', () => {
+  const h = new Harness();
+  h.positionsState = 'awaiting-snapshot';
+  h.positionsReason = 'no position snapshot has arrived yet, so we do not know what is open';
+  h.positionsUpdatedAtMs = undefined;
+  h.price(1, 'BTC', 82000);
+
+  // Nothing is claimed about a set we have not been told.
+  assert.deepEqual(h.loop.evaluate(), []);
+  assert.equal(h.loop.positionsStatus().state, 'awaiting-snapshot');
+  assert.match(h.loop.positionsStatus().reason ?? '', /do not know what is open/);
+
+  // An update that arrives before the snapshot is still not vouched for.
+  h.positions = [btcLong];
+  const [assessment] = h.loop.evaluate();
+  assert.equal(assessment!.state, 'POSITIONS_UNTRUSTED');
+  assert.equal(assessment!.positions, 'awaiting-snapshot');
+});
+
+test('when both the feed and the positions are gone, the positions win and the reason names both', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+
+  h.advance(1_000);
+  h.health = { state: 'disconnected', reconnectAttempt: 2, reason: 'market-data socket closed' };
+  h.positionsState = 'stale';
+  h.positionsReason = 'the trading socket is closed';
+  const [assessment] = h.loop.evaluate();
+
+  // Not knowing WHETHER the position is open undercuts anything a price could
+  // say about it, so that is the state reported.
+  assert.equal(assessment!.state, 'POSITIONS_UNTRUSTED');
+  // But nothing is hidden by that choice.
+  assert.match(assessment!.reason, /trading socket is closed/);
+  assert.match(assessment!.reason, /market-data socket closed/);
+});
+
+test('recovering from an untrustworthy set re-serves the dwell time', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'DANGER');
+
+  h.positionsState = 'stale';
+  h.positionsReason = 'the trading socket is closed';
+  h.advance(1_000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'POSITIONS_UNTRUSTED');
+
+  // Back, with a genuinely recovered price: 9.14% buffer, past the 9% exit.
+  h.positionsState = 'live';
+  h.positionsReason = undefined;
+  h.advance(1_000);
+  h.price(1, 'BTC', 90000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'DANGER', 'an outage is not a shortcut to an all-clear');
+
+  h.advance(DEFAULT_THRESHOLDS.minDwellMs);
+  h.price(1, 'BTC', 90000);
+  h.loop.evaluate();
+  assert.equal(h.stateOf(1), 'SAFE');
+});
+
+test('an untrustworthy set does not re-emit POSITIONS_UNTRUSTED on every tick', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+  h.positionsState = 'stale';
+  h.positionsReason = 'the trading socket is closed';
+  for (let i = 0; i < 5; i += 1) {
+    h.advance(1_000);
+    h.loop.evaluate();
+  }
+  const events = h.changes.filter((c) => c.assessment.state === 'POSITIONS_UNTRUSTED');
+  assert.equal(events.length, 1);
+});
+
+test('coming back from POSITIONS_UNTRUSTED emits a change even at the same severity', () => {
+  // The UI has to stop showing the outage, which it only hears about on a change.
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+  h.positionsState = 'stale';
+  h.positionsReason = 'the trading socket is closed';
+  h.advance(1_000);
+  h.loop.evaluate();
+
+  const before = h.changes.length;
+  h.positionsState = 'live';
+  h.positionsReason = undefined;
+  h.advance(1_000);
+  h.price(1, 'BTC', 82000);
+  h.loop.evaluate();
+
+  assert.equal(h.changes.length, before + 1);
+  assert.equal(h.changes.at(-1)!.assessment.state, 'DANGER');
+  assert.equal(h.changes.at(-1)!.previousState, 'POSITIONS_UNTRUSTED');
 });
 
 // ── one market quiet, others live ────────────────────────────────────────────
