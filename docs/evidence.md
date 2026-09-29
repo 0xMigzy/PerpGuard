@@ -354,3 +354,157 @@ Treat the forced-exit shapes as **assumed, not measured**. In particular do not
 assume `xp` is present, or that `c` returns to "0", on a liquidation. The
 decoder should handle any `st` outside 1 by treating the position as gone,
 which is correct for all of 2–5 regardless of what the other fields do.
+
+## 2026-09-29 — the account stream's `sn` is the block number
+
+`scripts/probeHeartbeatSn.ts` (`pnpm sn:probe`), read-only: signs in, listens,
+places nothing. Run because the trading socket's gap detector expects heartbeat
+`sn` to advance by exactly `+1`, and a false gap would mark the position set
+untrustworthy and stop the risk loop assessing a healthy account — the same
+class of failure as an indexer reporting itself 0 blocks behind while frozen.
+
+| | |
+| --- | --- |
+| network | Perpl **testnet**, chain **10143** |
+| socket | `wss://testnet.perpl.xyz/ws/v1/trading` |
+| account | **710** |
+| window | 100s, 327 heartbeats |
+
+| question | measured |
+| --- | --- |
+| is `sn` the block number? | `sn == h` on **327 of 327** heartbeats |
+| | `sn == at.b` in all **5** frames of `fixtures/positions-testnet.json` |
+| does a heartbeat land on every block? | `sn` delta was `+1` on **326 of 326** intervals |
+| do snapshots advance it? | no — `mt: 19`, `23`, `26` all shared one `sn` |
+| false gaps in the window? | **0** |
+
+Sign-in `sn` was 66605626 in one run and 66605929 in another, with `mt: 19`,
+`mt: 23` and `mt: 26` sharing it each time. The first capture's 66448894 was the
+same effect.
+
+So the `+1` expectation is correct, and the existing detector — which reads `sn`
+only off `mt: 19` and `mt: 100` — was already right. What was missing was the
+reason, without which the next person to "fix" the tracker by reading `sn` off
+every frame would have broken it.
+
+### The trap this found
+
+`mt: 2`, the pong, carries its own unrelated counter: `sn` **1, 2, 3** across
+three pings, with no `h` and no `at`. Our `mt: 1` ping carries no `sn` at all,
+so it is the server's counter, not an echo. A tracker that read it would compute
+a gap of tens of millions against a perfectly healthy socket. This is the same
+reason the market-data feed's proof-of-life ignores replies.
+
+## 2026-09-29 — the risk loop against a real position: DANGER, then WATCH
+
+The whole read path end to end, `pnpm risk:live --open`
+(`apps/backend/src/scripts/live-risk-run.ts`): the live market feed, the live
+authenticated account, the pure risk engine and the state machine, over one real
+testnet position.
+
+**Opened at MINIMUM SIZE and MAXIMUM LEVERAGE on purpose.** At 2x, one size unit
+of BTC sits at a ~46% buffer and the loop reports SAFE for as long as anyone
+cares to watch — that proves the plumbing and nothing else. At the market
+maximum the buffer lands at 2.67%, which is DANGER on our thresholds and within
+0.01pp of where `fixtures/position1.json` sits. So the run shows a real
+classification and then a real transition, at about **$0.83 of notional**.
+
+| | |
+| --- | --- |
+| network | Perpl **testnet**, chain **10143** |
+| account | **710**, `fw true`, not frozen |
+| market | **16** (BTC), maxLeverage **15x**, mmr **0.04**, price 1dp, size 5dp |
+| position | long **0.00001 BTC** at **15x**, the market maximum |
+| thresholds | watch 8/9%, danger 3/4%, dwell 60s |
+
+Projected before anything was risked, from `getRiskConfigs()` off the live
+context: 2x → 46.00%, 5x → 16.00%, 10x → 6.00%, **15x → 2.67%**. The run then
+measured 2.67%. The projection is what made this safe to do at all.
+
+### The transitions
+
+| t | event |
+| --- | --- |
+| `+5.8s` | baseline: `feed=connected positions=live tracked=0` |
+| `+5.8s` | OPEN sent, `t: 1`, `s: 1`, `lv: 1500` |
+| `+6.7s` | `mt: 24` **st 4 Filled, sr 43 TakerOrderFilled** |
+| `+6.7s` | **(none) -> DANGER**, buffer **2.67%**, liq **811311**, mark **833543** |
+| `+9.7s` | position `pid 4365441302529`, margin **0.0557 AUSD**, 15x |
+| `+9.7s`–`+79.7s` | held DANGER through the 60s dwell, buffer 2.67–2.71% |
+| `+79.7s` | ADD MARGIN sent: **27460 micros** to reach a 6% buffer |
+| `+81.9s` | **DANGER -> WATCH**, buffer **6.00%**, liq **783851** |
+| `+88.7s` | CLOSE sent |
+| `+90.0s` | `mt: 24` **st 4 Filled**, position gone, `tracked=0` |
+
+A state change in each direction, against a real account: the opening
+classification from a real fill, and a softening that had to earn both the exit
+threshold and the dwell time. Nothing was reported before `mt: 24` except the
+margin top-up, for the reason below.
+
+Also visible, in the run that added margin twice: at a **9.32%** buffer the
+position stayed **WATCH** rather than going SAFE, because only 17s of the 60s
+dwell had been served. The asymmetry working on live data — the buffer had
+cleared the 9% exit and the all-clear still had to wait.
+
+### ADDING MARGIN REPORTS FAILURE AND APPLIES ANYWAY
+
+The finding of this run, and the one thing here that contradicts a rule the repo
+was built around.
+
+`t: 6` IncreasePositionCollateral comes back **`st: 7 Failed, sr: 32
+OrderDescIdTooLow`** on `mt: 24` — while the collateral **is credited, by exactly
+the amount sent**. Four times across three runs:
+
+| rq | `lfr` before | reported | margin before → after | applied | requested |
+| --- | --- | --- | --- | --- | --- |
+| 12 | 11 | st 7, sr 32 | 0.055822 → 0.083001 | 27179 | 27179 |
+| 15 | 14 | st 7, sr 32 | 0.0559 → 0.083584 | 27684 | 27684 |
+| 16 | 15 | st 7, sr 32 | 0.083584 → 0.111268 | 27684 | 27684 |
+| 19 | 18 | st 7, sr 32 | 0.0557 → 0.08316 | 27460 | 27460 |
+
+The request id was **never stale**: it was the correct `lfr + 1` every time, and
+`lfr` advanced on the "failed" request anyway. So `OrderDescIdTooLow` does not
+mean what its name says for this order type. The raw frame, verbatim:
+
+```json
+{"rq":15,"mkt":16,"acc":710,"oid":4365423542272,"scid":0,"st":7,"sr":32,
+ "t":6,"r":true,"os":0,"fp":0,"fs":0,"f":"0","fl":4,"lv":0}
+```
+
+**How this was established, including the mistake.** Rows 15 and 16 are the same
+top-up sent twice: the first investigation treated `sr 32` at face value, assumed
+a stale request id, and re-sent with a fresh one. The margin was added **twice** —
+0.0559 → 0.083584 → 0.111268 AUSD. That is what proved the point, and it is
+exactly the bug this venue's behaviour sets a caller up for. On mainnet it is a
+trader's collateral committed twice over because the venue said the first attempt
+failed. The auto-retry is gone from the script; what replaced it reconciles the
+position's margin before and after and reports which actually happened.
+
+So, recorded in CLAUDE.md and in the builder's own docs:
+
+- **This is the one action whose outcome is not on `mt: 24`.** Reconcile it
+  against the position's `c`. Nothing else says whether the collateral landed.
+- **Never re-send on the reported failure**, the same rule as a cancel timeout
+  and for the same reason.
+- **Never report the failure to the user either.** Telling someone their rescue
+  failed when it worked is how they double it by hand.
+
+The final run's reconciliation line, which is what a caller should do:
+
+```
+margin is now 0.08316 AUSD (was 0.0557): 27460 micros applied, 27460 requested
+  — LANDED, while the order reported "rejected"
+```
+
+### What this run proves
+
+- The risk engine's projected buffer matched the live one: **2.67% predicted,
+  2.67% measured**, off market config read from `GET /v1/pub/context`.
+- The loop classifies a real fill within a second of `mt: 24`, and both
+  transitions came from real venue data, not a fixture.
+- De-escalation is gated in practice, not just in unit tests: DANGER held for the
+  full 60s dwell, and a 9.32% buffer stayed WATCH with 17s served.
+- `feed` and `positions` health are reported as separate answers throughout
+  (`feed=connected positions=live`), which is what makes "position data is stale"
+  sayable at all.
+- The position opened and closed cleanly. No position was left open.

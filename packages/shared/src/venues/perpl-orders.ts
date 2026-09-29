@@ -268,8 +268,14 @@ export interface OrderRequestFrame {
   readonly lb: number;
   readonly p?: number;
   readonly oid?: number;
-  /** Linked position id, on a close. */
+  /** Linked position id, on a close or a collateral increase. */
   readonly lp?: number;
+  /**
+   * `a`, an AUSD Amount DECIMAL STRING — the collateral to add on a
+   * `t: 6` IncreasePositionCollateral. A string, not a number, because the
+   * docs type every Amount that way and money maths here is integer-only.
+   */
+  readonly a?: string;
 }
 
 export interface LimitOrderFrameParams {
@@ -424,6 +430,86 @@ export function buildClosePositionFrame(params: ClosePositionFrameParams): Order
     lp: params.positionId,
     lv: 0,
     lb: params.lastExecBlock,
+  };
+}
+
+export interface AddMarginFrameParams {
+  readonly sn: number;
+  readonly rq: number;
+  readonly marketId: number;
+  readonly accountId: number;
+  /** `lp`, the position to top up. Read it off the position, never guess it. */
+  readonly positionId: number;
+  /** Collateral to ADD, in AUSD micros. Not the new total. */
+  readonly amountCNS: bigint;
+  readonly lastExecBlock: number;
+}
+
+/**
+ * Add collateral to an existing position — `t: 6` IncreasePositionCollateral.
+ *
+ * ISOLATED MARGIN MAKES THIS THE ONLY WAY TO BUY ROOM. Free account balance is
+ * never pulled in to rescue a losing position, so the top-up is explicit and
+ * per position, and `lp` has to name the one being rescued.
+ *
+ * `a` carries the amount as a decimal string of AUSD micros. It is the DELTA,
+ * not the new total: sending the target balance would add it on top of what is
+ * already posted.
+ *
+ * `s` is 0 and `lv` is 0: no size changes and leverage belongs to the position.
+ * Adding margin leaves the entry price and the lot size untouched, which is why
+ * it moves the liquidation price at all — unlike a proportional reduce, where
+ * everything scales together and the liquidation price does not move.
+ *
+ * THE FIELD REQUIREMENTS FOR THIS TYPE ARE NOT DOCUMENTED. `types-and-errors.md`
+ * gives the OrderType enum and defers the field shapes to the REST and WebSocket
+ * pages, which defer back to it — the same circular reference that forced the
+ * Position shape to be read off the wire. So this frame was modelled on the close
+ * builder and then MEASURED on testnet, which found the following.
+ *
+ * IT REPORTS FAILURE AND APPLIES ANYWAY. Every one of these frames comes back
+ * `st: 7 Failed, sr: 32 OrderDescIdTooLow` on `mt: 24` while the collateral IS
+ * credited, by exactly `a`. Measured 4 times across 3 runs; the request id was
+ * the correct `lfr + 1` every time, so the reason name is misleading here.
+ *
+ * Two consequences for any caller:
+ *   - RECONCILE AGAINST THE POSITION'S MARGIN, not against `mt: 24`. This is the
+ *     one action whose outcome that frame does not carry.
+ *   - NEVER RE-SEND ON THE REPORTED FAILURE. Doing so adds the margin twice,
+ *     observed live. A trader's collateral committed twice over because the venue
+ *     said it failed is worse than the top-up not happening at all.
+ *
+ * https://docs.perpl.xyz/exchange/margin.md
+ */
+export function buildAddMarginFrame(params: AddMarginFrameParams): OrderRequestFrame {
+  assertPositiveInt(params.sn, 'sn');
+  assertPositiveInt(params.rq, 'rq');
+  assertPositiveInt(params.marketId, 'mkt');
+  assertPositiveInt(params.accountId, 'acc');
+  assertPositiveInt(params.positionId, 'lp (position id)');
+  assertPositiveInt(params.lastExecBlock, 'lb (last execution block)');
+  if (params.amountCNS <= 0n) {
+    throw new RangeError(
+      `a (collateral to add) must be a positive amount of AUSD micros, got ${params.amountCNS}. ` +
+        `A zero or negative top-up is not a margin addition; reducing collateral is a different ` +
+        `operation with a different order type.`,
+    );
+  }
+
+  return {
+    mt: MT.OrderRequest,
+    sn: params.sn,
+    rq: params.rq,
+    mkt: params.marketId,
+    acc: params.accountId,
+    t: ORDER_TYPE.IncreasePositionCollateral,
+    p: 0,
+    s: 0,
+    fl: ORDER_FLAGS.ImmediateOrCancel,
+    lp: params.positionId,
+    lv: 0,
+    lb: params.lastExecBlock,
+    a: params.amountCNS.toString(),
   };
 }
 

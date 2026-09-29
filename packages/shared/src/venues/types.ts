@@ -1,4 +1,5 @@
 import type { NetworkConfig, NetworkName } from '../config.ts';
+import type { MarketRiskConfig } from '../risk/position.ts';
 
 /**
  * The venue abstraction. Everything downstream — risk engine, bot, web — talks
@@ -309,6 +310,19 @@ export interface Venue {
 
   /** All markets, with their per-network ids and scaling. */
   getMarkets(): Promise<VenueMarket[]>;
+
+  /**
+   * Everything the risk engine needs per market, keyed by market id.
+   *
+   * Separate from {@link getMarkets} because the risk maths is integer-only and
+   * needs the venue's RAW margin integers, not the human-friendly ratios
+   * `VenueMarket` carries. Re-deriving those ints by inverting a float ratio is
+   * how a maintenance margin ends up off by one in the last place, so the
+   * adapter reads them straight from the venue's own config.
+   *
+   * Never hard-coded, and never shared between networks: scaling differs.
+   */
+  getRiskConfigs(): Promise<ReadonlyMap<number, MarketRiskConfig>>;
 
   /**
    * Whether actions for `symbol` can be sent on this venue's network.

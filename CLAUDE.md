@@ -72,6 +72,23 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   state. It must NEVER blind-retry a cancel with a new request id: the original
   cancel may still land, and a second `rq` against a filled or re-used order id
   is a new action, not a retry of the old one.
+- ADDING MARGIN REPORTS FAILURE AND APPLIES ANYWAY. `t: 6`
+  IncreasePositionCollateral comes back `st: 7 Failed, sr: 32 OrderDescIdTooLow`
+  on `mt: 24` while the collateral IS credited, by exactly the amount sent.
+  Measured 4 times across 3 testnet runs (rq 12, 15, 16, 19), every one rejected,
+  every one applied to the micro. The request id was never stale — it was the
+  correct `lfr + 1` each time — so `OrderDescIdTooLow` does not mean what it says
+  for this order type, and `lfr` advances on the "failed" request regardless.
+  - So THIS IS THE ONE ACTION WHOSE OUTCOME IS NOT `mt: 24`. Reconcile it
+    against the POSITION'S `c` (margin) before and after; that is the only field
+    that says whether the collateral landed.
+  - NEVER RE-SEND ON THE REPORTED FAILURE. Doing exactly that during the
+    investigation ADDED THE MARGIN TWICE — 0.0559 -> 0.083584 -> 0.111268 AUSD.
+    On mainnet that is a trader's collateral committed twice over because the
+    venue said it had failed. Same rule as a cancel timeout, for the same reason.
+  - And never report the failure to the user either: telling someone their
+    rescue failed when it worked is how they double it by hand.
+  See `docs/evidence.md` and `pnpm risk:live`.
 - Order updates are keyed by `oid`, the wide globally-unique order id, NOT by
   `id`. The docs render `mt: 24` entries as `{ id, st, sr, r }`, but the wire
   sends `oid` plus `scid`, the short per-contract id the explorer and

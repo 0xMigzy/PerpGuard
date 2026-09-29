@@ -12,7 +12,8 @@
     "prices": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-prices.ts",
     "order:test": "node --env-file-if-exists=.env scripts/placeTestOrder.ts",
     "positions:probe": "node --env-file-if-exists=.env scripts/probePositions.ts",
-    "sn:probe": "node --env-file-if-exists=.env scripts/probeHeartbeatSn.ts"
+    "sn:probe": "node --env-file-if-exists=.env scripts/probeHeartbeatSn.ts",
+    "risk:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-risk-run.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",

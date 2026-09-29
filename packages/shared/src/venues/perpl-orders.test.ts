@@ -4,6 +4,7 @@ import {
   ORDER_FLAGS,
   ORDER_TYPE,
   buildCancelFrame,
+  buildAddMarginFrame,
   buildClosePositionFrame,
   buildLimitOrderFrame,
   buildMarketOrderFrame,
@@ -561,5 +562,63 @@ test('buildClosePositionFrame requires a position id', () => {
         lastExecBlock: 100,
       }),
     /lp \(position id\)/,
+  );
+});
+
+// ── adding margin ────────────────────────────────────────────────────────────
+
+test('buildAddMarginFrame sends IncreasePositionCollateral against the position id', () => {
+  const frame = buildAddMarginFrame({
+    sn: 3,
+    rq: 11,
+    marketId: 16,
+    accountId: 710,
+    positionId: 4_354_895_577_089,
+    amountCNS: 27_731n,
+    lastExecBlock: 66_450_500,
+  });
+
+  assert.equal(frame.t, ORDER_TYPE.IncreasePositionCollateral);
+  assert.equal(frame.lp, 4_354_895_577_089, 'isolated margin: the top-up names one position');
+  // The amount is an AUSD Amount, which the docs type as a decimal STRING.
+  assert.equal(frame.a, '27731');
+  assert.equal(typeof frame.a, 'string');
+  // Nothing about the size or the leverage changes.
+  assert.equal(frame.s, 0);
+  assert.equal(frame.lv, 0);
+  assert.equal(frame.p, 0);
+});
+
+test('buildAddMarginFrame refuses a non-positive top-up rather than sending a no-op', () => {
+  const base = {
+    sn: 3,
+    rq: 11,
+    marketId: 16,
+    accountId: 710,
+    positionId: 4_354_895_577_089,
+    lastExecBlock: 66_450_500,
+  };
+  for (const amountCNS of [0n, -1n]) {
+    assert.throws(
+      () => buildAddMarginFrame({ ...base, amountCNS }),
+      (error: unknown) =>
+        error instanceof RangeError && /must be a positive amount of AUSD micros/.test(error.message),
+    );
+  }
+});
+
+test('buildAddMarginFrame validates the position id, because a top-up with no lp is unaddressed', () => {
+  assert.throws(
+    () =>
+      buildAddMarginFrame({
+        sn: 3,
+        rq: 11,
+        marketId: 16,
+        accountId: 710,
+        positionId: 0,
+        amountCNS: 1_000n,
+        lastExecBlock: 66_450_500,
+      }),
+    (error: unknown) => error instanceof RangeError && /lp \(position id\)/.test(error.message),
   );
 });

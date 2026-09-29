@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { NetworkConfig } from '../config.ts';
 import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
+import type { MarketRiskConfig } from '../risk/position.ts';
 import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
 import { assertForwardingAllowed } from './perpl-forwarding.ts';
@@ -210,6 +211,36 @@ export class PerplVenue implements Venue {
    * and a market can be closed. Either way the answer only gates action
    * controls; the risk engine keeps monitoring and alerting on the position.
    */
+  /**
+   * Risk configs off the RAW context, keyed by market id.
+   *
+   * `config.initial_margin` and `config.maintenance_margin` are passed through
+   * untouched: the risk engine wants the venue's own integers, and recovering
+   * them from `VenueMarket`'s derived ratios would mean inverting a float.
+   *
+   * `collateralDecimals` comes from the context `tokens[]` entry, never assumed
+   * to be 6.
+   */
+  async getRiskConfigs(): Promise<ReadonlyMap<number, MarketRiskConfig>> {
+    const [context, collateral] = await Promise.all([
+      this.getContext(),
+      this.getCollateralToken(),
+    ]);
+    const configs = new Map<number, MarketRiskConfig>();
+    for (const market of context.markets) {
+      configs.set(market.id, {
+        marketId: market.id,
+        symbol: market.size_units,
+        priceDecimals: market.config.price_decimals,
+        lotDecimals: market.config.size_decimals,
+        collateralDecimals: collateral.decimals,
+        maintenanceMargin: market.config.maintenance_margin,
+        initialMargin: market.config.initial_margin,
+      });
+    }
+    return configs;
+  }
+
   async getActionAvailability(symbol: string): Promise<ActionAvailability> {
     const network = this.network.name;
 

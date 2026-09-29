@@ -1,0 +1,295 @@
+{
+  "_source": "pnpm risk:live",
+  "_captured": "2026-09-29T05:55:34.398Z",
+  "_why": "One live run of pnpm risk:live --open: the risk loop over a real testnet position opened at minimum size and maximum leverage, so the buffer lands in DANGER rather than SAFE. Captures the opening classification, the DANGER -> WATCH transition after a margin top-up, and the raw mt:24 frames \u2014 including the t:6 collateral increase that reports st 7 Failed, sr 32 OrderDescIdTooLow while applying in full.",
+  "transcript": [
+    {
+      "atMs": 604,
+      "kind": "setup",
+      "network": "testnet",
+      "chainId": 10143,
+      "marketId": 16,
+      "symbol": "BTC",
+      "maxLeverage": 15,
+      "maintenanceMarginRatio": 0.04,
+      "units": 1,
+      "unitSize": 1e-05,
+      "riskConfig": {
+        "marketId": 16,
+        "symbol": "BTC",
+        "priceDecimals": 1,
+        "lotDecimals": 5,
+        "collateralDecimals": 6,
+        "maintenanceMargin": 2500,
+        "initialMargin": 1500
+      },
+      "thresholds": {
+        "watchEnterPct": 0.08,
+        "watchExitPct": 0.09,
+        "dangerEnterPct": 0.03,
+        "dangerExitPct": 0.04,
+        "minDwellMs": 60000
+      },
+      "staleMs": 10000
+    },
+    {
+      "atMs": 5808,
+      "kind": "phase-1-baseline",
+      "feed": "connected",
+      "positions": "live",
+      "tracked": 0
+    },
+    {
+      "atMs": 5809,
+      "kind": "open-sent",
+      "frame": {
+        "mt": 22,
+        "sn": 1,
+        "rq": 18,
+        "mkt": 16,
+        "acc": 710,
+        "t": 1,
+        "p": 0,
+        "s": 1,
+        "fl": 4,
+        "lv": 1500,
+        "lb": 66611362
+      }
+    },
+    {
+      "atMs": 6718,
+      "kind": "open-outcome",
+      "outcome": "confirmed",
+      "reason": "st: 4 Filled, sr: 43 TakerOrderFilled"
+    },
+    {
+      "atMs": 6720,
+      "kind": "state-change",
+      "state": "DANGER",
+      "liqBufferPct": 0.02667168940294622,
+      "liquidationPricePNS": "811311",
+      "markPricePNS": "833543",
+      "marginToSafeCNS": "52786",
+      "marginToSurviveCNS": "0",
+      "feed": "connected",
+      "positions": "live",
+      "priceAgeMs": 3881,
+      "heldOnStalePrice": false,
+      "reason": "first assessment at buffer 2.67%"
+    },
+    {
+      "atMs": 9719,
+      "kind": "position-open",
+      "positionId": 4365441302529,
+      "size": 1e-05,
+      "entryPrice": 83366.5,
+      "marginAusd": 0.0557,
+      "leverage": 15
+    },
+    {
+      "atMs": 79727,
+      "kind": "add-margin-sent",
+      "frame": {
+        "mt": 22,
+        "sn": 2,
+        "rq": 19,
+        "mkt": 16,
+        "acc": 710,
+        "t": 6,
+        "p": 0,
+        "s": 0,
+        "fl": 4,
+        "lp": 4365441302529,
+        "lv": 0,
+        "lb": 66611600,
+        "a": "27460"
+      },
+      "targetBuffer": 0.06
+    },
+    {
+      "atMs": 81913,
+      "kind": "state-change",
+      "previousState": "DANGER",
+      "state": "WATCH",
+      "liqBufferPct": 0.059998824775178296,
+      "liquidationPricePNS": "783851",
+      "markPricePNS": "833883",
+      "marginToSafeCNS": "25017",
+      "marginToSurviveCNS": "0",
+      "feed": "connected",
+      "positions": "live",
+      "priceAgeMs": 4178,
+      "heldOnStalePrice": false,
+      "reason": "buffer 6.00% recovered to WATCH"
+    },
+    {
+      "atMs": 82648,
+      "kind": "add-margin-outcome",
+      "outcome": "rejected",
+      "reason": "st: 7 Failed, sr: 32 OrderDescIdTooLow",
+      "lfrAfter": 19
+    },
+    {
+      "atMs": 88649,
+      "kind": "position-after-top-up",
+      "positionId": 4365441302529,
+      "marginAusd": 0.08316,
+      "size": 1e-05,
+      "reportedOutcome": "rejected",
+      "appliedCNS": "27460",
+      "requestedCNS": "27460",
+      "landed": true
+    },
+    {
+      "atMs": 90042,
+      "kind": "close-outcome",
+      "outcome": "confirmed",
+      "reason": "st: 4 Filled, sr: 43 TakerOrderFilled"
+    }
+  ],
+  "orderFrames": [
+    {
+      "atMs": 1807,
+      "mt": 23,
+      "sid": 30,
+      "sn": 66611333,
+      "at": {
+        "b": 66611333,
+        "t": 1790661242000
+      },
+      "d": []
+    },
+    {
+      "atMs": 6717,
+      "mt": 24,
+      "sid": 30,
+      "sn": 66611348,
+      "at": {
+        "b": 66611348,
+        "t": 1790661247000
+      },
+      "d": [
+        {
+          "at": {
+            "b": 66611348,
+            "t": 1790661247000,
+            "tx": 1,
+            "txid": "8f79c67e2e6550d1f01c85a644ee91ca24de56a27445c98e871a89e79c5e4d0e",
+            "l": 4
+          },
+          "c": {
+            "b": 66611348,
+            "t": 1790661247000,
+            "tx": 1
+          },
+          "rq": 18,
+          "mkt": 16,
+          "acc": 710,
+          "oid": 4365441302528,
+          "scid": 0,
+          "st": 4,
+          "sr": 43,
+          "t": 1,
+          "r": true,
+          "os": 1,
+          "fp": 833665,
+          "fs": 1,
+          "f": "288",
+          "bfa": "0",
+          "fl": 4,
+          "mm": 10,
+          "lv": 1500,
+          "mnp": 1000
+        }
+      ]
+    },
+    {
+      "atMs": 82647,
+      "mt": 24,
+      "sid": 30,
+      "sn": 66611588,
+      "at": {
+        "b": 66611588,
+        "t": 1790661323000
+      },
+      "d": [
+        {
+          "at": {
+            "b": 66611588,
+            "t": 1790661323000,
+            "tx": 3,
+            "txid": "460b46a43bc03ae9181f6ff1fc516b6264e4db3171b5683f5647ae9f6b9aadcc",
+            "l": 1
+          },
+          "c": {
+            "b": 66611588,
+            "t": 1790661323000,
+            "tx": 3
+          },
+          "rq": 19,
+          "mkt": 16,
+          "acc": 710,
+          "oid": 4365457031169,
+          "scid": 0,
+          "st": 7,
+          "sr": 32,
+          "t": 6,
+          "r": true,
+          "os": 0,
+          "fp": 0,
+          "fs": 0,
+          "f": "0",
+          "bfa": "0",
+          "fl": 4,
+          "mm": 10,
+          "lv": 0,
+          "mnp": 1000
+        }
+      ]
+    },
+    {
+      "atMs": 90042,
+      "mt": 24,
+      "sid": 30,
+      "sn": 66611610,
+      "at": {
+        "b": 66611610,
+        "t": 1790661330000
+      },
+      "d": [
+        {
+          "at": {
+            "b": 66611610,
+            "t": 1790661330000,
+            "tx": 2,
+            "txid": "90eb21f0eb5bf1da674ab9d96f73e38ba389166b8789a1785e81a43c7ecf1ce4",
+            "l": 4
+          },
+          "c": {
+            "b": 66611610,
+            "t": 1790661330000,
+            "tx": 2
+          },
+          "rq": 20,
+          "mkt": 16,
+          "acc": 710,
+          "oid": 4365458472983,
+          "scid": 0,
+          "st": 4,
+          "sr": 43,
+          "t": 3,
+          "r": true,
+          "os": 1,
+          "fp": 833706,
+          "fs": 1,
+          "f": "288",
+          "bfa": "0",
+          "fl": 4,
+          "mm": 10,
+          "lv": 0,
+          "mnp": 1000
+        }
+      ]
+    }
+  ]
+}
