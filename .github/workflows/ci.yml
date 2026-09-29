@@ -1,0 +1,71 @@
+# Typecheck and test the whole workspace on every push and PR to main.
+#
+# THIS WORKFLOW NEEDS NO SECRETS, and that is a property to preserve. Every test
+# in this repo drives fake sockets, injected fetch and the committed fixtures in
+# `fixtures/`; nothing here talks to Perpl, to Monad or to a wallet. If a test
+# ever starts needing an API key, a bot token or a private key, it is testing the
+# wrong thing — fix the test rather than adding a secret to this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # The whole job is ~30s of work; this is only a hang guard.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before setup-node, so setup-node's `cache: pnpm` can find the
+      # store. Version pinned to the one the lockfile was written with.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned rather than `22`, because the test suite runs TypeScript
+          # directly through Node's type stripping: the floor is higher than
+          # the `>=22.9` in package.json and a floating minor is a spurious
+          # failure waiting to happen.
+          node-version: 22.23.3
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `apps/indexer/.envio/types.d.ts` is codegen output and gitignored, so a
+      # fresh checkout has no Envio entity types and the indexer's typecheck
+      # fails without this. Takes ~1s and needs no network: every var
+      # interpolated into config.yaml has a default there.
+      - name: Generate indexer types
+        run: pnpm --filter @perpguard/indexer codegen
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      # The indexer's acceptance checks read a Postgres database that a real
+      # indexer run has populated against mainnet. CI has neither, and a bare
+      # Postgres service container would not fix it: verify.ts exits 1 on
+      # "no chain_metadata row: has the indexer ever run?", which is a
+      # wrong-reason failure dressed up as a green-to-red signal. So probe for a
+      # database and skip cleanly when there is none. If a job ever does stand
+      # one up and index into it, this step starts running for real unedited.
+      - name: Indexer verify
+        run: |
+          host="${ENVIO_PG_HOST:-127.0.0.1}"
+          port="${ENVIO_PG_PORT:-5432}"
+          if command -v pg_isready >/dev/null 2>&1 && pg_isready -h "$host" -p "$port" -q; then
+            pnpm --filter @perpguard/indexer verify
+          else
+            echo "skipped: no database (nothing listening for Postgres at $host:$port)"
+          fi
