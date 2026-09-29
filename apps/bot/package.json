@@ -1,0 +1,17 @@
+{
+  "name": "@perpguard/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@perpguard/backend": "workspace:*",
+    "@perpguard/shared": "workspace:*",
+    "grammy": "^1.0.0"
+  }
+}

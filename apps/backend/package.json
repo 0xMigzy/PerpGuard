@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./alerts": "./src/alerts/types.ts",
+    "./alerts/render": "./src/alerts/render.ts",
+    "./alerts/rules": "./src/alerts/rules.ts",
+    "./alerts/engine": "./src/alerts/engine.ts",
+    "./risk": "./src/risk/types.ts",
+    "./risk/loop": "./src/risk/loop.ts",
+    "./ingest/market-feed": "./src/ingest/marketFeed.ts",
+    "./alerts/test-support": "./src/alerts/testSupport.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "print-markets": "node src/scripts/print-markets.ts"
