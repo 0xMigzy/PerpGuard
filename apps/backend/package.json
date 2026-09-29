@@ -15,9 +15,17 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node --env-file-if-exists=../../.env src/server.ts",
+    "dev": "node --watch --env-file-if-exists=../../.env src/server.ts",
     "print-markets": "node src/scripts/print-markets.ts"
   },
   "dependencies": {
-    "@perpguard/shared": "workspace:*"
+    "@perpguard/bot": "workspace:*",
+    "@perpguard/shared": "workspace:*",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
   }
 }

@@ -4,3 +4,18 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+# `apps/backend` and `apps/bot` depend on each other, and that is deliberate:
+# the bot consumes the alerts and risk CONTRACTS (AlertMessage, RiskAssessment,
+# the engine), while `apps/backend/src/server.ts` is the composition root that
+# starts the bot. The MODULE graph is acyclic — the bot imports the alerts
+# modules, and nothing in the alerts layer imports the server — so nothing
+# circular is ever evaluated at runtime.
+#
+# This setting is safe here because NO TASK IN THIS WORKSPACE PRODUCES ANYTHING
+# ANOTHER CONSUMES. Every `typecheck` is `tsc --noEmit` over source, so the order
+# they run in cannot change the result; there is no build step whose output the
+# other package would have to wait for. If a task ever does emit something, this
+# line stops being safe and the cycle has to be broken for real — by lifting the
+# alerts and risk contract types into `packages/shared`.
+ignoreWorkspaceCycles: true
