@@ -31,7 +31,7 @@
  *   rendered only through `maskApiKey`, the secret lives inside `ApiSecret`, and
  *   the bot token is redacted out of every string the transport hands back.
  */
-import { Client } from 'pg';
+import { Pool } from 'pg';
 import {
   ConfigError,
   PerplPositionSource,
@@ -203,21 +203,53 @@ const loop = new RiskLoop({
 
 // ── 6. alerts: log, transport, engine ───────────────────────────────────────
 
+/**
+ * The alert log, on Postgres when there is one.
+ *
+ * A POOL, NOT A CLIENT. This process runs for days and a single `pg.Client`
+ * that loses its connection never gets another: every subsequent write fails
+ * and the alert history silently stops. A pool replaces a dead connection on
+ * the next query, which is the difference between a blip and an outage.
+ *
+ * A FAILING DATABASE DOES NOT STOP THE PROCESS, the same rule the trading
+ * socket follows and for the same reason: the alert path degrading is not a
+ * reason to take the price feed and the health endpoint down with it. It falls
+ * back to the in-memory log, and `/health` says so AND says why — "no
+ * DATABASE_URL" and "Postgres refused the connection" are different problems
+ * with different fixes.
+ */
 const databaseUrl = process.env['DATABASE_URL']?.trim();
-let alertDb: Client | undefined;
+let alertDb: Pool | undefined;
 let innerLog: AlertLog;
+let durableReason: string | undefined;
+
 if (databaseUrl === undefined || databaseUrl === '') {
-  // Deliberate, and reported: a process that alerts without recording is a
-  // process whose undelivered DANGER alerts exist nowhere.
-  warn('DATABASE_URL is not set; alert history is in memory and is lost on restart');
+  durableReason = 'DATABASE_URL is not set';
+  warn(`${durableReason}; alert history is in memory and is lost on restart`);
   innerLog = new InMemoryAlertLog();
 } else {
-  alertDb = new Client({ connectionString: databaseUrl });
-  await alertDb.connect();
-  const pgLog = new PostgresAlertLog(alertDb);
-  await pgLog.migrate();
-  innerLog = pgLog;
-  log('alert_log ready on Postgres');
+  const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+  // An unhandled 'error' on an idle client TAKES THE PROCESS DOWN. Postgres
+  // restarting mid-session is ordinary; a risk monitor exiting because of it
+  // is not.
+  pool.on('error', (error) => {
+    warn(`idle Postgres connection dropped: ${error.message}. The pool will reconnect.`);
+  });
+  try {
+    const pgLog = new PostgresAlertLog(pool);
+    await pgLog.migrate();
+    alertDb = pool;
+    innerLog = pgLog;
+    log('alert_log ready on Postgres');
+  } catch (error) {
+    // The URL never reaches a log line: it carries a password.
+    durableReason = `Postgres was configured but could not be reached: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    warn(`${durableReason}. Falling back to an in-memory alert log and reporting DEGRADED.`);
+    await pool.end().catch(() => {});
+    innerLog = new InMemoryAlertLog();
+  }
 }
 
 const links = new InMemoryLinkStore({
@@ -263,6 +295,7 @@ const transport =
 const activity = new AlertActivity({
   inner: innerLog,
   durable: alertDb !== undefined,
+  ...(durableReason === undefined ? {} : { durableReason }),
   transportConfigured: transport !== undefined,
   ...(transport === undefined
     ? {
@@ -296,11 +329,17 @@ const engine = new AlertEngine({
 // ── 7. the optional indexer lag probe ───────────────────────────────────────
 
 const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
-let indexerDb: Client | undefined;
+let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
-  indexerDb = new Client({ connectionString: indexerUrl });
-  await indexerDb.connect();
+  // A pool, and NOT connected eagerly, for the same two reasons as the alert
+  // log: a dead single client never recovers, and an indexer database that is
+  // down is a degraded reading rather than a reason not to start. The probe
+  // already turns any failure into a verdict.
+  indexerDb = new Pool({ connectionString: indexerUrl, max: 2 });
+  indexerDb.on('error', (error) => {
+    warn(`idle indexer Postgres connection dropped: ${error.message}. The pool will reconnect.`);
+  });
   const analytics = loadNetworkConfig(appConfig.analytics.name, process.env);
   indexerMonitor = new IndexerLagMonitor({
     sql: indexerDb,

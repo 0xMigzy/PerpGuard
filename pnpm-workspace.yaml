@@ -16,6 +16,11 @@ allowBuilds:
 # ANOTHER CONSUMES. Every `typecheck` is `tsc --noEmit` over source, so the order
 # they run in cannot change the result; there is no build step whose output the
 # other package would have to wait for. If a task ever does emit something, this
-# line stops being safe and the cycle has to be broken for real — by lifting the
-# alerts and risk contract types into `packages/shared`.
+# line stops being safe and the cycle has to be broken before that lands.
+#
+# The real fix is written up in `docs/workspace-cycle.md`. Short version: the
+# contract types move to `packages/shared`, the bot's two calls into
+# `alerts/render` and `alerts/rules` are INVERTED into an injected renderer
+# rather than moved, and the two integration tests move to `apps/backend`. The
+# alerts layer itself stays where `CLAUDE.md` puts it.
 ignoreWorkspaceCycles: true

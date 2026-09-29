@@ -22,6 +22,15 @@ export interface AlertActivityOptions {
   readonly inner: AlertLog;
   /** Whether rows survive a restart. False for the in-memory log. */
   readonly durable: boolean;
+  /**
+   * Why they do not, when they do not.
+   *
+   * "Alert history is in memory" is the symptom; a Postgres that refused the
+   * connection and one that was never configured are different problems with
+   * different fixes, and a health report that cannot tell them apart sends
+   * someone to edit an env var that is already correct.
+   */
+  readonly durableReason?: string;
   /** False when no transport is wired: warnings would go nowhere. */
   readonly transportConfigured: boolean;
   /** Why there is no transport. Safe to render; never contains a token. */
@@ -31,6 +40,7 @@ export interface AlertActivityOptions {
 export class AlertActivity implements AlertLog {
   readonly #inner: AlertLog;
   readonly #durable: boolean;
+  readonly #durableReason: string | undefined;
   readonly #transportConfigured: boolean;
   readonly #transportReason: string | undefined;
 
@@ -44,6 +54,7 @@ export class AlertActivity implements AlertLog {
   constructor(options: AlertActivityOptions) {
     this.#inner = options.inner;
     this.#durable = options.durable;
+    this.#durableReason = options.durableReason;
     this.#transportConfigured = options.transportConfigured;
     this.#transportReason = options.transportReason;
   }
@@ -70,6 +81,7 @@ export class AlertActivity implements AlertLog {
       transportConfigured: this.#transportConfigured,
       ...(this.#transportReason === undefined ? {} : { transportReason: this.#transportReason }),
       durableLog: this.#durable,
+      ...(this.#durableReason === undefined ? {} : { durableReason: this.#durableReason }),
       delivered: this.#delivered,
       failed: this.#failed,
       ...(this.#lastDeliveredAtMs === undefined

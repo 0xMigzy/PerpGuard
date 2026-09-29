@@ -71,6 +71,8 @@ export interface AlertDeliveryStatus {
   readonly transportReason?: string;
   /** Rows are kept where a restart does not lose them. */
   readonly durableLog: boolean;
+  /** Why they are not, when they are not. Safe to render. */
+  readonly durableReason?: string;
   readonly delivered: number;
   readonly failed: number;
   readonly lastDeliveredAtMs?: number;
@@ -232,7 +234,7 @@ function alertsComponent(alerts: AlertDeliveryStatus): ComponentReport {
       ...base,
       detail:
         'alert history is kept in memory, so a restart loses the record of what was sent ' +
-        'and what failed',
+        `and what failed${alerts.durableReason === undefined ? '' : `: ${alerts.durableReason}`}`,
     };
   }
   if (alerts.lastFailure !== undefined) {

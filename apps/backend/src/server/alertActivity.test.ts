@@ -106,6 +106,7 @@ test('the transport and durability facts are carried through to the status', () 
   const activity = new AlertActivity({
     inner: new InMemoryAlertLog(),
     durable: false,
+    durableReason: 'Postgres was configured but could not be reached: ECONNREFUSED',
     transportConfigured: false,
     transportReason: 'TELEGRAM_BOT_TOKEN is not set',
   });
@@ -113,4 +114,15 @@ test('the transport and durability facts are carried through to the status', () 
   assert.equal(status.transportConfigured, false);
   assert.equal(status.durableLog, false);
   assert.equal(status.transportReason, 'TELEGRAM_BOT_TOKEN is not set');
+  assert.match(status.durableReason ?? '', /ECONNREFUSED/);
+});
+
+test('a durable log carries no reason, because there is nothing to explain', () => {
+  const activity = new AlertActivity({
+    inner: new InMemoryAlertLog(),
+    durable: true,
+    transportConfigured: true,
+  });
+  assert.equal(activity.status().durableLog, true);
+  assert.equal(activity.status().durableReason, undefined);
 });

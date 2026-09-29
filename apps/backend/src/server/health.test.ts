@@ -163,6 +163,43 @@ test('an in-memory alert log degrades, because the record does not survive a res
   );
 });
 
+test('an unreachable Postgres is distinguished from an unconfigured one', () => {
+  // "Alert history is in memory" is the symptom. A database that refused the
+  // connection and one that was never configured need different fixes, and a
+  // report that cannot tell them apart sends someone to edit an env var that is
+  // already correct.
+  const unconfigured = buildHealth({
+    ...healthy,
+    alerts: { ...healthy.alerts, durableLog: false, durableReason: 'DATABASE_URL is not set' },
+  });
+  assert.match(String(unconfigured.components.alerts['detail']), /DATABASE_URL is not set/);
+
+  const refused = buildHealth({
+    ...healthy,
+    alerts: {
+      ...healthy.alerts,
+      durableLog: false,
+      durableReason: 'Postgres was configured but could not be reached: ECONNREFUSED',
+    },
+  });
+  assert.match(String(refused.components.alerts['detail']), /could not be reached: ECONNREFUSED/);
+  assert.notEqual(
+    unconfigured.components.alerts['detail'],
+    refused.components.alerts['detail'],
+  );
+});
+
+test('a durable log on a reachable database is simply ok', () => {
+  // The green case is green because the rows actually persist, not because the
+  // check is lenient.
+  const report = buildHealth({
+    ...healthy,
+    alerts: { ...healthy.alerts, durableLog: true, delivered: 2 },
+  });
+  assert.equal(report.components.alerts.state, 'ok');
+  assert.equal(report.status, 'OK');
+});
+
 test('a failed last delivery degrades and quotes the failure', () => {
   degradedBecause(
     {
