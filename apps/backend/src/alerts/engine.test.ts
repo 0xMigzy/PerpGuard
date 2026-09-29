@@ -268,7 +268,7 @@ test('a failing log does not swallow the failing alert', async () => {
 
 // ── the engine honours the rules ─────────────────────────────────────────────
 
-test('a suppressed decision sends nothing and writes nothing', async () => {
+test('a suppressed decision sends nothing and writes no database row', async () => {
   const r = rig();
   const change = dangerChange();
   r.source.emit(change);
@@ -280,6 +280,42 @@ test('a suppressed decision sends nothing and writes nothing', async () => {
   await r.engine.drain();
   assert.equal(r.transport.sent.length, 1, 'still one delivery');
   assert.equal(r.log.rows.length, 1, 'and no row for a suppression');
+});
+
+test('every suppression and its reason reaches the application log', async () => {
+  // "Why didn't I get an alert?" has to be answerable. The table is for delivery
+  // outcomes; the reason lives in the app log.
+  const r = rig();
+  const change = dangerChange();
+  r.source.emit(change);
+  await r.engine.drain();
+  assert.deepEqual(r.logger.infos, [], 'nothing suppressed yet');
+
+  r.source.emit(change);
+  await r.engine.drain();
+
+  assert.equal(r.logger.infos.length, 1);
+  assert.match(r.logger.infos[0]!, /no alert for BTC \(DANGER\)/);
+  assert.match(r.logger.infos[0]!, /cooldown left/, 'the reason, not just the fact');
+});
+
+test('the suppression reason is specific to which rule held the alert', async () => {
+  const r = rig();
+  // First sight of a healthy position: suppressed for a different reason.
+  r.engine.handle(assessOne(SAFE_BTC, FIXTURE_BTC_MARK).change);
+  await r.engine.drain();
+  assert.match(r.logger.infos[0]!, /nothing to recover from/);
+
+  // An outage, twice: the second is held by the once-per-outage rule.
+  const { harness } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  harness.advance(1_000);
+  harness.health = { state: 'disconnected', reconnectAttempt: 1 };
+  harness.evaluate();
+  const down = harness.changeFor(1);
+  r.engine.handle(down);
+  r.engine.handle(down);
+  await r.engine.drain();
+  assert.match(r.logger.infos.at(-1)!, /already announced for this outage/);
 });
 
 test('the history is kept per position, so two markets do not share a cooldown', async () => {

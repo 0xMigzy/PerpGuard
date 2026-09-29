@@ -123,6 +123,41 @@ function headline(state: RiskAssessment['state']): string {
 }
 
 /**
+ * The headline, which must NAME WHICH POSITION THIS IS.
+ *
+ * A trader holding both sides of BTC has two positions with the same symbol and
+ * opposite exposure. "DANGER · BTC" cannot tell them apart, and the failure is
+ * not merely confusing: it can send someone to add margin to the position that is
+ * fine while the other one liquidates.
+ *
+ * The side is omitted only when we genuinely do not know it — a position we went
+ * blind on before ever assessing. It is never guessed.
+ */
+function title(assessment: RiskAssessment): string {
+  const state = headline(assessment.state);
+  return assessment.side === undefined
+    ? `${state} · ${assessment.symbol}`
+    : `${state} · ${assessment.symbol} ${assessment.side}`;
+}
+
+/**
+ * Why this message exists, as a sentence a person would say.
+ *
+ * DELIBERATELY NOT `assessment.reason`. That field is the loop's own account,
+ * written for a log and for the UI's detail view: it reads like a log line, and it
+ * quotes the buffer at its own precision — so echoing it put "2.66%" next to the
+ * body's "2.7%", and a trader reads two numbers as two facts. Every percentage in
+ * a message now comes from one place at one precision, and `reason` stays
+ * available to callers that want the plumbing detail.
+ */
+function changeLine(assessment: RiskAssessment): string {
+  if (assessment.previousState === undefined) {
+    return 'First time PerpGuard has seen this position.';
+  }
+  return `Changed from ${headline(assessment.previousState)}.`;
+}
+
+/**
  * One option line: what it costs, and what it buys. Nothing else.
  *
  *   Add 562 → buffer 4.0%, liquidation 80,647.1
@@ -269,7 +304,7 @@ export function renderAlert(
     );
   }
 
-  const title = `${headline(assessment.state)} · ${assessment.symbol}`;
+  const heading = title(assessment);
   const lines: string[] = [];
   let actions: readonly AlertAction[] = [];
 
@@ -282,6 +317,12 @@ export function renderAlert(
     }
     case 'positions-untrusted': {
       lines.push("I've lost track of your positions. What you see may no longer be true.");
+      // POSITION TRUST LOSES TO NOTHING, so this is the state reported even when
+      // the feed is also down. Saying so keeps the other cause from being hidden
+      // by that choice — they have different fixes and the user may need both.
+      if (assessment.feed !== 'connected') {
+        lines.push(`The price feed is also ${assessment.feed}.`);
+      }
       const last = lastKnownLine(assessment, market, config);
       if (last !== undefined) lines.push(last);
       break;
@@ -325,10 +366,9 @@ export function renderAlert(
     }
   }
 
-  // The loop's own account of why the state is what it is. Safe to render.
-  if (assessment.reason !== '') lines.push(`Why: ${assessment.reason}`);
+  lines.push(changeLine(assessment));
 
-  return { title, lines, text: [title, ...lines].join('\n'), actions };
+  return { title: heading, lines, text: [heading, ...lines].join('\n'), actions };
 }
 
 /** Assemble the full message. `kind` and `atMs` come from the caller's decision. */

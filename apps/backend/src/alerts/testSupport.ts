@@ -314,10 +314,11 @@ export class RecordingLog {
   }
 }
 
-/** Collects the engine's error and warn lines. */
+/** Collects the engine's error, warn and info lines. */
 export class RecordingLogger {
   readonly errors: string[] = [];
   readonly warnings: string[] = [];
+  readonly infos: string[] = [];
 
   error(message: string): void {
     this.errors.push(message);
@@ -325,6 +326,10 @@ export class RecordingLogger {
 
   warn(message: string): void {
     this.warnings.push(message);
+  }
+
+  info(message: string): void {
+    this.infos.push(message);
   }
 }
 

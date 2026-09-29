@@ -333,6 +333,8 @@ export class RiskLoop {
     const assessment: RiskAssessment = {
       marketId: position.marketId,
       symbol: position.symbol,
+      // From the last assessment, not guessed. Undefined means we never saw it.
+      side: base?.side,
       positionId: base?.positionId,
       state,
       previousState,
@@ -418,6 +420,7 @@ export class RiskLoop {
     const assessment: RiskAssessment = {
       marketId: position.marketId,
       symbol: position.symbol,
+      side: position.side,
       positionId: position.positionId,
       state: decision.state,
       previousState: existing?.state,

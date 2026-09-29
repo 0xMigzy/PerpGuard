@@ -10,6 +10,7 @@ import type {
   PositionMetrics,
   PositionSourceState,
   PositionSourceStatus,
+  Side,
   Unsubscribe,
   VenuePosition,
 } from '@perpguard/shared';
@@ -136,6 +137,20 @@ export interface TopUpOptions {
 export interface RiskAssessment {
   readonly marketId: number;
   readonly symbol: string;
+  /**
+   * Long or short.
+   *
+   * Carried so a message can NAME WHICH POSITION IT IS ABOUT. A trader holding
+   * both sides of the same market has two positions with the same symbol and
+   * opposite exposure, and an alert that says only "BTC" tells them nothing about
+   * which one is in trouble — or worse, sends them to add margin to the one that
+   * is fine.
+   *
+   * Undefined only while blind on a position we never assessed, where there is no
+   * side to report and inventing one would be the single worst thing this product
+   * can do (see the two side encodings in CLAUDE.md).
+   */
+  readonly side: Side | undefined;
   /**
    * The venue's handle for this position, for addressing an action to it.
    * Undefined when the source did not publish one. See `VenuePosition.positionId`.

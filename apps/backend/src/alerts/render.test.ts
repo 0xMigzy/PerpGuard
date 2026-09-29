@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildMessage, ceilAusd, describeAge, describeBuffer, renderAlert } from './render.ts';
+import { kindFor } from './rules.ts';
 import { DEFAULT_ALERT_CONFIG } from './types.ts';
 import {
   BTC,
@@ -37,15 +38,103 @@ test('the fixture BTC position renders its DANGER alert exactly', () => {
   assert.equal(
     message.text,
     [
-      'DANGER · BTC',
+      'DANGER · BTC long',
       'Buffer 2.7% — liquidation 81,770.1, mark 84,007.3',
       'Isolated margin: your free AUSD is not used to rescue this position automatically.',
       'Top up (AUSD):',
       'Add 562 → buffer 4.0%, liquidation 80,647.1',
       'Add 2,662 → buffer 9.0%, liquidation 76,446.7',
-      'Why: first assessment at buffer 2.66%',
+      'First time PerpGuard has seen this position.',
     ].join('\n'),
   );
+});
+
+test('the title names the side, so both sides of one market are distinguishable', () => {
+  const long = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK).change;
+  const short = assessOne({ ...FIXTURE_BTC, side: 'short', positionId: 4243 }, FIXTURE_BTC_MARK)
+    .change;
+
+  const a = buildMessage(long.assessment, 'danger', { alerts: config, market: BTC });
+  const b = buildMessage(short.assessment, kindFor(short.assessment.state), {
+    alerts: config,
+    market: BTC,
+  });
+
+  assert.equal(a.title, 'DANGER · BTC long');
+  assert.ok(a.title.includes('long'));
+  assert.ok(b.title.includes('short'));
+  assert.notEqual(
+    a.title,
+    b.title,
+    'a trader holding both sides of BTC must be able to tell which alert is which',
+  );
+});
+
+test('the side is omitted rather than guessed when we never assessed the position', () => {
+  // Blind on a position before it was ever assessed: there is no side to report,
+  // and inventing one would invert a trader's exposure.
+  const { harness } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  harness.advance(1_000);
+  harness.positions = [];
+  harness.positionsState = 'stale';
+  harness.evaluate();
+  const change = harness.changeFor(BTC.marketId);
+
+  // This one WAS assessed, so it keeps its side.
+  assert.equal(change.assessment.side, 'long');
+  assert.ok(
+    buildMessage(change.assessment, 'positions-untrusted', { alerts: config, market: BTC }).title.includes(
+      'long',
+    ),
+  );
+});
+
+test('one buffer precision throughout a single message', () => {
+  const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  const message = buildMessage(change.assessment, 'danger', { alerts: config, market: BTC });
+
+  const percentages = [...message.text.matchAll(/(\d+)\.(\d+)%/g)].map((m) => m[2]!.length);
+  assert.ok(percentages.length >= 3, `expected several percentages, got ${percentages.length}`);
+  assert.deepEqual(
+    [...new Set(percentages)],
+    [config.bufferDecimals],
+    `every percentage must use ${config.bufferDecimals} decimal place(s): ${message.text}`,
+  );
+  // The specific regression: the loop's own reason quoted 2.66% beside the body's
+  // 2.7%, and a trader reads two numbers as two facts.
+  assert.ok(!message.text.includes('2.66%'));
+  assert.ok(message.text.includes('Buffer 2.7%'));
+});
+
+test('a higher configured precision moves every percentage together', () => {
+  const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  const message = buildMessage(change.assessment, 'danger', {
+    alerts: { ...config, bufferDecimals: 2 },
+    market: BTC,
+  });
+  const percentages = [...message.text.matchAll(/(\d+)\.(\d+)%/g)].map((m) => m[2]!.length);
+  assert.deepEqual([...new Set(percentages)], [2]);
+  assert.ok(message.text.includes('Buffer 2.66%'));
+  assert.ok(message.text.includes('buffer 4.00%'));
+});
+
+test('the change line reads as a sentence, not as a log line', () => {
+  const first = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK).change;
+  const firstMessage = buildMessage(first.assessment, 'danger', { alerts: config, market: BTC });
+  assert.ok(firstMessage.text.endsWith('First time PerpGuard has seen this position.'));
+
+  // A real transition names what it came from. 77,000 against a 75,390.7
+  // liquidation price is a 2.09% buffer, so this really does cross into DANGER —
+  // 82,000 would leave it at 8.06% and still SAFE, which is no transition at all.
+  const { harness } = assessOne(SAFE_BTC, FIXTURE_BTC_MARK);
+  harness.advance(1_000).price(BTC.marketId, 'BTC', 77_000);
+  harness.evaluate();
+  const changed = harness.changeFor(BTC.marketId);
+  const message = buildMessage(changed.assessment, kindFor(changed.assessment.state), {
+    alerts: config,
+    market: BTC,
+  });
+  assert.ok(message.text.endsWith('Changed from SAFE.'), message.text);
 });
 
 test('the cheap option is never described as safe, secure or fine', () => {
@@ -105,13 +194,13 @@ test('ETH renders at its own 2 price decimals', () => {
   assert.equal(
     message.text,
     [
-      'DANGER · ETH',
+      'DANGER · ETH short',
       'Buffer 2.7% — liquidation 3,081.00, mark 3,000.00',
       'Isolated margin: your free AUSD is not used to rescue this position automatically.',
       'Top up (AUSD):',
       'Add 390 → buffer 4.0%, liquidation 3,120.00',
       'Add 1,890 → buffer 9.0%, liquidation 3,270.00',
-      'Why: first assessment at buffer 2.70%',
+      'First time PerpGuard has seen this position.',
     ].join('\n'),
   );
 });
@@ -125,13 +214,13 @@ test('MON renders at its own 6 price decimals, and still ceils its amounts', () 
   assert.equal(
     message.text,
     [
-      'DANGER · MON',
+      'DANGER · MON long',
       'Buffer 2.8% — liquidation 0.048620, mark 0.050000',
       'Isolated margin: your free AUSD is not used to rescue this position automatically.',
       'Top up (AUSD):',
       'Add 7 → buffer 4.0%, liquidation 0.048000',
       'Add 32 → buffer 9.0%, liquidation 0.045500',
-      'Why: first assessment at buffer 2.76%',
+      'First time PerpGuard has seen this position.',
     ].join('\n'),
   );
 
@@ -221,7 +310,7 @@ test('FEED_DOWN says the price feed is down, and offers no action', () => {
 
   const message = buildMessage(change.assessment, 'feed-down', { alerts: config, market: BTC });
 
-  assert.ok(message.text.startsWith('FEED DOWN · BTC\n'));
+  assert.ok(message.text.startsWith('FEED DOWN · BTC long\n'));
   assert.ok(
     message.text.includes("Price feed is down. I can't assess your positions until it's back."),
   );
@@ -250,6 +339,39 @@ test('POSITIONS_UNTRUSTED says we have lost track, and never says "stale"', () =
     message.text.includes("I've lost track of your positions. What you see may no longer be true."),
   );
   assert.deepEqual(message.actions, []);
+});
+
+test('when both causes are active, the second one is not hidden by the first', () => {
+  // POSITION TRUST LOSES TO NOTHING, so POSITIONS_UNTRUSTED is the state reported
+  // even with the feed also down. The message still names the other cause: they
+  // have different fixes and the user may need both.
+  const { harness } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  harness.advance(1_000);
+  harness.positionsState = 'stale';
+  harness.health = { state: 'reconnecting', reconnectAttempt: 2 };
+  harness.evaluate();
+  const change = harness.changeFor(BTC.marketId);
+  assert.equal(change.assessment.state, 'POSITIONS_UNTRUSTED');
+
+  const message = buildMessage(change.assessment, 'positions-untrusted', {
+    alerts: config,
+    market: BTC,
+  });
+  assert.ok(message.text.includes("I've lost track of your positions"));
+  assert.ok(message.text.includes('The price feed is also reconnecting.'), message.text);
+});
+
+test('a positions outage with a healthy feed does not claim the feed is down', () => {
+  const { harness } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  harness.advance(1_000);
+  harness.positionsState = 'stale';
+  harness.evaluate();
+  const message = buildMessage(
+    harness.changeFor(BTC.marketId).assessment,
+    'positions-untrusted',
+    { alerts: config, market: BTC },
+  );
+  assert.ok(!message.text.includes('price feed is also'));
 });
 
 test('the two blind causes produce different sentences, so a user knows which they have', () => {
@@ -293,10 +415,9 @@ test('"stale" never reaches a user-facing line about positions', () => {
     alerts: config,
     market: BTC,
   });
-  // The loop's own `reason` is plumbing detail and may use the internal word; the
-  // SENTENCES we write must not.
-  const ours = message.lines.filter((l) => !l.startsWith('Why: '));
-  for (const line of ours) {
+  // Unconditional: nothing in a rendered message echoes the loop's own `reason`,
+  // so there is no line left that could leak the internal word.
+  for (const line of message.lines) {
     assert.ok(!/stale/i.test(line), `a position message must not say "stale": ${line}`);
   }
 });

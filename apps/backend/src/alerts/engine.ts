@@ -42,6 +42,19 @@ export interface RiskChangeSource {
 export interface AlertLogger {
   error(message: string, detail?: unknown): void;
   warn(message: string, detail?: unknown): void;
+  /**
+   * Every suppression, with its reason.
+   *
+   * INFO RATHER THAN DEBUG, on purpose. "Why didn't I get an alert?" is a
+   * question that WILL be asked — by a test user, or by us at 2am during judging
+   * week — and it is only answerable if the answer was written down at a level
+   * that is actually on. A suppression logged at debug in a deployment with debug
+   * off is a suppression that never happened as far as anyone can tell.
+   *
+   * The volume is fine: the loop emits only on a state CHANGE, and hysteresis
+   * plus dwell time make those rare by design. This is not a per-tick log.
+   */
+  info(message: string, detail?: unknown): void;
 }
 
 export interface AlertEngineOptions {
@@ -101,6 +114,7 @@ export class AlertEngine {
     this.#logger = options.logger ?? {
       error: (message, detail) => console.error(message, detail ?? ''),
       warn: (message, detail) => console.warn(message, detail ?? ''),
+      info: (message, detail) => console.info(message, detail ?? ''),
     };
   }
 
@@ -169,6 +183,15 @@ export class AlertEngine {
     if (decision.send && decision.message !== undefined) {
       const message = decision.message;
       this.#queue = this.#queue.then(() => this.#deliver(message, market));
+    } else {
+      // The alert_log table is for DELIVERY OUTCOMES only — cooldown suppresses
+      // most changes, and a row each would bury the failures that matter. But the
+      // reason still has to be recoverable, so it goes to the application log.
+      this.#logger.info(
+        `no alert for ${assessment.symbol} (${assessment.state}): ` +
+          `${decision.suppressedReason ?? 'no reason given'}`,
+        { marketId: assessment.marketId, state: assessment.state, atMs: assessment.atMs },
+      );
     }
     return decision;
   }
