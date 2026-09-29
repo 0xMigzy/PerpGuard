@@ -23,15 +23,15 @@ jobs:
     # The whole job is ~30s of work; this is only a hang guard.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm before setup-node, so setup-node's `cache: pnpm` can find the
       # store. Version pinned to the one the lockfile was written with.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.6.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Pinned rather than `22`, because the test suite runs TypeScript
           # directly through Node's type stripping: the floor is higher than
