@@ -59,6 +59,19 @@ export interface VenuePosition {
   readonly network: NetworkName;
   readonly symbol: string;
   readonly marketId: number;
+  /**
+   * The venue's own handle for this position, when it publishes one.
+   *
+   * OPAQUE above the adapter: nothing outside `venues/` may parse it, compare it
+   * across venues or derive anything from it. It is carried so an action can be
+   * ADDRESSED to the right position — on Perpl it is `pid`, the `lp` a close
+   * order names, and it cannot be reconstructed from any other field.
+   *
+   * Optional because it is a venue fact rather than a risk fact: the risk engine
+   * keys on `marketId` and needs none of it. {@link PerplPosition} narrows it to
+   * required, since a Perpl position always has one.
+   */
+  readonly positionId?: number;
   readonly side: Side;
   /** Absolute position size in base units. */
   readonly size: number;

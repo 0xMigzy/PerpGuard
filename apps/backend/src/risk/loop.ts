@@ -36,6 +36,7 @@
  * rule, and the two staying separate is the whole point of that design.
  */
 import {
+  afterAddMargin,
   fromVenuePosition,
   marginToReachBuffer,
   positionMetrics,
@@ -45,6 +46,7 @@ import {
   type MarketRiskConfig,
   type NetworkName,
   type PositionSourceStatus,
+  type RiskPosition,
   type Unsubscribe,
   type VenuePosition,
 } from '@perpguard/shared';
@@ -60,7 +62,54 @@ import {
   type RiskChange,
   type RiskState,
   type RiskThresholds,
+  type TopUpOption,
+  type TopUpOptions,
 } from './types.ts';
+
+/**
+ * One top-up and where it lands, computed once here so nothing downstream has to.
+ *
+ * `afterAddMargin` is the same projection the stress and action layers use, so
+ * the liquidation price an alert quotes is the one the engine would compute for
+ * the position that top-up creates — not an approximation of it.
+ */
+function topUpOption(
+  position: RiskPosition,
+  markPricePNS: bigint,
+  targetBufferPct: number,
+  config: MarketRiskConfig,
+): TopUpOption {
+  const amountCNS = marginToReachBuffer(position, markPricePNS, targetBufferPct, config);
+  const after = afterAddMargin(position, amountCNS, markPricePNS, config);
+  return {
+    amountCNS,
+    targetBufferPct,
+    resultingBufferPct: after.metrics.liqBufferPct,
+    resultingLiquidationPricePNS: after.metrics.liquidationPricePNS,
+  };
+}
+
+/**
+ * The cheap option and the thorough one.
+ *
+ * The thresholds are the EXIT ones, not the enter ones: topping up to exactly the
+ * boundary you entered at leaves the position one tick from re-entering the state
+ * it just left, and an alert that recommends that is an alert that fires again in
+ * a minute.
+ */
+function topUpOptions(
+  position: RiskPosition,
+  markPricePNS: bigint,
+  config: MarketRiskConfig,
+  thresholds: RiskThresholds,
+): TopUpOptions | undefined {
+  // No size, no liquidation price, nothing a top-up could move.
+  if (position.lotLNS === 0n) return undefined;
+  return {
+    clearDanger: topUpOption(position, markPricePNS, thresholds.dangerExitPct, config),
+    toSafe: topUpOption(position, markPricePNS, thresholds.watchExitPct, config),
+  };
+}
 
 export interface RiskLoopOptions {
   /**
@@ -284,6 +333,7 @@ export class RiskLoop {
     const assessment: RiskAssessment = {
       marketId: position.marketId,
       symbol: position.symbol,
+      positionId: base?.positionId,
       state,
       previousState,
       lastKnownState,
@@ -291,7 +341,13 @@ export class RiskLoop {
       liqBufferPct: base?.liqBufferPct,
       liquidationPricePNS: base?.liquidationPricePNS,
       markPricePNS: base?.markPricePNS ?? 0n,
-      marginToSafeCNS: base?.marginToSafeCNS ?? 0n,
+      // NO TOP-UPS WHILE BLIND. An amount is an invitation to act, and the
+      // numbers behind this one are frozen: the mark it was computed against may
+      // be arbitrarily far from the market, so the buffer it claims to buy is not
+      // a claim we can stand behind. The last known severity is still shown —
+      // that is a statement about the past, which is honest — but an action is a
+      // statement about now.
+      topUp: undefined,
       marginToSurviveCNS: base?.marginToSurviveCNS ?? 0n,
       metrics: base?.metrics ?? EMPTY_METRICS,
       feed: health.state,
@@ -362,18 +418,14 @@ export class RiskLoop {
     const assessment: RiskAssessment = {
       marketId: position.marketId,
       symbol: position.symbol,
+      positionId: position.positionId,
       state: decision.state,
       previousState: existing?.state,
       lastKnownState: resumeFrom,
       liqBufferPct: metrics.liqBufferPct,
       liquidationPricePNS: metrics.liquidationPricePNS,
       markPricePNS,
-      marginToSafeCNS: marginToReachBuffer(
-        risk,
-        markPricePNS,
-        this.#thresholds.watchExitPct,
-        config,
-      ),
+      topUp: topUpOptions(risk, markPricePNS, config, this.#thresholds),
       marginToSurviveCNS: metrics.marginToSurviveCNS,
       metrics,
       feed: health.state,

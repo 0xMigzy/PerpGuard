@@ -37,6 +37,13 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   all scale by the same factor and it cancels. Only adding margin, or keeping
   margin while reducing, buys room.
 - Collateral is AUSD, 6 decimals (100000000 = 100.0 AUSD).
+- TOP-UP AMOUNTS ALWAYS ROUND UP to the displayed precision, never down. A
+  rounded-down amount prints a figure that does not reach the stated buffer. The
+  action's `amountCNS` carries the SAME ceiled figure the text showed, so the
+  button sends exactly what the user read. The projected buffer and liquidation
+  price quoted alongside are for the exact unrounded amount, so the ceiled action
+  lands marginally BETTER than stated — understating the benefit is the safe
+  direction, and the only one available once the figure is rounded at all.
 - NEVER hard-code market IDs, tick sizes or scaling. They differ between
   testnet and mainnet. Load them from `GET /v1/pub/context` at startup.
 - MARKET IDENTITY IS THE MARKET ID, NEVER THE NAME. The market id is the only

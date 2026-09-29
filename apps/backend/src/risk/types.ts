@@ -91,12 +91,56 @@ export const DEFAULT_THRESHOLDS: RiskThresholds = {
 };
 
 /**
+ * One of the two top-ups PerpGuard offers, with where it lands.
+ *
+ * The projection travels WITH the amount on purpose. The alerts layer formats
+ * this and nothing else — it must never add margin to a position and recompute a
+ * liquidation price to put in a message, because then two code paths would be
+ * deriving the number a trader acts on and they would eventually disagree.
+ *
+ * `amountCNS` is ZERO when the position already has that much room, which is the
+ * signal to OMIT the option rather than to offer "add 0". A position at an 8%
+ * buffer has nothing to gain from the clear-danger option.
+ */
+export interface TopUpOption {
+  /** Extra collateral needed, in AUSD micros. Zero when already there. */
+  readonly amountCNS: bigint;
+  /** The buffer this option aims at, so a message can name it. */
+  readonly targetBufferPct: number;
+  /** Buffer after adding exactly `amountCNS`. Undefined for a zero-lot position. */
+  readonly resultingBufferPct: number | undefined;
+  /** Liquidation price after adding exactly `amountCNS`. */
+  readonly resultingLiquidationPricePNS: bigint | undefined;
+}
+
+/**
+ * The two top-ups, cheap first.
+ *
+ * `clearDanger` reaches `dangerExitPct` and NOTHING MORE. It is never the safe
+ * option, and no message may describe it as one: it buys exactly enough room to
+ * leave the danger band. `toSafe` reaches `watchExitPct`, the buffer at which a
+ * position is allowed back to SAFE.
+ *
+ * Both are offered together so the trader chooses with the real trade-off in
+ * front of them rather than being handed one number and told to trust it.
+ */
+export interface TopUpOptions {
+  readonly clearDanger: TopUpOption;
+  readonly toSafe: TopUpOption;
+}
+
+/**
  * One position's risk, with every number the alerts layer could want attached
  * so that nothing downstream recomputes anything.
  */
 export interface RiskAssessment {
   readonly marketId: number;
   readonly symbol: string;
+  /**
+   * The venue's handle for this position, for addressing an action to it.
+   * Undefined when the source did not publish one. See `VenuePosition.positionId`.
+   */
+  readonly positionId: number | undefined;
   readonly state: RiskState;
   /** Undefined on the very first assessment of a position. */
   readonly previousState: RiskState | undefined;
@@ -109,8 +153,14 @@ export interface RiskAssessment {
   readonly liqBufferPct: number | undefined;
   readonly liquidationPricePNS: bigint | undefined;
   readonly markPricePNS: bigint;
-  /** Collateral needed to climb back above the SAFE threshold. */
-  readonly marginToSafeCNS: bigint;
+  /**
+   * The two top-ups to offer, each with the liquidation price it buys.
+   *
+   * Undefined when there is nothing to project: a blind assessment, which has no
+   * trustworthy price or position behind it, or a zero-lot position, which has no
+   * liquidation price to move.
+   */
+  readonly topUp: TopUpOptions | undefined;
   /** Collateral needed just to stop being liquidatable. */
   readonly marginToSurviveCNS: bigint;
   readonly metrics: PositionMetrics;

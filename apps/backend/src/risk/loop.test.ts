@@ -168,7 +168,8 @@ test('a healthy position assesses as SAFE and carries every number with it', () 
   assert.equal(assessment!.liquidationPricePNS, 753_907n);
   assert.equal(assessment!.markPricePNS, 840_073n);
   assert.equal(assessment!.marginToSurviveCNS, 0n);
-  assert.equal(assessment!.marginToSafeCNS, 0n, 'already past the 9% safe threshold');
+  assert.equal(assessment!.topUp?.toSafe.amountCNS, 0n, 'already past the 9% safe threshold');
+  assert.equal(assessment!.topUp?.clearDanger.amountCNS, 0n, 'and past the 4% danger exit');
   assert.equal(assessment!.heldOnStalePrice, false);
   assert.equal(assessment!.priceIsOld, false);
   assert.equal(assessment!.feed, 'connected');
@@ -188,8 +189,25 @@ test('the ground-truth fixture position is DANGER on these defaults, and says wh
   assert.equal(assessment!.liquidationPricePNS, 817_701n);
   assert.equal(assessment!.marginToSurviveCNS, 0n, 'not liquidatable yet, just close');
   assert.ok(
-    assessment!.marginToSafeCNS > 0n,
+    assessment!.topUp!.toSafe.amountCNS > 0n,
     'but it takes real margin to climb from 2.66% back to the 9% safe threshold',
+  );
+
+  // Both top-ups, with where each one lands. These are the numbers an alert
+  // quotes, so they are pinned exactly rather than to a tolerance.
+  const { clearDanger, toSafe } = assessment!.topUp!;
+  assert.equal(clearDanger.amountCNS, 561_460_000n, '561.46 AUSD to reach the 4% danger exit');
+  assert.equal(clearDanger.resultingLiquidationPricePNS, 806_471n);
+  assert.ok(Math.abs(clearDanger.resultingBufferPct! - 0.04) < 1e-4);
+  assert.equal(toSafe.amountCNS, 2_661_660_000n, '2661.66 AUSD to reach the 9% safe threshold');
+  assert.equal(toSafe.resultingLiquidationPricePNS, 764_467n);
+  assert.ok(Math.abs(toSafe.resultingBufferPct! - 0.09) < 1e-4);
+
+  // The cheap option is genuinely cheaper, and genuinely buys less.
+  assert.ok(clearDanger.amountCNS < toSafe.amountCNS);
+  assert.ok(
+    clearDanger.resultingLiquidationPricePNS! > toSafe.resultingLiquidationPricePNS!,
+    'a long that tops up less keeps a higher liquidation price',
   );
 });
 
