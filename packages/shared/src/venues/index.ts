@@ -5,6 +5,7 @@ export * from './perpl-credentials.ts';
 export * from './perpl-forwarding.ts';
 export * from './perpl-market-data.ts';
 export * from './perpl-orders.ts';
+export * from './perpl-position-source.ts';
 export * from './perpl-positions.ts';
 export * from './perpl-signing.ts';
 export * from './perpl-socket.ts';

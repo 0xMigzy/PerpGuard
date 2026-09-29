@@ -482,3 +482,159 @@ describe('cancel', () => {
     assert.match(result.reason, /last execution block before the cancel landed/);
   });
 });
+
+// ── positions ────────────────────────────────────────────────────────────────
+
+/** The real testnet position, trimmed to the fields the socket looks at. */
+const openPosition = (over: Record<string, unknown> = {}) => ({
+  mkt: 16,
+  acc: 9001,
+  pid: 4354895577089,
+  st: 1,
+  sr: 21,
+  sd: 1,
+  c: '417125',
+  ep: 833798,
+  s: 1,
+  lv: 200,
+  fnd: '0',
+  dpnl: '0',
+  fee: '288',
+  ...over,
+});
+
+describe('position tracking', () => {
+  it('does not claim to know anything before the snapshot', async () => {
+    const { socket } = await connected();
+    assert.equal(socket.positionsSnapshotReceived, false);
+    assert.deepEqual(socket.positions, []);
+    // An empty set and an unknown set look identical. They must not read alike.
+    assert.equal(socket.positionsTrustworthy, false);
+    assert.match(socket.positionsUntrustworthyReason ?? '', /no position snapshot/);
+  });
+
+  it('accepts the snapshot, including an empty one', async () => {
+    const { socket, fake } = await connected();
+    const seen: number[] = [];
+    socket.onPositions((positions) => seen.push(positions.length));
+
+    fake.deliver({ mt: 26, sn: 100, d: [] });
+
+    assert.equal(socket.positionsSnapshotReceived, true);
+    assert.equal(socket.positionsTrustworthy, true);
+    assert.equal(socket.positionsUntrustworthyReason, undefined);
+    // Emitted even though it is empty: a flat account is an answer, and a
+    // caller waiting for the first frame must not wait forever.
+    assert.deepEqual(seen, [0]);
+  });
+
+  it('tracks a position opening', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [] });
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition()] });
+
+    assert.equal(socket.positions.length, 1);
+    assert.equal(socket.positions[0]?.['pid'], 4354895577089);
+  });
+
+  it('REMOVES a position on close, rather than keeping a zero-size ghost', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    assert.equal(socket.positions.length, 1);
+
+    // Measured on testnet: a close arrives as a ROW with st 2, s 0, c "0" —
+    // not as an omission. Upserting it would leave the position in the set.
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition({ st: 2, sr: 13, s: 0, c: '0' })] });
+    assert.deepEqual(socket.positions, []);
+  });
+
+  for (const [name, st] of [
+    ['liquidated', 3],
+    ['deleveraged', 4],
+    ['unwound', 5],
+    ['failed', 6],
+  ] as const) {
+    it(`removes a ${name} position too, reading only st`, async () => {
+      // These shapes have never been observed on the wire, so the rule must
+      // not depend on anything else about them.
+      const { socket, fake } = await connected();
+      fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+      fake.deliver({ mt: 27, sn: 100, d: [{ pid: 4354895577089, st }] });
+      assert.deepEqual(socket.positions, []);
+    });
+  }
+
+  it('keys by pid, so a reopened market is a different position', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    // Same market, new position id: the old one closed and a new one opened.
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition({ st: 2, s: 0 })] });
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition({ pid: 4354909405184, ep: 840000 })] });
+
+    assert.equal(socket.positions.length, 1);
+    assert.equal(socket.positions[0]?.['pid'], 4354909405184);
+    assert.equal(socket.positions[0]?.['ep'], 840000);
+  });
+
+  it('lets a snapshot REPLACE the set, not merge into it', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    // A second snapshot that omits it means it is gone. Merging would keep a
+    // position the server has forgotten about — how a closed one survives a
+    // reconnect forever.
+    fake.deliver({ mt: 26, sn: 100, d: [] });
+    assert.deepEqual(socket.positions, []);
+  });
+
+  it('applies an update that arrives before the snapshot', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition()] });
+    // Applied, but still not trustworthy: we have not been told the full set.
+    assert.equal(socket.positions.length, 1);
+    assert.equal(socket.positionsTrustworthy, false);
+  });
+
+  it('ignores a row with no usable pid instead of throwing', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition(), { st: 1, mkt: 16 }] });
+    assert.equal(socket.positions.length, 1);
+  });
+
+  it('stops trusting the set after a sequence gap, and says why', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    // Snapshots share the wallet snapshot's sn (measured: mt 19, 23 and 26 all
+    // arrived with sn 66448894). Only heartbeats advance it.
+    fake.deliver({ mt: 100, sn: 101, h: 66_450_000 });
+    assert.equal(socket.positionsTrustworthy, true);
+
+    const notified: number[] = [];
+    socket.onPositions((positions) => notified.push(positions.length));
+
+    // A missed frame. The set still looks fine, which is the danger: a closed
+    // position could be sitting in it.
+    fake.deliver({ mt: 100, sn: 110, h: 66_450_010 });
+
+    assert.equal(socket.positions.length, 1, 'the set is unchanged');
+    assert.equal(socket.positionsTrustworthy, false, 'and can no longer be believed');
+    assert.match(socket.positionsUntrustworthyReason ?? '', /sequence gap/);
+    // Subscribers are told, because nothing about the set itself reveals this.
+    assert.deepEqual(notified, [1]);
+  });
+
+  it('stops trusting the set when the socket closes, because it never reconnects', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    assert.equal(socket.positionsTrustworthy, true);
+
+    const notified: number[] = [];
+    socket.onPositions((positions) => notified.push(positions.length));
+
+    fake.serverClose(1006, 'connection lost');
+
+    assert.equal(socket.positions.length, 1, 'the last known state is kept, and stays visible');
+    assert.equal(socket.positionsTrustworthy, false);
+    assert.match(socket.positionsUntrustworthyReason ?? '', /frozen at whatever/);
+    assert.deepEqual(notified, [1], 'subscribers hear about it');
+  });
+});

@@ -28,6 +28,7 @@ import {
   type InboundMessage,
   type Logger,
 } from './perpl-socket.ts';
+import { isOpenPosition, positionIdOf, type PositionEntry } from './perpl-positions.ts';
 import {
   COMMAND_STATUS_SID,
   MT,
@@ -42,7 +43,7 @@ import {
   type LastOrderState,
 } from './perpl-orders.ts';
 
-export type { OrderUpdateEntry, LastOrderState };
+export type { OrderUpdateEntry, LastOrderState, PositionEntry };
 
 const VENUE_ID = 'perpl';
 
@@ -116,6 +117,7 @@ export class PerplTradingSocket {
   #localRequestId = 0;
 
   #accountId: number | undefined;
+  #walletAddress: string | undefined;
   #accountFrozen = false;
   #forwardingAllowed: boolean | undefined;
   #lastForwardedRequestId = 0;
@@ -136,6 +138,22 @@ export class PerplTradingSocket {
   readonly #orderStates = new Map<number, LastOrderState>();
   readonly #pending = new Map<number, Pending>();
 
+  /**
+   * Open positions, keyed by `pid`, exactly as the wire sent them.
+   *
+   * RAW ON PURPOSE. Decoding needs per-market scaling, which this class does
+   * not have and should not fetch — its job is to move bytes and track session
+   * state, the same reason order frames are built and decoded in
+   * perpl-orders.ts. perpl-positions.ts turns these into positions.
+   *
+   * Keyed by `pid` rather than market id because `pid` is what identifies a
+   * position: a market that goes flat and is reopened is a new position with a
+   * new id, and keying by market would silently merge the two.
+   */
+  readonly #positions = new Map<number, PositionEntry>();
+  #positionsSnapshotReceived = false;
+  readonly #positionListeners = new Set<(positions: readonly PositionEntry[]) => void>();
+
   constructor(options: TradingSocketOptions) {
     this.#options = options;
     this.#logger = options.logger ?? silentLogger;
@@ -155,11 +173,31 @@ export class PerplTradingSocket {
     // observer sees a frame, and so a close fails everything in flight before
     // it reaches anyone waiting on the connection.
     this.#conn.onMessage((message) => this.#track(message));
-    this.#conn.onClose((error) => this.#failPending(error));
+    this.#conn.onClose((error) => {
+      this.#failPending(error);
+      // The set has not changed, but its TRUSTWORTHINESS has: this socket does
+      // not reconnect, so from here the positions are frozen. Subscribers are
+      // told so they can re-read positionsTrustworthy rather than going on
+      // believing a stale set.
+      this.#emitPositions();
+    });
   }
 
   get accountId(): number | undefined {
     return this.#accountId;
+  }
+
+  /**
+   * The wallet this API key signs for, lowercased, from `addr` on the
+   * WalletSnapshot.
+   *
+   * Kept so a caller asking for "this address's positions" can be told no
+   * when it is not this address. An API key is bound to one account, and
+   * answering with account 710's positions whatever address was asked for
+   * would be a risk tool lying about whose money is at stake.
+   */
+  get walletAddress(): string | undefined {
+    return this.#walletAddress;
   }
 
   get lastForwardedRequestId(): number {
@@ -193,6 +231,65 @@ export class PerplTradingSocket {
 
   get knownOrderIds(): ReadonlySet<number> {
     return this.#knownOrderIds;
+  }
+
+  /**
+   * Every open position, raw. Empty before the first snapshot arrives, which
+   * is why `positionsSnapshotReceived` exists: "no positions" and "we have not
+   * been told yet" are different answers and must not look alike.
+   */
+  get positions(): readonly PositionEntry[] {
+    return [...this.#positions.values()];
+  }
+
+  /** Whether the `mt: 26` snapshot has arrived. False means we do not know. */
+  get positionsSnapshotReceived(): boolean {
+    return this.#positionsSnapshotReceived;
+  }
+
+  /**
+   * Whether the position view can be trusted right now.
+   *
+   * False when the snapshot has not arrived, when the socket has closed, or
+   * when a heartbeat sequence gap says we may have missed an update. A gap
+   * matters more for positions than for orders: a missed `mt: 27` leaves a
+   * closed position showing as open, or hides one that was opened, and neither
+   * is visible by looking at the position set itself.
+   *
+   * This socket DOES NOT RECONNECT. Once it closes, the positions above are
+   * frozen at whatever they were, which is exactly the "monitor gone blind"
+   * case, so a caller must gate on this rather than on the set being non-empty.
+   */
+  get positionsTrustworthy(): boolean {
+    return this.#positionsSnapshotReceived && this.#conn.isOpen && !this.#sequenceGap;
+  }
+
+  /** Why the position view cannot be trusted, or undefined when it can. */
+  get positionsUntrustworthyReason(): string | undefined {
+    if (!this.#positionsSnapshotReceived) {
+      return `no position snapshot (mt ${MT.PositionsSnapshot}) has arrived yet, so we do not ` +
+        `know what is open`;
+    }
+    if (!this.#conn.isOpen) {
+      return `the trading socket is closed, so the positions we hold are frozen at whatever ` +
+        `they were: ${this.#conn.closeReason?.message ?? 'no reason given'}`;
+    }
+    if (this.#sequenceGap) {
+      return `a heartbeat sequence gap means a position update may have been missed, so a ` +
+        `closed position could still show as open`;
+    }
+    return undefined;
+  }
+
+  /**
+   * Observe the open-position set. Fires on every frame that changes it, and
+   * on the initial snapshot even when that snapshot is empty.
+   */
+  onPositions(listener: (positions: readonly PositionEntry[]) => void): () => void {
+    this.#positionListeners.add(listener);
+    return () => {
+      this.#positionListeners.delete(listener);
+    };
   }
 
   /**
@@ -425,6 +522,8 @@ export class PerplTradingSocket {
     const mt = message['mt'];
 
     if (mt === MT.WalletSnapshot) {
+      const addr = message['addr'];
+      if (typeof addr === 'string' && addr !== '') this.#walletAddress ??= addr.toLowerCase();
       const accounts = message['as'];
       if (Array.isArray(accounts) && isRecord(accounts[0])) {
         const account = accounts[0];
@@ -445,11 +544,15 @@ export class PerplTradingSocket {
     if (mt === MT.Heartbeat) {
       const sn = numberAt(message, 'sn');
       if (sn !== undefined && this.#lastSn !== undefined && sn !== this.#lastSn + 1) {
+        const first = !this.#sequenceGap;
         this.#sequenceGap = true;
         this.#logger.warn(
           `heartbeat sequence gap: expected ${this.#lastSn + 1}, got ${sn}. Messages may have ` +
-            `been lost; this session's view of orders is no longer trustworthy.`,
+            `been lost; this session's view of orders and positions is no longer trustworthy.`,
         );
+        // Same reason as on close: the set is unchanged but can no longer be
+        // relied on, and a missed mt 27 is invisible from the set itself.
+        if (first) this.#emitPositions();
       }
       if (sn !== undefined) this.#lastSn = sn;
       this.#headBlock = numberAt(message, 'h') ?? this.#headBlock;
@@ -473,7 +576,85 @@ export class PerplTradingSocket {
 
     if (mt === MT.OrdersUpdate) {
       this.#onOrdersUpdate(message);
+      return;
     }
+
+    if (mt === MT.PositionsSnapshot) {
+      this.#onPositionsSnapshot(message);
+      return;
+    }
+
+    if (mt === MT.PositionsUpdate) {
+      this.#onPositionsUpdate(message);
+    }
+  }
+
+  /**
+   * `mt: 26` — the whole truth, so it REPLACES what we hold.
+   *
+   * Merging a snapshot into the existing set would keep any position the
+   * server has since forgotten about. On reconnect that is precisely how a
+   * closed position survives forever.
+   */
+  #onPositionsSnapshot(message: InboundMessage): void {
+    this.#positions.clear();
+    for (const entry of this.#positionEntries(message)) {
+      this.#applyPosition(entry);
+    }
+    this.#positionsSnapshotReceived = true;
+    // Always emitted, even when empty: "no positions" is an answer, and a
+    // caller waiting for the first one must not wait forever on a flat
+    // account.
+    this.#emitPositions();
+  }
+
+  /**
+   * `mt: 27` — a delta, applied row by row.
+   *
+   * An update that arrives before the snapshot is applied anyway. Dropping it
+   * would lose a real change, and the snapshot that follows overwrites the set
+   * wholesale in any case.
+   */
+  #onPositionsUpdate(message: InboundMessage): void {
+    let changed = false;
+    for (const entry of this.#positionEntries(message)) {
+      if (this.#applyPosition(entry)) changed = true;
+    }
+    if (changed) this.#emitPositions();
+  }
+
+  /**
+   * Add, replace or REMOVE one position row.
+   *
+   * A CLOSED POSITION ARRIVES AS A ROW, not as an omission: `st: 2` with
+   * `s: 0` and `c: "0"`, measured on testnet. Upserting whatever arrives would
+   * leave a zero-size ghost in the set forever, so anything that is not Open
+   * deletes. That covers Liquidated, Deleveraged and Unwound too, whose exact
+   * shapes have never been observed — the rule reads only `st`.
+   */
+  #applyPosition(entry: PositionEntry): boolean {
+    const pid = positionIdOf(entry);
+    if (pid === undefined) {
+      this.#logger.warn(
+        `position row with no usable pid, ignoring: ${JSON.stringify(entry).slice(0, 200)}`,
+      );
+      return false;
+    }
+    if (isOpenPosition(entry['st'])) {
+      this.#positions.set(pid, entry);
+      return true;
+    }
+    return this.#positions.delete(pid);
+  }
+
+  #positionEntries(message: InboundMessage): PositionEntry[] {
+    const d = message['d'];
+    return Array.isArray(d) ? d.filter(isRecord) : [];
+  }
+
+  #emitPositions(): void {
+    const positions = this.positions;
+    for (const listener of this.#positionListeners) listener(positions);
   }
 
   #orderEntries(message: InboundMessage): OrderUpdateEntry[] {

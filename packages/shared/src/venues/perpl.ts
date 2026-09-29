@@ -20,6 +20,11 @@ import {
   type OrderRequestFrame,
   type OrderUpdateEntry,
 } from './perpl-orders.ts';
+import {
+  parsePositionFrame,
+  type PerplPosition,
+  type PositionEntry,
+} from './perpl-positions.ts';
 import type { ApiSecret } from './perpl-signing.ts';
 import type { Logger } from './perpl-socket.ts';
 import { PerplTradingSocket } from './perpl-trading-socket.ts';
@@ -67,6 +72,8 @@ export interface PerplVenueOptions {
   readonly verbose?: boolean;
   /** Injectable for tests. */
   readonly fetchImpl?: typeof fetch;
+  /** Injectable for tests, forwarded to the trading socket. */
+  readonly webSocketImpl?: typeof WebSocket;
   readonly now?: () => number;
 }
 
@@ -289,6 +296,9 @@ export class PerplVenue implements Venue {
       secret: credentials.secret,
       ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
       ...(this.#options.verbose === undefined ? {} : { verbose: this.#options.verbose }),
+      ...(this.#options.webSocketImpl === undefined
+        ? {}
+        : { webSocketImpl: this.#options.webSocketImpl }),
     });
     await socket.connect();
     this.#socket = socket;
@@ -617,9 +627,70 @@ export class PerplVenue implements Venue {
   // Not implemented yet. These reject rather than resolving to a neutral value,
   // so no caller can mistake an unbuilt path for a successful action.
 
-  getPositions(_address: string): Promise<VenuePosition[]> {
-    // Needs the authenticated account endpoint plus an Ed25519 API key.
-    return Promise.reject(new NotImplementedError(VENUE_ID, 'getPositions'));
+  /**
+   * Open positions for `address`, live off the authenticated trading socket.
+   *
+   * ONLY FOR THE SIGNED-IN WALLET. An API key is bound to one account, so this
+   * socket can only ever answer for that one. Any other address THROWS rather
+   * than returning what it does have: silently answering with our own account's
+   * positions would be a risk tool lying about whose money is at stake.
+   *
+   * POSITIONS FOR ARBITRARY WALLETS ARE A DIFFERENT QUESTION WITH A DIFFERENT
+   * SOURCE. They come from indexed chain data through the venue-agnostic
+   * analytics interface, which can see every account because it reads the
+   * chain rather than an authenticated session. Do not let the two get
+   * conflated: this one is live, authenticated and ours; that one is
+   * historical, public and anyone's.
+   */
+  async getPositions(address: string): Promise<VenuePosition[]> {
+    const socket = await this.connectTrading();
+    const signedInAs = socket.walletAddress;
+    const wanted = address.trim().toLowerCase();
+
+    if (signedInAs === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'the WalletSnapshot carried no wallet address, so there is no way to check that ' +
+          `${address} is the account this key signs for. Refusing to answer rather than ` +
+          'guess whose positions these are.',
+      );
+    }
+    if (wanted !== signedInAs) {
+      throw new VenueError(
+        VENUE_ID,
+        `this API key signs for ${signedInAs}, not ${address}. An API key is bound to one ` +
+          'account, so this socket cannot answer for another wallet. For positions belonging ' +
+          'to an arbitrary address, use the analytics interface over indexed chain data.',
+      );
+    }
+
+    const untrustworthy = socket.positionsUntrustworthyReason;
+    if (untrustworthy !== undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        `cannot report positions: ${untrustworthy}. Returning the set we hold would present ` +
+          'a possibly stale view as current.',
+      );
+    }
+
+    return this.#decodePositions(socket.positions);
+  }
+
+  /** Raw position rows -> venue-agnostic positions, using context scaling. */
+  async #decodePositions(rows: readonly PositionEntry[]): Promise<PerplPosition[]> {
+    const markets = new Map((await this.getMarkets()).map((m) => [m.marketId, m]));
+    const collateral = await this.getCollateralToken();
+    const decoded = parsePositionFrame(rows, markets, this.network.name, collateral.decimals);
+
+    for (const marketId of decoded.skipped) {
+      // A market listed on chain but absent from the context is real (mainnet
+      // TAO). Say so rather than dropping a position silently.
+      this.#options.logger?.warn(
+        `position on market ${marketId}, which Perpl ${this.network.name} does not list in ` +
+          `GET /v1/pub/context — cannot scale it, so it is not reported`,
+      );
+    }
+    return decoded.open;
   }
 
   addMargin(_request: AddMarginRequest): Promise<ActionResult> {

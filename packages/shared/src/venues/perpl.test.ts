@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadNetworkConfig } from '../config.ts';
 import { NotImplementedError, VenueRequestError } from '../errors.ts';
 import { ContextSchema } from './perpl-context.ts';
+import { ApiSecret } from './perpl-signing.ts';
 import { PerplVenue, toVenueMarket } from './perpl.ts';
 import type { VenueMarket } from './types.ts';
 
@@ -316,7 +317,6 @@ describe('unimplemented venue actions', () => {
   // These must reject, never resolve: a stub that resolved could be read as a
   // completed action, and no action is complete before mt: 24 anyway.
   const cases: Array<[string, () => Promise<unknown>]> = [
-    ['getPositions', () => venue.getPositions('0x0000000000000000000000000000000000000001')],
     ['addMargin', () => venue.addMargin({ idempotencyKey: 'k', symbol: 'BTC', amount: 10 })],
     ['reducePosition', () => venue.reducePosition({ idempotencyKey: 'k', symbol: 'BTC', size: 1 })],
     ['closePosition', () => venue.closePosition({ idempotencyKey: 'k', symbol: 'BTC' })],
@@ -348,5 +348,170 @@ describe('PerplVenue.feedStatus', () => {
       fetchImpl: stubFetch(mainnetContext),
     });
     assert.equal(venue.feedStatus().state, 'disconnected');
+  });
+});
+
+// ── getPositions ─────────────────────────────────────────────────────────────
+
+const OWNER = '0x829114e33aff5e7682346300ff1525cbd3a8de17';
+
+/** A websocket the test drives, matching the one in perpl-trading-socket.test. */
+class VenueFakeSocket extends EventTarget {
+  static last: VenueFakeSocket | undefined;
+  readonly sent: Record<string, unknown>[] = [];
+  readyState = 0;
+
+  readonly url: string;
+
+  constructor(url: string) {
+    super();
+    this.url = url;
+    VenueFakeSocket.last = this;
+  }
+  send(data: string): void {
+    this.sent.push(JSON.parse(data) as Record<string, unknown>);
+  }
+  close(): void {
+    this.readyState = 3;
+  }
+  open(): void {
+    this.readyState = 1;
+    this.dispatchEvent(new Event('open'));
+  }
+  deliver(message: unknown): void {
+    const event = new Event('message') as Event & { data: string };
+    event.data = JSON.stringify(message);
+    this.dispatchEvent(event);
+  }
+}
+
+/** The real testnet position, as captured. */
+const wirePosition = {
+  mkt: 16,
+  acc: 710,
+  pid: 4354895577089,
+  st: 1,
+  sr: 21,
+  sd: 1,
+  c: '417125',
+  ep: 833798,
+  s: 1,
+  lv: 200,
+  fnd: '0',
+  dpnl: '0',
+  fee: '288',
+};
+
+async function venueWithPositions(rows: unknown[] = [wirePosition]): Promise<PerplVenue> {
+  const venue = new PerplVenue(testnet, {
+    fetchImpl: stubFetch(testnetContext),
+    credentials: {
+      apiKey: 'opaque',
+      secret: ApiSecret.fromHex(
+        '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60',
+      ),
+    },
+    webSocketImpl: VenueFakeSocket as unknown as typeof WebSocket,
+  });
+  const connecting = venue.connectTrading();
+  const fake = VenueFakeSocket.last as VenueFakeSocket;
+  fake.open();
+  await Promise.resolve();
+  fake.deliver({
+    mt: 19,
+    sn: 100,
+    addr: OWNER,
+    as: [{ in: 12, id: 710, fr: false, fw: true, lfr: 8, b: '10000000000', lb: '0' }],
+  });
+  await connecting;
+  fake.deliver({ mt: 26, sn: 100, d: rows });
+  return venue;
+}
+
+describe('PerplVenue.getPositions', () => {
+  it('returns the signed-in wallet’s positions, decoded', async () => {
+    const venue = await venueWithPositions();
+    const positions = await venue.getPositions(OWNER);
+
+    assert.equal(positions.length, 1);
+    const [position] = positions;
+    assert.equal(position?.symbol, 'BTC');
+    assert.equal(position?.side, 'long');
+    assert.equal(position?.size, 0.00001);
+    assert.equal(position?.entryPrice, 83379.8);
+    assert.equal(position?.margin, 0.417125);
+    assert.equal(position?.network, 'testnet');
+    venue.disconnect();
+  });
+
+  it('accepts the address in any case', async () => {
+    const venue = await venueWithPositions();
+    assert.equal((await venue.getPositions(OWNER.toUpperCase())).length, 1);
+    venue.disconnect();
+  });
+
+  it('THROWS for any other address rather than answering with ours', async () => {
+    // An API key is bound to one account. Returning our positions for someone
+    // else's address would be the risk tool lying about whose money is at
+    // stake — the worst possible shape of wrong.
+    const venue = await venueWithPositions();
+    await assert.rejects(
+      venue.getPositions('0x0000000000000000000000000000000000000001'),
+      /signs for 0x829114e3.*not 0x00000000/s,
+    );
+    venue.disconnect();
+  });
+
+  it('points at the analytics interface for arbitrary wallets', async () => {
+    const venue = await venueWithPositions();
+    await assert.rejects(
+      venue.getPositions('0x0000000000000000000000000000000000000001'),
+      /analytics interface over indexed chain data/,
+    );
+    venue.disconnect();
+  });
+
+  it('refuses when the position view cannot be trusted', async () => {
+    // No snapshot yet: an empty set and an unknown set must not read alike.
+    const venue = new PerplVenue(testnet, {
+      fetchImpl: stubFetch(testnetContext),
+      credentials: {
+        apiKey: 'opaque',
+        secret: ApiSecret.fromHex(
+          '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60',
+        ),
+      },
+      webSocketImpl: VenueFakeSocket as unknown as typeof WebSocket,
+    });
+    const connecting = venue.connectTrading();
+    const fake = VenueFakeSocket.last as VenueFakeSocket;
+    fake.open();
+    await Promise.resolve();
+    fake.deliver({
+      mt: 19,
+      sn: 100,
+      addr: OWNER,
+      as: [{ in: 12, id: 710, fr: false, fw: true, lfr: 8, b: '10000000000', lb: '0' }],
+    });
+    await connecting;
+
+    await assert.rejects(venue.getPositions(OWNER), /no position snapshot/);
+    venue.disconnect();
+  });
+
+  it('reports a flat account as empty, not as an error', async () => {
+    const venue = await venueWithPositions([]);
+    assert.deepEqual(await venue.getPositions(OWNER), []);
+    venue.disconnect();
+  });
+
+  it('skips a position on a market the context does not list', async () => {
+    // Real case: a market listed on chain but absent from the context. One
+    // unknown market must not take the rest of the book down with it.
+    const venue = await venueWithPositions([wirePosition, { ...wirePosition, mkt: 999, pid: 7 }]);
+    const positions = await venue.getPositions(OWNER);
+    assert.equal(positions.length, 1);
+    assert.equal(positions[0]?.marketId, 16);
+    venue.disconnect();
   });
 });
