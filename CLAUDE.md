@@ -78,6 +78,27 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   perpl-cli display. Address cancels and amends to `oid`; read outcomes by
   `oid`. Reading `id` silently matches nothing, which looks exactly like a
   timeout.
+- THE ACCOUNT STREAM'S `sn` IS THE BLOCK NUMBER, and it is ADVANCED BY
+  HEARTBEATS ONLY. Measured, not assumed: `sn == at.b` in all 5 frames of
+  `fixtures/positions-testnet.json`, and `sn == h` on 327 of 327 live
+  heartbeats.
+  - A heartbeat (`mt: 100`) lands on EVERY block, so expecting `sn` to advance
+    by exactly `+1` per heartbeat is correct: 326 of 326 consecutive intervals
+    were `+1` over a 100s window, 327 beats, no gap. Monad's ~300ms blocks are
+    the cadence.
+  - Every frame from the same block SHARES that block's `sn`. At sign-in
+    `mt: 19` (WalletSnapshot), `mt: 23` (OrdersSnapshot) and `mt: 26`
+    (PositionsSnapshot) all arrive carrying one `sn` — 66448894 in the first
+    capture, 66605626 and 66605929 in two later ones. Snapshots and `mt: 27`
+    updates never advance it. A gap detector that expects every frame to
+    advance `sn` therefore fires constantly against a perfectly healthy socket.
+  - `mt: 2`, THE PONG, CARRIES ITS OWN UNRELATED COUNTER: measured as `sn` 1,
+    2, 3 across three pings, with no `h` and no `at`. It is not a block number
+    and not part of the stream sequence, so tracking `sn` off it computes a gap
+    of tens of millions against a healthy socket. Same reason proof-of-life
+    must ignore replies, as the market-data feed already does.
+  - So track `sn` off `mt: 100` only, with the sign-in `mt: 19` as the
+    baseline. Re-measure any of this with `scripts/probeHeartbeatSn.ts`.
 - Order rejection reasons (`sr`) worth handling by name:
   `sr 34` = OrderForwardingNotAllowed — the account's `fw` flag is false, so
   the account does not permit API-key-forwarded orders. Check `fw` from the
