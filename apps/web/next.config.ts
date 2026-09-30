@@ -11,7 +11,7 @@ const config: NextConfig = {
   reactStrictMode: true,
   // Types only: the web app imports the analytics and health TYPES from shared
   // and never its runtime, but the bundler still has to be able to read them.
-  transpilePackages: ['@perpguard/shared'],
+  transpilePackages: ['@perpguard/shared', '@perpguard/backend'],
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${backend}/api/:path*` },

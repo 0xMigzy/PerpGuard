@@ -16,3 +16,15 @@ dot is red, which is the correct picture of a backend with no data.
 
 Pure helpers live in `src/lib` and have `node --test` tests; nothing in there
 does I/O.
+
+## Protect
+
+`/protect` is private. It signs in with a one-time code the Telegram bot hands
+the linked chat (`/web`), which opens an HttpOnly session cookie; every
+`/api/protect/*` route answers 401 without it and the page shows nothing about
+the account until then. For local work set `PERPGUARD_WEB_DEV_LINK=1` on the
+backend and mint a code from its own host: `curl http://127.0.0.1:8080/dev/link-code`.
+
+Every button goes through the same actions layer as the bot, with the same
+confirmation text, and the outcome shows the venue's reported status beside
+what the position actually did.

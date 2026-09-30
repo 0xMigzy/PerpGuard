@@ -1,7 +1,7 @@
-import { ComingNext } from '@/components/ComingNext.tsx';
+import { ProtectView } from './ProtectView.tsx';
 
 export const metadata = { title: 'Protect' };
 
 export default function Page() {
-  return <ComingNext title="Protect" subtitle="Your positions, their runway, and the button that adds margin before the venue takes it." />;
+  return <ProtectView />;
 }

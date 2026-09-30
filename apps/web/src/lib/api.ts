@@ -6,6 +6,7 @@
  * indexer, or the venue. The types come from `@perpguard/shared` as TYPES only,
  * so nothing from the backend's runtime is bundled into the page.
  */
+import type { Prepared, PrepareRequest, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
 import type {
   AssessedPositions,
   DailyPoint,
@@ -109,7 +110,48 @@ async function getJson<T>(path: string): Promise<T> {
   return parsed as T;
 }
 
+/** A JSON body in, JSON out. Same origin, so the session cookie rides along. */
+async function sendJson<T>(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      cache: 'no-store',
+      headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch {
+    throw new ApiError(path, undefined, 'the backend could not be reached');
+  }
+  const text = await response.text();
+  let parsed: unknown;
+  try {
+    parsed = text === '' ? {} : JSON.parse(text);
+  } catch {
+    throw new ApiError(path, response.status, `the backend answered ${response.status} without JSON`);
+  }
+  if (!response.ok) {
+    const message =
+      typeof parsed === 'object' && parsed !== null && 'error' in parsed ? String((parsed as { error: unknown }).error) : `the backend answered ${response.status}`;
+    throw new ApiError(path, response.status, message);
+  }
+  return parsed as T;
+}
+
 const A = '/api/analytics';
+const P = '/api/protect';
+
+/** The session-gated Protect API. A 401 surfaces as an ApiError with status 401. */
+export const protect = {
+  me: () => getJson<ProtectSession>(`${P}/me`),
+  signIn: (code: string) => sendJson<ProtectSession>('POST', `${P}/session`, { code }),
+  signOut: () => sendJson<{ signedOut: boolean }>('DELETE', `${P}/session`),
+  positions: () => getJson<ProtectSnapshot & { readonly notes: readonly string[] }>(`${P}/positions`),
+  prepare: (request: PrepareRequest) => sendJson<Prepared>('POST', `${P}/prepare`, request),
+  execute: (token: string) => sendJson<{ idempotencyKey: string }>('POST', `${P}/execute`, { token }),
+  progress: (key: string) => getJson<ProtectProgress>(`${P}/actions/${encodeURIComponent(key)}`),
+  stress: (priceMoveFraction: number) => sendJson<ProtectStress>('POST', `${P}/stress`, { priceMoveFraction }),
+};
 
 export const api = {
   health: () => getJson<HealthReport>('/health'),
