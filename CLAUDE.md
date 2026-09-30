@@ -240,9 +240,71 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   `allowOrderForwarding(true)` and the owner wallet — do not submit and eat an
   `sr 34`. This lives in the executor path (`PerplVenue.#execute`) so every
   action inherits it; never re-implement it per action.
+- `getPerpetualInfoV2(perpId)` DOES answer on mainnet (and so does the V1
+  form, despite the ABI note above), and it is the only source of a market's
+  INSURANCE FUND LEVEL: `insuranceBalanceCNS` is word 11 of the reply,
+  `positionBalanceCNS` word 10, `markPNS` word 12, long/short open interest
+  words 18/19 (the tuple-offset word is 0; the two leading strings are
+  offsets, so every static member sits at a fixed word). Decoded by index in
+  `packages/shared/src/venues/perpl-insurance.ts` and pinned against a
+  captured reply. The indexer sees credits to the fund, never its balance.
 - Docs index: https://docs.perpl.xyz/llms.txt — append `.md` to any page URL.
   ALWAYS read the relevant doc page before writing Perpl integration code.
   Do not guess endpoints, field names or message types.
+
+## Numbers on the way out
+- FEES ARE MAKER PLUS TAKER, EVERYWHERE. One definition: the sum of
+  `MarketDay.feesCNS` over whole UTC days, bound to a DAY boundary and served
+  with the range it covers (`FeesForPeriod.label`), on the protocol figure and
+  on every per-market row alike. Taker fees have no timestamp finer than the
+  day bucket, so this is the only exact total there is. The rolling maker half
+  is served under its own name, `makerFeesAusd`, and is NEVER called "fees":
+  it is a third of the real figure and looks like the whole.
+- RATIOS ARE WITHHELD BELOW `MIN_ROUND_TRIPS_FOR_RATIOS` = 10 ROUND TRIPS.
+  Win rate and profit factor come back undefined under the floor, on the
+  profile and on the traders list; the counts and the history are still served
+  in full and every payload that withholds carries the floor it used. Three
+  trades and two wins is 66.7%, and it means nothing. The constant lives in
+  `packages/shared/src/analytics/types.ts` and nowhere else.
+- EVERY DERIVED STATISTIC CARRIES ITS DENOMINATOR: a rate is rendered as
+  "x of y", a share names what it is a share of, a window says which days it
+  covers. A figure that cannot honour the section's timeframe says which
+  window it used instead (fees: UTC days; trader windows: TraderDay buckets;
+  open interest and TVL: levels, now).
+- ORDER BY THE NUMERIC COLUMN, NEVER A `::text` OUTPUT ALIAS. Money columns
+  are selected as text so node-pg cannot round them, and Postgres resolves a
+  bare name in ORDER BY against the output list first — `order by net_pnl`
+  sorted +99 above +911 on the live traders list. Sort maps name the source
+  column and `pg.test.ts` pins them.
+
+## The web app
+- PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
+  reduce, close or kill switch from the web; every action happens in Telegram.
+  The backend's `/api/protect/*` routes still exist and no page calls them —
+  `apps/web/src/lib/api.ts` has GETs against `/api/analytics/*` and nothing
+  else, no session, no provider, no sign-in. Everything reads the mainnet
+  indexer, so there is ONE network and NO network labelling anywhere on a page.
+- SIX SECTIONS, in this order, Overview as the landing page: Overview,
+  Markets, Traders, Liquidations, Risk, Alerts. `docs/frontend-mockup.html` is
+  the layout reference — structure, density and wording; never its figures.
+- ONE TIMEFRAME CONTROL PER SECTION, in the header of Overview, Markets,
+  Traders and Liquidations, defaulting to 30D, carried between sections by the
+  tabs. It drives the queries. No per-panel pills. Risk has no timeframe: it is
+  a point-in-time snapshot and shows the block its state came from.
+- THE RISK SECTION READS ONE LADDER. The backend evaluates every priced open
+  position once per rung from −50% to +50% in half-percent steps
+  (`buildRiskSnapshot`); the tiles are the ±5% and ±10% rungs, the slider walks
+  the same array, the by-market table is the same rungs per market, and each
+  position carries the least adverse rung that liquidates it so the "largest
+  exposed" list is the ladder's own selection. Compute once, show twice. The
+  page states that the shock is static and that all-markets assumes every
+  market moves together, the worst case rather than the likely one, and that
+  book depth is not shown because the indexer has no order book.
+- NOT BUILT, ON PURPOSE: order book depth, intraday candles, open-interest
+  history as a level (the indexer holds only deltas). Single-market drill-down
+  is a later pass.
+- EMPTY STATES ARE DESIGNED. The likeliest first visit is someone with no
+  account and no positions; every table and panel has a sentence for that.
 
 ## Networks
 - Read-only analytics run against MAINNET (chain 143) so the demo shows real data.
@@ -319,5 +381,6 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 - Commit after each working step.
 
 ## Current phase
-Day 1 (Sep 26): foundations, read-only. No trading code yet beyond the
-test-order script.
+Day 5 (Sep 30): the web app is the six public, read-only sections above,
+served by the analytics API; the Trader and TraderDay tables are read; the
+risk snapshot is live. Actions live in the Telegram bot.

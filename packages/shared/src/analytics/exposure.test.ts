@@ -68,6 +68,16 @@ test('a 10x long is exposed at −10% and not at −5%; the mirror short at +10%
   assert.deepEqual(tile, adverseAt(snapshot.ladder, 0.1, snapshot.totals.notionalAusd, snapshot.insurance.totalAusd));
   assert.equal(snapshot.atRisk['0.050']!.positions, 0);
 
+  // The least adverse rung per position agrees with the ladder: the long goes at
+  // some rung between −10% and −5%, the short between +5% and +10%.
+  const long = snapshot.positions.find((p) => p.side === 'long')!;
+  const short = snapshot.positions.find((p) => p.side === 'short')!;
+  assert.ok(long.liquidatedFromMove! <= -0.05 && long.liquidatedFromMove! > -0.1);
+  assert.ok(short.liquidatedFromMove! >= 0.05 && short.liquidatedFromMove! < 0.1);
+  assert.equal(long.liquidatedFromMove! <= -0.1, false, 'not exposed at −10%? it IS: −0.1 <= liquidatedFromMove');
+  assert.ok(-0.1 <= long.liquidatedFromMove!, 'a long is exposed at m when m <= liquidatedFromMove');
+  assert.ok(0.1 >= short.liquidatedFromMove!, 'a short is exposed at m when m >= liquidatedFromMove');
+
   // Per market ladder equals the total ladder when there is one market.
   assert.deepEqual(snapshot.markets[0]!.ladder, snapshot.ladder);
   assert.equal(snapshot.markets[0]!.insuranceAusd, 177_437.095975);
@@ -109,6 +119,7 @@ test('a position already past liquidation is counted at every rung, including ze
     nowMs: 0,
   });
   assert.ok(snapshot.positions[0]!.liqBufferPct! < 0, 'signed, never abs()');
+  assert.ok(snapshot.positions[0]!.liquidatedFromMove! > 0, 'liquidated even at a small rise: the least adverse rung is above zero');
   assert.equal(snapshot.ladder[rungIndex(0)]!.positions, 1, 'counted at zero move: it is past liquidation now');
   assert.equal(snapshot.ladder[rungIndex(-0.5)]!.positions, 1);
   // A static shock UPWARDS puts a long back above maintenance: the rung says so,

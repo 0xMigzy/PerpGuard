@@ -155,3 +155,20 @@ table th {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+
+/* The stress-test slider: a thin track, a round thumb in the accent, nothing else. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 20px;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: var(--color-border2); }
+input[type="range"]::-moz-range-track { height: 5px; border-radius: 3px; background: var(--color-border2); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--color-accent-hi); border: 2px solid var(--color-page); margin-top: -5px;
+}
+input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: var(--color-accent-hi); border: 2px solid var(--color-page); }
+input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 4px; }

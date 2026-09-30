@@ -81,6 +81,14 @@ export interface ExposedPosition {
   readonly liqBufferPct: number | undefined;
   readonly unrealisedPnlAusd: number;
   readonly openedAtMs: number;
+  /**
+   * The least adverse rung that liquidates this position: for a long the
+   * HIGHEST move at which it is past maintenance (it is then liquidated at
+   * every lower rung too), for a short the LOWEST. Undefined when it survives
+   * every rung. A page lists "exposed at move m" as longs with `m <=` this and
+   * shorts with `m >=` this, which is exactly the ladder's own count.
+   */
+  readonly liquidatedFromMove: number | undefined;
 }
 
 export interface MarketExposure {
@@ -243,6 +251,32 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     const now = positionMetrics(risk, markPNS, config);
     const notionalAusd = ausd(now.notionalCNS);
 
+    if (position.side === 'long') {
+      acc.longs += 1;
+      acc.longNotionalAusd += notionalAusd;
+    } else {
+      acc.shorts += 1;
+      acc.shortNotionalAusd += notionalAusd;
+    }
+    acc.marginAusd += position.marginAusd;
+    acc.unrealisedPnlAusd += ausd(now.unrealisedPnlCNS);
+
+    // ONE EVALUATION PER RUNG. Everything below reads these.
+    let liquidatedFromMove: number | undefined;
+    LADDER_MOVES.forEach((move, i) => {
+      const shocked = positionMetrics(risk, shockPricePNS(markPNS, move), config);
+      if (!shocked.isLiquidatable) return;
+      const rung = acc!.ladder[i]!;
+      rung.positions += 1;
+      rung.notionalAusd += notionalAusd;
+      rung.marginAusd += position.marginAusd;
+      if (shocked.equityCNS < 0n) rung.shortfallAusd += ausd(-shocked.equityCNS);
+      // Rungs run upward, so for a long the last liquidated rung is the highest
+      // move; for a short the first is the lowest.
+      if (position.side === 'long') liquidatedFromMove = move;
+      else liquidatedFromMove ??= move;
+    });
+
     acc.exposed.push({
       accountId,
       market: position.market,
@@ -257,26 +291,7 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       liqBufferPct: now.liqBufferPct,
       unrealisedPnlAusd: ausd(now.unrealisedPnlCNS),
       openedAtMs: position.openedAtMs,
-    });
-    if (position.side === 'long') {
-      acc.longs += 1;
-      acc.longNotionalAusd += notionalAusd;
-    } else {
-      acc.shorts += 1;
-      acc.shortNotionalAusd += notionalAusd;
-    }
-    acc.marginAusd += position.marginAusd;
-    acc.unrealisedPnlAusd += ausd(now.unrealisedPnlCNS);
-
-    // ONE EVALUATION PER RUNG. Everything below reads these.
-    LADDER_MOVES.forEach((move, i) => {
-      const shocked = positionMetrics(risk, shockPricePNS(markPNS, move), config);
-      if (!shocked.isLiquidatable) return;
-      const rung = acc!.ladder[i]!;
-      rung.positions += 1;
-      rung.notionalAusd += notionalAusd;
-      rung.marginAusd += position.marginAusd;
-      if (shocked.equityCNS < 0n) rung.shortfallAusd += ausd(-shocked.equityCNS);
+      liquidatedFromMove,
     });
   }
 
