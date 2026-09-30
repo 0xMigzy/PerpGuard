@@ -206,3 +206,62 @@ export type ProtectStress =
       readonly freeBalance: ProtectFreeBalance;
     }
   | { readonly ok: false; readonly reason: string };
+
+// ── the Alerts page ─────────────────────────────────────────────────────────
+
+export interface ProtectAlertRow {
+  readonly alertKey: string;
+  readonly marketId: number;
+  readonly symbol: string;
+  readonly kind: string;
+  readonly state: RiskState;
+  readonly previousState: RiskState | undefined;
+  /** The message as sent, title included. */
+  readonly text: string;
+  /** The option labels it offered. */
+  readonly actions: readonly string[];
+  readonly attempts: number;
+  readonly outcome: 'delivered' | 'failed';
+  readonly lastError: string | undefined;
+  readonly createdAtMs: number;
+  readonly deliveredAtMs: number | undefined;
+}
+
+/** Per-position cooldown state, so the page can say when the next alert may fire. */
+export interface ProtectCooldown {
+  readonly marketId: number;
+  readonly symbol: string;
+  readonly lastAlertedSeverity: string | undefined;
+  /** Per severity: when one was last sent, and when the cooldown lets another through. */
+  readonly bySeverity: readonly { readonly severity: string; readonly lastSentAtMs: number; readonly nextAllowedAtMs: number }[];
+}
+
+export interface ProtectAlerts {
+  readonly telegram: {
+    /** Whether a Telegram chat is linked to this user. The chat id is never sent. */
+    readonly linked: boolean;
+    readonly linkedAtMs: number | undefined;
+    readonly botUsername: string | undefined;
+    readonly transportConfigured: boolean;
+    readonly transportReason: string | undefined;
+  };
+  readonly delivery: {
+    readonly durableLog: boolean;
+    readonly durableReason: string | undefined;
+    readonly delivered: number;
+    readonly failed: number;
+    readonly lastDeliveredAtMs: number | undefined;
+    readonly lastDelivered: string | undefined;
+    readonly lastFailureAtMs: number | undefined;
+    readonly lastFailure: string | undefined;
+  };
+  readonly rules: {
+    readonly thresholds: RiskThresholds;
+    /** Milliseconds, per severity. */
+    readonly cooldownMs: Readonly<Record<string, number>>;
+    readonly bufferDecimals: number;
+    readonly cooldowns: readonly ProtectCooldown[];
+  };
+  readonly history: readonly ProtectAlertRow[];
+  readonly generatedAtMs: number;
+}

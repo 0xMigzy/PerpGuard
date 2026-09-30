@@ -55,7 +55,9 @@ import {
   type WebPendingActionStore,
 } from './session.ts';
 import { renderCloseConfirmation, renderKillSwitchConfirmation, toProtectKillSwitch, toProtectOutcome, toProtectPosition, toProtectStress } from './dto.ts';
-import type { PrepareRequest, Prepared, ProtectFreeBalance, ProtectSnapshot } from './types.ts';
+import type { PrepareRequest, Prepared, ProtectAlerts, ProtectFreeBalance, ProtectSnapshot } from './types.ts';
+import type { AlertHistory, AlertLogEntry } from '../../alerts/types.ts';
+import type { AlertDeliveryStatus } from '../health.ts';
 
 /** What the routes read from the risk side. All synchronous, like the bot's view. */
 export interface ProtectView {
@@ -85,6 +87,15 @@ export interface ProtectRouteOptions {
   readonly runner: { execute(command: ActionCommand): Promise<ActionOutcome> };
   readonly accountId: () => number | undefined;
   readonly forwardingAllowed: () => boolean | undefined;
+  /** What the Alerts page reads. Absent when no alert engine is wired. */
+  readonly alertsView?: {
+    recent(userId: string, limit: number): Promise<readonly AlertLogEntry[]>;
+    status(): AlertDeliveryStatus;
+    /** Link records for this user, chat ids stripped by the caller. */
+    linkedAtMs(userId: string): number | undefined;
+    botUsername(): string | undefined;
+    historyFor(marketId: number): AlertHistory | undefined;
+  };
   /** DEV ONLY: mint a code from the loopback interface. Never on by default. */
   readonly devLinkMint?: boolean;
   readonly now?: () => number;
@@ -306,6 +317,64 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
       const progress = options.progress.get(key);
       if (progress === undefined) return reply.code(404).send({ error: 'no such action' });
       return progress;
+    });
+
+    // ── the Alerts page ─────────────────────────────────────────────────────
+    scope.get<{ Querystring: { limit?: string } }>(`${prefix}/alerts`, async (request, reply): Promise<ProtectAlerts | void> => {
+      const view = options.alertsView;
+      if (view === undefined) return reply.code(503).send({ error: 'no alert engine is wired to this backend, so there is no alert history to show.' });
+      const userId = userOf(request);
+      const limit = Number(request.query.limit ?? 50);
+      const rows = await view.recent(userId, Number.isFinite(limit) ? limit : 50);
+      const status = view.status();
+      const cooldowns = options.view.snapshot().map((a) => {
+        const h = view.historyFor(a.marketId);
+        const bySeverity = h === undefined
+          ? []
+          : Object.entries(h.lastSentAtMs).map(([severity, at]) => ({
+              severity,
+              lastSentAtMs: at as number,
+              nextAllowedAtMs: (at as number) + (alerts.cooldownMs[severity as keyof typeof alerts.cooldownMs] ?? 0),
+            }));
+        return { marketId: a.marketId, symbol: a.symbol, lastAlertedSeverity: h?.lastAlertedSeverity, bySeverity };
+      });
+      const linkedAt = view.linkedAtMs(userId);
+      return {
+        telegram: {
+          linked: linkedAt !== undefined,
+          linkedAtMs: linkedAt,
+          botUsername: view.botUsername(),
+          transportConfigured: status.transportConfigured,
+          transportReason: status.transportReason,
+        },
+        delivery: {
+          durableLog: status.durableLog,
+          durableReason: status.durableReason,
+          delivered: status.delivered,
+          failed: status.failed,
+          lastDeliveredAtMs: status.lastDeliveredAtMs,
+          lastDelivered: status.lastDelivered,
+          lastFailureAtMs: status.lastFailureAtMs,
+          lastFailure: status.lastFailure,
+        },
+        rules: { thresholds: options.view.thresholds(), cooldownMs: alerts.cooldownMs, bufferDecimals: alerts.bufferDecimals, cooldowns },
+        history: rows.map((r) => ({
+          alertKey: r.alertKey,
+          marketId: r.marketId,
+          symbol: r.symbol,
+          kind: r.kind,
+          state: r.state,
+          previousState: r.previousState,
+          text: r.text,
+          actions: r.actions.map((a) => a.label),
+          attempts: r.attempts,
+          outcome: r.outcome,
+          lastError: r.lastError,
+          createdAtMs: r.createdAtMs,
+          deliveredAtMs: r.deliveredAtMs,
+        })),
+        generatedAtMs: now(),
+      };
     });
 
     // ── the stress test, from the engine ────────────────────────────────────

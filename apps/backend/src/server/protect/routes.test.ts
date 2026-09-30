@@ -113,6 +113,15 @@ function harness(options: {
     accountId: () => 710,
     forwardingAllowed: () => true,
     devLinkMint: options.devLinkMint ?? false,
+    alertsView: {
+      recent: async () => [
+        { alertKey: '16:DANGER:1', userId: 'trader-1', marketId: 16, symbol: 'BTC', kind: 'danger', state: 'DANGER', previousState: 'WATCH', text: 'DANGER · BTC long', actions: [{ type: 'add-margin', intent: 'clear-danger', marketId: 16, symbol: 'BTC', positionId: 4242, amountCNS: 562_000_000n, label: 'Add 562 → buffer 4.0%, liquidation 80,647.1' }], attempts: 1, outcome: 'delivered', lastError: undefined, createdAtMs: NOW - 10_000, deliveredAtMs: NOW - 9_000 },
+      ],
+      status: () => ({ transportConfigured: true, durableLog: true, delivered: 3, failed: 0, lastDeliveredAtMs: NOW - 9_000, lastDelivered: 'BTC DANGER' }),
+      linkedAtMs: () => NOW - 60_000,
+      botUsername: () => 'PerpGuardBot',
+      historyFor: () => ({ marketId: 16, lastSentAtMs: { DANGER: NOW - 10_000 }, lastAlertedSeverity: 'DANGER', watchAlertedThisEntry: false, announcedOutages: [] }),
+    },
     now: () => NOW,
   });
   return { app, progress, codes, executed };
@@ -258,6 +267,27 @@ test('not-applied earns a fresh token; unknown gets a next step and never a toke
     }
     await h.app.close();
   }
+});
+
+test('the alerts view serves history, delivery counts and link state, never a chat id', async () => {
+  const h = harness();
+  await signIn(h);
+  const r = await h.app.inject({ method: 'GET', url: '/api/protect/alerts?limit=5', headers: { cookie: COOKIE } });
+  assert.equal(r.statusCode, 200);
+  const a = r.json() as { telegram: Record<string, unknown>; delivery: { delivered: number }; rules: { cooldowns: Array<{ symbol: string; bySeverity: Array<{ severity: string; nextAllowedAtMs: number }> }> }; history: Array<{ symbol: string; actions: string[]; outcome: string }> };
+  assert.equal(a.telegram['linked'], true);
+  assert.equal(a.telegram['linkedAtMs'], NOW - 60_000);
+  assert.equal(a.telegram['botUsername'], 'PerpGuardBot');
+  assert.equal('chatId' in a.telegram, false, 'the chat id never leaves the link store');
+  assert.equal(a.delivery.delivered, 3);
+  assert.equal(a.history[0]!.symbol, 'BTC');
+  assert.deepEqual(a.history[0]!.actions, ['Add 562 → buffer 4.0%, liquidation 80,647.1']);
+  assert.equal(a.history[0]!.outcome, 'delivered');
+  assert.equal(a.rules.cooldowns[0]!.symbol, 'BTC');
+  assert.equal(a.rules.cooldowns[0]!.bySeverity[0]!.severity, 'DANGER');
+  assert.equal(a.rules.cooldowns[0]!.bySeverity[0]!.nextAllowedAtMs, NOW - 10_000 + 15 * 60_000);
+  assert.equal(JSON.stringify(a).includes('4242'), false, 'no position id in the alerts view');
+  await h.app.close();
 });
 
 test('the stress test comes from the engine, and refuses while blind', async () => {

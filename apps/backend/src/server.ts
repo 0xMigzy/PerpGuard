@@ -70,7 +70,7 @@ import { MarketFeed } from './ingest/marketFeed.ts';
 import { RiskLoop } from './risk/loop.ts';
 import type { RiskAssessment } from './risk/types.ts';
 import { AlertEngine } from './alerts/engine.ts';
-import { InMemoryAlertLog, PostgresAlertLog } from './alerts/log.pg.ts';
+import { InMemoryAlertLog, PostgresAlertLog, type AlertHistoryReader } from './alerts/log.pg.ts';
 import type { AlertLog } from './alerts/types.ts';
 import { AlertActivity } from './server/alertActivity.ts';
 import { DeferredPositionSource } from './server/deferredPositionSource.ts';
@@ -236,7 +236,7 @@ const loop = new RiskLoop({
  */
 const databaseUrl = process.env['DATABASE_URL']?.trim();
 let alertDb: Pool | undefined;
-let innerLog: AlertLog;
+let innerLog: AlertLog & AlertHistoryReader;
 let durableReason: string | undefined;
 
 if (databaseUrl === undefined || databaseUrl === '') {
@@ -491,6 +491,7 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
 // ── 8. the health report, buildable before anything is ready ────────────────
 
 let assessing = false;
+let botUsername: string | undefined;
 
 const health = (): HealthReport =>
   buildHealth({
@@ -531,6 +532,16 @@ const app = createHealthApp({
     runner: actionsExecutor,
     accountId: () => trading.status().accountId,
     forwardingAllowed: () => trading.status().forwardingAllowed,
+    // The Alerts page: history from the same log the engine writes, delivery
+    // counts from the same decorator /health reads, cooldowns from the engine.
+    // Chat ids stay in the link store; only "linked since" leaves it.
+    alertsView: {
+      recent: (id, limit) => innerLog.recent(id, limit),
+      status: () => activity.status(),
+      linkedAtMs: (id) => links.byUserId(id)?.linkedAtMs,
+      botUsername: () => botUsername,
+      historyFor: (marketId) => engine.historyFor(marketId),
+    },
     devLinkMint,
     logger: { info: log, warn },
   },
@@ -691,7 +702,12 @@ if (bot !== undefined) {
   // Long polling. `start` does not resolve until the bot stops, so it is not
   // awaited; a failure to reach Telegram must not take the process down.
   void bot
-    .start({ onStart: (info) => log(`telegram bot @${info.username} polling`) })
+    .start({
+      onStart: (info) => {
+        botUsername = info.username;
+        log(`telegram bot @${info.username} polling`);
+      },
+    })
     .catch((error: unknown) => {
       warn(`telegram polling stopped: ${error instanceof Error ? error.message : String(error)}`);
     });

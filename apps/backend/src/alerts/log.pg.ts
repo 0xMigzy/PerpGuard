@@ -11,7 +11,18 @@
  * reach it through env vars and never through here.
  */
 import { readFileSync } from 'node:fs';
-import type { AlertLog, AlertLogEntry } from './types.ts';
+import type { AlertAction, AlertLog, AlertLogEntry } from './types.ts';
+import type { RiskState } from '../risk/types.ts';
+
+/**
+ * The read side, for the Alerts page: what was said to one user, newest first.
+ *
+ * Separate from {@link AlertLog} so the engine's write port stays one method,
+ * and PAGED: a chatty week is hundreds of rows and nobody renders them all.
+ */
+export interface AlertHistoryReader {
+  recent(userId: string, limit: number): Promise<readonly AlertLogEntry[]>;
+}
 
 /**
  * The slice of a Postgres client this needs.
@@ -56,7 +67,60 @@ function serialiseActions(entry: AlertLogEntry): string {
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();
 
-export class PostgresAlertLog implements AlertLog {
+const RECENT = `
+select alert_key, user_id, market_id, symbol, kind, state, previous_state, message, actions,
+       attempts, outcome, last_error, created_at, delivered_at
+  from alert_log
+ where user_id = $1
+ order by created_at desc, id desc
+ limit $2
+`;
+
+const ms = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (value instanceof Date) return value.getTime();
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+/** The jsonb back into actions. `amountCNS` returns through BigInt, never Number. */
+function deserialiseActions(value: unknown): readonly AlertAction[] {
+  const raw = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((a: Record<string, unknown>) => ({
+    type: 'add-margin' as const,
+    intent: a['intent'] as AlertAction['intent'],
+    marketId: Number(a['marketId']),
+    symbol: String(a['symbol']),
+    positionId: a['positionId'] === null || a['positionId'] === undefined ? undefined : Number(a['positionId']),
+    amountCNS: BigInt(String(a['amountCNS'])),
+    label: String(a['label']),
+  }));
+}
+
+/** One row -> the entry the engine wrote. */
+export function entryFromRow(row: Record<string, unknown>): AlertLogEntry {
+  const created = ms(row['created_at']);
+  if (created === undefined) throw new RangeError('alert_log row without created_at');
+  return {
+    alertKey: String(row['alert_key']),
+    userId: String(row['user_id']),
+    marketId: Number(row['market_id']),
+    symbol: String(row['symbol']),
+    kind: row['kind'] as AlertLogEntry['kind'],
+    state: row['state'] as RiskState,
+    previousState: row['previous_state'] === null || row['previous_state'] === undefined ? undefined : (row['previous_state'] as RiskState),
+    text: String(row['message']),
+    actions: deserialiseActions(row['actions']),
+    attempts: Number(row['attempts']),
+    outcome: row['outcome'] as AlertLogEntry['outcome'],
+    lastError: row['last_error'] === null || row['last_error'] === undefined ? undefined : String(row['last_error']),
+    createdAtMs: created,
+    deliveredAtMs: ms(row['delivered_at']),
+  };
+}
+
+export class PostgresAlertLog implements AlertLog, AlertHistoryReader {
   readonly #client: SqlClient;
 
   constructor(client: SqlClient) {
@@ -92,6 +156,12 @@ export class PostgresAlertLog implements AlertLog {
       iso(entry.deliveredAtMs),
     ]);
   }
+
+  async recent(userId: string, limit: number): Promise<readonly AlertLogEntry[]> {
+    const capped = Math.min(Math.max(1, Math.floor(limit)), 500);
+    const result = (await this.#client.query(RECENT, [userId, capped])) as { rows?: Array<Record<string, unknown>> };
+    return (result.rows ?? []).map(entryFromRow);
+  }
 }
 
 /**
@@ -102,10 +172,18 @@ export class PostgresAlertLog implements AlertLog {
  * undelivered DANGER alerts exist nowhere, so wiring this in place of a real log
  * is a decision to make deliberately, not a default to drift into.
  */
-export class InMemoryAlertLog implements AlertLog {
+export class InMemoryAlertLog implements AlertLog, AlertHistoryReader {
   readonly rows: AlertLogEntry[] = [];
 
   async record(entry: AlertLogEntry): Promise<void> {
     this.rows.push(entry);
+  }
+
+  async recent(userId: string, limit: number): Promise<readonly AlertLogEntry[]> {
+    const capped = Math.min(Math.max(1, Math.floor(limit)), 500);
+    return [...this.rows]
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => b.createdAtMs - a.createdAtMs)
+      .slice(0, capped);
   }
 }

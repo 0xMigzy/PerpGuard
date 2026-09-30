@@ -281,7 +281,13 @@ function positionLine(
 ): string {
   const parts = [capitalize(describeBuffer(assessment.liqBufferPct, config.bufferDecimals))];
   if (assessment.liquidationPricePNS !== undefined) {
-    parts.push(`liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`);
+    // Same rule as `topUpLine`: at or below zero is not a price, it is
+    // collateral exceeding anything the market could take away.
+    parts.push(
+      assessment.liquidationPricePNS <= 0n
+        ? 'no liquidation price left to reach'
+        : `liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`,
+    );
   }
   parts.push(`mark ${formatPricePNS(assessment.markPricePNS, market)}`);
   return `${parts[0]!} — ${parts.slice(1).join(', ')}`;
@@ -303,7 +309,9 @@ function lastKnownLine(assessment: RiskAssessment, market: MarketRiskConfig, con
       : `, ${describeBuffer(assessment.liqBufferPct, config.bufferDecimals)}` +
         (assessment.liquidationPricePNS === undefined
           ? ''
-          : `, liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`);
+          : assessment.liquidationPricePNS <= 0n
+            ? ', no liquidation price left to reach'
+            : `, liquidation ${formatPricePNS(assessment.liquidationPricePNS, market)}`);
   return `Last known before this: ${headline(last)}${detail}.`;
 }
 

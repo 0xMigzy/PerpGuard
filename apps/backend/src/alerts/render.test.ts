@@ -471,3 +471,18 @@ test('an exact amount is not inflated by ceiling', () => {
   assert.deepEqual(ceilAusd(390_000_000n, ETH, 0), { amountCNS: 390_000_000n, text: '390' });
   assert.deepEqual(ceilAusd(0n, ETH, 0), { amountCNS: 0n, text: '0' });
 });
+
+test('a liquidation price at or below zero is said in words on the position line, never printed negative', async () => {
+  const { renderAlert } = await import('./render.ts');
+  const { DEFAULT_ALERT_CONFIG } = await import('./types.ts');
+  const market = { marketId: 16, symbol: 'BTC', priceDecimals: 1, lotDecimals: 5, collateralDecimals: 6, maintenanceMargin: 2500, initialMargin: 5000 };
+  const assessment = {
+    marketId: 16, symbol: 'BTC', side: 'long', positionId: 1, state: 'SAFE', previousState: 'WATCH', lastKnownState: 'SAFE',
+    liqBufferPct: 1.237, liquidationPricePNS: -198_021n, markPricePNS: 835_711n, topUp: undefined, marginToSurviveCNS: 0n,
+    metrics: {}, feed: 'connected', positions: 'live', positionsAgeMs: 1, priceAgeMs: 1, priceIsOld: false, heldOnStalePrice: false, reason: '', atMs: 0,
+  } as never;
+  const rendered = renderAlert(assessment, 'recovered', { alerts: DEFAULT_ALERT_CONFIG, market });
+  const assert = (await import('node:assert/strict')).default;
+  assert.match(rendered.text, /no liquidation price left to reach/);
+  assert.doesNotMatch(rendered.text, /-19,802/);
+});
