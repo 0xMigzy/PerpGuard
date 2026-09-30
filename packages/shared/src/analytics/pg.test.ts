@@ -560,3 +560,62 @@ test('the per-market series groups one row per market per day and names the mark
   assert.equal(series[1]!.market.symbol, 'SOL');
   assert.equal(series[1]!.market.indexerName, 'SOL_v2');
 });
+
+// ── the liquidation list ────────────────────────────────────────────────────
+
+test('liquidations are raw rows on the rolling window, newest first, capped like round trips', async () => {
+  const sql = new FakeSql();
+  const analytics = reader(sql);
+  await analytics.liquidations('7d', { limit: 100_000, offset: -3 });
+  const list = sql.calls.find((call) => /from "Liquidation" l join "Market"/.test(call.sql))!;
+  assert.ok(list, 'reads Liquidation rows joined to their market');
+  assert.match(list.sql, /order by l\.timestamp desc, l\."logIndex" desc/);
+  assert.equal(list.values[0], new Date(NOW - 7 * 24 * 3_600_000).toISOString(), 'the rolling instant, not a day');
+  assert.equal(list.values[1], 500, 'capped');
+  assert.equal(list.values[2], 0, 'floored');
+  await analytics.liquidations('all');
+  const all = sql.calls.filter((call) => /from "Liquidation" l join/.test(call.sql)).at(-1)!;
+  assert.equal(all.values[0], null, 'all-time passes no window');
+  assert.equal(all.values[1], 50, 'the default page');
+});
+
+test('a liquidation row scales by ITS market, resolves the symbol by id, and keeps null as unknown', async () => {
+  const sql = new FakeSql().on(/from "Liquidation" l join "Market"/, [
+    {
+      id: '0xabc-23', kind: 'LIQUIDATION', market: '31', name: 'SOL_v2', priceDecimals: 3, lotDecimals: 3,
+      account: '4703', side: 'LONG', isFull: true, mark: '118468', exec: '118400', lots: '381',
+      notional: '138300333', margin_lost: '61640072', bad_debt: '0', free_before: '2113227859',
+      to_survive: '229108', wasRescuable: true, timestamp: '2026-09-29T23:43:35.000Z', txHash: '0xabc',
+    },
+    {
+      id: '0xdef-1', kind: 'LIQUIDATION', market: '80', name: 'TAO', priceDecimals: 3, lotDecimals: 2,
+      account: '12', side: 'SHORT', isFull: false, mark: '300684', exec: '300700', lots: '250',
+      notional: '1000000', margin_lost: '50000', bad_debt: '0', free_before: '0',
+      to_survive: null, wasRescuable: null, timestamp: '2026-09-29T20:00:00.000Z', txHash: '0xdef',
+    },
+  ]);
+  const [sol, tao] = await reader(sql).liquidations('30d');
+  assert.equal(sol!.market.symbol, 'SOL', 'by market id: the indexer calls it SOL_v2');
+  assert.equal(sol!.side, 'long');
+  assert.equal(sol!.kind, 'liquidation');
+  assert.equal(sol!.markPrice, 118.468, 'priceDecimals 3');
+  assert.equal(sol!.sizeLots, 0.381, 'lotDecimals 3');
+  assert.equal(sol!.notionalAusd, 138.300333);
+  assert.equal(sol!.freeBalanceBeforeAusd, 2113.227859);
+  assert.equal(sol!.marginToSurviveAusd, 0.229108);
+  assert.equal(sol!.verdict, 'rescuable');
+  assert.equal(sol!.accountId, 4703);
+  assert.equal(tao!.market.symbol, undefined, 'unlisted by the venue: no symbol, never the chain name');
+  assert.equal(tao!.side, 'short');
+  assert.equal(tao!.isFull, false);
+  assert.equal(tao!.sizeLots, 2.5, 'lotDecimals 2');
+  assert.equal(tao!.marginToSurviveAusd, undefined, 'null stays a hole');
+  assert.equal(tao!.verdict, 'unknown', 'null is not false');
+});
+
+test('an unrecognised forced-exit kind throws rather than being filed under a guess', async () => {
+  const sql = new FakeSql().on(/from "Liquidation" l join "Market"/, [
+    { id: 'x', kind: 'SOMETHING_NEW', market: '1', name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5, account: '1', side: 'LONG', isFull: true, mark: '1', exec: '1', lots: '1', notional: '1', margin_lost: '0', bad_debt: '0', free_before: '0', to_survive: null, wasRescuable: null, timestamp: '2026-09-29T20:00:00.000Z', txHash: '0x' },
+  ]);
+  await assert.rejects(reader(sql).liquidations('24h'), /unrecognised forced exit kind/);
+});

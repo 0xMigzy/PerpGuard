@@ -9,6 +9,7 @@
 import type {
   DailyPoint,
   IndexerHealth,
+  LiquidationRecord,
   MarketBreakdown,
   MarketDailySeries,
   MarketOpenInterest,
@@ -115,4 +116,6 @@ export const api = {
     getJson<Envelope<readonly MarketDailySeries[]>>(`${A}/series/markets?timeframe=${t}`),
   openInterest: () => getJson<Envelope<OpenInterestPayload>>(`${A}/open-interest`),
   markets: (t: Timeframe) => getJson<Envelope<readonly MarketBreakdown[]>>(`${A}/markets?timeframe=${t}`),
+  liquidations: (t: Timeframe, limit: number, offset = 0) =>
+    getJson<Envelope<readonly LiquidationRecord[]>>(`${A}/liquidations?timeframe=${t}&limit=${limit}&offset=${offset}`),
 };

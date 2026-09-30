@@ -31,6 +31,7 @@ import { classifyIndexerHealth, type IndexerHealth, type IndexerProgress } from 
 import {
   bigintOrZero,
   count,
+  forcedExitKindFromRow,
   profitFactor,
   requireMs,
   rescueRate,
@@ -42,6 +43,7 @@ import {
   toMs,
   toPrice,
   toRatePct,
+  verdictFromRow,
   windowFor,
   type SymbolResolver,
 } from './map.ts';
@@ -52,6 +54,7 @@ import type {
   FeesForPeriod,
   DailyPoint,
   FundingStats,
+  LiquidationRecord,
   LiquidationStats,
   MarketBreakdown,
   MarketDailyPoint,
@@ -315,6 +318,32 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
      group by market_id
   ) p on p.market_id = m.id
  order by (m.id::bigint)
+`;
+
+/**
+ * Forced exits in a window, newest first, PAGED.
+ *
+ * Raw `Liquidation` rows filtered on the rolling timestamp, like every other
+ * window here. The join brings the market's own decimals along so each row is
+ * scaled by its market rather than by a constant; `logIndex` breaks ties so two
+ * liquidations in one block page deterministically.
+ */
+const LIQUIDATIONS_SQL = `
+select l.id, l.kind, l.market_id as market, m.name, m."priceDecimals", m."lotDecimals",
+       l.trader_id as account, l.side, l."isFull",
+       l."markPricePNS"::text          as mark,
+       l."execPricePNS"::text          as exec,
+       l."lotLNS"::text                as lots,
+       l."notionalCNS"::text           as notional,
+       l."marginLostCNS"::text         as margin_lost,
+       l."badDebtCNS"::text            as bad_debt,
+       l."freeBalanceBeforeCNS"::text  as free_before,
+       l."marginToSurviveCNS"::text    as to_survive,
+       l."wasRescuable", l.timestamp, l."txHash"
+  from "Liquidation" l join "Market" m on m.id = l.market_id
+ where ($1::timestamptz is null or l.timestamp >= $1::timestamptz)
+ order by l.timestamp desc, l."logIndex" desc
+ limit $2 offset $3
 `;
 
 const FUNDING_SQL = `
@@ -965,6 +994,44 @@ export class PostgresAnalytics implements Analytics {
       volumeAusd: toAusd(trader['volumeCNS'], decimals),
       tradeCount: count(trader['tradeCount']),
     };
+  }
+
+  async liquidations(
+    timeframe: Timeframe,
+    options: { readonly limit?: number; readonly offset?: number } = {},
+  ): Promise<readonly LiquidationRecord[]> {
+    const decimals = await this.#decimals();
+    const { sinceMs } = windowFor(timeframe, this.#now());
+    // Same cap as round trips, for the same reason.
+    const limit = Math.min(Math.max(1, options.limit ?? 50), 500);
+    const offset = Math.max(0, options.offset ?? 0);
+    const rows = await this.#rows(LIQUIDATIONS_SQL, [iso(sinceMs), limit, offset]);
+
+    return rows.map((row): LiquidationRecord => {
+      const priceDecimals = count(row['priceDecimals']);
+      const lotDecimals = count(row['lotDecimals']);
+      const toSurvive = row['to_survive'];
+      return {
+        id: String(row['id']),
+        atMs: requireMs(row['timestamp']),
+        txHash: String(row['txHash']),
+        market: toMarketRef(row['market'], row['name'], this.#resolve),
+        accountId: count(row['account']),
+        side: sideFromRow(row['side']),
+        kind: forcedExitKindFromRow(row['kind']),
+        isFull: row['isFull'] === true,
+        sizeLots: toLots(row['lots'], lotDecimals),
+        markPrice: toPrice(row['mark'], priceDecimals),
+        execPrice: toPrice(row['exec'], priceDecimals),
+        notionalAusd: toAusd(row['notional'], decimals),
+        marginLostAusd: toAusd(row['margin_lost'], decimals),
+        badDebtAusd: toAusd(row['bad_debt'], decimals),
+        freeBalanceBeforeAusd: toAusd(row['free_before'], decimals),
+        // Null means unjudgeable, and stays a hole rather than becoming zero.
+        marginToSurviveAusd: toSurvive === null || toSurvive === undefined ? undefined : toAusd(toSurvive, decimals),
+        verdict: verdictFromRow(row['wasRescuable']),
+      };
+    });
   }
 
   async roundTrips(

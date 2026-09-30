@@ -15,6 +15,7 @@ import type {
   DailyPoint,
   FundingStats,
   IndexerHealth,
+  LiquidationRecord,
   MarketBreakdown,
   MarketDailySeries,
   MarketOpenInterest,
@@ -131,6 +132,14 @@ class FakeAnalytics implements Analytics {
   async funding(timeframe: Timeframe): Promise<FundingStats> {
     this.asked.push(`funding:${timeframe}`);
     return { eventCount: 0, meanRatePct: undefined, markets: [] };
+  }
+
+  async liquidations(
+    timeframe: Timeframe,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<readonly LiquidationRecord[]> {
+    this.asked.push(`liquidations:${timeframe}:${options.limit ?? '-'}:${options.offset ?? '-'}`);
+    return [];
   }
 
   async wallet(address: string): Promise<WalletLookup> {
@@ -275,7 +284,7 @@ test('an absent timeframe defaults to 24h, which is documented rather than guess
 
 test('every timeframed route validates, not just metrics', async () => {
   const { instance } = app();
-  for (const route of ['metrics', 'series', 'series/markets', 'markets', 'funding']) {
+  for (const route of ['metrics', 'series', 'series/markets', 'markets', 'funding', 'liquidations']) {
     const response = await instance.inject({
       method: 'GET',
       url: `/api/analytics/${route}?timeframe=nonsense`,
@@ -355,6 +364,20 @@ test('round-trip paging passes through, and garbage is dropped rather than sent'
     url: '/api/analytics/account/10/round-trips?limit=abc',
   });
   assert.ok(analytics.asked.includes('trips:10:-:-'));
+});
+
+test('liquidation paging passes through with the timeframe, and garbage is dropped', async () => {
+  const { instance, analytics } = app();
+  const response = await instance.inject({
+    method: 'GET',
+    url: '/api/analytics/liquidations?timeframe=30d&limit=25&offset=50',
+  });
+  assert.equal(response.statusCode, 200);
+  assert.ok(analytics.asked.includes('liquidations:30d:25:50'));
+  assert.equal(body(response.payload)['stale'], false);
+
+  await instance.inject({ method: 'GET', url: '/api/analytics/liquidations?limit=abc' });
+  assert.ok(analytics.asked.includes('liquidations:24h:-:-'), 'defaults to 24h, drops the garbage limit');
 });
 
 // ── TVL ─────────────────────────────────────────────────────────────────────

@@ -393,6 +393,51 @@ export interface MarketBreakdown {
   readonly lastFundingRatePct: number | undefined;
 }
 
+// ── one liquidation ─────────────────────────────────────────────────────────
+
+/**
+ * How a position was forced flat. The indexer's `ForcedExitKind`, in domain
+ * spelling. Every mainnet row so far is `liquidation`; the others are kept
+ * because the contract can emit them and a row we cannot name must throw
+ * rather than be filed under the wrong kind.
+ */
+export type ForcedExitKind = 'liquidation' | 'buy-to-liquidate' | 'deleverage' | 'unwind' | 'unwind-unpaid';
+
+/**
+ * THREE ANSWERS, NOT TWO. `unknown` is a liquidation of a position opened before
+ * the indexer's start block, where the state needed to judge it does not exist.
+ * It is neither a rescue nor a failure, and a UI renders it as its own thing —
+ * the same rule as {@link RescueStats.unknownCount}, per row.
+ */
+export type RescueVerdict = 'rescuable' | 'not-rescuable' | 'unknown';
+
+/** One forced exit, as the page lists it. */
+export interface LiquidationRecord {
+  /** `<txHash>-<logIndex>`: stable across polls, so a list can key on it. */
+  readonly id: string;
+  readonly atMs: number;
+  readonly txHash: string;
+  readonly market: MarketRef;
+  /** The venue's account id: the handle the wallet page accepts. */
+  readonly accountId: number;
+  readonly side: Side;
+  readonly kind: ForcedExitKind;
+  /** False when only part of the position was taken. */
+  readonly isFull: boolean;
+  readonly sizeLots: number;
+  readonly markPrice: number | undefined;
+  /** What the engine actually closed at, not a computed threshold. */
+  readonly execPrice: number | undefined;
+  readonly notionalAusd: number;
+  readonly marginLostAusd: number;
+  readonly badDebtAusd: number;
+  /** Free account balance the instant before. Isolated margin left it untouched. */
+  readonly freeBalanceBeforeAusd: number;
+  /** The top-up that would have kept it above maintenance. Undefined when unjudgeable. */
+  readonly marginToSurviveAusd: number | undefined;
+  readonly verdict: RescueVerdict;
+}
+
 // ── wallet level ────────────────────────────────────────────────────────────
 
 /**
@@ -570,6 +615,17 @@ export interface Analytics {
 
   /** Funding over one window. */
   funding(timeframe: Timeframe): Promise<FundingStats>;
+
+  /**
+   * Forced exits in one window, most recent first.
+   *
+   * PAGED, like round trips: mainnet holds 680 and counting, and a caller that
+   * asked for all of them would be asked to render all of them.
+   */
+  liquidations(
+    timeframe: Timeframe,
+    options?: { readonly limit?: number; readonly offset?: number },
+  ): Promise<readonly LiquidationRecord[]>;
 
   /** @param address a wallet address. See {@link WalletLookup} on `not-linked`. */
   wallet(address: string): Promise<WalletLookup>;

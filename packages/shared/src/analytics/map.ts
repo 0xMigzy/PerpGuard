@@ -25,7 +25,7 @@
  */
 import { scaledToNumber, type RawAmount } from '../units.ts';
 import type { Side } from '../venues/types.ts';
-import type { MarketRef } from './types.ts';
+import type { ForcedExitKind, MarketRef, RescueVerdict } from './types.ts';
 
 /**
  * A count column.
@@ -130,6 +130,35 @@ export function sideFromRow(value: unknown): Side {
     `unrecognised side ${JSON.stringify(value)}: the indexer writes LONG or SHORT. ` +
       `Refusing to guess — an inverted side corrupts every derived figure invisibly.`,
   );
+}
+
+/** The indexer's `ForcedExitKind` enum -> the domain kind. THROWS on anything else, like `sideFromRow`. */
+export function forcedExitKindFromRow(value: unknown): ForcedExitKind {
+  switch (value) {
+    case 'LIQUIDATION':
+      return 'liquidation';
+    case 'BUY_TO_LIQUIDATE':
+      return 'buy-to-liquidate';
+    case 'DELEVERAGE':
+      return 'deleverage';
+    case 'UNWIND':
+      return 'unwind';
+    case 'UNWIND_UNPAID':
+      return 'unwind-unpaid';
+    default:
+      throw new RangeError(`unrecognised forced exit kind ${JSON.stringify(value)}: refusing to file it under a guess.`);
+  }
+}
+
+/**
+ * `wasRescuable` -> a verdict. NULL IS NOT FALSE: it is a position opened before
+ * the start block, and the answer is "cannot know", stated as such.
+ */
+export function verdictFromRow(value: unknown): RescueVerdict {
+  if (value === true) return 'rescuable';
+  if (value === false) return 'not-rescuable';
+  if (value === null || value === undefined) return 'unknown';
+  throw new RangeError(`expected a nullable boolean for wasRescuable, got ${JSON.stringify(value)}`);
 }
 
 /** Where canonical tickers come from: the venue's context, keyed by market id. */

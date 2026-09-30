@@ -223,6 +223,23 @@ export function registerAnalyticsRoutes(
     return envelope(await analytics.funding(timeframe));
   });
 
+  /** Forced exits in the window, newest first. Paged like round trips; the reader clamps. */
+  scope.get<{ Querystring: { timeframe?: string; limit?: string; offset?: string } }>(
+    `${prefix}/liquidations`,
+    async (request, reply) => {
+      const timeframe = timeframeOf(request.query);
+      if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+      const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+      const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
+      return envelope(
+        await analytics.liquidations(timeframe, {
+          ...(limit === undefined || !Number.isFinite(limit) ? {} : { limit }),
+          ...(offset === undefined || !Number.isFinite(offset) ? {} : { offset }),
+        }),
+      );
+    },
+  );
+
   /**
    * A wallet by address.
    *
@@ -305,6 +322,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/open-interest`,
       `${prefix}/markets?timeframe=24h`,
       `${prefix}/funding?timeframe=30d`,
+      `${prefix}/liquidations?timeframe=30d&limit=50&offset=0`,
       `${prefix}/wallet/:address`,
       `${prefix}/account/:accountId`,
       `${prefix}/account/:accountId/round-trips?limit=50&offset=0`,
