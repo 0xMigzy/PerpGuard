@@ -20,7 +20,9 @@ const TIER_COLOR: Record<RiskScore['tier'], string> = { safe: COLORS.safe, watch
 interface Column {
   readonly key: SortKey;
   readonly label: string;
-  /** Marks the header amber when its period is not the page's timeframe. */
+  /** A second, smaller line under the label: the period the column covers. */
+  readonly sub?: string;
+  /** Marks the sub-line amber when its period is not the page's timeframe. */
   readonly warn?: boolean;
   readonly title?: string;
   readonly align?: 'left' | 'right';
@@ -56,14 +58,14 @@ export function MarketsView() {
   const columns: readonly Column[] = [
     { key: 'symbol', label: 'Market', align: 'left' },
     { key: 'markPrice', label: 'Mark', title: 'The venue’s mark now; the indexed one when the venue has no reading.' },
-    { key: 'change', label: `Change · ${mw.label}`, warn: mw.warn, title: 'Mark now against the open of the first UTC day bucket in the window.' },
-    { key: 'volumeAusd', label: `Volume · ${period}` },
+    { key: 'change', label: 'Change', sub: mw.label, warn: mw.warn, title: 'Mark now against the open of the first UTC day bucket in the window.' },
+    { key: 'volumeAusd', label: 'Volume', sub: period },
     { key: 'tradeCount', label: 'Trades' },
-    { key: 'openInterestNotional', label: 'Open interest', title: 'The level, from the venue: size × mark. Not an indexed figure.' },
-    { key: 'longShare', label: 'Long / short', title: 'Share of open positions that are long. Counted in positions, not notional.' },
-    { key: 'fundingPct', label: 'Funding', title: 'The last funding rate applied in the window, in percent.' },
-    { key: 'liquidationCount', label: `Liqs · ${period}`, title: 'Liquidations in the window, and how many the trader’s free AUSD would have prevented.' },
-    { key: 'risk', label: 'Risk', title: 'A composite of volatility, liquidations, crowding and funding. Click a row to see the parts.' },
+    { key: 'openInterestNotional', label: 'Open int.', sub: 'level now', title: 'The level, from the venue: size × mark. Not an indexed figure.' },
+    { key: 'longShare', label: 'Long / short', sub: 'of positions', title: 'Share of open positions that are long. Counted in positions, not notional.' },
+    { key: 'fundingPct', label: 'Funding', sub: 'last rate', title: 'The last funding rate applied in the window, in percent.' },
+    { key: 'liquidationCount', label: 'Liqs', sub: period, title: 'Liquidations in the window, and how many the trader’s free AUSD would have prevented.' },
+    { key: 'risk', label: 'Risk', sub: '0–100', title: 'A composite of volatility, liquidations, crowding and funding. Click a row to see the parts.' },
   ];
 
   const oiAge = oi.data?.data.asOfMs === undefined ? undefined : formatAge(Date.now() - oi.data.data.asOfMs);
@@ -92,18 +94,23 @@ export function MarketsView() {
                     key={c.key}
                     scope="col"
                     aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={`px-[14px] py-[10px] font-semibold whitespace-nowrap ${c.align === 'left' ? 'text-left' : 'text-right'}`}
+                    className={`px-[10px] py-[8px] font-semibold whitespace-nowrap align-bottom ${
+                      c.align === 'left' ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'
+                    }`}
                   >
                     <button
                       type="button"
                       onClick={() => sortBy(c.key)}
                       title={c.title}
                       className={`cursor-pointer border-0 bg-transparent p-0 font-inherit text-inherit uppercase tracking-[0.06em] hover:text-text ${
-                        active ? 'text-text' : c.warn ? 'text-watch' : ''
+                        active ? 'text-text' : ''
                       }`}
                     >
                       {c.label}
                       {active && <span className="ml-1">{direction === 'asc' ? '↑' : '↓'}</span>}
+                      {c.sub !== undefined && (
+                        <span className={`block text-[10px] font-medium normal-case tracking-normal ${c.warn ? 'text-watch' : 'text-muted2'}`}>{c.sub}</span>
+                      )}
                     </button>
                   </th>
                 );
@@ -115,7 +122,7 @@ export function MarketsView() {
               ? Array.from({ length: 8 }, (_, i) => (
                   <tr key={i} className="border-b border-border last:border-b-0">
                     {columns.map((c) => (
-                      <td key={c.key} className="px-[14px] py-[11px]">
+                      <td key={c.key} className={`px-[10px] py-[10px] ${c.align === 'left' ? 'sticky left-0 z-[1] bg-card' : ''}`}>
                         <Skeleton className={`h-[14px] ${c.key === 'symbol' ? 'w-[60px]' : 'ml-auto w-[70px]'}`} />
                       </td>
                     ))}
@@ -129,7 +136,7 @@ export function MarketsView() {
                 ))}
             {rows !== undefined && rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="px-[14px] py-6 text-center text-muted">
+                <td colSpan={columns.length} className="px-[10px] py-6 text-center text-muted">
                   No market the venue lists has indexed activity in this window.
                 </td>
               </tr>
@@ -157,14 +164,17 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
   const changeClass = row.change === undefined ? 'text-muted' : row.change > 0 ? 'text-safe' : row.change < 0 ? 'text-danger' : 'text-muted';
   const fundingClass = row.fundingPct === undefined ? 'text-muted' : row.fundingPct > 0 ? 'text-safe' : row.fundingPct < 0 ? 'text-danger' : 'text-muted';
   const longPct = row.longShare === undefined ? undefined : Math.round(row.longShare * 100);
-  const cell = 'num px-[14px] py-[11px] text-right whitespace-nowrap';
+  const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
+  // The symbol stays pinned while the table scrolls sideways on a phone; it paints
+  // its own background so the cells sliding under it never show through.
+  const pinned = expanded ? 'bg-card2' : 'bg-card group-hover:bg-card2';
   return (
     <tr
-      className={`cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${expanded ? 'bg-card2' : ''}`}
+      className={`group cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${expanded ? 'bg-card2' : ''}`}
       onClick={onToggle}
       aria-expanded={expanded}
     >
-      <td className="px-[14px] py-[11px] font-semibold whitespace-nowrap">{row.symbol}</td>
+      <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${pinned}`}>{row.symbol}</td>
       <td className={cell} title={row.markPrice === undefined ? 'no mark known' : undefined}>
         {row.markPrice === undefined ? '—' : formatPriceAsServed(row.markPrice)}
       </td>
@@ -193,7 +203,7 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
           <span className="text-muted">no positions</span>
         ) : (
           <span className="inline-flex items-center gap-2">
-            <span className="inline-block h-[6px] w-[64px] overflow-hidden rounded-full bg-danger/50" aria-hidden="true">
+            <span className="inline-block h-[6px] w-[44px] overflow-hidden rounded-full bg-danger/50" aria-hidden="true">
               <i className="block h-full bg-safe" style={{ width: `${longPct}%` }} />
             </span>
             {longPct}% L
@@ -207,7 +217,7 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
       </td>
       <td className={cell}>
         <span className="inline-flex items-center gap-2">
-          <span className="inline-block h-[6px] w-[56px] overflow-hidden rounded-full bg-border2" aria-hidden="true">
+          <span className="inline-block h-[6px] w-[40px] overflow-hidden rounded-full bg-border2" aria-hidden="true">
             <i className="block h-full" style={{ width: `${row.risk.score}%`, background: TIER_COLOR[row.risk.tier] }} />
           </span>
           <b style={{ color: TIER_COLOR[row.risk.tier] }}>{row.risk.score}</b>
@@ -221,7 +231,7 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
 function RiskBreakdownRow({ row, columns, oiAge }: { readonly row: MarketRow; readonly columns: number; readonly oiAge: string | undefined }) {
   return (
     <tr className="border-b border-border bg-card2/60 last:border-b-0">
-      <td colSpan={columns} className="px-[14px] py-3">
+      <td colSpan={columns} className="px-[10px] py-3">
         <div className="mb-2 text-[12px] text-muted">
           <b className="text-text">{row.symbol} risk {row.risk.score}</b> = Σ value × weight × 100. Each value is the input against its ceiling, capped at 1.
           {oiAge !== undefined && ` Mark and open interest as of ${oiAge} ago.`}
