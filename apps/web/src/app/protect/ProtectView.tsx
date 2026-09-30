@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PrepareRequest, Prepared, ProtectPosition, ProtectProgress, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
-import { ApiError, describeError, protect } from '@/lib/api.ts';
+import { describeError, protect } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatPct, formatPriceAsServed, formatSignedAusd } from '@/lib/format.ts';
 import { closestToLiquidation, inFlightSource, meterPosition, stepsFor, tierOf, venueDisagrees, type Tier } from '@/lib/protect.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
+import { ProtectGate } from '@/components/ProtectGate.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 
 const SNAPSHOT_POLL_MS = 3_000;
@@ -20,77 +21,10 @@ const TIER_LABEL: Record<Tier, string> = { past: 'PAST LIQUIDATION', danger: 'DA
 type Snapshot = ProtectSnapshot & { readonly notes: readonly string[] };
 
 export function ProtectView() {
-  // The session first. A 401 here is the whole page: nothing else is fetched.
-  const me = usePoll(protect.me, 60_000, 'protect:me');
-  const signedOut = me.error instanceof ApiError && me.error.status === 401;
-  const session = me.data;
-
-  if (me.loading && session === undefined) {
-    return (
-      <>
-        <PageHeader title="Protect" subtitle="Your positions, their runway, and the button that adds margin before the venue takes it." />
-        <Skeleton className="h-[120px] w-full" />
-      </>
-    );
-  }
-  if (session === undefined) {
-    return (
-      <>
-        <PageHeader title="Protect" subtitle="Your positions, their runway, and the button that adds margin before the venue takes it." />
-        {signedOut ? <SignIn onSignedIn={me.refresh} /> : <ErrorNote error={me.error} what="Your session" />}
-      </>
-    );
-  }
-  return <Account onSignedOut={me.refresh} />;
-}
-
-// ── sign in ─────────────────────────────────────────────────────────────────
-
-function SignIn({ onSignedIn }: { readonly onSignedIn: () => void }) {
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | undefined>(undefined);
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (code.trim() === '' || busy) return;
-    setBusy(true);
-    setProblem(undefined);
-    try {
-      await protect.signIn(code);
-      onSignedIn();
-    } catch (error) {
-      setProblem(describeError(error));
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
-    <form onSubmit={submit} className="card max-w-[560px] px-[22px] py-5">
-      <div className="eyebrow">Private</div>
-      <h2 className="m-0 mt-1 text-[18px] font-bold tracking-[-0.02em]">This page shows one account, to its owner.</h2>
-      <p className="mt-2 mb-3 text-[13px] text-muted">
-        Send <b className="num font-semibold text-text">/web</b> to the PerpGuard bot in your linked Telegram chat. It replies with a one-time code that works for five
-        minutes. Nothing about the account is shown until it is entered.
-      </p>
-      <label htmlFor="link-code" className="eyebrow">
-        Sign-in code
-      </label>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <input
-          id="link-code"
-          className="num min-w-0 flex-1 rounded-[9px] border border-border2 bg-page px-3 py-2 text-[15px] tracking-[0.12em] text-text uppercase outline-none placeholder:normal-case placeholder:tracking-normal placeholder:text-muted focus:border-accent"
-          placeholder="XXXX-XXXX"
-          spellCheck={false}
-          autoComplete="one-time-code"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
-        <button type="submit" className="btn primary" disabled={busy || code.trim() === ''}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </div>
-      {problem !== undefined && <div className="mt-2 text-[12.5px] text-danger">{problem}</div>}
-    </form>
+    <ProtectGate title="Protect" subtitle="Your positions, their runway, and the button that adds margin before the venue takes it.">
+      {(_session, signOut) => <Account onSignedOut={signOut} />}
+    </ProtectGate>
   );
 }
 
@@ -103,10 +37,7 @@ function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
   const [chooser, setChooser] = useState<number | undefined>(undefined);
   const mine = useRef(new Set<string>());
 
-  const signOut = async () => {
-    await protect.signOut().catch(() => undefined);
-    onSignedOut();
-  };
+  const signOut = onSignedOut;
 
   const blind = s !== undefined && (s.feed.state !== 'connected' || s.positionsStatus.state !== 'live');
   const worst = s === undefined ? undefined : closestToLiquidation(s.positions);
@@ -134,7 +65,7 @@ function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
                 {worst?.priceAgeMs !== undefined && !blind && ` · price ${formatAge(worst.priceAgeMs)} old`}
               </span>
             )}
-            <button type="button" className="btn" onClick={() => void signOut()}>
+            <button type="button" className="btn" onClick={signOut}>
               Sign out
             </button>
           </>

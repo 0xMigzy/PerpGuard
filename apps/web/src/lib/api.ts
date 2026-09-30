@@ -6,7 +6,7 @@
  * indexer, or the venue. The types come from `@perpguard/shared` as TYPES only,
  * so nothing from the backend's runtime is bundled into the page.
  */
-import type { Prepared, PrepareRequest, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
+import type { Prepared, PrepareRequest, ProtectAlerts, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
 import type {
   AssessedPositions,
   DailyPoint,
@@ -151,6 +151,7 @@ export const protect = {
   execute: (token: string) => sendJson<{ idempotencyKey: string }>('POST', `${P}/execute`, { token }),
   progress: (key: string) => getJson<ProtectProgress>(`${P}/actions/${encodeURIComponent(key)}`),
   stress: (priceMoveFraction: number) => sendJson<ProtectStress>('POST', `${P}/stress`, { priceMoveFraction }),
+  alerts: (limit = 50) => getJson<ProtectAlerts>(`${P}/alerts?limit=${limit}`),
 };
 
 export const api = {
