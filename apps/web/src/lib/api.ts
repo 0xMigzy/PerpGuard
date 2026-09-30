@@ -7,6 +7,7 @@
  * so nothing from the backend's runtime is bundled into the page.
  */
 import type {
+  AssessedPositions,
   DailyPoint,
   IndexerHealth,
   LiquidationRecord,
@@ -14,8 +15,11 @@ import type {
   MarketDailySeries,
   MarketOpenInterest,
   ProtocolMetrics,
+  RoundTrip,
   Timeframe,
   TvlReading,
+  WalletLookup,
+  WalletProfile,
 } from '@perpguard/shared';
 
 /** What every analytics response looks like. Mirrors the backend's envelope. */
@@ -118,4 +122,11 @@ export const api = {
   markets: (t: Timeframe) => getJson<Envelope<readonly MarketBreakdown[]>>(`${A}/markets?timeframe=${t}`),
   liquidations: (t: Timeframe, limit: number, offset = 0) =>
     getJson<Envelope<readonly LiquidationRecord[]>>(`${A}/liquidations?timeframe=${t}&limit=${limit}&offset=${offset}`),
+  /** By address, any case. `not-linked` is an ordinary 200 answer, not an error. */
+  wallet: (address: string) => getJson<Envelope<WalletLookup>>(`${A}/wallet/${encodeURIComponent(address)}`),
+  /** By account id. A missing account is a 404, which surfaces as an ApiError with status 404. */
+  account: (accountId: number) => getJson<Envelope<WalletProfile>>(`${A}/account/${accountId}`),
+  accountPositions: (accountId: number) => getJson<Envelope<AssessedPositions>>(`${A}/account/${accountId}/positions`),
+  roundTrips: (accountId: number, limit: number, offset = 0) =>
+    getJson<Envelope<readonly RoundTrip[]>>(`${A}/account/${accountId}/round-trips?limit=${limit}&offset=${offset}`),
 };

@@ -152,3 +152,15 @@ export function formatFundingPct(pct: number): string {
   const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
   return `${sign}${Math.abs(pct).toLocaleString(EN, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}%`;
 }
+
+/** A duration as "3h 12m", "45s", "2d 4h": two units at most, the largest first. */
+export function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
