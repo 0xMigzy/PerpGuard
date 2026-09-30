@@ -47,13 +47,20 @@ import {
   InMemoryLinkStore,
   PendingActionStore,
   PendingAmountStore,
-  StubActionExecutor,
   TelegramAlertTransport,
+  VenueActionExecutor,
   createBot,
   freeBalanceFrom,
   loadBotConfig,
   type RiskView,
 } from '@perpguard/bot';
+import {
+  ActionsExecutor,
+  InMemoryActionLog,
+  LoopPositionReader,
+  PostgresActionLog,
+  type ActionLog,
+} from './actions/index.ts';
 import { MarketFeed } from './ingest/marketFeed.ts';
 import { RiskLoop } from './risk/loop.ts';
 import type { RiskAssessment } from './risk/types.ts';
@@ -262,7 +269,55 @@ const links = new InMemoryLinkStore({
 });
 const pendingActions = new PendingActionStore();
 const pendingAmounts = new PendingAmountStore();
-const executor = new StubActionExecutor({
+
+// ── the actions layer ───────────────────────────────────────────────────────
+//
+// THE ONLY PART OF PERPGUARD THAT MOVES MONEY. Everything about how it behaves is
+// in `src/actions`; what is wired here is which venue it acts on, which positions
+// it reconciles against, and where the rows go.
+//
+// `action_log` shares the alert log's pool when there is one. A run without
+// Postgres gets the in-memory log rather than no log: the two-phase open/settle
+// shape is what makes an unaccounted-for action findable, and that is worth having
+// even when it does not survive a restart.
+let actionLog: ActionLog = new InMemoryActionLog();
+if (alertDb !== undefined) {
+  try {
+    const pgActions = new PostgresActionLog(alertDb);
+    await pgActions.migrate();
+    actionLog = pgActions;
+    log('action_log ready on Postgres');
+  } catch (error) {
+    warn(
+      `action_log could not be prepared on Postgres (${
+        error instanceof Error ? error.message : String(error)
+      }); actions will be recorded in memory only.`,
+    );
+  }
+}
+
+const actionsExecutor = new ActionsExecutor({
+  venue,
+  positions: new LoopPositionReader({
+    source: positionSource,
+    configs: riskConfigs,
+    onAmbiguous: (marketId, count) =>
+      warn(
+        `${count} positions on market ${marketId}: refusing to reconcile an action against ` +
+          `either, because nothing says which one it went to`,
+      ),
+    onUnscalable: (marketId) =>
+      warn(`no market config for ${marketId}: cannot read its margin as exact integers`),
+  }),
+  // The gate the feed already encodes: refused when the FEED is not connected,
+  // never because a price is merely old.
+  prices: { canAct: (marketId) => feed.canAct(marketId, venue.feedStatus()) },
+  log: actionLog,
+  logger: { info: log, warn },
+});
+
+const executor = new VenueActionExecutor({
+  runner: actionsExecutor,
   availability: (symbol) => venue.getActionAvailability(symbol),
 });
 

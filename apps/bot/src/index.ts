@@ -7,6 +7,7 @@ export * from './config.ts';
 export * from './confirm.ts';
 export * from './custom.ts';
 export * from './delivery.ts';
+export * from './executor.ts';
 export * from './format.ts';
 export * from './help.ts';
 export * from './links.ts';

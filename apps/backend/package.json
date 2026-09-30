@@ -11,7 +11,9 @@
     "./risk": "./src/risk/types.ts",
     "./risk/loop": "./src/risk/loop.ts",
     "./ingest/market-feed": "./src/ingest/marketFeed.ts",
-    "./alerts/test-support": "./src/alerts/testSupport.ts"
+    "./alerts/test-support": "./src/alerts/testSupport.ts",
+    "./actions": "./src/actions/index.ts",
+    "./actions/types": "./src/actions/types.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

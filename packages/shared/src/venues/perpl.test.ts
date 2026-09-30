@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { loadNetworkConfig } from '../config.ts';
-import { NotImplementedError, VenueRequestError } from '../errors.ts';
+import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
 import { ContextSchema } from './perpl-context.ts';
 import { ApiSecret } from './perpl-signing.ts';
 import { PerplVenue, toVenueMarket } from './perpl.ts';
@@ -316,8 +316,11 @@ describe('unimplemented venue actions', () => {
 
   // These must reject, never resolve: a stub that resolved could be read as a
   // completed action, and no action is complete before mt: 24 anyway.
+  // Reduce and close stay unbuilt DELIBERATELY: their wire frames have not been
+  // measured against a real round trip. Same rule that produced the position
+  // shape — measure, then build — and the actions layer reports them as refused
+  // rather than pretending.
   const cases: Array<[string, () => Promise<unknown>]> = [
-    ['addMargin', () => venue.addMargin({ idempotencyKey: 'k', symbol: 'BTC', amount: 10 })],
     ['reducePosition', () => venue.reducePosition({ idempotencyKey: 'k', symbol: 'BTC', size: 1 })],
     ['closePosition', () => venue.closePosition({ idempotencyKey: 'k', symbol: 'BTC' })],
     ['cancelAll', () => venue.cancelAll({ idempotencyKey: 'k' })],
@@ -328,6 +331,24 @@ describe('unimplemented venue actions', () => {
       await assert.rejects(call(), NotImplementedError);
     });
   }
+
+  it('addMargin is built, so it fails on the missing key rather than as unimplemented', async () => {
+    // `t: 6` IS measured — four round trips in docs/evidence.md — so it is wired.
+    // Without credentials it cannot reach a socket, and that is a different and
+    // more honest failure than "not implemented".
+    await assert.rejects(
+      venue.addMargin({
+        idempotencyKey: 'k',
+        symbol: 'BTC',
+        positionId: 1,
+        amountCNS: 10_000_000n,
+      }),
+      (error: unknown) =>
+        error instanceof VenueError &&
+        !(error instanceof NotImplementedError) &&
+        /no API credentials/.test(error.message),
+    );
+  });
 });
 
 describe('PerplVenue.feedStatus', () => {

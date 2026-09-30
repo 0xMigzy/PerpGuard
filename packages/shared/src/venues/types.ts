@@ -300,8 +300,24 @@ export interface CancelOrderRequest extends ActionRequest {
 }
 
 export interface AddMarginRequest extends ActionRequest {
-  /** AUSD to add to this position's isolated margin. */
-  readonly amount: number;
+  /**
+   * `lp` — the position to top up. REQUIRED, and read off the live position.
+   *
+   * Isolated margin means collateral goes to ONE position, so there is no
+   * account-level top-up to fall back on and nothing to default this to. It
+   * cannot be reconstructed from the market id either: a market that goes flat
+   * and is reopened is a new position with a new id.
+   */
+  readonly positionId: number;
+  /**
+   * Collateral to ADD, in AUSD micros. Not the new total.
+   *
+   * A BIGINT, not a human number: this is the figure a user read on a
+   * confirmation screen and it has to reach the wire unchanged. Money maths in
+   * this repo is integer-only, and `1000.07` through a float is how the amount
+   * sent stops being the amount shown.
+   */
+  readonly amountCNS: bigint;
 }
 
 export interface ReducePositionRequest extends ActionRequest {

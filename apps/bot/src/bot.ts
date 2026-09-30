@@ -534,6 +534,21 @@ async function runConfirmed(
   });
 
   switch (outcome.kind) {
+    case 'applied':
+      // EARNED, not assumed. The actions layer read this position's margin before
+      // and after and saw the exact delta; the venue's own `st: 7 Failed` does not
+      // appear here, because it is not what happened and saying it would only
+      // teach the reader to distrust the answer.
+      await ctx.reply(outcome.detail);
+      return;
+    case 'not-applied':
+      await ctx.reply(outcome.detail);
+      return;
+    case 'unknown':
+      // The one reply that must not read as either success or failure, and must
+      // not leave a gap a user fills with a retry.
+      await ctx.reply(`${outcome.detail}\n\n${outcome.nextStep}`);
+      return;
     case 'not-implemented':
       await ctx.reply(`Not sent. ${outcome.detail}`);
       return;

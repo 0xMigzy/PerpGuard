@@ -2,17 +2,21 @@
  * The port a button tap goes through, and the short-lived store that holds what
  * the button meant.
  *
- * NOTHING HERE EXECUTES ANYTHING YET. The executor is stubbed on purpose: adding
- * margin on Perpl comes back `st: 7 Failed, sr: 32 OrderDescIdTooLow` on
- * `mt: 24` while the collateral IS credited, so the real implementation has to
- * reconcile against the position's `c` before and after, must never re-send on
- * the reported failure, and must never report that failure to the user. A naive
- * send wired up today would double a trader's collateral the first time the
+ * NOTHING HERE EXECUTES ANYTHING. This is the port; the implementation that
+ * actually sends lives in `apps/backend/src/actions` and reaches the bot through
+ * `VenueActionExecutor` in `executor.ts` next door.
+ *
+ * The reason that layer exists at all, and the reason this port's outcome type is
+ * shaped the way it is: adding margin on Perpl comes back `st: 7 Failed,
+ * sr: 32 OrderDescIdTooLow` on `mt: 24` while the collateral IS credited. So an
+ * implementation has to reconcile against the position's `c` before and after,
+ * must never re-send on the reported failure, and must never report that failure
+ * to the user. A naive send would double a trader's collateral the first time the
  * venue lied about it — that happened during the investigation, 0.0559 ->
  * 0.083584 -> 0.111268 AUSD. See CLAUDE.md and `docs/evidence.md`.
  *
- * So the port exists, the confirmation screen exists, and execution says plainly
- * that it lands next.
+ * {@link StubActionExecutor} is still here for the tests and for a bot wired
+ * without a trading session, and it still refuses to pretend it acted.
  */
 import type { ActionAvailability } from '@perpguard/shared';
 import type { AlertAction } from '@perpguard/backend/alerts';
@@ -20,20 +24,47 @@ import type { AlertAction } from '@perpguard/backend/alerts';
 /**
  * What an execution attempt reports.
  *
- * THERE IS NO SUCCESS VARIANT, and that is the same discipline as `mt: 3` not
- * being success: nothing in this codebase may claim an action landed until
- * something has actually confirmed it did. Adding a `succeeded` case before the
- * reconciliation exists would make "we have not built this" and "your margin is
- * in" representable by the same shape.
+ * THERE IS EXACTLY ONE THING THAT EARNS `applied`, AND IT IS NOT THE VENUE'S
+ * WORD. It is the position itself: the margin read before the action, read again
+ * after, showing the delta that was asked for. Nothing else counts — not
+ * `mt: 3`, which means forwarded and nothing more, and emphatically not
+ * `mt: 24`, which for a top-up comes back `st: 7 Failed, sr: 32
+ * OrderDescIdTooLow` while the collateral is credited in full.
+ *
+ * This type had no success variant at all while the reconciliation did not exist,
+ * because "we have not built this" and "your margin is in" must never be
+ * representable by the same shape. The variant is here now because
+ * `apps/backend/src/actions` reconciles against the position and can therefore
+ * say it. If that reconciliation is ever removed, this variant goes with it.
+ *
+ * `unknown` is a first-class outcome for the same reason. An action whose effect
+ * cannot be established is neither success nor failure, and the one conclusion a
+ * reader must never draw from it is "so try again".
  */
 export type ExecutionOutcome =
+  /**
+   * Reconciled against the position, and the change is there.
+   *
+   * Earned by evidence, never by a status code.
+   */
+  | { readonly kind: 'applied'; readonly detail: string }
+  /** Sent, reconciled, and the position did not move. */
+  | { readonly kind: 'not-applied'; readonly detail: string }
+  /**
+   * Sent, and what it did cannot be established.
+   *
+   * `nextStep` is mandatory: an unknown outcome that does not say what to do
+   * about it is a dead end, and the user must not fill that silence with a retry.
+   */
+  | { readonly kind: 'unknown'; readonly detail: string; readonly nextStep: string }
   /** Built, but not wired. Honest, and never mistakable for a fill. */
   | { readonly kind: 'not-implemented'; readonly detail: string }
   /** Refused before submission — an unavailable market, a `fw` flag that is false. */
   | { readonly kind: 'refused'; readonly detail: string }
   /**
    * Sent, outcome not yet known. What `mt: 3` earns and nothing more.
-   * Unused today; declared so the real executor need not widen the type.
+   *
+   * Kept for a venue that admits a request and cannot be reconciled at all.
    */
   | { readonly kind: 'submitted'; readonly detail: string };
 

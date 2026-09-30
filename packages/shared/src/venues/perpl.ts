@@ -11,6 +11,7 @@ import {
   type FeedEvent,
 } from './perpl-market-data.ts';
 import {
+  buildAddMarginFrame,
   buildCancelFrame,
   buildLimitOrderFrame,
   computeLastExecBlock,
@@ -741,8 +742,66 @@ export class PerplVenue implements Venue {
     return decoded.open;
   }
 
-  addMargin(_request: AddMarginRequest): Promise<ActionResult> {
-    return Promise.reject(new NotImplementedError(VENUE_ID, 'addMargin'));
+  /**
+   * Add collateral to one position — `t: 6` IncreasePositionCollateral.
+   *
+   * THE RESULT THIS RETURNS IS WHAT THE VENUE SAID, NOT WHAT HAPPENED. A `t: 6`
+   * comes back `st: 7 Failed, sr: 32 OrderDescIdTooLow` while the collateral is
+   * credited in full — measured four times across three testnet runs, recorded in
+   * `docs/evidence.md`. So this resolves `rejected` on the normal successful
+   * path, and the caller MUST reconcile against the position's own margin rather
+   * than believing it. `ADD_MARGIN_STATUS_CAVEAT` is appended to the reason so
+   * the warning travels with the status.
+   *
+   * It stays that way deliberately rather than being papered over here: this
+   * class's job is to report the venue faithfully, and a venue adapter that
+   * quietly rewrote a failure into a success would be the more dangerous of the
+   * two mistakes. The reconciliation lives in `apps/backend/src/actions`, which
+   * is the layer that can see the position before and after.
+   *
+   * A TIMEOUT THROWS, as everywhere else, and is equally not a failure. Never
+   * re-send either one: doing exactly that during the investigation added the
+   * margin twice.
+   */
+  async addMargin(request: AddMarginRequest): Promise<ActionResult> {
+    const market = await this.#requireActionable(request.symbol);
+    const socket = await this.connectTrading();
+
+    const accountId = socket.accountId;
+    if (accountId === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'no account id: the WalletSnapshot carried none, so this key has no on-chain account ' +
+          'on this network yet',
+      );
+    }
+
+    const frame = buildAddMarginFrame({
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      marketId: market.marketId,
+      accountId,
+      positionId: request.positionId,
+      amountCNS: request.amountCNS,
+      lastExecBlock: computeLastExecBlock(
+        await this.#headBlock(socket),
+        market.orderTtlBlocks,
+        LAST_EXEC_BLOCK_SAFETY,
+      ),
+    });
+
+    return this.#execute({
+      frame,
+      intent: 'add-margin',
+      idempotencyKey: request.idempotencyKey,
+      symbol: request.symbol,
+      // The `mt: 24` for a `t: 6` carries our own `rq`, which matchPlacement
+      // prefers over every other correlator. Verified against the captured
+      // frame in docs/evidence.md.
+      matches: matchPlacement(frame, socket.knownOrderIds),
+      onForwarded: request.onForwarded,
+      timeoutMs: request.timeoutMs,
+    });
   }
 
   reducePosition(_request: ReducePositionRequest): Promise<ActionResult> {

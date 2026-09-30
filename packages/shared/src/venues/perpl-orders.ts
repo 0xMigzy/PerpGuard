@@ -162,8 +162,28 @@ export function isDefinitiveStatus(st: number): boolean {
   return DEFINITIVE_STATUSES.has(st) || st === FAILED || st === EXPIRED;
 }
 
-/** What a submitted frame was trying to achieve, which decides how `st` reads. */
-export type OrderIntent = 'place' | 'cancel';
+/**
+ * What a submitted frame was trying to achieve, which decides how `st` reads.
+ *
+ * `add-margin` is here for ONE reason: so the reason string can say that the
+ * status it is describing is not the outcome. A `t: 6` comes back
+ * `st: 7 Failed` while the collateral is credited in full, so the answer
+ * {@link classifyOrderUpdate} gives for this intent is a faithful report of what
+ * the venue SAID and nothing more. What actually happened is only knowable from
+ * the position's own margin.
+ */
+export type OrderIntent = 'place' | 'cancel' | 'add-margin';
+
+/**
+ * Appended to a `t: 6` outcome, so the warning travels with the status into
+ * every log line and `action_log` row that quotes it.
+ *
+ * A human reading "st: 7 Failed, sr: 32 OrderDescIdTooLow" in a table months
+ * from now has no way to know it probably worked. This is how they find out.
+ */
+export const ADD_MARGIN_STATUS_CAVEAT =
+  'this order type reports failure even when the collateral is credited in full — ' +
+  'reconcile against the position’s margin, and never re-send';
 
 export type OrderOutcome = 'confirmed' | 'rejected' | 'pending';
 
@@ -192,6 +212,17 @@ export function classifyOrderUpdate(
     if (st === FAILED) return { outcome: 'rejected', reason };
     // Still Open/PartiallyFilled: the cancel has not taken effect yet.
     return { outcome: 'pending', reason };
+  }
+
+  if (intent === 'add-margin') {
+    // Reported faithfully and qualified immediately. `st: 7` here is the NORMAL
+    // observed outcome of a top-up that worked, so a caller that treats this
+    // 'rejected' as the answer will tell a trader their rescue failed when it
+    // did not — and they will then do it again by hand.
+    if (st === 1) return { outcome: 'pending', reason };
+    if (!isDefinitiveStatus(st)) return { outcome: 'pending', reason };
+    const outcome: OrderOutcome = st === FAILED || st === EXPIRED || st === 5 ? 'rejected' : 'confirmed';
+    return { outcome, reason: `${reason} — ${ADD_MARGIN_STATUS_CAVEAT}` };
   }
 
   if (st === 1) return { outcome: 'pending', reason };
