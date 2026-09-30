@@ -4,24 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev --turbopack -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@dynamic-labs/ethereum": "5.9.2",
+    "@dynamic-labs/sdk-react-core": "5.9.2",
     "next": "^15.5.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "recharts": "^3.0.0"
   },
   "devDependencies": {
+    "@perpguard/backend": "workspace:*",
     "@perpguard/shared": "workspace:*",
     "@tailwindcss/postcss": "^4.1.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "postcss": "^8.5.0",
-    "tailwindcss": "^4.1.0",
-    "@perpguard/backend": "workspace:*"
+    "tailwindcss": "^4.1.0"
   }
 }

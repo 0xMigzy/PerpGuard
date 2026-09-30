@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PrepareRequest, Prepared, ProtectPosition, ProtectProgress, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
+import type { PrepareRequest, Prepared, ProtectPosition, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
 import { describeError, protect } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatPct, formatPriceAsServed, formatSignedAusd } from '@/lib/format.ts';
 import { closestToLiquidation, inFlightSource, meterPosition, stepsFor, tierOf, venueDisagrees, type Tier } from '@/lib/protect.ts';
@@ -23,23 +23,27 @@ type Snapshot = ProtectSnapshot & { readonly notes: readonly string[] };
 export function ProtectView() {
   return (
     <ProtectGate title="Protect" subtitle="Your positions, their runway, and the button that adds margin before the venue takes it.">
-      {(_session, signOut) => <Account onSignedOut={signOut} />}
+      {(session, signOut) => <Account session={session} onSignedOut={signOut} />}
     </ProtectGate>
   );
 }
 
 // ── the account ─────────────────────────────────────────────────────────────
 
-function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
+function Account({ session, onSignedOut }: { readonly session: ProtectSession; readonly onSignedOut: () => void }) {
   const snap = usePoll(protect.positions, SNAPSHOT_POLL_MS, 'protect:positions');
   const s = snap.data;
+  // A demo may look and never act. The backend refuses too; this only keeps
+  // the buttons from promising what a click would be refused.
+  const readOnly = session.role === 'demo';
   const [confirm, setConfirm] = useState<Prepared | undefined>(undefined);
   const [chooser, setChooser] = useState<number | undefined>(undefined);
   const mine = useRef(new Set<string>());
 
   const signOut = onSignedOut;
 
-  const blind = s !== undefined && (s.feed.state !== 'connected' || s.positionsStatus.state !== 'live');
+  const blind = readOnly || (s !== undefined && (s.feed.state !== 'connected' || s.positionsStatus.state !== 'live'));
+  const reallyBlind = s !== undefined && (s.feed.state !== 'connected' || s.positionsStatus.state !== 'live');
   const worst = s === undefined ? undefined : closestToLiquidation(s.positions);
   const flagged = s === undefined ? 0 : s.positions.filter((p) => tierOf(p.state) === 'danger' || tierOf(p.state) === 'past').length;
   const marginAtRisk = s === undefined ? 0 : s.positions.reduce((sum, p) => sum + p.marginAusd, 0);
@@ -60,9 +64,9 @@ function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
           <>
             {s !== undefined && (
               <span className="inline-flex items-center gap-2 rounded-[9px] border border-border2 bg-card px-3 py-[6px] text-[12.5px] text-muted">
-                <i className="inline-block h-[8px] w-[8px] rounded-full" style={{ background: blind ? COLORS.danger : COLORS.safe }} />
-                {blind ? 'Blind' : 'Positions live'}
-                {worst?.priceAgeMs !== undefined && !blind && ` · price ${formatAge(worst.priceAgeMs)} old`}
+                <i className="inline-block h-[8px] w-[8px] rounded-full" style={{ background: reallyBlind ? COLORS.danger : COLORS.safe }} />
+                {reallyBlind ? 'Blind' : 'Positions live'}
+                {worst?.priceAgeMs !== undefined && !reallyBlind && ` · price ${formatAge(worst.priceAgeMs)} old`}
               </span>
             )}
             <button type="button" className="btn" onClick={signOut}>
@@ -73,7 +77,17 @@ function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
       />
 
       <ErrorNote error={snap.error} what="Your positions" />
-      {s !== undefined && blind && (
+      <SessionLine session={session} />
+      {readOnly && (
+        <div role="status" className="mb-4 rounded-[10px] border border-accent/40 bg-accent/10 px-4 py-3 text-[13px]">
+          <b className="text-accent-hi">Demo account, read-only.</b>{' '}
+          <span className="text-muted">
+            This is PerpGuard&rsquo;s own testnet account, shown live. Every number is real and every button is disabled: nothing can be sent from a demo session.
+            Sign in with the wallet that owns a Perpl account to protect yours.
+          </span>
+        </div>
+      )}
+      {s !== undefined && reallyBlind && (
         <div role="alert" className="mb-4 rounded-[10px] border border-danger/40 bg-danger/10 px-4 py-3 text-[13px]">
           <b className="text-danger">PerpGuard is blind.</b>{' '}
           <span className="text-muted">
@@ -163,7 +177,7 @@ function Account({ onSignedOut }: { readonly onSignedOut: () => void }) {
       {/* ── stress + thresholds ────────────────────────────────────────── */}
       {s !== undefined && (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <StressCard enabled={s.positions.length > 0 && !blind} />
+          <StressCard enabled={s.positions.length > 0 && !reallyBlind} />
           <div className="card px-[18px] py-4">
             <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
               <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Alert thresholds</h2>
@@ -287,6 +301,8 @@ function PositionCard(props: {
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const unavailable = p.availability !== undefined && !p.availability.actionable ? p.availability.reason : undefined;
   const off = props.blind || unavailable !== undefined || p.inFlight !== undefined;
+  // The session-level reason wins the tooltip: a read-only or blind session is why nothing works, whatever the market says.
+  const offReason = props.blind ? 'Not available in a read-only or blind session' : unavailable;
 
   const pick = (request: PrepareRequest) => {
     setProblem(undefined);
@@ -343,16 +359,16 @@ function PositionCard(props: {
             <InFlightNote position={p} mine={props.mine} />
           ) : (
             <>
-              <button type="button" className="btn primary" disabled={off || p.options.length === 0} title={unavailable ?? (p.options.length === 0 ? 'This position already has the room both options would buy; use a custom amount.' : undefined)} onClick={() => props.onChooser(!props.chooserOpen)}>
+              <button type="button" className="btn primary" disabled={off || p.options.length === 0} title={offReason ?? (p.options.length === 0 ? 'This position already has the room both options would buy; use a custom amount.' : undefined)} onClick={() => props.onChooser(!props.chooserOpen)}>
                 Add margin
               </button>
               <button type="button" className="btn" disabled title="Reduce is not built yet. A proportional reduce leaves the liquidation price where it is; only keeping margin while reducing buys room, and that path has not been measured on the venue.">
                 Reduce
               </button>
-              <button type="button" className="btn" disabled={off} title={unavailable} onClick={() => void pick({ kind: 'close-position', marketId: p.marketId })}>
+              <button type="button" className="btn" disabled={off} title={offReason} onClick={() => void pick({ kind: 'close-position', marketId: p.marketId })}>
                 Close
               </button>
-              <button type="button" className="btn danger ml-auto" disabled={props.blind} onClick={props.onKill}>
+              <button type="button" className="btn danger ml-auto" disabled={props.blind} title={props.blind ? offReason : undefined} onClick={props.onKill}>
                 Kill switch
               </button>
             </>
@@ -629,6 +645,34 @@ function StressCard({ enabled }: { readonly enabled: boolean }) {
               </>
             )}
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Who is signed in, how, and the trust line that goes with it. */
+function SessionLine({ session }: { readonly session: ProtectSession }) {
+  const short = session.wallet === undefined ? 'a wallet' : `wallet ${session.wallet.slice(0, 6)}…${session.wallet.slice(-4)}`;
+  const how =
+    session.method === 'dynamic'
+      ? session.role === 'owner'
+        ? `Signed in with ${short}; PerpGuard read the account off the Exchange contract from that address.`
+        : `Signed in with ${short}, which owns no account on this network, so this is the demo account instead.`
+      : session.method === 'code'
+        ? 'Signed in with a one-time code from the Telegram bot.'
+        : 'Demo session: no sign-in, no wallet.';
+  return (
+    <div className="mb-4 text-[12.5px] text-muted">
+      {how} No API key, seed phrase or fund-moving signature was involved.
+      {session.ownAccountId !== undefined && session.role === 'demo' && (
+        <>
+          {' '}
+          Your wallet owns account {session.ownAccountId} on the analytics network:{' '}
+          <a href={`/wallets/${session.ownAccountId}`} className="text-accent-hi">
+            see its history
+          </a>
+          .
         </>
       )}
     </div>

@@ -30,8 +30,21 @@ export type { RiskState, RiskThresholds, ActionAvailability, FeedHealth, Positio
 export interface ProtectSession {
   readonly userId: string;
   readonly network: NetworkName;
+  /** The account this backend monitors: the one shown on Protect. */
   readonly accountId: number | undefined;
+  readonly role: 'owner' | 'demo';
+  readonly method: 'dynamic' | 'code' | 'demo';
+  readonly wallet: string | undefined;
+  /** The signed-in wallet's own account on the analytics network, if it has one. */
+  readonly ownAccountId: number | undefined;
   readonly expiresAtMs: number;
+}
+
+/** What the sign-in card needs before anyone is signed in. Public, and says nothing about the account. */
+export interface ProtectConfig {
+  readonly dynamicConfigured: boolean;
+  readonly demoEnabled: boolean;
+  readonly network: NetworkName;
 }
 
 /** One offered top-up, its label exactly as the bot renders it. */

@@ -3,7 +3,12 @@ packages:
   - packages/*
 
 allowBuilds:
+  '@reown/appkit': false
+  bigint-buffer: false
+  bufferutil: false
   esbuild: true
+  protobufjs: false
+  utf-8-validate: false
 
 # `apps/backend` and `apps/bot` depend on each other, and that is deliberate:
 # the bot consumes the alerts and risk CONTRACTS (AlertMessage, RiskAssessment,

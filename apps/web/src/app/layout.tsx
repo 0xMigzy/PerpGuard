@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
+import { DynamicProviders } from '@/components/DynamicProviders.tsx';
 import { Footer } from '@/components/Footer.tsx';
 import { Header } from '@/components/Header.tsx';
 import './globals.css';
@@ -31,9 +32,11 @@ export default function RootLayout({ children }: { readonly children: ReactNode 
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <Header />
-        <main className="wrap pt-[26px] pb-[60px]">{children}</main>
-        <Footer />
+        <DynamicProviders>
+          <Header />
+          <main className="wrap pt-[26px] pb-[60px]">{children}</main>
+          <Footer />
+        </DynamicProviders>
       </body>
     </html>
   );

@@ -44,6 +44,7 @@ import {
   loadAppConfig,
   loadNetworkConfig,
   loadPerplCredentials,
+  lookupAccountByAddress,
   type MarketRiskConfig,
   type NetworkConfig,
   type VenueMarket,
@@ -79,6 +80,7 @@ import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
+import { DynamicVerifier } from './server/protect/dynamic.ts';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { TradingSession } from './server/tradingSession.ts';
 
@@ -287,8 +289,23 @@ const webSessions = new SessionStore();
 const webLinkCodes = new LinkCodeStore();
 const webPending = new WebPendingActionStore();
 const actionProgress = new ActionProgressTracker();
-const devLinkMint = process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1';
+// REFUSED IN PRODUCTION regardless of the flag: a loopback mint on a host that
+// also runs a reverse proxy is an owner session for whoever reaches the proxy.
+const devLinkMint = process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1' && process.env['NODE_ENV'] !== 'production';
 if (devLinkMint) warn('PERPGUARD_WEB_DEV_LINK=1: web sign-in codes can be minted from localhost. Dev only.');
+if (process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1' && !devLinkMint) warn('PERPGUARD_WEB_DEV_LINK is set but ignored: NODE_ENV is production.');
+
+// Dynamic sign-in: the environment id is the only configuration, and the
+// verifier fetches that environment's public keys itself. Without it the
+// sign-in card offers the bot code and, when enabled, the demo.
+const dynamicEnvironmentId = process.env['DYNAMIC_ENVIRONMENT_ID']?.trim();
+const dynamicVerifier = dynamicEnvironmentId === undefined || dynamicEnvironmentId === '' ? undefined : new DynamicVerifier({ environmentId: dynamicEnvironmentId });
+log(dynamicVerifier === undefined ? 'DYNAMIC_ENVIRONMENT_ID is not set; wallet sign-in is off' : 'Dynamic sign-in configured');
+// Demo mode: anyone may open a READ-ONLY session on the monitored account.
+// For the judge-facing deployment of PerpGuard's own test account, and for
+// nothing else — a real trader's deployment leaves it off.
+const demoEnabled = process.env['PERPGUARD_DEMO_ACCOUNT']?.trim() === '1';
+if (demoEnabled) warn('PERPGUARD_DEMO_ACCOUNT=1: anyone can open a read-only session on the monitored account.');
 
 // ── the actions layer ───────────────────────────────────────────────────────
 //
@@ -543,6 +560,20 @@ const app = createHealthApp({
       historyFor: (marketId) => engine.historyFor(marketId),
     },
     devLinkMint,
+    demoEnabled,
+    ...(dynamicVerifier === undefined ? {} : { dynamic: dynamicVerifier }),
+    // ONE eth_call per network, through the venue layer. The trading network
+    // decides ownership of the monitored account; the analytics network, when
+    // it is a different one, only supplies a profile link.
+    resolveAccount: async (wallet) => {
+      const trading = await lookupAccountByAddress(wallet, { rpcUrl: network.rpcUrl, exchangeAddress: network.exchangeAddress });
+      const analyticsNet = analyticsVenue?.network;
+      const analytics =
+        analyticsNet === undefined || analyticsNet.name === network.name
+          ? trading
+          : await lookupAccountByAddress(wallet, { rpcUrl: analyticsNet.rpcUrl, exchangeAddress: analyticsNet.exchangeAddress });
+      return { trading, analytics };
+    },
     logger: { info: log, warn },
   },
   // Mounted only when the indexer database is configured. A backend that refused

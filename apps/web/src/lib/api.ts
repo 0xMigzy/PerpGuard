@@ -6,7 +6,7 @@
  * indexer, or the venue. The types come from `@perpguard/shared` as TYPES only,
  * so nothing from the backend's runtime is bundled into the page.
  */
-import type { Prepared, PrepareRequest, ProtectAlerts, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
+import type { Prepared, PrepareRequest, ProtectAlerts, ProtectConfig, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
 import type {
   AssessedPositions,
   DailyPoint,
@@ -143,8 +143,14 @@ const P = '/api/protect';
 
 /** The session-gated Protect API. A 401 surfaces as an ApiError with status 401. */
 export const protect = {
+  /** Public: what the sign-in card may offer. Says nothing about the account. */
+  config: () => getJson<ProtectConfig>(`${P}/config`),
   me: () => getJson<ProtectSession>(`${P}/me`),
   signIn: (code: string) => sendJson<ProtectSession>('POST', `${P}/session`, { code }),
+  /** Dynamic's JWT, verified by the backend against the environment's keys. */
+  signInWithDynamic: (dynamicToken: string) => sendJson<ProtectSession>('POST', `${P}/session`, { dynamicToken }),
+  /** A read-only look at the monitored account, when the operator allows it. */
+  signInDemo: () => sendJson<ProtectSession>('POST', `${P}/session`, { demo: true }),
   signOut: () => sendJson<{ signedOut: boolean }>('DELETE', `${P}/session`),
   positions: () => getJson<ProtectSnapshot & { readonly notes: readonly string[] }>(`${P}/positions`),
   prepare: (request: PrepareRequest) => sendJson<Prepared>('POST', `${P}/prepare`, request),

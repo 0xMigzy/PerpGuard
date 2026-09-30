@@ -55,7 +55,10 @@ import {
   type WebPendingActionStore,
 } from './session.ts';
 import { renderCloseConfirmation, renderKillSwitchConfirmation, toProtectKillSwitch, toProtectOutcome, toProtectPosition, toProtectStress } from './dto.ts';
-import type { PrepareRequest, Prepared, ProtectAlerts, ProtectFreeBalance, ProtectSnapshot } from './types.ts';
+import type { PrepareRequest, Prepared, ProtectAlerts, ProtectConfig, ProtectFreeBalance, ProtectSession, ProtectSnapshot } from './types.ts';
+import type { DynamicIdentity } from './dynamic.ts';
+import type { AccountLookup } from '@perpguard/shared';
+import type { Session } from './session.ts';
 import type { AlertHistory, AlertLogEntry } from '../../alerts/types.ts';
 import type { AlertDeliveryStatus } from '../health.ts';
 
@@ -96,6 +99,20 @@ export interface ProtectRouteOptions {
     botUsername(): string | undefined;
     historyFor(marketId: number): AlertHistory | undefined;
   };
+  /**
+   * Dynamic, when configured. Absent means the sign-in card offers no wallet
+   * login and says so. The verifier is injected so the tests sign their own
+   * tokens.
+   */
+  readonly dynamic?: { verify(token: string): Promise<DynamicIdentity> };
+  /**
+   * Wallet -> account, on the TRADING network (decides ownership of the
+   * monitored account) and, when there is one, the analytics network (for a
+   * profile link). Both are chain reads through the venue layer.
+   */
+  readonly resolveAccount?: (wallet: string) => Promise<{ readonly trading: AccountLookup; readonly analytics: AccountLookup | undefined }>;
+  /** Lets anyone open a READ-ONLY session on the monitored account. Judge-facing; off unless said so. */
+  readonly demoEnabled?: boolean;
   /** DEV ONLY: mint a code from the loopback interface. Never on by default. */
   readonly devLinkMint?: boolean;
   readonly now?: () => number;
@@ -125,18 +142,90 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
     return { code: minted.code, expiresAtMs: minted.expiresAtMs, ttlMs: LINK_CODE_TTL_MS };
   });
 
+  // ── what the sign-in card may know before anyone is signed in ─────────────
+  app.get(`${prefix}/config`, async (): Promise<ProtectConfig> => ({
+    dynamicConfigured: options.dynamic !== undefined,
+    demoEnabled: options.demoEnabled === true,
+    network: options.view.network,
+  }));
+
+  const describe = (session: Session): ProtectSession => ({
+    userId: session.userId,
+    network: options.view.network,
+    accountId: options.accountId(),
+    role: session.role,
+    method: session.method,
+    wallet: session.wallet,
+    ownAccountId: session.ownAccountId,
+    expiresAtMs: session.expiresAtMs,
+  });
+
+  const open = (reply: FastifyReply, request: FastifyRequest, session: Session): ProtectSession => {
+    reply.header('set-cookie', sessionCookie(session.token, { secure: isSecure(request), maxAgeSec: (session.expiresAtMs - now()) / 1000 }));
+    return describe(session);
+  };
+
   // ── sign in / out ─────────────────────────────────────────────────────────
-  app.post<{ Body: { code?: unknown } }>(`${prefix}/session`, async (request, reply) => {
-    const code = typeof request.body?.code === 'string' ? request.body.code : '';
+  //
+  // THREE WAYS IN, ONE SHAPE OUT. A Dynamic token proves a wallet and the
+  // account is read off the chain from it; a bot code proves the linked person;
+  // a demo request proves nothing and gets a read-only look at the monitored
+  // account, only where the operator has allowed that.
+  app.post<{ Body: { code?: unknown; dynamicToken?: unknown; demo?: unknown } }>(`${prefix}/session`, async (request, reply) => {
+    const body = request.body ?? {};
+
+    if (typeof body.dynamicToken === 'string' && body.dynamicToken !== '') {
+      if (options.dynamic === undefined) return reply.code(503).send({ error: 'Dynamic sign-in is not configured on this backend.' });
+      let identity: DynamicIdentity;
+      try {
+        identity = await options.dynamic.verify(body.dynamicToken);
+      } catch (error) {
+        return reply.code(401).send({ error: `That sign-in could not be verified: ${error instanceof Error ? error.message : String(error)}` });
+      }
+      // The wallet decides. PerpGuard reads the account FROM the address; the
+      // user hands over nothing else.
+      const monitored = options.accountId();
+      let wallet: string | undefined;
+      let ownAccountId: number | undefined;
+      let owner = false;
+      for (const candidate of identity.wallets) {
+        wallet ??= candidate;
+        const resolved = options.resolveAccount === undefined ? undefined : await options.resolveAccount(candidate);
+        if (resolved?.trading.found && monitored !== undefined && resolved.trading.accountId === monitored) {
+          wallet = candidate;
+          owner = true;
+        }
+        if (resolved?.analytics?.found && ownAccountId === undefined) ownAccountId = resolved.analytics.accountId;
+      }
+      if (owner) {
+        log.info(`web sign-in: the owner of account ${monitored} signed in with Dynamic`);
+        return open(reply, request, options.sessions.create(options.userId, { role: 'owner', method: 'dynamic', wallet, ownAccountId }));
+      }
+      if (options.demoEnabled === true) {
+        log.info('web sign-in: a Dynamic user who does not own the monitored account got a demo session');
+        return open(reply, request, options.sessions.create('demo', { role: 'demo', method: 'dynamic', wallet, ownAccountId }));
+      }
+      return reply.code(403).send({
+        error:
+          identity.wallets.length === 0
+            ? 'You signed in without a wallet, so there is no Perpl account to read. Connect a wallet that owns the account this PerpGuard watches.'
+            : `The wallet you signed in with does not own the Perpl account this PerpGuard watches${ownAccountId === undefined ? '' : `, though it owns account ${ownAccountId} on the analytics network`}. Nothing here is shown to anyone but the owner.`,
+      });
+    }
+
+    if (body.demo === true) {
+      if (options.demoEnabled !== true) return reply.code(403).send({ error: 'Demo mode is off on this backend.' });
+      return open(reply, request, options.sessions.create('demo', { role: 'demo', method: 'demo' }));
+    }
+
+    const code = typeof body.code === 'string' ? body.code : '';
     const redeemed = code === '' ? undefined : options.linkCodes.redeem(code);
     if (redeemed === undefined) {
       // Flat, whatever the cause: a wrong, expired and already-used code all
       // read the same to someone probing.
       return reply.code(401).send({ error: 'That code did not sign you in. Ask the bot for a fresh one with /web.' });
     }
-    const session = options.sessions.create(redeemed.userId);
-    reply.header('set-cookie', sessionCookie(session.token, { secure: isSecure(request), maxAgeSec: (session.expiresAtMs - now()) / 1000 }));
-    return { userId: session.userId, network: options.view.network, accountId: options.accountId(), expiresAtMs: session.expiresAtMs };
+    return open(reply, request, options.sessions.create(redeemed.userId, { role: 'owner', method: 'code' }));
   });
 
   app.delete(`${prefix}/session`, async (request, reply) => {
@@ -154,17 +243,18 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
       if (session === undefined) {
         return reply.code(401).send({ error: 'Sign in with a code from the bot (/web) to see this account.' });
       }
-      (request as FastifyRequest & { protectUserId: string; protectExpiresAtMs: number }).protectUserId = session.userId;
-      (request as FastifyRequest & { protectExpiresAtMs: number }).protectExpiresAtMs = session.expiresAtMs;
+      (request as FastifyRequest & { protectSession: Session }).protectSession = session;
     });
-    const userOf = (request: FastifyRequest): string => (request as FastifyRequest & { protectUserId: string }).protectUserId;
+    const sessionFor = (request: FastifyRequest): Session => (request as FastifyRequest & { protectSession: Session }).protectSession;
+    const userOf = (request: FastifyRequest): string => sessionFor(request).userId;
+    /** Demo may look, never act. Enforced here, whatever the page renders. */
+    const ownerOnly = (request: FastifyRequest, reply: FastifyReply): boolean => {
+      if (sessionFor(request).role === 'owner') return true;
+      void reply.code(403).send({ error: 'This is a read-only demo session: it shows PerpGuard\u2019s own test account and cannot act on it. Sign in with the wallet that owns a Perpl account to act on yours.' });
+      return false;
+    };
 
-    scope.get(`${prefix}/me`, async (request) => ({
-      userId: userOf(request),
-      network: options.view.network,
-      accountId: options.accountId(),
-      expiresAtMs: (request as FastifyRequest & { protectExpiresAtMs: number }).protectExpiresAtMs,
-    }));
+    scope.get(`${prefix}/me`, async (request) => describe(sessionFor(request)));
 
     scope.get(`${prefix}/positions`, async (): Promise<ProtectSnapshot & { readonly notes: readonly string[] }> => {
       const assessments = options.view.snapshot();
@@ -216,6 +306,7 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
 
     // ── the confirmation screen ─────────────────────────────────────────────
     scope.post<{ Body: PrepareRequest }>(`${prefix}/prepare`, async (request, reply) => {
+      if (!ownerOnly(request, reply)) return;
       const body = request.body;
       const userId = userOf(request);
       if (typeof body !== 'object' || body === null || typeof body.kind !== 'string') {
@@ -298,6 +389,7 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
 
     // ── send, once ──────────────────────────────────────────────────────────
     scope.post<{ Body: { token?: unknown } }>(`${prefix}/execute`, async (request, reply) => {
+      if (!ownerOnly(request, reply)) return;
       const userId = userOf(request);
       const token = typeof request.body?.token === 'string' ? request.body.token : '';
       // Spent FIRST, before anything is sent: a double click is one submission.

@@ -86,7 +86,26 @@ export class LinkCodeStore {
   }
 }
 
-export interface Session {
+/**
+ * `owner` may act; `demo` may only look. A demo session sees the account this
+ * backend monitors, read-only, and exists so a judge without a funded wallet
+ * still sees the product — it is opened only when the operator has turned demo
+ * mode on, because on a real deployment the monitored account is somebody's.
+ */
+export type SessionRole = 'owner' | 'demo';
+/** How the session was opened. Recorded so the page can say so. */
+export type SessionMethod = 'dynamic' | 'code' | 'demo';
+
+export interface SessionDetails {
+  readonly role: SessionRole;
+  readonly method: SessionMethod;
+  /** The signed-in wallet, lowercased, when Dynamic supplied one. */
+  readonly wallet?: string | undefined;
+  /** The account THIS wallet owns on the analytics network, for a profile link. */
+  readonly ownAccountId?: number | undefined;
+}
+
+export interface Session extends SessionDetails {
   readonly token: string;
   readonly userId: string;
   readonly createdAtMs: number;
@@ -105,10 +124,10 @@ export class SessionStore {
     this.#nextToken = options.nextToken ?? (() => randomBytes(32).toString('hex'));
   }
 
-  create(userId: string): Session {
+  create(userId: string, details: SessionDetails = { role: 'owner', method: 'code' }): Session {
     this.#sweep();
     const now = this.#now();
-    const session: Session = { token: this.#nextToken(), userId, createdAtMs: now, expiresAtMs: now + this.#ttlMs };
+    const session: Session = { ...details, token: this.#nextToken(), userId, createdAtMs: now, expiresAtMs: now + this.#ttlMs };
     this.#sessions.set(session.token, session);
     return session;
   }
