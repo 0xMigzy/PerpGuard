@@ -735,3 +735,102 @@ decoder drops anything whose `st` is not 1 rather than waiting for it to vanish.
   can be derived.
 - `lfr` advanced on all four, so all four reached the contract — the same check
   that identified the two dropped opens earlier the same day.
+
+## 2026-09-30 — the 24h volume window bug, measured and fixed
+
+`pnpm analytics:live` prints the fixed figure next to the one the old query
+produced, because this is the most checkable number on the analytics page and a
+claim that it is now right is worth less than the gap on screen.
+
+| source | 24h volume |
+| --- | --- |
+| rolling window over `Trade` rows | **16,189,480.85 AUSD** |
+| the old query, over `MarketDay` buckets | 3,845,313.95 AUSD |
+| ratio | **0.238x** |
+
+### Why it was half, and sometimes a quarter
+
+`MarketDay.id` is `<perpId>-<YYYY-MM-DD>` and `day` is UTC midnight, so
+
+```sql
+sum("volumeCNS") filter (where d.day >= now() - interval '24 hours')
+```
+
+selects whole buckets whose START is inside the window. At 05:04 UTC that is
+today's bucket alone — five hours of data. At 12:00 UTC it is twelve hours, about
+0.5x. At 02:00 UTC it is today's two hours plus yesterday's full day, about 1.08x.
+**The error swings with the time of day**, so it is not a constant anyone could
+learn to correct for, and a screenshot taken in the evening would have looked
+roughly plausible.
+
+### The fix is a rule, not a patch
+
+ROLLING WINDOWS COME FROM RAW EVENT ROWS; DAY BUCKETS ARE ONLY FOR DAY SERIES.
+
+`Trade`, `Liquidation`, `CollateralFlow` and `FundingEvent` are filtered on
+`timestamp >= $since`, which is exact to the millisecond. `MarketDay` is read only
+by `dailySeries`, where the bucket IS the unit the caller asked for. That removes
+the bug class rather than the instance — the same query shape cannot come back for
+liquidations or fees later.
+
+Cross-checked: `Exchange.volumeCNS` and `sum("Trade"."notionalCNS")` are both
+**2229336389548745** to the micro, so the all-time path and the windowed path agree
+on the same source.
+
+### Two figures the data cannot support, and what is served instead
+
+**Total fees, for a rolling window.** A taker fill on this contract is an
+AGGREGATE OVER A WHOLE ORDER, so the indexer cannot attribute it to a single match
+and no per-event row carries it. Taker fees therefore have no timestamp finer than
+the day bucket, and they are the larger share — 128,097.78 AUSD of total fees
+against 42,038.75 of maker fees. So `makerFeesAusd` is exact for every window and
+`totalFeesAusd` is `undefined` for a rolling one rather than being served at a
+third of the real value. `DailyPoint.feesAusd` IS the exact total, because there
+the bucket is the unit, so a fees chart is available now. Fixing the headline needs
+a per-event taker-fee feed in the indexer: a schema change and a reindex of 21.5M
+events, and therefore a separate step.
+
+**TVL.** Deposits and withdrawals ARE indexed — 1,734 and 2,064 rows — but accounts
+held collateral before the start block, so the net over our window is **negative**:
+1,183,018.68 deposited against 2,435,946.98 withdrawn, net −1,252,928.30 AUSD.
+That is an exact FLOW and a meaningless level, so the field is called
+`netAusd` on `CollateralFlowStats` and nothing calls it TVL. An absolute figure
+needs the collateral token's `balanceOf` the Exchange proxy, which is a chain read
+rather than an indexer read.
+
+Open interest has the same shape and the schema already said so: it is a delta
+series from the start block, because the public RPC serves archive state only a few
+days back and there is no exact anchor. Reported as `openInterestDeltaLots`, per
+market, since lots are not comparable across markets — BTC has lotDecimals 5 and
+MON has 0.
+
+### Two bugs the live run found in the new code
+
+**Addresses did not resolve.** `Trader.owner` stores the address exactly as the
+event gave it, which on mainnet is mixed-case EIP-55 —
+`0xB7854953A71e45D1033B3d619E76d56391291765`. The lookup lowercased its input and
+compared it to that column exactly, so every linked address matched nothing — and
+the failure was invisible, because "no linked account" is the ordinary answer here:
+1,366 of 1,556 accounts have no owner recorded. Found by the script printing no
+profile for an address it had just selected as linked. Fixed with
+`lower(owner) = $1`, a scan over 1,556 rows.
+
+**Funding rates printed as zero.** The contract publishes `pct100k`, and the real
+mainnet values are integers running −4..4 — ±0.00004%. At four decimal places every
+market read `0.0000%`, which was accurate and useless. Six places shows the
+variation: BTC last 0.000030%, PUMP 0.000040%, MON mean 0.000015%.
+
+### What this run proves
+
+- Mainnet analytics reads through one venue-agnostic interface; nothing downstream
+  sees SQL, a `perpId`, or a market id outside `MarketRef`.
+- Canonical tickers resolve by MARKET ID: market 31 reads `SOL` though the indexer
+  stored `SOL_v2`, and market 80 reads
+  `market 80 (TAO, not listed by the venue)` rather than borrowing the chain's name.
+- The rescue headline over the judgeable denominator: **485 of 647, 74.96%**, with
+  the 33 unjudgeable excluded rather than counted as failures, and
+  1,126,526.38 AUSD of spare balance sitting in those accounts.
+- Wallet performance folds in SQL: 113,421 round trips for account 2118, a 207-loss
+  streak, profit factor 0.022, max drawdown 8,812.54 AUSD, average hold 2.7 s.
+- `health()` refuses to certify synced without an INDEPENDENT chain head, and got
+  one: SYNCED, 68 blocks behind, `serveAsCurrent` true.

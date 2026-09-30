@@ -17,7 +17,8 @@
     "sn:probe": "node --env-file-if-exists=.env scripts/probeHeartbeatSn.ts",
     "risk:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-risk-run.ts",
     "actions:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-action-run.ts",
-    "close:probe": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-close.ts"
+    "close:probe": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-close.ts",
+    "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",
