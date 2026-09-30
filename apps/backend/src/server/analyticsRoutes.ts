@@ -25,13 +25,31 @@ import {
   TIMEFRAMES,
   type Analytics,
   type IndexerHealth,
+  type MarketOpenInterest,
   type Timeframe,
 } from '@perpguard/shared';
 
 export interface AnalyticsRouteOptions {
   readonly analytics: Analytics;
+  /**
+   * The open-interest LEVEL, from the analytics network's venue.
+   *
+   * Separate from `analytics` because it is a venue read and not an indexer
+   * read: the indexer can only produce a delta. When absent the route says so
+   * rather than serving the delta under the level's name.
+   */
+  readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
   /** Mounted under this prefix. */
   readonly prefix?: string;
+}
+
+/** What `/open-interest` serves: the per-market readings and their sum. */
+export interface OpenInterestPayload {
+  readonly markets: readonly MarketOpenInterest[];
+  /** Sum of `openInterestNotional`, in collateral. */
+  readonly totalNotional: number;
+  /** The OLDEST reading's timestamp: how stale the worst market is. */
+  readonly asOfMs: number | undefined;
 }
 
 /**
@@ -161,6 +179,38 @@ export function registerAnalyticsRoutes(
     return envelope(await analytics.dailySeries(timeframe));
   });
 
+  scope.get(`${prefix}/series/markets`, async (request, reply) => {
+    const timeframe = timeframeOf(request.query);
+    if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+    return envelope(await analytics.dailySeriesByMarket(timeframe));
+  });
+
+  /**
+   * Open interest, the LEVEL, from the venue.
+   *
+   * Like TVL, not an indexer figure and not gated on indexer health: the
+   * envelope's `stale` refers to the indexer, and each reading carries its own
+   * `atMs`. A 503 when no venue is wired, because there is no honest fallback —
+   * the indexer's delta is not a level and must not be served as one.
+   */
+  scope.get(`${prefix}/open-interest`, async (_request, reply) => {
+    const read = options.openInterest;
+    if (read === undefined) {
+      return reply.code(503).send({
+        error:
+          'no venue is wired for open interest on the analytics network, so the level is ' +
+          'unavailable. The indexer only knows the change since its start block.',
+      });
+    }
+    const markets = await read();
+    const payload: OpenInterestPayload = {
+      markets,
+      totalNotional: markets.reduce((sum, m) => sum + m.openInterestNotional, 0),
+      asOfMs: markets.length === 0 ? undefined : Math.min(...markets.map((m) => m.atMs)),
+    };
+    return envelope(payload);
+  });
+
   scope.get(`${prefix}/markets`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
@@ -251,6 +301,8 @@ export function registerAnalyticsRoutes(
       `${prefix}/metrics?timeframe=24h|7d|30d|all`,
       `${prefix}/tvl`,
       `${prefix}/series?timeframe=30d`,
+      `${prefix}/series/markets?timeframe=30d`,
+      `${prefix}/open-interest`,
       `${prefix}/markets?timeframe=24h`,
       `${prefix}/funding?timeframe=30d`,
       `${prefix}/wallet/:address`,

@@ -13,7 +13,7 @@
  * serving a frozen price.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
-import type { Analytics } from '@perpguard/shared';
+import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
 import { registerAnalyticsRoutes } from './analyticsRoutes.ts';
 
@@ -30,6 +30,8 @@ export interface HealthServerOptions {
    * — `/health` reports the degradation instead.
    */
   readonly analytics?: Analytics;
+  /** The open-interest level from the analytics network's venue. See the routes. */
+  readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
 }
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
@@ -42,7 +44,10 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
   });
 
   if (options.analytics !== undefined) {
-    registerAnalyticsRoutes(app, { analytics: options.analytics });
+    registerAnalyticsRoutes(app, {
+      analytics: options.analytics,
+      ...(options.openInterest === undefined ? {} : { openInterest: options.openInterest }),
+    });
   }
 
   // A bare GET / is what a human types first. Point them at the real endpoint

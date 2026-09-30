@@ -85,14 +85,18 @@ test('rolling VOLUME is summed from Trade rows, never from MarketDay buckets', (
       const volume = sql.touching('Trade');
       assert.ok(volume.length > 0, 'volume comes from raw fills');
 
-      const buckets = sql.touching('MarketDay');
-      assert.equal(buckets.length, 1, 'exactly one bucket read: the fees query');
-      assert.match(buckets[0]!.sql, /sum\("feesCNS"\)/, 'and it is the fees query');
-      assert.doesNotMatch(
-        buckets[0]!.sql,
-        /"volumeCNS"/,
-        'volume must never be read from a bucket for a rolling window',
-      );
+      // Bucket reads are the fees query (once per window) and the one-row
+      // "where does the index start" probe. Nothing that sums a volume.
+      const buckets = sql.touching('MarketDay').filter((c) => !/min\(day\) as from_day/.test(c.sql));
+      assert.equal(buckets.length, 2, 'bucket reads are the fees query, once per window');
+      for (const bucket of buckets) {
+        assert.match(bucket.sql, /sum\("feesCNS"\)/, 'and it is the fees query');
+        assert.doesNotMatch(
+          bucket.sql,
+          /"volumeCNS"/,
+          'volume must never be read from a bucket for a rolling window',
+        );
+      }
     });
 });
 
@@ -437,4 +441,122 @@ test('no Exchange row throws rather than assuming 6 decimals', async () => {
     now: () => NOW,
   });
   await assert.rejects(analytics.protocolMetrics('24h'), /Refusing to assume 6 decimals/);
+});
+
+// ── the previous period ─────────────────────────────────────────────────────
+
+test('a timeframe carries the window before it, bounded on BOTH ends', async () => {
+  const sql = new FakeSql();
+  const metrics = await reader(sql).protocolMetrics('7d');
+
+  const trades = sql.touching('Trade').filter((c) => /sum\("notionalCNS"\)/.test(c.sql));
+  assert.equal(trades.length, 2, 'one volume query per window');
+  const [current, previous] = trades;
+  assert.deepEqual(current!.values, ['2026-09-23T05:04:14.000Z', '2026-09-30T05:04:14.000Z']);
+  assert.deepEqual(previous!.values, ['2026-09-16T05:04:14.000Z', '2026-09-23T05:04:14.000Z']);
+  assert.match(current!.sql, /timestamp <\s+\$2/, 'the upper bound is exclusive');
+
+  assert.equal(metrics.previous?.sinceMs, Date.parse('2026-09-16T05:04:14Z'));
+  assert.equal(metrics.previous?.untilMs, Date.parse('2026-09-23T05:04:14Z'));
+  assert.equal('previous' in (metrics.previous ?? {}), false, 'no previous of a previous');
+});
+
+test('a previous period the index only partly covers is marked incomplete', async () => {
+  // The index starts 2026-08-28. The 30d window before the current 30d one
+  // begins 2026-08-01, so its figures are three days dressed as a month.
+  const sql = new FakeSql();
+  sql.on(/min\(day\) as from_day/, [{ from_day: new Date('2026-08-28T00:00:00Z') }]);
+  const month = await reader(sql).protocolMetrics('30d');
+  assert.equal(month.indexedFromMs, Date.parse('2026-08-28T00:00:00Z'));
+  assert.equal(month.previous?.complete, false);
+
+  // Whereas the day before yesterday is fully covered.
+  const day = await reader(sql).protocolMetrics('24h');
+  assert.equal(day.previous?.complete, true);
+
+  // And with no bucket at all, nothing is complete and the start is unknown.
+  const empty = await reader(new FakeSql()).protocolMetrics('24h');
+  assert.equal(empty.indexedFromMs, undefined);
+  assert.equal(empty.previous?.complete, false);
+});
+
+test('all-time has no previous period, and says so with undefined rather than zero', async () => {
+  const sql = new FakeSql();
+  const metrics = await reader(sql).protocolMetrics('all');
+  assert.equal(metrics.previous, undefined);
+  assert.equal(sql.touching('Trade').filter((c) => /notionalCNS/.test(c.sql)).length, 1);
+});
+
+test('previous-period fees compare whole day buckets and never say "today so far"', async () => {
+  const sql = new FakeSql();
+  sql.on(/sum\("feesCNS"\)/, [{ fees: '1000000', days: '7', from_day: new Date('2026-09-16T00:00:00Z') }]);
+  const metrics = await reader(sql).protocolMetrics('7d');
+
+  const fees = sql.touching('MarketDay').filter((c) => /sum\("feesCNS"\)/.test(c.sql));
+  assert.deepEqual(fees[0]!.values, ['2026-09-23T00:00:00.000Z', null], 'current: open-ended');
+  assert.deepEqual(
+    fees[1]!.values,
+    ['2026-09-16T00:00:00.000Z', '2026-09-23T00:00:00.000Z'],
+    'previous: the day buckets before the current range starts',
+  );
+  assert.match(metrics.fees.label, /today so far/);
+  assert.doesNotMatch(metrics.previous!.fees.label, /today so far/);
+});
+
+// ── the median ──────────────────────────────────────────────────────────────
+
+test('the median spare balance is over RESCUABLE cases, and undefined when there are none', async () => {
+  const sql = new FakeSql();
+  sql.on(/from "Liquidation"/, [
+    { total: '3', rescuable: '2', unknown: '0', any_spare: '3', spare_balance: '3000000', median_spare: '1234567.5' },
+  ]);
+  const metrics = await reader(sql).protocolMetrics('24h');
+  assert.match(sql.touching('Liquidation')[0]!.sql, /percentile_cont\(0\.5\)[\s\S]*filter \(where "wasRescuable" = true\)/);
+  assert.equal(metrics.rescues.medianSpareBalanceAusd, 1.2345675);
+
+  const none = new FakeSql();
+  none.on(/from "Liquidation"/, [{ total: '0', rescuable: '0', unknown: '0', any_spare: '0', spare_balance: '0', median_spare: null }]);
+  assert.equal((await reader(none).protocolMetrics('24h')).rescues.medianSpareBalanceAusd, undefined);
+});
+
+// ── daily series ────────────────────────────────────────────────────────────
+
+test('the day series carries the day\'s collateral flow alongside its buckets', async () => {
+  const sql = new FakeSql();
+  sql.on(/full outer join flows/, [
+    {
+      day: new Date('2026-09-29T00:00:00Z'), volume: '5000000', trades: '2', fees: '1000',
+      liquidations: '1', rescuable: '1', oi_close: '10', max_market_traders: '3',
+      deposited: '10000000', withdrawn: '2500000',
+    },
+  ]);
+  const [day] = await reader(sql).dailySeries('7d');
+  assert.equal(day!.depositedAusd, 10);
+  assert.equal(day!.withdrawnAusd, 2.5);
+  assert.equal(day!.netFlowAusd, 7.5);
+  assert.equal(day!.volumeAusd, 5);
+});
+
+test('the per-market series groups one row per market per day and names the market by id', async () => {
+  const sql = new FakeSql();
+  const row = (id: string, name: string, day: string, close: string) => ({
+    id, name, priceDecimals: '1', day: new Date(day),
+    volume: '1000000', trades: '1', fees: '10', liquidations: '0', rescuable: '0', oi_close: '0',
+    mark_open: close, mark_high: close, mark_low: close, mark_close: close,
+  });
+  sql.on(/from "MarketDay" d join "Market" m/, [
+    row('1', 'BTC', '2026-09-28T00:00:00Z', '839877'),
+    row('1', 'BTC', '2026-09-29T00:00:00Z', '0'),
+    row('31', 'SOL_v2', '2026-09-29T00:00:00Z', '121602'),
+  ]);
+  const series = await reader(sql).dailySeriesByMarket('7d');
+  assert.equal(sql.calls.find((c) => /"MarketDay" d/.test(c.sql))!.values[0], '2026-09-23T00:00:00.000Z');
+  assert.equal(series.length, 2);
+  assert.equal(series[0]!.market.symbol, 'BTC');
+  assert.equal(series[0]!.points.length, 2);
+  assert.equal(series[0]!.points[0]!.markClose, 83987.7);
+  assert.equal(series[0]!.points[1]!.markClose, undefined, 'a bucket with no mark is undefined, never 0');
+  // Market 31 is SOL_v2 in the indexer and SOL in the context: resolved by id.
+  assert.equal(series[1]!.market.symbol, 'SOL');
+  assert.equal(series[1]!.market.indexerName, 'SOL_v2');
 });

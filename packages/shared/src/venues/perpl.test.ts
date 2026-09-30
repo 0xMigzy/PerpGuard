@@ -6,7 +6,7 @@ import { loadNetworkConfig } from '../config.ts';
 import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
 import { ContextSchema } from './perpl-context.ts';
 import { ApiSecret } from './perpl-signing.ts';
-import { PerplVenue, toVenueMarket } from './perpl.ts';
+import { PerplVenue, toOpenInterest, toVenueMarket } from './perpl.ts';
 import type { VenueMarket } from './types.ts';
 
 function loadFixture(name: string): unknown {
@@ -574,5 +574,34 @@ describe('PerplVenue.getPositions', () => {
     assert.equal(positions.length, 1);
     assert.equal(positions[0]?.marketId, 16);
     venue.disconnect();
+  });
+});
+
+describe('PerplVenue.getOpenInterest', () => {
+  it('reads the LEVEL off the context state, scaled by each market\'s own decimals', async () => {
+    const venue = new PerplVenue(mainnet, { fetchImpl: stubFetch(mainnetContext) });
+    const readings = await venue.getOpenInterest();
+    const btc = readings.find((r) => r.symbol === 'BTC')!;
+    // Fixture: oi 837897 at size_decimals 5, mrk 839877 at price_decimals 1.
+    assert.equal(btc.marketId, 1);
+    assert.equal(btc.openInterestSize, 8.37897);
+    assert.equal(btc.markPrice, 83987.7);
+    assert.ok(Math.abs(btc.openInterestNotional - 8.37897 * 83987.7) < 1e-6);
+    assert.equal(btc.atBlock, 108065166);
+    assert.equal(btc.atMs, 1790391292000);
+
+    // MON has size_decimals 0: integer sizes, and a price at 6dp.
+    const mon = readings.find((r) => r.symbol === 'MON')!;
+    assert.equal(mon.openInterestSize, 6598227);
+    assert.equal(mon.markPrice, 0.026278);
+    assert.equal(readings.length, 9, 'every market the context lists, and none it does not');
+  });
+
+  it('is pure arithmetic on one row, so the same market on the other network scales by ITS decimals', () => {
+    const testnetBtc = ContextSchema.parse(testnetContext).markets.find((m) => m.size_units === 'BTC')!;
+    const reading = toOpenInterest(testnetBtc, 'testnet');
+    assert.equal(reading.network, 'testnet');
+    assert.equal(reading.marketId, 16);
+    assert.equal(reading.openInterestSize, 22.47059);
   });
 });

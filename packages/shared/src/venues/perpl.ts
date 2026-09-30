@@ -2,7 +2,12 @@ import { z } from 'zod';
 import type { NetworkConfig } from '../config.ts';
 import { NotImplementedError, VenueError, VenueRequestError } from '../errors.ts';
 import type { MarketRiskConfig } from '../risk/position.ts';
-import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
+import {
+  maintenanceMarginRatioFromConfig,
+  maxLeverageFromConfig,
+  scaledToNumber,
+  type RawAmount,
+} from '../units.ts';
 import { ContextSchema, type PerplContext, type PerplMarket } from './perpl-context.ts';
 import { assertForwardingAllowed } from './perpl-forwarding.ts';
 import {
@@ -37,6 +42,7 @@ import type {
   AddMarginRequest,
   FeedHealth,
   CancelAllRequest,
+  MarketOpenInterest,
   CancelOrderRequest,
   ClosePositionRequest,
   PlaceLimitOrderRequest,
@@ -204,6 +210,11 @@ export class PerplVenue implements Venue {
   async getMarkets(): Promise<VenueMarket[]> {
     const context = await this.getContext();
     return context.markets.map((market) => toVenueMarket(market, this.network.name));
+  }
+
+  async getOpenInterest(): Promise<readonly MarketOpenInterest[]> {
+    const context = await this.getContext();
+    return context.markets.map((market) => toOpenInterest(market, this.network.name));
   }
 
   /**
@@ -913,6 +924,33 @@ export class PerplVenue implements Venue {
 }
 
 /** Pure mapping from the venue market shape to ours. Exported for tests. */
+/**
+ * The open-interest reading off one context market.
+ *
+ * `state.oi` is in size units (the docs pair it with `dv`, "Daily volume
+ * (size)"), so it is scaled by `size_decimals`; the mark by `price_decimals`.
+ * Both come from the same row, so the notional is that market's own arithmetic
+ * and nothing is hard-coded.
+ */
+export function toOpenInterest(
+  market: PerplMarket,
+  network: VenueMarket['network'],
+): MarketOpenInterest {
+  const openInterestSize = scaledToNumber(market.state.oi as RawAmount, market.config.size_decimals);
+  const markPrice = scaledToNumber(market.state.mrk as RawAmount, market.config.price_decimals);
+  return {
+    venue: VENUE_ID,
+    network,
+    marketId: market.id,
+    symbol: market.size_units,
+    openInterestSize,
+    markPrice,
+    openInterestNotional: openInterestSize * markPrice,
+    atBlock: market.state.at.b,
+    atMs: market.state.at.t,
+  };
+}
+
 export function toVenueMarket(market: PerplMarket, network: VenueMarket['network']): VenueMarket {
   const config = market.config;
   return {

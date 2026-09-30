@@ -44,6 +44,17 @@ export const MarketStateSchema = z.looseObject({
   mid: int,
   bid: int,
   ask: int,
+  /** Mark price 24h ago, same scaling as `mrk`. */
+  prv: int,
+  /**
+   * Open interest, in the market's SIZE units (scaled by `size_decimals`), the
+   * same scaling as `dv`, which the docs call "Daily volume (size)". This is
+   * the LEVEL the indexer cannot produce: it starts partway through history, so
+   * its own figure is a delta. Read this for the absolute number.
+   */
+  oi: int,
+  /** Daily traded amount in collateral micros, as a decimal string. */
+  dva: z.string(),
 });
 
 export const MarketSchema = z.looseObject({

@@ -16,6 +16,8 @@ import type {
   FundingStats,
   IndexerHealth,
   MarketBreakdown,
+  MarketDailySeries,
+  MarketOpenInterest,
   ProtocolMetrics,
   RoundTrip,
   Timeframe,
@@ -92,6 +94,7 @@ class FakeAnalytics implements Analytics {
         rescuableCount: 485,
         rate: 485 / 647,
         spareBalanceAusd: 1_126_526.38,
+        medianSpareBalanceAusd: 2_318.4,
         withAnySpareBalanceCount: 680,
       },
       collateralFlow: {
@@ -101,6 +104,7 @@ class FakeAnalytics implements Analytics {
         depositCount: 12,
         withdrawalCount: 31,
       },
+      indexedFromMs: Date.parse('2026-08-28T00:00:00Z'),
     };
   }
 
@@ -111,6 +115,11 @@ class FakeAnalytics implements Analytics {
 
   async dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]> {
     this.asked.push(`series:${timeframe}`);
+    return [];
+  }
+
+  async dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]> {
+    this.asked.push(`series-markets:${timeframe}`);
     return [];
   }
 
@@ -143,9 +152,27 @@ class FakeAnalytics implements Analytics {
   }
 }
 
-function app(analytics: FakeAnalytics = new FakeAnalytics()) {
+const OI: readonly MarketOpenInterest[] = [
+  {
+    venue: 'perpl', network: 'mainnet', marketId: 1, symbol: 'BTC',
+    openInterestSize: 8.37897, markPrice: 83_987.7, openInterestNotional: 703_729.96,
+    atBlock: 108_065_166, atMs: 1_790_391_292_000,
+  },
+  {
+    venue: 'perpl', network: 'mainnet', marketId: 10, symbol: 'MON',
+    openInterestSize: 6_598_227, markPrice: 0.026278, openInterestNotional: 173_388.21,
+    atBlock: 108_065_100, atMs: 1_790_391_200_000,
+  },
+];
+
+function app(
+  analytics: FakeAnalytics = new FakeAnalytics(),
+  options: { openInterest?: () => Promise<readonly MarketOpenInterest[]> } = {
+    openInterest: async () => OI,
+  },
+) {
   const instance = Fastify({ logger: false });
-  registerAnalyticsRoutes(instance, { analytics });
+  registerAnalyticsRoutes(instance, { analytics, ...options });
   return { instance, analytics };
 }
 
@@ -163,6 +190,8 @@ test('every route carries the indexer health and a stale flag', async () => {
     '/api/analytics/metrics',
     '/api/analytics/tvl',
     '/api/analytics/series',
+    '/api/analytics/series/markets',
+    '/api/analytics/open-interest',
     '/api/analytics/markets',
     '/api/analytics/funding',
     '/api/analytics/wallet/0x00000000000000000000000000000000000000ab',
@@ -246,7 +275,7 @@ test('an absent timeframe defaults to 24h, which is documented rather than guess
 
 test('every timeframed route validates, not just metrics', async () => {
   const { instance } = app();
-  for (const route of ['metrics', 'series', 'markets', 'funding']) {
+  for (const route of ['metrics', 'series', 'series/markets', 'markets', 'funding']) {
     const response = await instance.inject({
       method: 'GET',
       url: `/api/analytics/${route}?timeframe=nonsense`,
@@ -370,4 +399,25 @@ test('the prefix lists its routes and explains the stale flag', async () => {
   assert.equal(payload['service'], 'perpguard-analytics');
   assert.match(String(payload['note']), /must not be presented as current/);
   assert.ok((payload['routes'] as string[]).length >= 8);
+});
+
+// ── open interest: the level, from the venue ────────────────────────────────
+
+test('open interest sums the venue readings and dates them by the OLDEST market', async () => {
+  const { instance } = app();
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/open-interest' });
+  assert.equal(response.statusCode, 200);
+  const data = body(response.payload)['data'] as {
+    markets: unknown[]; totalNotional: number; asOfMs: number;
+  };
+  assert.equal(data.markets.length, 2);
+  assert.ok(Math.abs(data.totalNotional - (703_729.96 + 173_388.21)) < 1e-6);
+  assert.equal(data.asOfMs, 1_790_391_200_000, 'the staler of the two, never the fresher');
+});
+
+test('without a venue, open interest is a 503 and never the indexer delta in disguise', async () => {
+  const { instance } = app(new FakeAnalytics(), {});
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/open-interest' });
+  assert.equal(response.statusCode, 503);
+  assert.match(body(response.payload)['error'] as string, /only knows the change/);
 });

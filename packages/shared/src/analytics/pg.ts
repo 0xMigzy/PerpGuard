@@ -54,7 +54,10 @@ import type {
   FundingStats,
   LiquidationStats,
   MarketBreakdown,
+  MarketDailyPoint,
+  MarketDailySeries,
   MarketPnl,
+  MarketRef,
   OpenPosition,
   ProtocolMetrics,
   RescueStats,
@@ -120,6 +123,7 @@ select coalesce(sum("notionalCNS"), 0)::text as volume,
        count(*)::text                          as trades
   from "Trade"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
 `;
 
 /**
@@ -129,15 +133,24 @@ select coalesce(sum("notionalCNS"), 0)::text as volume,
  * `MarketDay.activeTraderCount` would call them three, which is the same family
  * of mistake as summing partial buckets: it looks like a total and is not one.
  * `union` (not `union all`) does the deduplication across both sides of a match.
+ *
+ * EACH SIDE IS GROUPED BEFORE THE UNION. Without that, Postgres sorts every
+ * row of both branches — 9.6M rows for a 30-day window, spilling 80MB to disk —
+ * to find ~1,100 distinct ids. Two hash aggregates first, then a union of two
+ * tiny sets, is the same answer in a fraction of the time.
  */
 const ACTIVE_TRADERS_SQL = `
 select count(*)::text as traders from (
   select maker_id as t from "Trade"
    where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+     and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+   group by maker_id
   union
   select taker_id as t from "Trade"
    where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+     and ($2::timestamptz is null or timestamp <  $2::timestamptz)
      and taker_id is not null
+   group by taker_id
 ) x
 `;
 
@@ -158,9 +171,12 @@ select count(*)::text                                                  as total,
        count(*) filter (where "wasRescuable" = true)::text              as rescuable,
        count(*) filter (where "wasRescuable" is null)::text             as unknown,
        count(*) filter (where "hadSpareBalance")::text                  as any_spare,
-       coalesce(sum("freeBalanceBeforeCNS"), 0)::text                   as spare_balance
+       coalesce(sum("freeBalanceBeforeCNS"), 0)::text                   as spare_balance,
+       (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
+          filter (where "wasRescuable" = true))::text                    as median_spare
   from "Liquidation"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
 `;
 
 const COLLATERAL_FLOW_SQL = `
@@ -170,6 +186,7 @@ select coalesce(sum("amountCNS") filter (where kind = 'DEPOSIT'), 0)::text    as
        count(*) filter (where kind = 'WITHDRAWAL')::text                     as withdrawals
   from "CollateralFlow"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
 `;
 
 /**
@@ -186,21 +203,70 @@ select coalesce(sum("feesCNS"), 0)::text as fees,
        min(day)                           as from_day
   from "MarketDay"
  where ($1::timestamptz is null or day >= $1::timestamptz)
+   and ($2::timestamptz is null or day <  $2::timestamptz)
 `;
 
 /** The day series. Buckets ARE the unit here, so they are the right source. */
+/**
+ * Buckets and flows, FULL OUTER JOINED on the day. A day with deposits but no
+ * trade has no MarketDay row and must still appear, and a day with trades but no
+ * flow must not vanish from the volume chart because nobody deposited.
+ */
+/** The first bucket the index holds: where "before the index" ends. */
+const INDEXED_FROM_SQL = `select min(day) as from_day from "MarketDay"`;
+
 const DAILY_SQL = `
-select day,
-       coalesce(sum("volumeCNS"), 0)::text                as volume,
-       coalesce(sum("tradeCount"), 0)::text               as trades,
-       coalesce(sum("feesCNS"), 0)::text                  as fees,
-       coalesce(sum("liquidationCount"), 0)::text         as liquidations,
-       coalesce(sum("rescuableLiquidationCount"), 0)::text as rescuable,
-       coalesce(sum("oiDeltaCloseLNS"), 0)::text          as oi_close,
-       coalesce(max("activeTraderCount"), 0)::text        as max_market_traders
-  from "MarketDay"
- where ($1::timestamptz is null or day >= $1::timestamptz)
- group by day order by day asc
+with buckets as (
+  select day,
+         coalesce(sum("volumeCNS"), 0)                 as volume,
+         coalesce(sum("tradeCount"), 0)                as trades,
+         coalesce(sum("feesCNS"), 0)                   as fees,
+         coalesce(sum("liquidationCount"), 0)          as liquidations,
+         coalesce(sum("rescuableLiquidationCount"), 0) as rescuable,
+         coalesce(sum("oiDeltaCloseLNS"), 0)           as oi_close,
+         coalesce(max("activeTraderCount"), 0)         as max_market_traders
+    from "MarketDay"
+   where ($1::timestamptz is null or day >= $1::timestamptz)
+   group by day
+),
+flows as (
+  select date_trunc('day', timestamp at time zone 'UTC') at time zone 'UTC' as day,
+         coalesce(sum("amountCNS") filter (where kind = 'DEPOSIT'), 0)    as deposited,
+         coalesce(sum("amountCNS") filter (where kind = 'WITHDRAWAL'), 0) as withdrawn
+    from "CollateralFlow"
+   where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   group by 1
+)
+select coalesce(b.day, f.day)          as day,
+       coalesce(b.volume, 0)::text        as volume,
+       coalesce(b.trades, 0)::text        as trades,
+       coalesce(b.fees, 0)::text          as fees,
+       coalesce(b.liquidations, 0)::text  as liquidations,
+       coalesce(b.rescuable, 0)::text     as rescuable,
+       coalesce(b.oi_close, 0)::text      as oi_close,
+       coalesce(b.max_market_traders, 0)::text as max_market_traders,
+       coalesce(f.deposited, 0)::text     as deposited,
+       coalesce(f.withdrawn, 0)::text     as withdrawn
+  from buckets b full outer join flows f on f.day = b.day
+ order by 1 asc
+`;
+
+const MARKET_DAILY_SQL = `
+select d.market_id as id, m.name, m."priceDecimals",
+       d.day,
+       d."volumeCNS"::text                  as volume,
+       d."tradeCount"::text                 as trades,
+       d."feesCNS"::text                    as fees,
+       d."liquidationCount"::text           as liquidations,
+       d."rescuableLiquidationCount"::text  as rescuable,
+       d."oiDeltaCloseLNS"::text            as oi_close,
+       d."markOpenPNS"::text                as mark_open,
+       d."markHighPNS"::text                as mark_high,
+       d."markLowPNS"::text                 as mark_low,
+       d."markClosePNS"::text               as mark_close
+  from "MarketDay" d join "Market" m on m.id = d.market_id
+ where ($1::timestamptz is null or d.day >= $1::timestamptz)
+ order by (d.market_id::bigint), d.day asc
 `;
 
 /**
@@ -295,6 +361,8 @@ select count(*)::text                                      as total,
        count(*) filter (where "wasRescuable" is null)::text as unknown,
        count(*) filter (where "hadSpareBalance")::text      as any_spare,
        coalesce(sum("freeBalanceBeforeCNS"), 0)::text       as spare_balance,
+       (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
+          filter (where "wasRescuable" = true))::text        as median_spare,
        coalesce(sum("notionalCNS"), 0)::text                as notional,
        coalesce(sum("marginLostCNS"), 0)::text              as margin_lost,
        coalesce(sum("badDebtCNS"), 0)::text                 as bad_debt
@@ -387,6 +455,28 @@ select p.market_id as id, m.name,
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();
 
+/**
+ * A bucket's mark, or undefined when the bucket recorded none. The indexer
+ * writes 0 into a day's marks when no market-state event landed that day, and a
+ * zero on a price chart is a crash that did not happen.
+ */
+const markOrUndefined = (pns: unknown, priceDecimals: number): number | undefined => {
+  const price = toPrice(pns, priceDecimals);
+  return price === undefined || price <= 0 ? undefined : price;
+};
+
+/**
+ * `percentile_cont` returns a double, and Postgres renders it as text with a
+ * fractional part — `1234567.5` micros — so it is not a bigint. Parsed as a
+ * float ON PURPOSE: a median of integers can be a half, and it is a display
+ * statistic, never an amount anything sends.
+ */
+const medianAusd = (raw: unknown, decimals: number): number | undefined => {
+  if (raw === null || raw === undefined) return undefined;
+  const micros = Number(raw);
+  return Number.isFinite(micros) ? micros / 10 ** decimals : undefined;
+};
+
 export class PostgresAnalytics implements Analytics {
   readonly #client: SqlClient;
   readonly #chainId: number;
@@ -474,20 +564,61 @@ export class PostgresAnalytics implements Analytics {
   }
 
   async protocolMetrics(timeframe: Timeframe): Promise<ProtocolMetrics> {
-    const decimals = await this.#decimals();
     const { sinceMs, untilMs } = windowFor(timeframe, this.#now());
-    const since = iso(sinceMs);
+    // The window before: same length, ending where this one starts. Its upper
+    // bound is EXCLUSIVE so a trade at exactly `sinceMs` is counted once. Both
+    // windows are read concurrently; each is a few scans of the fill table.
+    const span = sinceMs === undefined ? undefined : untilMs - sinceMs;
+    const previousSince = sinceMs === undefined || span === undefined ? undefined : sinceMs - span;
+    const [current, indexedFrom, previous] = await Promise.all([
+      this.#metricsOver(timeframe, sinceMs, untilMs),
+      this.#one(INDEXED_FROM_SQL),
+      sinceMs === undefined || previousSince === undefined
+        ? undefined
+        : this.#metricsOver(timeframe, previousSince, sinceMs),
+    ]);
+    const indexedFromMs = toMs(indexedFrom?.['from_day']);
+    if (previous === undefined || previousSince === undefined) return { ...current, indexedFromMs };
+    return {
+      ...current,
+      indexedFromMs,
+      previous: {
+        ...previous,
+        // Complete only when the index was already recording when it began.
+        complete: indexedFromMs !== undefined && indexedFromMs <= previousSince,
+      },
+    };
+  }
 
-    // Fees are asked for over whole days, so the bind is the day boundary rather
-    // than the rolling instant. Everything else uses the rolling window.
+  /**
+   * The headline figures over one bounded window.
+   *
+   * `untilMs` is a real bound, not decoration: the previous-period query needs
+   * it, and without it "the 7 days before" would read as "everything before".
+   * The current window's bound is `now`, which excludes nothing that exists.
+   */
+  async #metricsOver(
+    timeframe: Timeframe,
+    sinceMs: number | undefined,
+    untilMs: number,
+  ): Promise<Omit<ProtocolMetrics, 'previous' | 'indexedFromMs'>> {
+    const decimals = await this.#decimals();
+    const since = iso(sinceMs);
+    const until = iso(untilMs);
+
+    // Fees are asked for over whole days, so the binds are day boundaries rather
+    // than rolling instants. Everything else uses the rolling window.
     const feesSince = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
+    // Open-ended for the current window, so today's partial bucket is included;
+    // for a previous window this is the current window's first day, exclusive.
+    const feesUntil = untilMs >= this.#now() ? null : iso(startOfUtcDay(untilMs));
 
     const [totals, traders, liquidations, flows, fees] = await Promise.all([
-      this.#one(WINDOW_TOTALS_SQL, [since]),
-      this.#one(ACTIVE_TRADERS_SQL, [since]),
-      this.#one(LIQUIDATION_SQL, [since]),
-      this.#one(COLLATERAL_FLOW_SQL, [since]),
-      this.#one(FEES_SQL, [feesSince]),
+      this.#one(WINDOW_TOTALS_SQL, [since, until]),
+      this.#one(ACTIVE_TRADERS_SQL, [since, until]),
+      this.#one(LIQUIDATION_SQL, [since, until]),
+      this.#one(COLLATERAL_FLOW_SQL, [since, until]),
+      this.#one(FEES_SQL, [feesSince, feesUntil]),
     ]);
 
     return {
@@ -521,12 +652,18 @@ export class PostgresAnalytics implements Analytics {
     const days = count(row?.['days']);
     const fromMs = toMs(row?.['from_day']) ?? startOfUtcDay(untilMs);
     const from = new Date(fromMs).toISOString().slice(0, 10);
+    // A window that ends before now is a closed range of whole days; only the
+    // current window's last bucket is "today so far".
+    const open = untilMs >= this.#now();
+    const tail = open ? ' (today so far)' : '';
     const label =
       days === 0
-        ? 'no complete UTC day of fees is indexed yet'
+        ? open
+          ? 'no complete UTC day of fees is indexed yet'
+          : 'no UTC day of fees is indexed in the previous period'
         : days === 1
-          ? `the UTC day from ${from} (today so far)`
-          : `the ${days} UTC days from ${from} (today so far)`;
+          ? `the UTC day from ${from}${tail}`
+          : `the ${days} UTC days from ${from}${tail}`;
     return {
       totalAusd: toAusd(row?.['fees'], decimals),
       fromMs,
@@ -557,6 +694,7 @@ export class PostgresAnalytics implements Analytics {
       rescuableCount,
       rate,
       spareBalanceAusd: toAusd(row?.['spare_balance'], decimals),
+      medianSpareBalanceAusd: medianAusd(row?.['median_spare'], decimals),
       withAnySpareBalanceCount: count(row?.['any_spare']),
     };
   }
@@ -618,7 +756,43 @@ export class PostgresAnalytics implements Analytics {
       liquidationCount: count(row['liquidations']),
       rescuableLiquidationCount: count(row['rescuable']),
       openInterestDeltaLots: Number(bigintOrZero(row['oi_close'])),
+      depositedAusd: toAusd(row['deposited'], decimals),
+      withdrawnAusd: toAusd(row['withdrawn'], decimals),
+      netFlowAusd: toAusd(row['deposited'], decimals) - toAusd(row['withdrawn'], decimals),
     }));
+  }
+
+  async dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]> {
+    const decimals = await this.#decimals();
+    const { sinceMs } = windowFor(timeframe, this.#now());
+    const since = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
+    const rows = await this.#rows(MARKET_DAILY_SQL, [since]);
+
+    // Rows arrive ordered by market then day, so one pass groups them.
+    const series: Array<{ market: MarketRef; points: MarketDailyPoint[] }> = [];
+    for (const row of rows) {
+      const marketId = count(row['id']);
+      let current = series.at(-1);
+      if (current === undefined || current.market.marketId !== marketId) {
+        current = { market: toMarketRef(row['id'], row['name'], this.#resolve), points: [] };
+        series.push(current);
+      }
+      const priceDecimals = count(row['priceDecimals']);
+      current.points.push({
+        dayMs: requireMs(row['day']),
+        volumeAusd: toAusd(row['volume'], decimals),
+        tradeCount: count(row['trades']),
+        feesAusd: toAusd(row['fees'], decimals),
+        liquidationCount: count(row['liquidations']),
+        rescuableLiquidationCount: count(row['rescuable']),
+        openInterestDeltaLots: Number(bigintOrZero(row['oi_close'])),
+        markOpen: markOrUndefined(row['mark_open'], priceDecimals),
+        markHigh: markOrUndefined(row['mark_high'], priceDecimals),
+        markLow: markOrUndefined(row['mark_low'], priceDecimals),
+        markClose: markOrUndefined(row['mark_close'], priceDecimals),
+      });
+    }
+    return series;
   }
 
   async marketBreakdown(timeframe: Timeframe): Promise<readonly MarketBreakdown[]> {
@@ -781,6 +955,7 @@ export class PostgresAnalytics implements Analytics {
         rescuableCount,
         rate,
         spareBalanceAusd: toAusd(liq?.['spare_balance'], decimals),
+        medianSpareBalanceAusd: medianAusd(liq?.['median_spare'], decimals),
         withAnySpareBalanceCount: count(liq?.['any_spare']),
       },
       realisedPnlAusd: toAusd(trader['realizedPnlCNS'], decimals),

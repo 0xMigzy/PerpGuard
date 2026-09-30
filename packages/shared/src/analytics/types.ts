@@ -153,7 +153,40 @@ export interface ProtocolMetrics {
   readonly liquidations: LiquidationStats;
   readonly rescues: RescueStats;
   readonly collateralFlow: CollateralFlowStats;
+  /**
+   * The SAME figures over the window immediately before this one, so a caller
+   * can render "vs previous period" without a second request that might land in
+   * a different second and compare two windows that overlap.
+   *
+   * Undefined for `all`: there is no window before everything. A UI renders the
+   * delta as unknown then, never as zero.
+   *
+   * Fees compare the same NUMBER OF UTC DAY BUCKETS ending where the current
+   * range starts, so a "today so far" bucket is compared against a whole day.
+   * That is what every such comparison does, and `previous.fees.label` says
+   * exactly which days were summed.
+   */
+  readonly previous?: PreviousPeriodMetrics;
+  /**
+   * UTC midnight of the first day the index holds anything. A window that starts
+   * before this is only partly covered, and a comparison against it is not a
+   * comparison. Undefined until the indexer has written a bucket.
+   */
+  readonly indexedFromMs: number | undefined;
 }
+
+/**
+ * {@link ProtocolMetrics} for the window before, which carries no `previous` of
+ * its own, plus whether the index actually covers it.
+ */
+export type PreviousPeriodMetrics = Omit<ProtocolMetrics, 'previous' | 'indexedFromMs'> & {
+  /**
+   * True when the index holds data from before this window began, so its
+   * figures are a real total. False means the index starts inside it, and a
+   * delta against it must render as unknown rather than as growth.
+   */
+  readonly complete: boolean;
+};
 
 /** Forced exits over a window. */
 export interface LiquidationStats {
@@ -195,6 +228,12 @@ export interface RescueStats {
   readonly rate: number | undefined;
   /** Total free AUSD sitting in these accounts at the moment of liquidation. */
   readonly spareBalanceAusd: number;
+  /**
+   * Median free AUSD at liquidation, over the RESCUABLE cases only, or undefined
+   * when there are none. A median rather than a mean because a handful of large
+   * accounts would otherwise describe a typical trader nobody is.
+   */
+  readonly medianSpareBalanceAusd: number | undefined;
   /** DIAGNOSTIC. See the note above. Never render this as a rate. */
   readonly withAnySpareBalanceCount: number;
 }
@@ -284,6 +323,39 @@ export interface DailyPoint {
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
   readonly openInterestDeltaLots: number;
+  /** Collateral deposited that day. Exact: flows carry their own timestamps. */
+  readonly depositedAusd: number;
+  readonly withdrawnAusd: number;
+  /** `deposited - withdrawn`. The day's change in TVL, and nothing else moves it. */
+  readonly netFlowAusd: number;
+}
+
+/**
+ * One day of ONE market, for a stacked chart or a market page.
+ *
+ * Marks are undefined when the bucket recorded none (a day with no market-state
+ * update), never zero: a zero close on a price chart is a crash that did not
+ * happen.
+ */
+export interface MarketDailyPoint {
+  readonly dayMs: number;
+  readonly volumeAusd: number;
+  readonly tradeCount: number;
+  readonly feesAusd: number;
+  readonly liquidationCount: number;
+  readonly rescuableLiquidationCount: number;
+  /** Cumulative since the start block, at the day's close. A delta, not a level. */
+  readonly openInterestDeltaLots: number;
+  readonly markOpen: number | undefined;
+  readonly markHigh: number | undefined;
+  readonly markLow: number | undefined;
+  readonly markClose: number | undefined;
+}
+
+export interface MarketDailySeries {
+  readonly market: MarketRef;
+  /** Most recent last. Only days the market has a bucket for. */
+  readonly points: readonly MarketDailyPoint[];
 }
 
 /** Per-market figures over a window, with the long/short skew. */
@@ -485,6 +557,13 @@ export interface Analytics {
 
   /** Daily series, most recent last, for charting. */
   dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]>;
+
+  /**
+   * The same days split per market, for a stacked chart. Markets ordered by
+   * market id; a market absent from the venue context still appears, with
+   * `symbol` undefined, so the chart can label it honestly rather than drop it.
+   */
+  dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]>;
 
   /** Per-market figures over one window, with the long/short skew. */
   marketBreakdown(timeframe: Timeframe): Promise<readonly MarketBreakdown[]>;

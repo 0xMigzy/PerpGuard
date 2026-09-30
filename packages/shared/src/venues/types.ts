@@ -365,12 +365,44 @@ export interface CancelAllRequest {
   readonly symbol?: string;
 }
 
+/**
+ * Open interest on one market, as the venue reports it RIGHT NOW.
+ *
+ * A LEVEL, which the analytics interface deliberately cannot give: the indexer
+ * starts partway through history, so its `openInterestDeltaLots` is a change
+ * with no anchor. This is the anchor, read off the venue's own market state, and
+ * it carries the block it was true at so a reader can see how fresh it is.
+ */
+export interface MarketOpenInterest {
+  readonly venue: VenueId;
+  readonly network: NetworkName;
+  readonly marketId: number;
+  /** Canonical ticker, from the same context row. */
+  readonly symbol: string;
+  /** In the market's own size units, e.g. BTC. Not comparable across markets. */
+  readonly openInterestSize: number;
+  readonly markPrice: number;
+  /** `openInterestSize * markPrice`: the comparable figure, in collateral. */
+  readonly openInterestNotional: number;
+  readonly atBlock: number;
+  readonly atMs: number;
+}
+
 export interface Venue {
   readonly id: VenueId;
   readonly network: NetworkConfig;
 
   /** All markets, with their per-network ids and scaling. */
   getMarkets(): Promise<VenueMarket[]>;
+
+  /**
+   * Open interest per listed market, from the venue's own state.
+   *
+   * The only source of the LEVEL; see {@link MarketOpenInterest}. Read from the
+   * cached context, so it is at most one context TTL old, and each reading says
+   * which block it is from.
+   */
+  getOpenInterest(): Promise<readonly MarketOpenInterest[]>;
 
   /**
    * Everything the risk engine needs per market, keyed by market id.

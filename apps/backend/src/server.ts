@@ -403,6 +403,7 @@ const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
 let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
 let analyticsReader: PostgresAnalytics | undefined;
+let analyticsVenue: PerplVenue | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
   // A pool, and NOT connected eagerly, for the same two reasons as the alert
   // log: a dead single client never recovers, and an indexer database that is
@@ -431,10 +432,10 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   // network's market list when analytics and trading are the same network. When
   // they differ the analytics venue is asked separately, because resolving mainnet
   // market ids against testnet tickers would mislabel every row.
+  analyticsVenue =
+    analyticsNetwork.name === network.name ? venue : new PerplVenue(analyticsNetwork, {});
   const analyticsMarkets =
-    analyticsNetwork.name === network.name
-      ? markets
-      : await new PerplVenue(analyticsNetwork, {}).getMarkets();
+    analyticsNetwork.name === network.name ? markets : await analyticsVenue.getMarkets();
 
   // TVL IS A CHAIN READ, NOT AN INDEXER READ. Accounts held collateral before the
   // start block, so the indexed deposit/withdrawal net is a FLOW and on mainnet it
@@ -491,6 +492,11 @@ const app = createHealthApp({
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader }),
+  // The open-interest LEVEL is a venue read on the analytics network; the
+  // indexer only has the delta. Kept off the reader so the two cannot be confused.
+  ...(analyticsVenue === undefined
+    ? {}
+    : { openInterest: () => analyticsVenue!.getOpenInterest() }),
 });
 
 // ── 9. shutdown, registered BEFORE anything can need it ─────────────────────
