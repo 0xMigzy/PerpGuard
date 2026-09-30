@@ -1,8 +1,10 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
+import { IndexerChip } from './IndexerChip.tsx';
 import { Search } from './Search.tsx';
-import { StatusDot } from './StatusDot.tsx';
 import { Tabs } from './Tabs.tsx';
 
+/** One shell for six sections. The chip is the indexer's block, never a network name. */
 export function Header() {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-page/90 backdrop-blur-[8px]">
@@ -16,9 +18,12 @@ export function Header() {
             </b>
           </Link>
           <Search />
-          <StatusDot />
+          <IndexerChip />
         </div>
-        <Tabs />
+        {/* Suspense: the tabs read the URL's search params to carry the timeframe across sections. */}
+        <Suspense fallback={<div className="h-[49px]" aria-hidden="true" />}>
+          <Tabs />
+        </Suspense>
       </div>
     </header>
   );

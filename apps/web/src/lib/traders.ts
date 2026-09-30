@@ -1,10 +1,10 @@
 /**
- * Pure helpers for the wallet pages. No I/O, no React, unit tested.
+ * Pure helpers for the Traders section. No I/O, no React, unit tested.
  */
 import type { RoundTrip } from '@perpguard/shared';
 
 /** What a search box was given: an address, an account id, or neither. */
-export type WalletQuery =
+export type TraderQuery =
   | { readonly kind: 'address'; readonly address: string }
   | { readonly kind: 'account'; readonly accountId: number }
   | { readonly kind: 'invalid'; readonly reason: string };
@@ -16,7 +16,7 @@ export type WalletQuery =
  * owner was never recorded. Anything else is refused with a reason rather
  * than sent as a lookup that could only come back empty.
  */
-export function parseWalletQuery(raw: string): WalletQuery {
+export function parseTraderQuery(raw: string): TraderQuery {
   const q = raw.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(q)) return { kind: 'address', address: q };
   if (/^\d{1,12}$/.test(q)) return { kind: 'account', accountId: Number(q) };

@@ -23,7 +23,7 @@ const POLL_MS = 30_000;
 const COLUMNS = ['Time (UTC)', 'Market', 'Side', 'Size', 'Notional', 'Margin lost', 'Free balance at the time', 'Needed to survive', 'Rescuable'] as const;
 
 export function LiquidationsView() {
-  const t = useTimeframe('30d');
+  const t = useTimeframe();
   const period = PERIOD_LABEL[t];
   const { fetch: ct, showDays } = chartWindow(t);
   const [limit, setLimit] = useState(LIST_STEP);
@@ -42,7 +42,7 @@ export function LiquidationsView() {
       <PageHeader
         title="Liquidations"
         subtitle="Forced closes from exchange events — and how many of them the trader had the balance to prevent."
-        right={<TimeframePills fallback="30d" />}
+        right={<TimeframePills />}
       />
 
       <StaleMarker envelope={metrics.data} />
@@ -187,7 +187,7 @@ function LiquidationRow({ row }: { readonly row: LiquidationRecord }) {
       </td>
       <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap" title={row.market.symbol === undefined ? `${row.market.indexerName}: not listed by the venue` : undefined}>
         {symbol}
-        <Link href={`/wallets/${row.accountId}`} className="ml-2 text-[11px] font-medium text-muted2 no-underline hover:text-text" title="This account's profile">
+        <Link href={`/traders/${row.accountId}`} className="ml-2 text-[11px] font-medium text-muted2 no-underline hover:text-text" title="This account's profile">
           #{row.accountId}
         </Link>
       </td>

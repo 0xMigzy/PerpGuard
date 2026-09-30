@@ -29,7 +29,7 @@ interface Column {
 }
 
 export function MarketsView() {
-  const t = useTimeframe('24h');
+  const t = useTimeframe();
   const period = PERIOD_LABEL[t];
   const mw = markWindow(t);
 
@@ -75,7 +75,7 @@ export function MarketsView() {
       <PageHeader
         title="Markets"
         subtitle="Every live Perpl market: mark, open interest, funding, liquidations, and a risk score you can decompose."
-        right={<TimeframePills fallback="24h" />}
+        right={<TimeframePills />}
       />
 
       <StaleMarker envelope={markets.data} />

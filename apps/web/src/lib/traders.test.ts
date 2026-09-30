@@ -1,22 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bufferTier, cumulativePnl, parseWalletQuery } from './wallets.ts';
+import { bufferTier, cumulativePnl, parseTraderQuery } from './traders.ts';
 
 test('a checksummed address is accepted as an address, in the case it was given', () => {
-  assert.deepEqual(parseWalletQuery(' 0x83107A83F5fA8c419F131aa970eb975Bd0225D4D '), {
+  assert.deepEqual(parseTraderQuery(' 0x83107A83F5fA8c419F131aa970eb975Bd0225D4D '), {
     kind: 'address',
     address: '0x83107A83F5fA8c419F131aa970eb975Bd0225D4D',
   });
-  assert.equal(parseWalletQuery('0x83107a83f5fa8c419f131aa970eb975bd0225d4d').kind, 'address');
+  assert.equal(parseTraderQuery('0x83107a83f5fa8c419f131aa970eb975bd0225d4d').kind, 'address');
 });
 
 test('digits are an account id; anything else is refused with a reason', () => {
-  assert.deepEqual(parseWalletQuery('4734'), { kind: 'account', accountId: 4734 });
-  const short = parseWalletQuery('0x1234');
+  assert.deepEqual(parseTraderQuery('4734'), { kind: 'account', accountId: 4734 });
+  const short = parseTraderQuery('0x1234');
   assert.equal(short.kind, 'invalid');
   assert.match((short as { reason: string }).reason, /40 hex/);
-  assert.equal(parseWalletQuery('vitalik.eth').kind, 'invalid');
-  assert.equal(parseWalletQuery('').kind, 'invalid');
+  assert.equal(parseTraderQuery('vitalik.eth').kind, 'invalid');
+  assert.equal(parseTraderQuery('').kind, 'invalid');
 });
 
 test('the PnL curve runs oldest first from zero over the trips given', () => {

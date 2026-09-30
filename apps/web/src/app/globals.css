@@ -138,3 +138,20 @@ table th {
   fill: var(--color-muted);
   font-size: 10.5px;
 }
+
+/* A small uppercase label in the page header: the block a snapshot came from, a count. Never a network name. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border2);
+  color: var(--color-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

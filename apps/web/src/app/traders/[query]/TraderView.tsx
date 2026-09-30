@@ -22,7 +22,7 @@ import {
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
-import { bufferTier, cumulativePnl, parseWalletQuery } from '@/lib/wallets.ts';
+import { bufferTier, cumulativePnl, parseTraderQuery } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
@@ -31,8 +31,8 @@ import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 
 const POLL_MS = 30_000;
 
-export function WalletView({ query }: { readonly query: string }) {
-  const parsed = useMemo(() => parseWalletQuery(query), [query]);
+export function TraderView({ query }: { readonly query: string }) {
+  const parsed = useMemo(() => parseTraderQuery(query), [query]);
 
   // One lookup by whatever was typed. An address resolves to a profile or to
   // `not-linked`; an id resolves to a profile or a 404. Both are answers.
@@ -67,9 +67,9 @@ export function WalletView({ query }: { readonly query: string }) {
   if (parsed.kind === 'invalid') {
     return (
       <>
-        <PageHeader title="Wallet" thin={query} subtitle="Profile, open positions and round-trip history for an address or account id." />
+        <PageHeader title="Trader" thin={query} subtitle="Profile, open positions and round-trip history for an address or account id." />
         <Outcome title="That is not an address or an account id.">
-          {parsed.reason}. <Link href="/wallets">Back to search.</Link>
+          {parsed.reason}. <Link href="/traders">Back to search.</Link>
         </Outcome>
       </>
     );
@@ -79,7 +79,7 @@ export function WalletView({ query }: { readonly query: string }) {
       <>
         <PageHeader title="Account" thin={`#${query}`} subtitle="Profile, open positions and round-trip history for this account." />
         <Outcome title={`No account ${query} in the index.`}>
-          An account id either exists in the index or it does not. <Link href="/wallets">Back to search.</Link>
+          An account id either exists in the index or it does not. <Link href="/traders">Back to search.</Link>
         </Outcome>
       </>
     );
@@ -87,7 +87,7 @@ export function WalletView({ query }: { readonly query: string }) {
   if (lookup.data?.data.kind === 'not-linked') {
     return (
       <>
-        <PageHeader title="Wallet" thin={shortAddress(lookup.data.data.address)} subtitle="Profile, open positions and round-trip history for this address." />
+        <PageHeader title="Trader" thin={shortAddress(lookup.data.data.address)} subtitle="Profile, open positions and round-trip history for this address." />
         <StaleMarker envelope={lookup.data} />
         <Outcome title="This address is not linked to an account in the index.">
           {lookup.data.data.reason} If you know the account id, search for that instead: it resolves even when the owner was never recorded.
@@ -105,7 +105,7 @@ export function WalletView({ query }: { readonly query: string }) {
   return (
     <>
       <PageHeader
-        title={p === undefined || p.address === '' ? 'Account' : 'Wallet'}
+        title={p === undefined || p.address === '' ? 'Account' : 'Trader'}
         thin={heading}
         subtitle={
           p === undefined ? (
@@ -123,7 +123,7 @@ export function WalletView({ query }: { readonly query: string }) {
       />
 
       <StaleMarker envelope={lookup.data} />
-      <ErrorNote error={lookup.error} what="Wallet profile" />
+      <ErrorNote error={lookup.error} what="Trader profile" />
 
       {/* ── three tiles ─────────────────────────────────────────────────── */}
       <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -6,40 +6,40 @@ import { useState } from 'react';
 import { api } from '@/lib/api.ts';
 import { formatAusd, formatWhen } from '@/lib/format.ts';
 import { usePoll } from '@/lib/usePoll.ts';
-import { parseWalletQuery } from '@/lib/wallets.ts';
+import { parseTraderQuery } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 
 const POLL_MS = 30_000;
 
-export function WalletsIndex() {
+export function TradersIndex() {
   const router = useRouter();
   const [value, setValue] = useState('');
   const [problem, setProblem] = useState<string | undefined>(undefined);
-  const recent = usePoll(() => api.liquidations('7d', 12), POLL_MS, 'wallets:recent-liquidations');
+  const recent = usePoll(() => api.liquidations('7d', 12), POLL_MS, 'traders:recent-liquidations');
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    const parsed = parseWalletQuery(value);
+    const parsed = parseTraderQuery(value);
     if (parsed.kind === 'invalid') {
       setProblem(parsed.reason);
       return;
     }
-    router.push(`/wallets/${encodeURIComponent(value.trim())}`);
+    router.push(`/traders/${encodeURIComponent(value.trim())}`);
   };
 
   return (
     <>
-      <PageHeader title="Wallets" subtitle="Any address or account id on Perpl: performance, open positions with their liquidation price, and liquidation history." />
+      <PageHeader title="Traders" subtitle="Any address or account id on Perpl: performance, open positions with their liquidation price, and liquidation history." />
 
       <form onSubmit={submit} className="card mb-4 px-[18px] py-4" role="search">
-        <label htmlFor="wallet-query" className="eyebrow">
+        <label htmlFor="trader-query" className="eyebrow">
           Address or account id
         </label>
         <div className="mt-2 flex flex-wrap gap-2">
           <input
-            id="wallet-query"
+            id="trader-query"
             className="num min-w-0 flex-1 rounded-[9px] border border-border2 bg-page px-3 py-2 text-text outline-none placeholder:text-muted focus:border-accent"
             placeholder="0x… or 4734"
             spellCheck={false}
@@ -74,7 +74,7 @@ export function WalletsIndex() {
             : recent.data.data.map((l) => (
                 <Link
                   key={l.id}
-                  href={`/wallets/${l.accountId}`}
+                  href={`/traders/${l.accountId}`}
                   className="card flex items-center justify-between gap-3 px-[14px] py-[10px] no-underline hover:bg-card2"
                 >
                   <span>

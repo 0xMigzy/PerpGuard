@@ -4,6 +4,9 @@ export type { Timeframe };
 
 export const TIMEFRAMES: readonly Timeframe[] = ['24h', '7d', '30d', 'all'];
 
+/** Every timeframed section opens on 30 days. One default, not one per page. */
+export const DEFAULT_TIMEFRAME: Timeframe = '30d';
+
 /** The pill text. */
 export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   '24h': '24H',
@@ -12,7 +15,7 @@ export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   all: 'All',
 };
 
-/** The tile label suffix, e.g. "Volume · 24h". */
+/** The tile label suffix, e.g. "Volume · 30 days". */
 export const PERIOD_LABEL: Record<Timeframe, string> = {
   '24h': '24h',
   '7d': '7 days',

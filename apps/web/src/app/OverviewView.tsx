@@ -27,17 +27,8 @@ import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx
 
 const POLL_MS = 30_000;
 
-/** The market that punishes isolated margin hardest: highest rescuable rate with a real sample. */
-function worstMarket(markets: readonly MarketBreakdown[] | undefined) {
-  if (markets === undefined) return undefined;
-  return markets
-    .filter((m) => m.market.symbol !== undefined && m.liquidationCount >= 5)
-    .map((m) => ({ symbol: m.market.symbol!, rate: m.rescuableLiquidationCount / m.liquidationCount, count: m.liquidationCount }))
-    .sort((a, b) => b.rate - a.rate)[0];
-}
-
 export function OverviewView() {
-  const t = useTimeframe('24h');
+  const t = useTimeframe();
   const { fetch: ct, showDays } = chartWindow(t);
   const period = PERIOD_LABEL[t];
 
@@ -61,87 +52,18 @@ export function OverviewView() {
     [tvlNow, days],
   );
   const openPositions = markets.data?.data.reduce((sum, mk) => sum + mk.openPositions, 0);
-  const worst = worstMarket(markets.data?.data);
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
 
   return (
     <>
       <PageHeader
-        title="Perpl"
-        thin="on Monad"
-        subtitle="Live analytics for Perpl: markets, traders, liquidation risk — and the button that saves the position."
-        right={
-          <>
-            <a className="btn primary" href="https://app.perpl.xyz" target="_blank" rel="noopener noreferrer">
-              Trade on Perpl ↗
-            </a>
-            <TimeframePills fallback="24h" />
-          </>
-        }
+        title="Perpl protocol"
+        subtitle="Everything below is derived from indexed on-chain events. No account needed."
+        right={<TimeframePills />}
       />
 
       <StaleMarker envelope={metrics.data} />
       <ErrorNote error={metrics.error} what="Protocol metrics" />
-
-      {/* ── the rescue hero ─────────────────────────────────────────────── */}
-      <section className="mb-4 grid overflow-hidden rounded-[14px] border border-border bg-card md:grid-cols-[1.2fr_1fr]">
-        <div className="px-[22px] py-5">
-          <div className="eyebrow">Rescuable liquidations · {period}</div>
-          {m === undefined ? (
-            <>
-              <Skeleton className="mt-2 h-[46px] w-[260px]" />
-              <Skeleton className="mt-3 h-[14px] w-[360px]" />
-            </>
-          ) : m.rescues.judgeableCount === 0 ? (
-            <>
-              <div className="num my-[6px] text-[38px] font-bold leading-[1.05] tracking-[-0.04em] sm:text-[46px]">0</div>
-              <p className="m-0 max-w-[52ch] text-muted">No liquidation in this window can be judged yet.</p>
-            </>
-          ) : (
-            <>
-              <div className="num my-[6px] text-[38px] font-bold leading-[1.05] tracking-[-0.04em] sm:text-[46px]">
-                {formatCount(m.rescues.rescuableCount)}
-                <small className="ml-[6px] text-[20px] font-semibold tracking-[-0.01em] text-muted">
-                  of {formatCount(m.rescues.judgeableCount)} · {formatPct(m.rescues.rate ?? 0)}
-                </small>
-              </div>
-              <p className="m-0 max-w-[52ch] text-muted">
-                {formatCount(m.rescues.rescuableCount)} of {formatCount(m.rescues.judgeableCount)} liquidations (
-                {formatPct(m.rescues.rate ?? 0, 0)}) didn&rsquo;t have to happen — the trader&rsquo;s free AUSD would have covered the
-                top-up. <b className="font-semibold text-text">Isolated margin never reached for it.</b>
-              </p>
-            </>
-          )}
-        </div>
-        <div className="border-t border-border px-[22px] py-5 md:border-t-0 md:border-l">
-          <div className="eyebrow">Spare balance at the moment of liquidation</div>
-          {m === undefined ? (
-            <>
-              <Skeleton className="mt-2 h-[46px] w-[200px]" />
-              <Skeleton className="mt-3 h-[60px] w-[300px]" />
-            </>
-          ) : (
-            <>
-              <div className="num my-[6px] text-[38px] font-bold leading-[1.05] tracking-[-0.04em] sm:text-[46px]" title={`${formatAusdExact(m.rescues.spareBalanceAusd)} AUSD`}>
-                {formatCompact(m.rescues.spareBalanceAusd)}
-                <small className="ml-[6px] text-[20px] font-semibold tracking-[-0.01em] text-muted">AUSD</small>
-              </div>
-              <div className="mt-[10px] grid grid-cols-[auto_1fr] gap-x-[14px] gap-y-[6px] text-[12.5px] text-muted">
-                <span>Median spare</span>
-                <b className="num font-semibold text-text">
-                  {m.rescues.medianSpareBalanceAusd === undefined ? '—' : `${formatAusd(m.rescues.medianSpareBalanceAusd)} AUSD`}
-                </b>
-                <span>Worst market</span>
-                <b className="font-semibold text-text">
-                  {markets.data === undefined ? <Skeleton className="inline-block h-[12px] w-[120px] align-middle" /> : worst === undefined ? 'no market with 5+ liquidations' : `${worst.symbol} · ${formatPct(worst.rate, 0)} rescuable`}
-                </b>
-                <span>Excluded</span>
-                <b className="num font-semibold text-text">{formatCount(m.rescues.unknownCount)} unjudgeable</b>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
 
       {/* ── six tiles ───────────────────────────────────────────────────── */}
       <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

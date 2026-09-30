@@ -113,6 +113,12 @@ export interface IndexerHealth {
   /** Whether `blocksBehind` was measured against an independent source. */
   readonly headIsIndependent: boolean;
   /**
+   * The last block the indexer processed: the block every figure it serves
+   * came from. A public page shows it instead of a network name. Undefined
+   * only when the indexer has never run.
+   */
+  readonly latestProcessedBlock?: number;
+  /**
    * WHETHER THE NUMBERS MAY BE SHOWN AS CURRENT. True only when synced against
    * an independent head. A lagging indexer's figures are real but out of date;
    * a halted one's are frozen; an unverified one's are unknown. None of the
@@ -170,7 +176,12 @@ export function classifyIndexerHealth(
   const headIsIndependent = current.chainHead !== undefined;
   const head = current.chainHead ?? current.blockHeight;
   const blocksBehind = Math.max(0, head - current.latestProcessedBlock);
-  const base = { blocksBehind, headIsIndependent, observedAtMs: current.observedAtMs };
+  const base = {
+    blocksBehind,
+    headIsIndependent,
+    observedAtMs: current.observedAtMs,
+    ...(current.latestProcessedBlock > 0 ? { latestProcessedBlock: current.latestProcessedBlock } : {}),
+  };
 
   if (current.latestProcessedBlock <= 0 || current.eventsProcessed <= 0) {
     return {

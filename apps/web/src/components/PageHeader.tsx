@@ -7,7 +7,7 @@ export function PageHeader({
   right,
 }: {
   readonly title: ReactNode;
-  /** A muted tail on the H1, e.g. "on Monad". */
+  /** A muted tail on the H1, e.g. a short address. */
   readonly thin?: ReactNode;
   readonly subtitle: ReactNode;
   readonly right?: ReactNode;

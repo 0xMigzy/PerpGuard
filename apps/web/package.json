@@ -10,15 +10,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@dynamic-labs/ethereum": "5.9.2",
-    "@dynamic-labs/sdk-react-core": "5.9.2",
     "next": "^15.5.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.0.0"
   },
   "devDependencies": {
-    "@perpguard/backend": "workspace:*",
     "@perpguard/shared": "workspace:*",
     "@tailwindcss/postcss": "^4.1.0",
     "@types/react": "^19.2.0",

@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
-import { DynamicProviders } from '@/components/DynamicProviders.tsx';
 import { Footer } from '@/components/Footer.tsx';
 import { Header } from '@/components/Header.tsx';
 import './globals.css';
@@ -10,7 +9,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 
 export const metadata: Metadata = {
   title: { default: 'PerpGuard', template: '%s · PerpGuard' },
-  description: 'Real-time risk monitoring for Perpl traders on Monad: liquidation alerts, stress tests, and a kill switch.',
+  description: 'Protocol analytics and liquidation risk for Perpl: markets, traders, liquidations, and what the isolated-margin rule costs.',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: '/favicon.ico',
@@ -18,7 +17,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'PerpGuard',
-    description: 'Real-time risk monitoring for Perpl traders on Monad.',
+    description: 'Protocol analytics and liquidation risk for Perpl.',
     images: [{ url: '/perpguard-banner-640x360.png', width: 640, height: 360 }],
   },
 };
@@ -28,15 +27,18 @@ export const viewport: Viewport = {
   colorScheme: 'dark',
 };
 
+/**
+ * PUBLIC AND READ-ONLY. There is no session, no sign-in and no provider here:
+ * every page reads the analytics API and nothing on any page can execute an
+ * action. Actions live in Telegram.
+ */
 export default function RootLayout({ children }: { readonly children: ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <DynamicProviders>
-          <Header />
-          <main className="wrap pt-[26px] pb-[60px]">{children}</main>
-          <Footer />
-        </DynamicProviders>
+        <Header />
+        <main className="wrap pt-[26px] pb-[60px]">{children}</main>
+        <Footer />
       </body>
     </html>
   );

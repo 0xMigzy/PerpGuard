@@ -1,22 +1,26 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { TIMEFRAMES, TIMEFRAME_LABEL, timeframeFromQuery, type Timeframe } from '@/lib/timeframe.ts';
+import { DEFAULT_TIMEFRAME, TIMEFRAMES, TIMEFRAME_LABEL, timeframeFromQuery, type Timeframe } from '@/lib/timeframe.ts';
 
-/** Reads and writes `?t=` so every timeframe is a deep link. */
-export function useTimeframe(fallback: Timeframe): Timeframe {
+/**
+ * Reads `?t=` so every timeframe is a deep link. ONE CONTROL PER SECTION: the
+ * value read here governs every figure on the page, and there are no per-panel
+ * pills anywhere.
+ */
+export function useTimeframe(): Timeframe {
   const params = useSearchParams();
-  return timeframeFromQuery(params.get('t'), fallback);
+  return timeframeFromQuery(params.get('t'), DEFAULT_TIMEFRAME);
 }
 
-export function TimeframePills({ fallback }: { readonly fallback: Timeframe }) {
+export function TimeframePills() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const current = timeframeFromQuery(params.get('t'), fallback);
+  const current = timeframeFromQuery(params.get('t'), DEFAULT_TIMEFRAME);
   const select = (t: Timeframe) => {
     const next = new URLSearchParams(params.toString());
-    if (t === fallback) next.delete('t');
+    if (t === DEFAULT_TIMEFRAME) next.delete('t');
     else next.set('t', t);
     const query = next.toString();
     router.replace(query === '' ? pathname : `${pathname}?${query}`, { scroll: false });
@@ -27,8 +31,8 @@ export function TimeframePills({ fallback }: { readonly fallback: Timeframe }) {
         <button
           key={t}
           type="button"
-          className={`pill rounded-[8px] border-0 bg-transparent px-3 py-[6px] text-[12.5px] font-semibold ${
-            t === current ? 'bg-card2 text-text shadow-[inset_0_0_0_1px_#262A38]' : 'text-muted hover:text-text'
+          className={`pill rounded-[8px] border-0 px-3 py-[6px] text-[12.5px] font-semibold ${
+            t === current ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'
           }`}
           aria-pressed={t === current}
           onClick={() => select(t)}

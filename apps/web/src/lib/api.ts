@@ -1,12 +1,15 @@
 /**
  * The only way a page gets a number.
  *
- * Everything here hits the same origin — `/api/analytics/*` and `/health` — and
- * Next rewrites those to the backend. The browser never sees a database, the
- * indexer, or the venue. The types come from `@perpguard/shared` as TYPES only,
- * so nothing from the backend's runtime is bundled into the page.
+ * Everything here hits the same origin — `/api/analytics/*` — and Next rewrites
+ * it to the backend. The browser never sees a database, the indexer, or the
+ * venue. The types come from `@perpguard/shared` as TYPES only, so nothing from
+ * the backend's runtime is bundled into the page.
+ *
+ * READ-ONLY BY CONSTRUCTION. There is no POST, no DELETE and no session here:
+ * every call is a GET against public analytics. The backend's action routes
+ * exist and are never called from a page — actions live in Telegram.
  */
-import type { Prepared, PrepareRequest, ProtectAlerts, ProtectConfig, ProtectProgress, ProtectSession, ProtectSnapshot, ProtectStress } from '@perpguard/backend/protect';
 import type {
   AssessedPositions,
   DailyPoint,
@@ -39,29 +42,6 @@ export interface OpenInterestPayload {
   readonly asOfMs: number | undefined;
 }
 
-/** The backend's `/health` report, the parts the header and pages read. */
-export interface ComponentReport {
-  readonly state: 'ok' | 'degraded' | 'not-configured';
-  readonly detail?: string;
-  readonly [key: string]: unknown;
-}
-
-export interface HealthReport {
-  readonly status: 'OK' | 'DEGRADED';
-  readonly network: string;
-  readonly at: string;
-  readonly reasons: readonly string[];
-  readonly components: {
-    readonly process: ComponentReport;
-    readonly feed: ComponentReport & { readonly connection?: string };
-    readonly positions: ComponentReport & { readonly source?: string; readonly ageMs?: number };
-    readonly trading: ComponentReport;
-    readonly alerts: ComponentReport;
-    readonly indexer: ComponentReport & { readonly indexer?: string; readonly blocksBehind?: number };
-    readonly risk: ComponentReport;
-  };
-}
-
 export class ApiError extends Error {
   constructor(
     readonly path: string,
@@ -91,8 +71,6 @@ async function getJson<T>(path: string): Promise<T> {
   } catch {
     throw new ApiError(path, undefined, 'the backend could not be reached');
   }
-  // `/health` answers 503 with a full report when degraded; that is data, not
-  // an error. Only an unparseable body or a 4xx is an error here.
   const text = await response.text();
   let parsed: unknown;
   try {
@@ -100,7 +78,7 @@ async function getJson<T>(path: string): Promise<T> {
   } catch {
     throw new ApiError(path, response.status, `the backend answered ${response.status} without JSON`);
   }
-  if (!response.ok && !(path === '/health' && response.status === 503)) {
+  if (!response.ok) {
     const message =
       typeof parsed === 'object' && parsed !== null && 'error' in parsed
         ? String((parsed as { error: unknown }).error)
@@ -110,58 +88,10 @@ async function getJson<T>(path: string): Promise<T> {
   return parsed as T;
 }
 
-/** A JSON body in, JSON out. Same origin, so the session cookie rides along. */
-async function sendJson<T>(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method,
-      cache: 'no-store',
-      headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-  } catch {
-    throw new ApiError(path, undefined, 'the backend could not be reached');
-  }
-  const text = await response.text();
-  let parsed: unknown;
-  try {
-    parsed = text === '' ? {} : JSON.parse(text);
-  } catch {
-    throw new ApiError(path, response.status, `the backend answered ${response.status} without JSON`);
-  }
-  if (!response.ok) {
-    const message =
-      typeof parsed === 'object' && parsed !== null && 'error' in parsed ? String((parsed as { error: unknown }).error) : `the backend answered ${response.status}`;
-    throw new ApiError(path, response.status, message);
-  }
-  return parsed as T;
-}
-
 const A = '/api/analytics';
-const P = '/api/protect';
-
-/** The session-gated Protect API. A 401 surfaces as an ApiError with status 401. */
-export const protect = {
-  /** Public: what the sign-in card may offer. Says nothing about the account. */
-  config: () => getJson<ProtectConfig>(`${P}/config`),
-  me: () => getJson<ProtectSession>(`${P}/me`),
-  signIn: (code: string) => sendJson<ProtectSession>('POST', `${P}/session`, { code }),
-  /** Dynamic's JWT, verified by the backend against the environment's keys. */
-  signInWithDynamic: (dynamicToken: string) => sendJson<ProtectSession>('POST', `${P}/session`, { dynamicToken }),
-  /** A read-only look at the monitored account, when the operator allows it. */
-  signInDemo: () => sendJson<ProtectSession>('POST', `${P}/session`, { demo: true }),
-  signOut: () => sendJson<{ signedOut: boolean }>('DELETE', `${P}/session`),
-  positions: () => getJson<ProtectSnapshot & { readonly notes: readonly string[] }>(`${P}/positions`),
-  prepare: (request: PrepareRequest) => sendJson<Prepared>('POST', `${P}/prepare`, request),
-  execute: (token: string) => sendJson<{ idempotencyKey: string }>('POST', `${P}/execute`, { token }),
-  progress: (key: string) => getJson<ProtectProgress>(`${P}/actions/${encodeURIComponent(key)}`),
-  stress: (priceMoveFraction: number) => sendJson<ProtectStress>('POST', `${P}/stress`, { priceMoveFraction }),
-  alerts: (limit = 50) => getJson<ProtectAlerts>(`${P}/alerts?limit=${limit}`),
-};
 
 export const api = {
-  health: () => getJson<HealthReport>('/health'),
+  indexerHealth: () => getJson<Envelope<IndexerHealth>>(`${A}/health`),
   metrics: (t: Timeframe) => getJson<Envelope<ProtocolMetrics>>(`${A}/metrics?timeframe=${t}`),
   tvl: () => getJson<Envelope<TvlReading>>(`${A}/tvl`),
   series: (t: Timeframe) => getJson<Envelope<readonly DailyPoint[]>>(`${A}/series?timeframe=${t}`),
