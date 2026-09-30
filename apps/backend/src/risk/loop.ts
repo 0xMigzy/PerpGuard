@@ -274,6 +274,40 @@ export class RiskLoop {
   }
 
   /**
+   * Every SIGHTED position as the pure engine wants it, with the mark each was
+   * last assessed against — the inputs `stressTest` and `killSwitchPlan` take.
+   *
+   * REFUSES WHILE BLIND ON ANY POSITION, for the same reason `projectAddMargin`
+   * does: a stress test over a frozen mark is a promise about a market we
+   * cannot see, and a kill switch ordered by frozen buffers fires in the wrong
+   * order. An empty book is a real answer when the set is live and empty.
+   */
+  sightedBook(): SightedBook {
+    const positions: RiskPosition[] = [];
+    const markPrices = new Map<number, bigint>();
+    const configs = new Map<number, MarketRiskConfig>();
+    const positionIds = new Map<number, number>();
+    for (const tracked of this.#tracked.values()) {
+      if (tracked.sighted === undefined) {
+        return {
+          ok: false,
+          reason:
+            tracked.assessment.reason === ''
+              ? `I cannot currently see ${tracked.assessment.symbol}`
+              : `I cannot currently see ${tracked.assessment.symbol}: ${tracked.assessment.reason}`,
+        };
+      }
+      positions.push(tracked.sighted.position);
+      markPrices.set(tracked.assessment.marketId, tracked.sighted.markPricePNS);
+      configs.set(tracked.assessment.marketId, tracked.sighted.config);
+      if (tracked.assessment.positionId !== undefined) {
+        positionIds.set(tracked.assessment.marketId, tracked.assessment.positionId);
+      }
+    }
+    return { ok: true, positions, markPrices, configs, positionIds };
+  }
+
+  /**
    * Recompute every open position and emit whatever changed.
    *
    * Called on each feed or position update. Returns the assessments it produced,
@@ -543,3 +577,14 @@ const EMPTY_METRICS = {
 } as const;
 
 export type { MarketRiskConfig };
+
+/** See {@link RiskLoop.sightedBook}. */
+export type SightedBook =
+  | {
+      readonly ok: true;
+      readonly positions: readonly RiskPosition[];
+      readonly markPrices: ReadonlyMap<number, bigint>;
+      readonly configs: ReadonlyMap<number, MarketRiskConfig>;
+      readonly positionIds: ReadonlyMap<number, number>;
+    }
+  | { readonly ok: false; readonly reason: string };

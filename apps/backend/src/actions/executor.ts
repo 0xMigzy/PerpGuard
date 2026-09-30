@@ -82,7 +82,19 @@ export interface ActionsExecutorOptions {
   readonly logger?: Logger;
   /** Injected so the settle wait is testable without real time. */
   readonly setTimeoutImpl?: typeof setTimeout;
+  /**
+   * Told where an action has got to, so a UI can show the steps AS THEY HAPPEN
+   * rather than pretending. `sending` fires just before the one send;
+   * `reconciling` fires the moment the venue has answered (or timed out, or
+   * thrown) and carries exactly what it reported, which is not the outcome.
+   * Nothing here changes what the executor does.
+   */
+  readonly onProgress?: (progress: ActionProgress) => void;
 }
+
+export type ActionProgress =
+  | { readonly idempotencyKey: string; readonly stage: 'sending' }
+  | { readonly idempotencyKey: string; readonly stage: 'reconciling'; readonly reported: ReportedStatus };
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 8_000;
 
@@ -106,6 +118,7 @@ export class ActionsExecutor {
   readonly #now: () => number;
   readonly #logger: Logger;
   readonly #setTimeout: typeof setTimeout;
+  readonly #onProgress: ((progress: ActionProgress) => void) | undefined;
 
   constructor(options: ActionsExecutorOptions) {
     this.#venue = options.venue;
@@ -118,6 +131,7 @@ export class ActionsExecutor {
     this.#now = options.now ?? Date.now;
     this.#logger = options.logger ?? silent;
     this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
+    this.#onProgress = options.onProgress;
   }
 
   /** Whether an action on this market is already in flight. For a UI to grey out. */
@@ -264,6 +278,7 @@ export class ActionsExecutor {
       openedAtMs: this.#now(),
     });
 
+    this.#onProgress?.({ idempotencyKey: command.idempotencyKey, stage: 'sending' });
     const sent = await this.#send(command, position);
     if ('refused' in sent) {
       const outcome = this.#refuse(command, sent.refused, sent.detail);
@@ -271,6 +286,7 @@ export class ActionsExecutor {
       return outcome;
     }
     const reported = sent.reported;
+    this.#onProgress?.({ idempotencyKey: command.idempotencyKey, stage: 'reconciling', reported });
 
     // ONE SEND HAS HAPPENED. From here every path reconciles and none re-sends.
     const observation = await this.#observe(command, field, before);

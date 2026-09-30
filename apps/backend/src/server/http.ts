@@ -16,6 +16,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
 import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
+import { registerProtectRoutes, type ProtectRouteOptions } from './protect/routes.ts';
 
 export interface HealthServerOptions {
   readonly health: () => HealthReport;
@@ -34,6 +35,8 @@ export interface HealthServerOptions {
   readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
   /** Open positions assessed against the analytics network's venue. See the routes. */
   readonly assessPositions?: AnalyticsRouteOptions['assessPositions'];
+  /** The session-gated Protect API. Absent when there is no risk loop to serve. */
+  readonly protect?: ProtectRouteOptions;
 }
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
@@ -52,6 +55,8 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       ...(options.assessPositions === undefined ? {} : { assessPositions: options.assessPositions }),
     });
   }
+
+  if (options.protect !== undefined) registerProtectRoutes(app, options.protect);
 
   // A bare GET / is what a human types first. Point them at the real endpoint
   // rather than returning a 404 that reads like the process is broken.

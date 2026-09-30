@@ -59,7 +59,7 @@ export class VenueActionExecutor implements ActionExecutor {
           `was sent.`,
       };
     }
-    return describe(await this.#runner.execute(command));
+    return describeExecutionOutcome(await this.#runner.execute(command));
   }
 }
 
@@ -102,7 +102,11 @@ function toCommand(request: ExecuteRequest): ActionCommand | undefined {
  * said it failed" learns only that the tool is unsure, and the tool is not
  * unsure — it looked at the position.
  */
-function describe(outcome: ActionOutcome): ExecutionOutcome {
+/**
+ * EXPORTED so the web's Protect page tells a trader the same sentence the bot
+ * does for the same outcome. Two front doors, one set of words.
+ */
+export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutcome {
   switch (outcome.kind) {
     case 'applied':
       return {

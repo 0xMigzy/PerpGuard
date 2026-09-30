@@ -13,7 +13,8 @@
     "./ingest/market-feed": "./src/ingest/marketFeed.ts",
     "./alerts/test-support": "./src/alerts/testSupport.ts",
     "./actions": "./src/actions/index.ts",
-    "./actions/types": "./src/actions/types.ts"
+    "./actions/types": "./src/actions/types.ts",
+    "./protect": "./src/server/protect/types.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

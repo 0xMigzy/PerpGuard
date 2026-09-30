@@ -78,6 +78,8 @@ import { buildHealth, type HealthReport } from './server/health.ts';
 import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
+import { ActionProgressTracker } from './server/protect/progress.ts';
+import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { TradingSession } from './server/tradingSession.ts';
 
 const startedAtMs = Date.now();
@@ -275,6 +277,19 @@ const links = new InMemoryLinkStore({
 const pendingActions = new PendingActionStore();
 const pendingAmounts = new PendingAmountStore();
 
+// ── the web session: the bot's link, one step later ────────────────────────
+//
+// The Protect page is signed into with a one-time code the bot hands the LINKED
+// chat, so the web session is opened by the same person the bot already
+// trusts. `PERPGUARD_WEB_DEV_LINK=1` additionally lets the operator mint one
+// from the loopback interface for local work; it is off unless said so.
+const webSessions = new SessionStore();
+const webLinkCodes = new LinkCodeStore();
+const webPending = new WebPendingActionStore();
+const actionProgress = new ActionProgressTracker();
+const devLinkMint = process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1';
+if (devLinkMint) warn('PERPGUARD_WEB_DEV_LINK=1: web sign-in codes can be minted from localhost. Dev only.');
+
 // ── the actions layer ───────────────────────────────────────────────────────
 //
 // THE ONLY PART OF PERPGUARD THAT MOVES MONEY. Everything about how it behaves is
@@ -319,6 +334,9 @@ const actionsExecutor = new ActionsExecutor({
   prices: { canAct: (marketId) => feed.canAct(marketId, venue.feedStatus()) },
   log: actionLog,
   logger: { info: log, warn },
+  // The web page shows the steps as they happen; the bot's actions are ignored
+  // by the tracker because it never started them.
+  onProgress: (progress) => actionProgress.record(progress),
 });
 
 const executor = new VenueActionExecutor({
@@ -350,6 +368,7 @@ const bot =
         configs: riskConfigs,
         amounts: pendingAmounts,
         balance,
+        mintLinkCode: (id) => webLinkCodes.mint(id),
       });
 
 const transport =
@@ -489,6 +508,32 @@ const health = (): HealthReport =>
 
 const app = createHealthApp({
   health,
+  protect: {
+    userId,
+    view: {
+      network: loop.network,
+      snapshot: () => loop.snapshot(),
+      feedStatus: () => venue.feedStatus(),
+      positionsStatus: () => loop.positionsStatus(),
+      projectAddMargin: (marketId, amountCNS) => loop.projectAddMargin(marketId, amountCNS),
+      sightedBook: () => loop.sightedBook(),
+      positions: () => positionSource.snapshot(),
+      thresholds: () => loop.thresholds,
+    },
+    configs: riskConfigs,
+    sessions: webSessions,
+    linkCodes: webLinkCodes,
+    pending: webPending,
+    progress: actionProgress,
+    freeBalance: () => balance.freeBalance(),
+    availability: (symbol) => venue.getActionAvailability(symbol),
+    inFlightOn: (marketId) => actionsExecutor.inFlightOn(marketId),
+    runner: actionsExecutor,
+    accountId: () => trading.status().accountId,
+    forwardingAllowed: () => trading.status().forwardingAllowed,
+    devLinkMint,
+    logger: { info: log, warn },
+  },
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.

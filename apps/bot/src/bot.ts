@@ -65,6 +65,13 @@ export interface BotDeps {
    */
   readonly balance?: FreeBalanceView;
   readonly alerts?: AlertConfig;
+  /**
+   * Mints a one-time code that signs the linked person in to the web app's
+   * Protect page. Absent when no web session store is wired, in which case
+   * `/web` says so. The reply goes to the LINKED chat only, which is what makes
+   * the code reach the right person in the right context.
+   */
+  readonly mintLinkCode?: (userId: string) => { readonly code: string; readonly expiresAtMs: number };
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -161,6 +168,22 @@ export function createBot(deps: BotDeps): Bot {
   // ── /help ─────────────────────────────────────────────────────────────────
   bot.command('help', async (ctx) => {
     await ctx.reply(HELP_TEXT);
+  });
+
+  // ── /web ──────────────────────────────────────────────────────────────────
+  // A sign-in code for the web app. Only a linked user in the linked chat gets
+  // here (the gate above), so the code lands with the right person.
+  bot.command('web', async (ctx) => {
+    if (deps.mintLinkCode === undefined) {
+      await ctx.reply('The web app is not wired to this bot, so I cannot issue a sign-in code.');
+      return;
+    }
+    const minted = deps.mintLinkCode(deps.config.userId);
+    const minutes = Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000));
+    await ctx.reply(
+      `Web sign-in code: ${minted.code}\n\nEnter it on the Protect page within ${minutes} minutes. ` +
+        `It works once, and it signs in this account only.`,
+    );
   });
 
   // ── /status ───────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ export const HELP_TEXT = [
   '/positions — every open position with its buffer, liquidation price and what a top-up would buy.',
   '/status — whether I can actually see right now: feed connection, position list, and how old the data is.',
   '/start — link this chat to the account I alert.',
+  '/web — a one-time code to sign in to the Protect page in the web app.',
   '/cancel — drop a custom amount I am waiting for.',
   '/help — this.',
   '',
