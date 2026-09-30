@@ -21,18 +21,23 @@ import {
 } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
+import { PERIOD_LABEL } from '@/lib/timeframe.ts';
 import { usePoll } from '@/lib/usePoll.ts';
-import { bufferTier, cumulativePnl, parseTraderQuery } from '@/lib/traders.ts';
+import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
+import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
+import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
 
 const POLL_MS = 30_000;
 
 export function TraderView({ query }: { readonly query: string }) {
   const parsed = useMemo(() => parseTraderQuery(query), [query]);
+  const t = useTimeframe();
+  const period = PERIOD_LABEL[t];
 
   // One lookup by whatever was typed. An address resolves to a profile or to
   // `not-linked`; an id resolves to a profile or a 404. Both are answers.
@@ -41,7 +46,7 @@ export function TraderView({ query }: { readonly query: string }) {
       if (parsed.kind === 'address') return api.wallet(parsed.address);
       if (parsed.kind === 'account') {
         const r = await api.account(parsed.accountId);
-        return { ...r, data: { kind: 'found' as const, profile: r.data } };
+        return { ...r, data: { kind: 'found' as const, profile: r.data, resolvedBy: 'index' as const } };
       }
       throw new ApiError('', 400, parsed.reason);
     },
@@ -62,6 +67,18 @@ export function TraderView({ query }: { readonly query: string }) {
     POLL_MS,
     `trips:${accountId ?? '-'}:${limit}`,
   );
+  // THE WINDOW: the account's UTC days, straight off the indexer's TraderDay
+  // table. The tiles sum them; the chart draws them. Lifetime figures come from
+  // the profile and are labelled as lifetime.
+  const days = usePoll(
+    () => (accountId === undefined ? Promise.reject(new Error('no account yet')) : api.accountDays(accountId, t)),
+    POLL_MS,
+    `days:${accountId ?? '-'}:${t}`,
+  );
+  const dayRows = days.data?.data;
+  const window = useMemo(() => (dayRows === undefined ? undefined : sumDays(dayRows)), [dayRows]);
+  const dayCurve = useMemo(() => (dayRows === undefined ? undefined : cumulativeDays(dayRows)), [dayRows]);
+  const windowLabel = t === 'all' ? 'all time' : window === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
 
   // ── the three non-profile outcomes ───────────────────────────────────────
   if (parsed.kind === 'invalid') {
@@ -69,7 +86,7 @@ export function TraderView({ query }: { readonly query: string }) {
       <>
         <PageHeader title="Trader" thin={query} subtitle="Profile, open positions and round-trip history for an address or account id." />
         <Outcome title="That is not an address or an account id.">
-          {parsed.reason}. <Link href="/traders">Back to search.</Link>
+          {parsed.reason}. <Link href="/traders">Back to the traders list.</Link>
         </Outcome>
       </>
     );
@@ -79,7 +96,7 @@ export function TraderView({ query }: { readonly query: string }) {
       <>
         <PageHeader title="Account" thin={`#${query}`} subtitle="Profile, open positions and round-trip history for this account." />
         <Outcome title={`No account ${query} in the index.`}>
-          An account id either exists in the index or it does not. <Link href="/traders">Back to search.</Link>
+          An account id either exists in the index or it does not. <Link href="/traders">Back to the traders list.</Link>
         </Outcome>
       </>
     );
@@ -89,8 +106,14 @@ export function TraderView({ query }: { readonly query: string }) {
       <>
         <PageHeader title="Trader" thin={shortAddress(lookup.data.data.address)} subtitle="Profile, open positions and round-trip history for this address." />
         <StaleMarker envelope={lookup.data} />
-        <Outcome title="This address is not linked to an account in the index.">
-          {lookup.data.data.reason} If you know the account id, search for that instead: it resolves even when the owner was never recorded.
+        <Outcome title={lookup.data.data.accountId === undefined ? 'This address has no account the index or the Exchange can see.' : `This address owns account #${lookup.data.data.accountId}, which has no indexed activity.`}>
+          {lookup.data.data.reason}
+          {lookup.data.data.accountId !== undefined && (
+            <>
+              {' '}
+              <Link href={`/traders/${lookup.data.data.accountId}`}>Open account #{lookup.data.data.accountId}</Link> to watch for its first trade.
+            </>
+          )}
         </Outcome>
       </>
     );
@@ -98,9 +121,12 @@ export function TraderView({ query }: { readonly query: string }) {
 
   // ── the profile ──────────────────────────────────────────────────────────
   const p = found;
+  const resolvedBy = lookup.data?.data.kind === 'found' ? lookup.data.data.resolvedBy : undefined;
   const heading = p === undefined ? (parsed.kind === 'address' ? shortAddress(parsed.address) : `#${parsed.accountId}`) : p.address === '' ? `#${p.accountId}` : shortAddress(p.address);
   const curve = trips.data === undefined ? undefined : cumulativePnl(trips.data.data);
   const rows = trips.data?.data;
+  const floor = p?.performance.minRoundTripsForRatios;
+  const windowWinRate = window === undefined || floor === undefined ? undefined : winRateOf(window.wins, window.roundTrips, floor);
 
   return (
     <>
@@ -116,73 +142,123 @@ export function TraderView({ query }: { readonly query: string }) {
               Account {p.accountId}
               {p.address !== '' && <> · <span className="num" title={p.address}>{p.address}</span></>}
               {p.firstTradeAtMs !== undefined && <> · first trade {formatDayLong(p.firstTradeAtMs)}</>}
-              {' · '}last active {formatAge(Date.now() - p.lastActiveAtMs)} ago · {formatCount(p.performance.roundTrips)} round trips
+              {' · '}last active {formatAge(Date.now() - p.lastActiveAtMs)} ago · {formatCount(p.performance.roundTrips)} round trips lifetime
+              {resolvedBy === 'chain' && ' · owner resolved by the Exchange contract'}
             </>
           )
         }
+        right={<TimeframePills />}
       />
 
       <StaleMarker envelope={lookup.data} />
       <ErrorNote error={lookup.error} what="Trader profile" />
 
-      {/* ── three tiles ─────────────────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {p === undefined ? (
-          Array.from({ length: 3 }, (_, i) => <StatTileSkeleton key={i} />)
+      {/* ── four tiles: the window first, lifetime beside it ────────────── */}
+      <ErrorNote error={accountId === undefined ? undefined : days.error} what="The account's daily history" />
+      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {p === undefined || window === undefined ? (
+          Array.from({ length: 4 }, (_, i) => <StatTileSkeleton key={i} />)
         ) : (
           <>
             <StatTile
-              label="Volume · all time"
-              value={formatCompact(p.volumeAusd)}
-              exact={`${formatAusdExact(p.volumeAusd)} AUSD notional`}
-              secondary={`${formatCount(p.tradeCount)} trades · ${formatCount(p.performance.roundTrips)} round trips`}
-              sparklineNote="all time: the profile is not windowed"
+              label={`Net PnL · ${windowLabel}`}
+              value={formatSignedAusd(t === 'all' ? p.netPnlAusd : window.netPnlAusd, 0)}
+              exact={t === 'all' ? `${formatSignedAusd(p.netPnlAusd)} AUSD = realised ${formatSignedAusd(p.realisedPnlAusd)} + funding ${formatSignedAusd(p.fundingAusd)} − fees ${formatAusd(p.feesPaidAusd)}` : `${formatSignedAusd(window.netPnlAusd)} AUSD = realised ${formatSignedAusd(window.realisedPnlAusd)} + funding ${formatSignedAusd(window.fundingAusd)} − fees ${formatAusd(window.feesAusd)}`}
+              valueColor={(t === 'all' ? p.netPnlAusd : window.netPnlAusd) > 0 ? COLORS.safe : (t === 'all' ? p.netPnlAusd : window.netPnlAusd) < 0 ? COLORS.danger : undefined}
+              secondary={
+                <>
+                  <div>{t === 'all' ? `realised ${formatSignedAusd(p.realisedPnlAusd, 0)} · funding ${formatSignedAusd(p.fundingAusd, 0)} · fees ${formatAusd(p.feesPaidAusd, 0)}` : `lifetime ${formatSignedAusd(p.netPnlAusd, 0)}`}</div>
+                  <div>{t === 'all' ? `curve: the last ${formatCount(curve?.length ?? 0)} round trips` : `realised ${formatSignedAusd(window.realisedPnlAusd, 0)} · funding ${formatSignedAusd(window.fundingAusd, 0)} · fees ${formatAusd(window.feesAusd, 0)}`}</div>
+                </>
+              }
+              sparkline={t === 'all' ? (curve !== undefined && curve.length >= 2 ? curve : undefined) : dayCurve !== undefined && dayCurve.length >= 2 ? dayCurve.map((d) => d.cumulativeAusd) : undefined}
+              sparklineColor={(t === 'all' ? (curve?.at(-1) ?? 0) : window.netPnlAusd) < 0 ? COLORS.danger : COLORS.safe}
+              sparklineNote={t === 'all' ? 'not enough round trips for a curve' : `${formatCount(window.days)} day${window.days === 1 ? '' : 's'} with activity: not enough for a curve`}
             />
             <StatTile
-              label="Net PnL · all time"
-              value={formatSignedAusd(p.netPnlAusd, 0)}
-              exact={`${formatSignedAusd(p.netPnlAusd)} AUSD = realised ${formatSignedAusd(p.realisedPnlAusd)} + funding ${formatSignedAusd(p.fundingAusd)} − fees ${formatAusd(p.feesPaidAusd)}`}
-              valueColor={p.netPnlAusd > 0 ? COLORS.safe : p.netPnlAusd < 0 ? COLORS.danger : undefined}
+              label={`Volume · ${windowLabel}`}
+              value={formatCompact(t === 'all' ? p.volumeAusd : window.volumeAusd)}
+              exact={`${formatAusdExact(t === 'all' ? p.volumeAusd : window.volumeAusd)} AUSD notional`}
+              secondary={
+                <>
+                  <div>{formatCount(t === 'all' ? p.tradeCount : window.tradeCount)} trades</div>
+                  <div>{t === 'all' ? 'lifetime' : `lifetime ${formatCompact(p.volumeAusd)} · ${formatCount(p.tradeCount)} trades`}</div>
+                </>
+              }
+              sparkline={dayRows !== undefined && dayRows.length >= 2 ? dayRows.map((d) => d.volumeAusd) : undefined}
+              sparklineNote={dayRows === undefined ? 'loading the days' : 'one day with activity: not enough for a shape'}
+            />
+            <StatTile
+              label={`Round trips · ${windowLabel}`}
+              value={formatCount(t === 'all' ? p.performance.roundTrips : window.roundTrips)}
               secondary={
                 <>
                   <div>
-                    realised {formatSignedAusd(p.realisedPnlAusd, 0)} · funding {formatSignedAusd(p.fundingAusd, 0)} · fees {formatAusd(p.feesPaidAusd, 0)}
+                    {t === 'all'
+                      ? `${formatCount(p.performance.wins)} wins · ${formatCount(p.performance.losses)} losses`
+                      : `${formatCount(window.wins)} wins · ${formatCount(window.losses)} losses`}
                   </div>
                   <div>
-                    win rate {p.performance.winRate === undefined ? '—' : formatPct(p.performance.winRate)} per round trip
-                    {curve !== undefined && curve.length >= 2 && ` · curve: the last ${formatCount(curve.length)} round trips`}
+                    {(t === 'all' ? p.performance.winRate : windowWinRate) === undefined
+                      ? `win rate withheld under ${formatCount(floor ?? 0)} round trips`
+                      : `win rate ${formatPct((t === 'all' ? p.performance.winRate : windowWinRate)!)} of ${formatCount(t === 'all' ? p.performance.roundTrips : window.roundTrips)}`}
                   </div>
                 </>
               }
-              sparkline={curve !== undefined && curve.length >= 2 ? curve : undefined}
-              sparklineColor={curve !== undefined && (curve.at(-1) ?? 0) < 0 ? COLORS.danger : COLORS.safe}
-              sparklineNote={curve === undefined ? 'loading the last round trips' : `last ${formatCount(curve.length)} round trip${curve.length === 1 ? '' : 's'}: not enough for a curve`}
+              sparkline={dayRows !== undefined && dayRows.length >= 2 ? dayRows.map((d) => d.wins + d.losses) : undefined}
+              sparklineNote="a round trip is one position from open to flat"
             />
             <StatTile
-              label="Liquidations · all time"
-              value={formatCount(p.rescues.count)}
-              exact={`${formatCount(p.rescues.count)} forced exits, ${formatCount(p.rescues.judgeableCount)} judgeable`}
+              label={`Liquidations · ${windowLabel}`}
+              value={formatCount(t === 'all' ? p.rescues.count : window.liquidationCount)}
+              exact={`${formatCount(p.rescues.count)} forced exits lifetime, ${formatCount(p.rescues.judgeableCount)} judgeable`}
+              valueColor={(t === 'all' ? p.rescues.count : window.liquidationCount) > 0 ? COLORS.danger : undefined}
               secondary={
                 <>
                   <div>
-                    <b className="font-semibold text-watch">{formatCount(p.rescues.rescuableCount)} rescuable</b>
-                    {p.rescues.judgeableCount > 0 && ` · ${formatPct(p.rescues.rate ?? 0, 0)} of ${formatCount(p.rescues.judgeableCount)} judgeable`}
-                    {p.rescues.unknownCount > 0 && ` · ${formatCount(p.rescues.unknownCount)} unjudgeable`}
+                    <b className="font-semibold text-watch">{formatCount(t === 'all' ? p.rescues.rescuableCount : window.rescuableLiquidationCount)} rescuable</b>
+                    {t === 'all' && p.rescues.judgeableCount > 0 && ` · ${formatPct(p.rescues.rate ?? 0, 0)} of ${formatCount(p.rescues.judgeableCount)} judgeable`}
+                    {t === 'all' && p.rescues.unknownCount > 0 && ` · ${formatCount(p.rescues.unknownCount)} unjudgeable`}
+                    {t !== 'all' && ` · lifetime ${formatCount(p.rescues.count)}`}
                   </div>
                   <div>
                     {p.rescues.medianSpareBalanceAusd === undefined
                       ? 'no rescuable case to take a median over'
-                      : `median ${formatAusd(p.rescues.medianSpareBalanceAusd)} AUSD sitting free at the time`}
+                      : `median ${formatAusd(p.rescues.medianSpareBalanceAusd)} AUSD sitting free at the time · lifetime`}
                   </div>
                 </>
               }
+              sparkline={dayRows !== undefined && dayRows.length >= 2 ? dayRows.map((d) => d.liquidationCount) : undefined}
+              sparklineColor={COLORS.danger}
               sparklineNote="spare balance that isolated margin never reached for"
             />
           </>
         )}
       </section>
 
-      {/* ── performance strip ───────────────────────────────────────────── */}
+      {/* ── the days ─────────────────────────────────────────────────────── */}
+      <section className="card mb-4 px-[18px] py-4">
+        <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Daily net PnL</h2>
+          <span className="text-[12.5px] text-muted">Per UTC day · {t === 'all' ? 'every indexed day' : period}, from the indexer&rsquo;s per-trader day buckets</span>
+        </div>
+        {dayCurve === undefined ? (
+          <Skeleton className="mt-2 h-[262px] w-full" />
+        ) : dayCurve.length === 0 ? (
+          <div className="flex h-[200px] flex-col items-center justify-center text-center">
+            <div className="text-[14px] font-semibold text-text">No activity in {t === 'all' ? 'the index' : `the last ${period}`}.</div>
+            <div className="mt-1 text-[12.5px] text-muted">A day appears here once the account trades, deposits or withdraws on it. Widen the window to see earlier days.</div>
+          </div>
+        ) : (
+          <TraderDaysChart days={dayCurve} />
+        )}
+      </section>
+
+      {/* ── performance strip: lifetime, and says so ───────────────────── */}
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
+        <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Performance</h2>
+        <span className="text-[12.5px] text-muted">Lifetime, over every indexed round trip. Not windowed.</span>
+      </div>
       {p !== undefined && <Performance profile={p} />}
 
       {/* ── open positions ──────────────────────────────────────────────── */}
@@ -229,9 +305,19 @@ function Outcome({ title, children }: { readonly title: string; readonly childre
 
 function Performance({ profile: p }: { readonly profile: WalletProfile }) {
   const perf = p.performance;
-  const cells: readonly { readonly label: string; readonly value: string; readonly color?: string | undefined; readonly title?: string | undefined }[] = [
-    { label: 'Win rate', value: perf.winRate === undefined ? '—' : formatPct(perf.winRate), title: `${formatCount(perf.wins)} wins · ${formatCount(perf.losses)} losses` },
-    { label: 'Profit factor', value: perf.profitFactor === undefined ? (perf.losses === 0 && perf.wins > 0 ? 'no losses' : '—') : perf.profitFactor.toFixed(3), title: 'gross profit over gross loss' },
+  const cells: readonly { readonly label: string; readonly value: string; readonly color?: string | undefined; readonly title?: string | undefined; readonly sub?: string | undefined }[] = [
+    {
+      label: 'Win rate',
+      value: perf.winRate === undefined ? '—' : formatPct(perf.winRate),
+      title: perf.winRate === undefined ? `${formatCount(perf.wins)} wins of ${formatCount(perf.roundTrips)}: withheld under ${formatCount(perf.minRoundTripsForRatios)} round trips` : `${formatCount(perf.wins)} wins · ${formatCount(perf.losses)} losses · of ${formatCount(perf.roundTrips)}`,
+      sub: perf.winRate === undefined ? `under ${formatCount(perf.minRoundTripsForRatios)} trips` : `${formatCount(perf.wins)} of ${formatCount(perf.roundTrips)}`,
+    },
+    {
+      label: 'Profit factor',
+      value: perf.profitFactor === undefined ? (perf.roundTrips >= perf.minRoundTripsForRatios && perf.losses === 0 && perf.wins > 0 ? 'no losses' : '—') : perf.profitFactor.toFixed(3),
+      title: 'gross profit over gross loss',
+      sub: perf.roundTrips < perf.minRoundTripsForRatios ? `under ${formatCount(perf.minRoundTripsForRatios)} trips` : undefined,
+    },
     { label: 'Max drawdown', value: perf.maxDrawdownAusd === 0 ? '0' : `−${formatAusd(perf.maxDrawdownAusd)}`, color: perf.maxDrawdownAusd > 0 ? COLORS.danger : undefined, title: 'largest peak-to-trough fall in cumulative net PnL' },
     { label: 'Best streak', value: `${formatCount(perf.longestWinStreak)} wins` },
     { label: 'Worst streak', value: `${formatCount(perf.longestLossStreak)} losses` },
@@ -247,13 +333,14 @@ function Performance({ profile: p }: { readonly profile: WalletProfile }) {
     },
   ];
   return (
-    <section className="card mb-4 grid grid-cols-2 gap-x-4 gap-y-3 px-[18px] py-[14px] sm:grid-cols-4 lg:grid-cols-8">
+    <section className="card mb-4 grid grid-cols-2 gap-x-4 gap-y-3 px-[18px] py-[14px] sm:grid-cols-4 lg:grid-cols-8" aria-label="Lifetime performance">
       {cells.map((c) => (
         <div key={c.label} title={c.title}>
           <div className="text-[11px] font-medium tracking-[0.02em] text-muted uppercase">{c.label}</div>
           <div className="num mt-[2px] text-[15px] font-bold tracking-[-0.01em]" style={c.color === undefined ? undefined : { color: c.color }}>
             {c.value}
           </div>
+          {c.sub !== undefined && <div className="text-[11px] text-muted2">{c.sub}</div>}
         </div>
       ))}
     </section>

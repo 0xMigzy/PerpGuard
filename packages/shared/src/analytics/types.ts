@@ -666,6 +666,8 @@ export interface TraderWindow {
   readonly honoursTimeframe: boolean;
   /** A phrase a UI renders verbatim, e.g. "the 8 UTC days from 2026-09-23 (today so far)". */
   readonly label: string;
+  /** How many UTC day buckets were summed, the partial current one included. Undefined for all time. */
+  readonly days: number | undefined;
   readonly fromMs: number | undefined;
   readonly toMs: number;
 }

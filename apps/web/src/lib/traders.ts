@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the Traders section. No I/O, no React, unit tested.
  */
-import type { RoundTrip } from '@perpguard/shared';
+import type { RoundTrip, TraderDayPoint, TraderSortKey } from '@perpguard/shared';
 
 /** What a search box was given: an address, an account id, or neither. */
 export type TraderQuery =
@@ -48,4 +48,76 @@ export function bufferTier(liqBufferPct: number | undefined): 'past' | 'danger' 
   if (liqBufferPct < 0.03) return 'danger';
   if (liqBufferPct < 0.08) return 'watch';
   return 'safe';
+}
+
+/** One trader's days folded into window totals. Every figure keeps its count. */
+export interface DayTotals {
+  readonly days: number;
+  readonly netPnlAusd: number;
+  readonly realisedPnlAusd: number;
+  readonly fundingAusd: number;
+  readonly feesAusd: number;
+  readonly volumeAusd: number;
+  readonly tradeCount: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly roundTrips: number;
+  readonly liquidationCount: number;
+  readonly rescuableLiquidationCount: number;
+  readonly depositedAusd: number;
+  readonly withdrawnAusd: number;
+}
+
+export function sumDays(days: readonly TraderDayPoint[]): DayTotals {
+  const t = {
+    days: days.length, netPnlAusd: 0, realisedPnlAusd: 0, fundingAusd: 0, feesAusd: 0, volumeAusd: 0, tradeCount: 0,
+    wins: 0, losses: 0, roundTrips: 0, liquidationCount: 0, rescuableLiquidationCount: 0, depositedAusd: 0, withdrawnAusd: 0,
+  };
+  for (const d of days) {
+    t.netPnlAusd += d.netPnlAusd;
+    t.realisedPnlAusd += d.realisedPnlAusd;
+    t.fundingAusd += d.fundingAusd;
+    t.feesAusd += d.feesAusd;
+    t.volumeAusd += d.volumeAusd;
+    t.tradeCount += d.tradeCount;
+    t.wins += d.wins;
+    t.losses += d.losses;
+    t.roundTrips += d.wins + d.losses;
+    t.liquidationCount += d.liquidationCount;
+    t.rescuableLiquidationCount += d.rescuableLiquidationCount;
+    t.depositedAusd += d.depositedAusd;
+    t.withdrawnAusd += d.withdrawnAusd;
+  }
+  return t;
+}
+
+/**
+ * A win rate, or undefined under the floor.
+ *
+ * The floor is the backend's, passed in rather than repeated here, so the
+ * page cannot compute a ratio the API would have withheld.
+ */
+export function winRateOf(wins: number, roundTrips: number, minRoundTrips: number): number | undefined {
+  if (roundTrips < minRoundTrips || roundTrips === 0) return undefined;
+  return wins / roundTrips;
+}
+
+/** Days -> points with the running net PnL alongside each day's own. */
+export function cumulativeDays(days: readonly TraderDayPoint[]): readonly { readonly dayMs: number; readonly netPnlAusd: number; readonly cumulativeAusd: number; readonly volumeAusd: number; readonly endFreeBalanceAusd: number }[] {
+  let running = 0;
+  return days.map((d) => {
+    running += d.netPnlAusd;
+    return { dayMs: d.dayMs, netPnlAusd: d.netPnlAusd, cumulativeAusd: running, volumeAusd: d.volumeAusd, endFreeBalanceAusd: d.endFreeBalanceAusd };
+  });
+}
+
+/** The direction a list column starts in when first clicked: figures high-first. */
+export function defaultTraderDirection(key: TraderSortKey): 'asc' | 'desc' {
+  return key === 'lastActive' ? 'desc' : 'desc';
+}
+
+/** "1–50 of 1,478" for the pager. */
+export function pageRange(offset: number, shown: number, total: number): { readonly from: number; readonly to: number; readonly total: number } {
+  if (shown === 0) return { from: 0, to: 0, total };
+  return { from: offset + 1, to: offset + shown, total };
 }

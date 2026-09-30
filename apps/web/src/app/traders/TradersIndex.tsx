@@ -1,97 +1,209 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { SortDirection, TraderRow, TraderSortKey } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAusd, formatWhen } from '@/lib/format.ts';
+import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
+import { PERIOD_LABEL } from '@/lib/timeframe.ts';
+import { defaultTraderDirection, pageRange } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
-import { parseTraderQuery } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
+import { StaleMarker } from '@/components/StaleMarker.tsx';
+import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 
 const POLL_MS = 30_000;
+const PAGE = 50;
 
+interface Column {
+  readonly key: TraderSortKey | 'account';
+  readonly label: string;
+  /** A second, smaller line under the label: the period the column covers. */
+  readonly sub?: string;
+  /** Marks the sub-line amber when its period is not the page's timeframe. */
+  readonly warn?: boolean;
+  readonly title?: string | undefined;
+  readonly align?: 'left' | 'right';
+}
+
+/**
+ * Every account the indexer has seen, sorted and paged BY THE BACKEND. The
+ * page never re-sorts a page: a sort is a new query, so the top of "volume
+ * desc" is the top of the whole table and not the top of the fifty in hand.
+ */
 export function TradersIndex() {
-  const router = useRouter();
-  const [value, setValue] = useState('');
-  const [problem, setProblem] = useState<string | undefined>(undefined);
-  const recent = usePoll(() => api.liquidations('7d', 12), POLL_MS, 'traders:recent-liquidations');
+  const t = useTimeframe();
+  const [sort, setSort] = useState<TraderSortKey>('netPnl');
+  const [direction, setDirection] = useState<SortDirection>('desc');
+  const [offset, setOffset] = useState(0);
 
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const parsed = parseTraderQuery(value);
-    if (parsed.kind === 'invalid') {
-      setProblem(parsed.reason);
-      return;
+  const list = usePoll(() => api.traders(t, sort, direction, PAGE, offset), POLL_MS, `traders:${t}:${sort}:${direction}:${offset}`);
+  const data = list.data?.data;
+  const window = data?.window;
+  // The column sub-label is short; the long form goes in the chip and the note.
+  const windowed = window === undefined ? PERIOD_LABEL[t] : window.days === undefined ? 'all time' : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
+  const warn = window !== undefined && !window.honoursTimeframe;
+  const floor = data?.minRoundTripsForRatios;
+
+  const sortBy = (key: TraderSortKey) => {
+    setOffset(0);
+    if (key === sort) setDirection(direction === 'asc' ? 'desc' : 'asc');
+    else {
+      setSort(key);
+      setDirection(defaultTraderDirection(key));
     }
-    router.push(`/traders/${encodeURIComponent(value.trim())}`);
   };
+
+  const columns: readonly Column[] = [
+    { key: 'account', label: 'Account', align: 'left' },
+    { key: 'netPnl', label: 'Net PnL', sub: windowed, warn, title: 'Realised + funding − fees over the window.' },
+    { key: 'volume', label: 'Volume', sub: windowed, warn },
+    { key: 'roundTrips', label: 'Round trips', sub: windowed, warn, title: 'Positions taken from open to flat in the window.' },
+    { key: 'winRate', label: 'Win rate', sub: windowed, warn, title: floor === undefined ? undefined : `Withheld below ${floor} round trips.` },
+    { key: 'liquidations', label: 'Liquidations', sub: windowed, warn },
+    { key: 'freeBalance', label: 'Free balance', sub: 'now', title: 'Spare AUSD in the account now. Isolated margin never reaches for it.' },
+    { key: 'lastActive', label: 'Last active', sub: 'now' },
+  ];
+
+  const range = data === undefined ? undefined : pageRange(data.offset, data.rows.length, data.total);
 
   return (
     <>
-      <PageHeader title="Traders" subtitle="Any address or account id on Perpl: performance, open positions with their liquidation price, and liquidation history." />
+      <PageHeader
+        title="Traders"
+        subtitle="Every account the indexer has seen. Search an address, or sort the table."
+        right={
+          <>
+            {data !== undefined && <span className="chip" title={data.window.label}>{formatCount(data.total)} active · {windowed}</span>}
+            <TimeframePills />
+          </>
+        }
+      />
 
-      <form onSubmit={submit} className="card mb-4 px-[18px] py-4" role="search">
-        <label htmlFor="trader-query" className="eyebrow">
-          Address or account id
-        </label>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <input
-            id="trader-query"
-            className="num min-w-0 flex-1 rounded-[9px] border border-border2 bg-page px-3 py-2 text-text outline-none placeholder:text-muted focus:border-accent"
-            placeholder="0x… or 4734"
-            spellCheck={false}
-            autoComplete="off"
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-              setProblem(undefined);
-            }}
-          />
-          <button type="submit" className="btn primary">
-            Look up
-          </button>
-        </div>
-        {problem !== undefined && <div className="mt-2 text-[12.5px] text-danger">{problem}.</div>}
-        <p className="mt-3 mb-0 max-w-[80ch] text-[12.5px] text-muted">
-          Addresses match in any case. Most accounts predate the index and have no owner recorded, so an address may come back{' '}
-          <b className="font-semibold text-text">not linked</b>: that is not an empty history, it is &ldquo;cannot see which account is yours&rdquo;. The account id
-          always resolves.
-        </p>
-      </form>
+      <StaleMarker envelope={list.data} />
+      <ErrorNote error={list.error} what="The traders list" />
 
-      <section>
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
-          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Recently liquidated accounts</h2>
-          <span className="text-[12.5px] text-muted">Last 7 days · a place to start</span>
-        </div>
-        <ErrorNote error={recent.error} what="Recent liquidations" />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {recent.data === undefined
-            ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-[58px] w-full" />)
-            : recent.data.data.map((l) => (
-                <Link
-                  key={l.id}
-                  href={`/traders/${l.accountId}`}
-                  className="card flex items-center justify-between gap-3 px-[14px] py-[10px] no-underline hover:bg-card2"
-                >
-                  <span>
-                    <b className="num text-text">#{l.accountId}</b>
-                    <span className="ml-2 text-[12px] text-muted">
-                      {l.market.symbol ?? `market ${l.market.marketId}`} {l.side} · {formatWhen(l.atMs)}
-                    </span>
-                  </span>
-                  <span className="num text-right text-[12px]">
-                    <span className="text-danger">−{formatAusd(l.marginLostAusd, 0)}</span>
-                    <span className="ml-2 text-muted">{l.verdict === 'rescuable' ? 'rescuable' : l.verdict === 'unknown' ? 'unjudgeable' : 'not rescuable'}</span>
-                  </span>
-                </Link>
-              ))}
-          {recent.data !== undefined && recent.data.data.length === 0 && <div className="text-[12.5px] text-muted">No liquidation in the last 7 days.</div>}
-        </div>
-      </section>
+      <div className="card overflow-x-auto">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
+              {columns.map((c) => {
+                const sortable = c.key !== 'account';
+                const active = c.key === sort;
+                return (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    className={`px-[10px] py-[8px] font-semibold whitespace-nowrap align-bottom ${c.align === 'left' ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'}`}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => sortBy(c.key as TraderSortKey)}
+                        title={c.title}
+                        className={`cursor-pointer border-0 bg-transparent p-0 font-inherit text-inherit uppercase tracking-[0.06em] hover:text-text ${active ? 'text-text' : ''}`}
+                      >
+                        {c.label}
+                        {active && <span className="ml-1">{direction === 'asc' ? '↑' : '↓'}</span>}
+                        {c.sub !== undefined && <span className={`block text-[10px] font-medium normal-case tracking-normal ${c.warn ? 'text-watch' : 'text-muted2'}`}>{c.sub}</span>}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {data === undefined
+              ? Array.from({ length: 10 }, (_, i) => (
+                  <tr key={i} className="border-b border-border last:border-b-0">
+                    {columns.map((c) => (
+                      <td key={c.key} className={`px-[10px] py-[10px] ${c.align === 'left' ? 'sticky left-0 z-[1] bg-card' : ''}`}>
+                        <Skeleton className={`h-[14px] ${c.key === 'account' ? 'w-[110px]' : 'ml-auto w-[64px]'}`} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : data.rows.map((row) => <TraderTableRow key={row.accountId} row={row} floor={data.minRoundTripsForRatios} />)}
+            {data !== undefined && data.rows.length === 0 && (
+              <tr>
+                <td colSpan={columns.length} className="px-[10px] py-8 text-center text-muted">
+                  <div className="text-[14px] font-semibold text-text">No trader was active in {windowed}.</div>
+                  <div className="mt-1 text-[12.5px]">Widen the window, or search any address or account id above.</div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11.5px] text-muted2">
+        <span className="max-w-[80ch]">
+          {warn && (
+            <>
+              <b className="font-semibold text-watch">Windowed columns are summed over {window!.label}</b>, because the per-trader table is bucketed by UTC day and has no finer grain.{' '}
+            </>
+          )}
+          Free balance, open positions and last active are the account now, whatever the window. Win rate is withheld below{' '}
+          {floor === undefined ? '…' : formatCount(floor)} round trips: the counts are still shown, only the ratio is held back. An account whose owner was never
+          recorded is listed by id; searching its address still resolves it through the Exchange contract.
+        </span>
+        {range !== undefined && data !== undefined && (
+          <span className="flex items-center gap-2">
+            <span className="num">
+              {range.from === 0 ? '0' : `${formatCount(range.from)}–${formatCount(range.to)}`} of {formatCount(range.total)}
+            </span>
+            <button type="button" className="btn" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE))}>
+              ← Previous
+            </button>
+            <button type="button" className="btn" disabled={data.offset + data.rows.length >= data.total} onClick={() => setOffset(data.offset + PAGE)}>
+              Next →
+            </button>
+          </span>
+        )}
+      </div>
     </>
+  );
+}
+
+function TraderTableRow({ row, floor }: { readonly row: TraderRow; readonly floor: number }) {
+  const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
+  const pnlClass = row.netPnlAusd > 0 ? 'text-safe' : row.netPnlAusd < 0 ? 'text-danger' : 'text-muted';
+  const handle = row.address === '' ? `#${row.accountId}` : shortAddress(row.address);
+  return (
+    <tr className="group border-b border-border last:border-b-0 hover:bg-card2">
+      <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] whitespace-nowrap group-hover:bg-card2">
+        <Link href={`/traders/${row.accountId}`} className="num font-semibold text-text no-underline hover:text-accent-hi" title={row.address === '' ? 'owner not recorded; listed by account id' : row.address}>
+          {handle}
+        </Link>
+        <span className="block text-[11px] text-muted2">account #{formatCount(row.accountId)}{row.openPositionCount > 0 ? ` · ${formatCount(row.openPositionCount)} open` : ''}</span>
+      </td>
+      <td className={`${cell} ${pnlClass}`} title={`${formatSignedAusd(row.netPnlAusd)} AUSD`}>{formatSignedAusd(row.netPnlAusd, 0)}</td>
+      <td className={cell} title={`${formatAusdExact(row.volumeAusd)} AUSD · ${formatCount(row.tradeCount)} trades`}>{formatCompact(row.volumeAusd)}</td>
+      <td className={cell}>{formatCount(row.roundTrips)}</td>
+      <td className={cell}>
+        {row.winRate === undefined ? (
+          <span className="text-muted2" title={`${formatCount(row.wins)} wins of ${formatCount(row.roundTrips)}: under ${formatCount(floor)} round trips, so no rate`}>
+            —<span className="block text-[11px]">under {formatCount(floor)} round trips</span>
+          </span>
+        ) : (
+          <>
+            {formatPct(row.winRate)}
+            <span className="block text-[11px] text-muted2">{formatCount(row.wins)} of {formatCount(row.roundTrips)}</span>
+          </>
+        )}
+      </td>
+      <td className={cell} title={row.liquidationCount === 0 ? undefined : `${formatCount(row.rescuableLiquidationCount)} of ${formatCount(row.liquidationCount)} rescuable`}>
+        {formatCount(row.liquidationCount)}
+        {row.liquidationCount > 0 && <span className="block text-[11px] text-watch">{formatCount(row.rescuableLiquidationCount)} rescuable</span>}
+      </td>
+      <td className={cell} title={`${formatAusdExact(row.freeBalanceAusd)} AUSD`}>{formatAusd(row.freeBalanceAusd, 0)}</td>
+      <td className={`${cell} text-muted`} title={new Date(row.lastActiveAtMs).toISOString()}>{formatAge(Date.now() - row.lastActiveAtMs)} ago</td>
+    </tr>
   );
 }

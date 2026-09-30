@@ -15,12 +15,18 @@ import type {
   DailyPoint,
   IndexerHealth,
   LiquidationRecord,
+  LiquidationSummary,
   MarketBreakdown,
   MarketDailySeries,
   MarketOpenInterest,
   ProtocolMetrics,
+  RiskSnapshot,
   RoundTrip,
+  SortDirection,
   Timeframe,
+  TraderDayPoint,
+  TraderList,
+  TraderSortKey,
   TvlReading,
   WalletLookup,
   WalletProfile,
@@ -108,4 +114,12 @@ export const api = {
   accountPositions: (accountId: number) => getJson<Envelope<AssessedPositions>>(`${A}/account/${accountId}/positions`),
   roundTrips: (accountId: number, limit: number, offset = 0) =>
     getJson<Envelope<readonly RoundTrip[]>>(`${A}/account/${accountId}/round-trips?limit=${limit}&offset=${offset}`),
+  /** The account's UTC days in the window, oldest first. */
+  accountDays: (accountId: number, t: Timeframe) => getJson<Envelope<readonly TraderDayPoint[]>>(`${A}/account/${accountId}/days?timeframe=${t}`),
+  /** Sorted and paged by the backend; the page never re-sorts a page. */
+  traders: (t: Timeframe, sort: TraderSortKey, direction: SortDirection, limit: number, offset: number) =>
+    getJson<Envelope<TraderList>>(`${A}/traders?timeframe=${t}&sort=${sort}&direction=${direction}&limit=${limit}&offset=${offset}`),
+  liquidationSummary: (t: Timeframe) => getJson<Envelope<LiquidationSummary>>(`${A}/liquidations/summary?timeframe=${t}`),
+  /** A point-in-time snapshot. No timeframe: the payload carries its block. */
+  risk: () => getJson<Envelope<RiskSnapshot>>(`${A}/risk`),
 };

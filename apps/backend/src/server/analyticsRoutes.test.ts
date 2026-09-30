@@ -171,7 +171,7 @@ class FakeAnalytics implements Analytics {
     return {
       rows: [],
       total: 0,
-      window: { timeframe, honoursTimeframe: timeframe === 'all', label: timeframe === 'all' ? 'all time' : 'the 31 UTC days from 2026-08-31 (today so far)', fromMs: undefined, toMs: 0 },
+      window: { timeframe, honoursTimeframe: timeframe === 'all', label: timeframe === 'all' ? 'all time' : 'the 31 UTC days from 2026-08-31 (today so far)', days: timeframe === 'all' ? undefined : 31, fromMs: undefined, toMs: 0 },
       sort: 'netPnl',
       direction: 'desc',
       limit: options.limit ?? 50,

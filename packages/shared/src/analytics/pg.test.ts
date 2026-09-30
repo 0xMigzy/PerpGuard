@@ -641,6 +641,7 @@ test('all-time traders read the lifetime Trader rows; a window sums TraderDay bu
   assert.equal(query.values[2], '2026-09-23T00:00:00.000Z', 'aligned down to midnight');
   assert.equal(windowed.window.honoursTimeframe, false);
   assert.equal(windowed.window.label, 'the 8 UTC days from 2026-09-23 (today so far)');
+  assert.equal(windowed.window.days, 8);
 });
 
 test('trader sort keys are whitelisted into the SQL and the direction is never interpolated raw', async () => {
@@ -649,10 +650,19 @@ test('trader sort keys are whitelisted into the SQL and the direction is never i
   const query = sql.touching('Trader')[0]!;
   assert.match(query.sql, /order by win_rate asc nulls last/);
   assert.deepEqual(query.values, [25, 50]);
+  // THE NUMERIC COLUMN, NOT THE TEXT ALIAS. `order by net_pnl` sorted "+99"
+  // above "+911" on the live list, because the alias is the ::text output.
+  const pnl = new FakeSql();
+  await reader(pnl).traders('all', { sort: 'netPnl' });
+  assert.match(pnl.touching('Trader')[0]!.sql, /order by "netPnlCNS" desc nulls last/);
+  const windowed = new FakeSql();
+  await reader(windowed).traders('7d', { sort: 'netPnl' });
+  assert.match(windowed.touching('TraderDay')[0]!.sql, /order by w\.net_pnl desc nulls last/);
+  assert.doesNotMatch(windowed.touching('TraderDay')[0]!.sql, /order by net_pnl/);
   // An unknown key falls back to the default rather than reaching the text.
   const bad = new FakeSql();
   await reader(bad).traders('all', { sort: 'id; drop table' as never, direction: 'sideways' as never });
-  assert.match(bad.touching('Trader')[0]!.sql, /order by net_pnl desc nulls last/);
+  assert.match(bad.touching('Trader')[0]!.sql, /order by "netPnlCNS" desc nulls last/);
   assert.doesNotMatch(bad.touching('Trader')[0]!.sql, /drop table/);
 });
 

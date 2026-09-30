@@ -513,21 +513,37 @@ select p.market_id as id, m.name,
 /**
  * The Traders list, LIFETIME: straight off `Trader`, sorted and paged in SQL.
  *
- * `$1` is the sort expression's index into {@link TRADER_SORT_SQL}; the direction
- * is interpolated from a two-value whitelist. Nothing user-supplied reaches the
- * text. `count(*) over ()` gives the paging denominator in the same scan.
+ * The sort key is looked up in a whitelist and the direction comes from a
+ * two-value one; nothing user-supplied reaches the text. `count(*) over ()`
+ * gives the paging denominator in the same scan.
+ *
+ * ORDER BY THE NUMERIC COLUMN, NEVER THE OUTPUT ALIAS. The money columns are
+ * selected `::text` so node-pg cannot round them, and Postgres resolves a bare
+ * name in ORDER BY against the output list first — so `order by net_pnl` would
+ * sort "+99" above "+911". The map names the source column for each key, and
+ * the test pins it.
  *
  * The win rate SORTS WITH THE FLOOR: an account under the floor has no rate and
  * sorts last in either direction, the same rule the UI applies to an unknown.
  */
-const TRADER_SORT_SQL: Record<TraderSortKey, string> = {
-  netPnl: 'net_pnl',
-  volume: 'volume',
-  roundTrips: 'round_trips',
+const TRADER_SORT_LIFETIME: Record<TraderSortKey, string> = {
+  netPnl: '"netPnlCNS"',
+  volume: '"volumeCNS"',
+  roundTrips: '"roundTrips"',
   winRate: 'win_rate',
-  liquidations: 'liquidations',
-  freeBalance: 'free_balance',
-  lastActive: 'last_active',
+  liquidations: '"liquidationCount"',
+  freeBalance: '"freeBalanceCNS"',
+  lastActive: '"lastActiveAt"',
+};
+
+const TRADER_SORT_WINDOW: Record<TraderSortKey, string> = {
+  netPnl: 'w.net_pnl',
+  volume: 'w.volume',
+  roundTrips: 'w.round_trips',
+  winRate: 'win_rate',
+  liquidations: 'w.liquidations',
+  freeBalance: 't."freeBalanceCNS"',
+  lastActive: 't."lastActiveAt"',
 };
 
 const tradersLifetimeSql = (sort: TraderSortKey, direction: SortDirection): string => `
@@ -540,7 +556,7 @@ select id, owner, "freeBalanceCNS"::text as free_balance, "openPositionCount" as
        count(*) over () as total
   from "Trader"
  where "tradeCount" > 0
- order by ${TRADER_SORT_SQL[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (id::bigint) asc
+ order by ${TRADER_SORT_LIFETIME[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (id::bigint) asc
  limit $1 offset $2
 `;
 
@@ -571,7 +587,7 @@ select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionC
        w.liquidations, w.rescuable,
        count(*) over () as total
   from w join "Trader" t on t.id = w.trader_id
- order by ${TRADER_SORT_SQL[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (t.id::bigint) asc
+ order by ${TRADER_SORT_WINDOW[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (t.id::bigint) asc
  limit $1 offset $2
 `;
 
@@ -1234,7 +1250,7 @@ export class PostgresAnalytics implements Analytics {
     let window: TraderWindow;
     if (sinceMs === undefined) {
       rows = await this.#rows(tradersLifetimeSql(sort, direction), [limit, offset]);
-      window = { timeframe, honoursTimeframe: true, label: 'all time', fromMs: undefined, toMs: now };
+      window = { timeframe, honoursTimeframe: true, label: 'all time', days: undefined, fromMs: undefined, toMs: now };
     } else {
       // Aligned DOWN to the bucket: the window is served as whole UTC days and
       // labelled as such, because TraderDay has no finer grain.
@@ -1246,6 +1262,7 @@ export class PostgresAnalytics implements Analytics {
         timeframe,
         honoursTimeframe: false,
         label: days === 1 ? `the UTC day from ${from} (today so far)` : `the ${days} UTC days from ${from} (today so far)`,
+        days,
         fromMs,
         toMs: now,
       };
