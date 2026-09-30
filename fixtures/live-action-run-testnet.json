@@ -1,0 +1,100 @@
+{
+  "network": "testnet",
+  "chainId": 10143,
+  "transcript": [
+    {
+      "atMs": 1698,
+      "kind": "before",
+      "positionId": 4382847991809,
+      "marginCNS": "66765",
+      "sizeLNS": "1",
+      "state": "WATCH",
+      "liqBufferPct": 0.039957162598434175,
+      "liquidationPricePNS": "799636",
+      "markPricePNS": "832917",
+      "amountCNS": "11000"
+    },
+    {
+      "atMs": 4623,
+      "kind": "after",
+      "outcome": "applied",
+      "reportedStatus": "rejected",
+      "reportedReason": "st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send",
+      "reconciliation": {
+        "verdict": "applied",
+        "before": "66765",
+        "after": "77765",
+        "delta": "11000",
+        "requested": "11000",
+        "detail": "margin is now 77765 (was 66765): 11000 micros applied, 11000 requested — LANDED"
+      },
+      "detail": "add-margin on BTC LANDED: margin is now 77765 (was 66765): 11000 micros applied, 11000 requested — LANDED. The venue reported it as rejected — rejected (st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send) — which for this order type is the normal report for a top-up that worked. The position is the evidence; nothing was re-sent.",
+      "secondAttempt": {
+        "kind": "refused",
+        "code": "already-in-flight",
+        "detail": "an action on market 16 is already in flight (live:1790743407381:16, sent 149ms ago) and has not settled. Refusing rather than queueing: a second action sent behind the first is how the same top-up lands twice. Wait for it to settle, then read the position again."
+      },
+      "t6OutcomeFrames": 1,
+      "marginAfterAusd": 0.077765,
+      "state": "WATCH",
+      "liqBufferPct": 0.05316376061480316
+    }
+  ],
+  "orderFrames": [
+    {
+      "atMs": 1447,
+      "mt": 23,
+      "sid": 30,
+      "sn": 66879119,
+      "at": {
+        "b": 66879119,
+        "t": 1790743406000
+      },
+      "d": []
+    },
+    {
+      "atMs": 4620,
+      "mt": 24,
+      "sid": 30,
+      "sn": 66879130,
+      "at": {
+        "b": 66879130,
+        "t": 1790743409000
+      },
+      "d": [
+        {
+          "at": {
+            "b": 66879130,
+            "t": 1790743409000,
+            "tx": 2,
+            "txid": "4e75b8ccfbb552156528b45f0a24870eba74d76bc774fecf50c713fc0d90b2be",
+            "l": 1
+          },
+          "c": {
+            "b": 66879130,
+            "t": 1790743409000,
+            "tx": 2
+          },
+          "rq": 25,
+          "mkt": 16,
+          "acc": 710,
+          "oid": 4382990663683,
+          "scid": 0,
+          "st": 7,
+          "sr": 32,
+          "t": 6,
+          "r": true,
+          "os": 0,
+          "fp": 0,
+          "fs": 0,
+          "f": "0",
+          "bfa": "0",
+          "fl": 4,
+          "mm": 10,
+          "lv": 0,
+          "mnp": 1000
+        }
+      ]
+    }
+  ]
+}

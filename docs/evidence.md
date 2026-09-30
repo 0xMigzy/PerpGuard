@@ -547,3 +547,121 @@ working: two processes would each alert once. It is not worth building for one.
 Recorded because it is a real limitation of a shipped component, not a TODO: the
 behaviour is deliberate, tested, and documented in `alerts/types.ts` on
 `AlertHistory` and in `alerts/schema.sql`.
+
+## 2026-09-30 — the actions layer against a real position: sr 32 resolved to APPLIED
+
+`pnpm actions:live --twice` (`apps/backend/src/scripts/live-action-run.ts`). The
+first time PerpGuard has moved money through the actions layer rather than
+through an investigation script.
+
+| | |
+| --- | --- |
+| network | Perpl **testnet**, chain **10143** |
+| account | **710**, `fw true`, `frozen false` |
+| market | **16** (BTC), 15x (the market maximum), 1 size unit |
+| position | `pid` **4382847991809**, long, 0.00001 BTC |
+
+### Two top-ups, both reported as failures, both APPLIED
+
+| run | `rq` | `oid` | reported on `mt: 24` | margin before → after | applied | requested | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 24 | 4382981816320 | `st: 7 Failed, sr: 32` | 55616 → 66765 | 11149 | 11149 | **applied** |
+| 2 | 25 | 4382990663683 | `st: 7 Failed, sr: 32` | 66765 → 77765 | 11000 | 11000 | **applied** |
+
+One send each, one `mt: 24` entry each, one distinct `rq` each. The script prints
+that count so "without a resend" is a number rather than a claim.
+
+The state machine followed the money on live data: **DANGER 2.66% → 4.00%** on the
+first top-up (the engine asked for exactly `dangerExitPct`, and the measured
+buffer landed on it), then **DANGER → WATCH at 5.32%** on the second.
+
+### The reported status and the outcome, side by side
+
+Run 1's `mt: 24` entry, verbatim:
+
+```json
+{"rq":24,"mkt":16,"acc":710,"oid":4382981816320,"scid":0,"st":7,"sr":32,
+ "t":6,"r":true,"os":0,"fp":0,"fs":0,"f":"0","bfa":"0","fl":4,"mm":10,
+ "lv":0,"mnp":1000}
+```
+
+and the `action_log` row for the same action:
+
+```
+live:1790743366529:16  add-margin  margin requested=11149 before=55616
+  settled: outcome=applied reported=rejected after=66765
+```
+
+Two columns, two answers, both kept. That is the whole design: `reported_status`
+is what the venue said and `outcome` is what the position showed, and for this
+order type they routinely disagree.
+
+### The one-in-flight rule, against the real venue
+
+`--twice` fires a second attempt 150ms after the first, while it is genuinely in
+flight:
+
+```
+OUTCOME  REFUSED
+CODE     already-in-flight
+DETAIL   an action on market 16 is already in flight (live:1790743366529:16, sent
+         150ms ago) and has not settled. Refusing rather than queueing: a second
+         action sent behind the first is how the same top-up lands twice.
+```
+
+Refused, not queued, and never sent — so the venue saw one `rq`, not two. This is
+the specific defence against the mistake that produced rows 15 and 16 of the
+2026-09-29 table.
+
+### NEW FINDING: `lfr` says whether a forwarded request reached the contract
+
+Getting to the run above took three attempts to open a position, and the first two
+are worth recording because they look exactly like a bug in our code and are not.
+
+| attempt | frame | `mt: 3` | `mt: 24` | `lfr` | free balance | position |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | market order, `rq 23` | code 0 | **none in 30s** | 22 → **22** | unchanged | none |
+| 2 | crossing limit, `rq 23` | code 0 | **none in 20s** | 22 → **22** | unchanged | none |
+| 3 | market order, `rq 23` | code 0 | `st: 4 Filled, sr: 43` in **1.5s** | 22 → **23** | −55904 micros | opened |
+
+All three sent `rq 23`, because **`lfr` never advanced on the two that produced
+nothing** — so the request id was never consumed and the third attempt could reuse
+it. That is the diagnostic:
+
+- **`mt: 3` code 0 means the forwarder accepted the frame, and nothing more.** It
+  does not mean the request reached the contract. Already the rule for reporting
+  success; this is a second, independent reason for it.
+- **`lfr` advancing is the evidence that it did reach the contract.** It advances
+  even on a request the contract *rejects* — the `sr 32` runs proved that, since
+  every one of those "failed" top-ups moved it. So `lfr` unchanged after an
+  `mt: 3` means the frame never landed on chain at all.
+- Therefore a forwarded request with no outcome and no `lfr` movement has
+  consumed nothing, and its `rq` is still the correct next one.
+
+**This is not a frame problem, a book problem, or a liquidity problem.** The frame
+that failed twice is byte-identical in shape to the one that succeeded, the book
+is real (bid 83320.1 / ask 83330.1 at the time, and attempt 3 filled against it as
+a taker in one block), and the account had ~10000 AUSD free throughout. It is the
+**forwarder dropping requests intermittently** on testnet — two of three, then one
+of one, then one of one.
+
+**What the actions layer did about it, which is the point.** Nothing was re-sent
+at any stage. Each dead attempt was reconciled against the position and the
+balance, both said nothing had happened, and the layer reported that rather than
+guessing. The reconciliation was correct on all five events recorded here: twice
+saying "nothing happened" when nothing had, and twice saying "applied" when the
+venue said it had failed.
+
+### What this run proves
+
+- `t: 6` IncreasePositionCollateral is wired through `PerplVenue.addMargin` and
+  resolves through the actions layer, not by hand.
+- The reported `st: 7 Failed, sr: 32` is recorded, quoted, and then set aside in
+  favour of the position's margin — twice, with the exact requested delta.
+- One in-flight action per position holds against a real venue and a real race.
+- The `action_log` row is opened before the send and settled after, and no row was
+  left unsettled across any of the runs.
+- `b - lb` tracks live: 9999999028 → 9999943124 micros on the open, then down by
+  each top-up.
+- A forwarded request that never reaches the chain is distinguishable from one
+  that does, and neither is ever retried.
