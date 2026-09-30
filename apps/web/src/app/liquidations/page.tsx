@@ -1,7 +1,13 @@
-import { ComingNext } from '@/components/ComingNext.tsx';
+import { Suspense } from 'react';
+import { LiquidationsView } from './LiquidationsView.tsx';
 
 export const metadata = { title: 'Liquidations' };
 
-export default function Page() {
-  return <ComingNext title="Liquidations" subtitle="Forced closes from exchange events — and how many of them the trader had the balance to prevent." />;
+export default function LiquidationsPage() {
+  // Suspense: the view reads the URL's search params on the client.
+  return (
+    <Suspense fallback={null}>
+      <LiquidationsView />
+    </Suspense>
+  );
 }
