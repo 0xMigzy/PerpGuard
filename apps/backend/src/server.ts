@@ -33,6 +33,7 @@
  */
 import { Pool } from 'pg';
 import {
+  assessOpenPositions,
   ConfigError,
   PerplPositionSource,
   PerplVenue,
@@ -496,7 +497,19 @@ const app = createHealthApp({
   // indexer only has the delta. Kept off the reader so the two cannot be confused.
   ...(analyticsVenue === undefined
     ? {}
-    : { openInterest: () => analyticsVenue!.getOpenInterest() }),
+    : {
+        openInterest: () => analyticsVenue!.getOpenInterest(),
+        // ONE NETWORK: configs and marks both come from the analytics venue, and
+        // the positions from the analytics network's indexer. Nothing here can
+        // reach the trading venue.
+        assessPositions: async (positions) => {
+          const [configs, oi] = await Promise.all([analyticsVenue!.getRiskConfigs(), analyticsVenue!.getOpenInterest()]);
+          const marks = new Map(oi.map((m) => [m.marketId, { markPrice: m.markPrice, atMs: m.atMs }]));
+          const assessed = assessOpenPositions(positions, configs, marks);
+          const used = assessed.map((a) => a.markAtMs).filter((ms): ms is number => ms !== undefined);
+          return { positions: assessed, asOfMs: used.length === 0 ? undefined : Math.min(...used) };
+        },
+      }),
 });
 
 // ── 9. shutdown, registered BEFORE anything can need it ─────────────────────

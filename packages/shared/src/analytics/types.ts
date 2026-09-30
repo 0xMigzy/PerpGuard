@@ -510,6 +510,37 @@ export interface OpenPosition {
   readonly marginAddedAusd: number;
 }
 
+/**
+ * An open position with the venue's mark and the risk maths applied — or, when
+ * that is not possible, the position alone and the reason why. See `assess.ts`.
+ *
+ * `liqBufferPct` IS SIGNED (CLAUDE.md): negative means the position is already
+ * past its liquidation price, and a UI renders that as "past liquidation",
+ * never as a negative percentage and never as an absolute value.
+ */
+export interface AssessedPosition {
+  readonly position: OpenPosition;
+  readonly markPrice?: number | undefined;
+  readonly markAtMs?: number | undefined;
+  readonly notionalAusd?: number | undefined;
+  readonly unrealisedPnlAusd?: number | undefined;
+  /** Unrealised PnL over posted margin. Undefined when no margin is posted. */
+  readonly pnlPctOfMargin?: number | undefined;
+  readonly liquidationPrice?: number | undefined;
+  readonly liqBufferPct?: number | undefined;
+  readonly isLiquidatable?: boolean | undefined;
+  /** Collateral needed right now to climb back to maintenance. Zero when safe. */
+  readonly marginToSurviveAusd?: number | undefined;
+  /** Present when the position could not be assessed. Safe to render. */
+  readonly reason?: string | undefined;
+}
+
+/** What `/account/:id/positions` serves. `asOfMs` is the OLDEST mark used. */
+export interface AssessedPositions {
+  readonly positions: readonly AssessedPosition[];
+  readonly asOfMs: number | undefined;
+}
+
 /** One completed round trip: a position from open to flat. */
 export interface RoundTrip {
   readonly market: MarketRef;

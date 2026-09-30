@@ -15,7 +15,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
-import { registerAnalyticsRoutes } from './analyticsRoutes.ts';
+import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
 
 export interface HealthServerOptions {
   readonly health: () => HealthReport;
@@ -32,6 +32,8 @@ export interface HealthServerOptions {
   readonly analytics?: Analytics;
   /** The open-interest level from the analytics network's venue. See the routes. */
   readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
+  /** Open positions assessed against the analytics network's venue. See the routes. */
+  readonly assessPositions?: AnalyticsRouteOptions['assessPositions'];
 }
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
@@ -47,6 +49,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
     registerAnalyticsRoutes(app, {
       analytics: options.analytics,
       ...(options.openInterest === undefined ? {} : { openInterest: options.openInterest }),
+      ...(options.assessPositions === undefined ? {} : { assessPositions: options.assessPositions }),
     });
   }
 

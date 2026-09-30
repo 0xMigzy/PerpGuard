@@ -27,7 +27,7 @@ import type {
   WalletProfile,
 } from '@perpguard/shared';
 import Fastify from 'fastify';
-import { registerAnalyticsRoutes } from './analyticsRoutes.ts';
+import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
 
 const SYNCED: IndexerHealth = {
   state: 'synced',
@@ -149,7 +149,7 @@ class FakeAnalytics implements Analytics {
 
   async walletByAccountId(accountId: number): Promise<WalletProfile | undefined> {
     this.asked.push(`account:${accountId}`);
-    return this.profileValue;
+    return this.profileValue === undefined || this.profileValue.accountId === accountId ? this.profileValue : undefined;
   }
 
   async roundTrips(
@@ -176,7 +176,7 @@ const OI: readonly MarketOpenInterest[] = [
 
 function app(
   analytics: FakeAnalytics = new FakeAnalytics(),
-  options: { openInterest?: () => Promise<readonly MarketOpenInterest[]> } = {
+  options: Omit<AnalyticsRouteOptions, 'analytics' | 'prefix'> = {
     openInterest: async () => OI,
   },
 ) {
@@ -436,6 +436,40 @@ test('open interest sums the venue readings and dates them by the OLDEST market'
   assert.equal(data.markets.length, 2);
   assert.ok(Math.abs(data.totalNotional - (703_729.96 + 173_388.21)) < 1e-6);
   assert.equal(data.asOfMs, 1_790_391_200_000, 'the staler of the two, never the fresher');
+});
+
+test('assessed positions need a venue: 503 without one, the profile\'s rows through it with one', async () => {
+  const bare = app(new FakeAnalytics(), {});
+  const refused = await bare.instance.inject({ method: 'GET', url: '/api/analytics/account/10/positions' });
+  assert.equal(refused.statusCode, 503);
+  assert.match(body(refused.payload)['error'] as string, /cannot be priced/);
+
+  const analytics = new FakeAnalytics();
+  analytics.profileValue = {
+    address: '', accountId: 10, firstTradeAtMs: undefined, lastActiveAtMs: 1, openPositions: [
+      { market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC Perp' }, side: 'long', sizeLots: 0.5, entryPrice: 84_000, marginAusd: 2_800, leverage: 15, openedAtMs: 1, marginAddedAusd: 0 },
+    ],
+    performance: { roundTrips: 0, wins: 0, losses: 0, winRate: undefined, profitFactor: undefined, maxDrawdownAusd: 0, longestWinStreak: 0, longestLossStreak: 0, averageHoldMs: undefined, bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined },
+    rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, spareBalanceAusd: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
+    realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0,
+  };
+  const given: unknown[] = [];
+  const wired = app(analytics, {
+    openInterest: async () => OI,
+    assessPositions: async (positions) => {
+      given.push(...positions);
+      return { positions: positions.map((position) => ({ position, markPrice: 83_000, liqBufferPct: 0.0266 })), asOfMs: 5 };
+    },
+  });
+  const response = await wired.instance.inject({ method: 'GET', url: '/api/analytics/account/10/positions' });
+  assert.equal(response.statusCode, 200);
+  assert.equal(given.length, 1, 'the profile\'s open positions are what gets assessed');
+  const data = body(response.payload)['data'] as { positions: unknown[]; asOfMs: number };
+  assert.equal(data.positions.length, 1);
+  assert.equal(data.asOfMs, 5);
+
+  const missing = await wired.instance.inject({ method: 'GET', url: '/api/analytics/account/99/positions' });
+  assert.equal(missing.statusCode, 404);
 });
 
 test('without a venue, open interest is a 503 and never the indexer delta in disguise', async () => {

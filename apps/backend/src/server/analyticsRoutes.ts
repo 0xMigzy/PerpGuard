@@ -24,7 +24,9 @@ import type { FastifyInstance } from 'fastify';
 import {
   TIMEFRAMES,
   type Analytics,
+  type AssessedPositions,
   type IndexerHealth,
+  type OpenPosition,
   type MarketOpenInterest,
   type Timeframe,
 } from '@perpguard/shared';
@@ -39,6 +41,13 @@ export interface AnalyticsRouteOptions {
    * rather than serving the delta under the level's name.
    */
   readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
+  /**
+   * Assesses a wallet's open positions against the analytics network's venue:
+   * mark, unrealised PnL, liquidation price, buffer. A venue read plus the pure
+   * risk maths, so it lives beside `openInterest` rather than on the reader. When
+   * absent the route says so rather than serving positions with invented marks.
+   */
+  readonly assessPositions?: (positions: readonly OpenPosition[]) => Promise<AssessedPositions>;
   /** Mounted under this prefix. */
   readonly prefix?: string;
 }
@@ -285,6 +294,29 @@ export function registerAnalyticsRoutes(
     },
   );
 
+  /**
+   * The account's open positions, ASSESSED: the profile's rows with the venue's
+   * mark and the risk maths applied. A 503 without a venue, like open interest,
+   * because a position table with no liquidation price is not this route.
+   */
+  scope.get<{ Params: { accountId: string } }>(`${prefix}/account/:accountId/positions`, async (request, reply) => {
+    const accountId = Number(request.params.accountId);
+    if (!Number.isSafeInteger(accountId) || accountId < 0) {
+      return reply.code(400).send({ error: `${JSON.stringify(request.params.accountId)} is not an account id` });
+    }
+    const assess = options.assessPositions;
+    if (assess === undefined) {
+      return reply.code(503).send({
+        error: 'no venue is wired on the analytics network, so open positions cannot be priced or given a liquidation price.',
+      });
+    }
+    const profile = await analytics.walletByAccountId(accountId);
+    if (profile === undefined) {
+      return reply.code(404).send({ error: `no account ${accountId} in the index` });
+    }
+    return envelope(await assess(profile.openPositions));
+  });
+
   scope.get<{ Params: { accountId: string }; Querystring: { limit?: string; offset?: string } }>(
     `${prefix}/account/:accountId/round-trips`,
     async (request, reply) => {
@@ -325,6 +357,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/liquidations?timeframe=30d&limit=50&offset=0`,
       `${prefix}/wallet/:address`,
       `${prefix}/account/:accountId`,
+      `${prefix}/account/:accountId/positions`,
       `${prefix}/account/:accountId/round-trips?limit=50&offset=0`,
     ],
   }));

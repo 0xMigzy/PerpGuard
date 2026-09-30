@@ -1,3 +1,4 @@
+export * from './assess.ts';
 export * from './health.ts';
 export * from './map.ts';
 export * from './tvl.ts';
