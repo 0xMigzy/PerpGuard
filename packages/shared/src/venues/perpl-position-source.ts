@@ -8,10 +8,11 @@
  * position set is more dangerous than a stale price, because nothing about the
  * set itself reveals the problem: a price at least carries a timestamp, while a
  * position that was closed a minute ago looks exactly like one that is still
- * open. The trading socket does not reconnect, so a drop freezes the set
- * indefinitely; a heartbeat sequence gap means an `mt: 27` may have been
- * missed. Either way the honest answer is "I do not know", and the loop must
- * be able to hear it.
+ * open. A trading socket never reconnects itself, so a drop freezes the set
+ * until the owner replaces the socket — and this source with it, since it is
+ * bound to one socket; a heartbeat sequence gap means an `mt: 27` may have
+ * been missed. Either way the honest answer is "I do not know", and the loop
+ * must be able to hear it.
  *
  * Same principle as `MarketFeed.feedStatus()` for prices, and deliberately
  * shaped the same way — but a SEPARATE question with a separate answer, so a

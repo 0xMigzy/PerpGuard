@@ -676,7 +676,7 @@ describe('position tracking', () => {
     assert.deepEqual(notified, [1]);
   });
 
-  it('stops trusting the set when the socket closes, because it never reconnects', async () => {
+  it('stops trusting the set when the socket closes, because it never reconnects itself', async () => {
     const { socket, fake } = await connected();
     fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
     assert.equal(socket.positionsTrustworthy, true);
@@ -690,5 +690,78 @@ describe('position tracking', () => {
     assert.equal(socket.positionsTrustworthy, false);
     assert.match(socket.positionsUntrustworthyReason ?? '', /frozen at whatever/);
     assert.deepEqual(notified, [1], 'subscribers hear about it');
+  });
+});
+
+describe('close and stall', () => {
+  it('reports closed and fires onClose once, immediately for a late subscriber', async () => {
+    const { socket, fake } = await connected();
+    assert.equal(socket.closed, false);
+    const reasons: string[] = [];
+    socket.onClose((error) => reasons.push(error.message));
+    fake.serverClose(1006, 'connection lost');
+    assert.equal(socket.closed, true);
+    socket.onClose((error) => reasons.push(`late: ${error.message}`));
+    assert.deepEqual(reasons, [
+      '[perpl] socket closed with 1006 (connection lost)',
+      'late: [perpl] socket closed with 1006 (connection lost)',
+    ]);
+  });
+
+  it('closes a silent connection itself: heartbeats land every block, so silence is death', async () => {
+    const warnings: string[] = [];
+    const socket = new PerplTradingSocket({
+      network: testnet,
+      apiKey: 'opaque-token',
+      secret,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      signInTimeoutMs: 50,
+      pingIntervalMs: 10_000,
+      stallTimeoutMs: 40,
+      logger: { log: () => {}, warn: (m) => warnings.push(m) },
+    });
+    const connecting = socket.connect();
+    const fake = FakeSocket.last as FakeSocket;
+    fake.open();
+    await Promise.resolve();
+    fake.deliver(walletSnapshot);
+    await connecting;
+
+    const reasons: string[] = [];
+    socket.onClose((error) => reasons.push(error.message));
+    // Frames keep it alive...
+    for (let i = 0; i < 3; i += 1) {
+      await new Promise((r) => setTimeout(r, 25));
+      fake.deliver({ mt: 100, sn: 101 + i, h: 101 + i });
+    }
+    assert.equal(socket.closed, false, 'a socket receiving frames is not stalled');
+    // ...and silence kills it.
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(socket.closed, true);
+    assert.match(reasons[0] ?? '', /stalled: no frames for \d+ms/);
+    assert.equal(fake.readyState, 3, 'the underlying websocket is closed too');
+    assert.match(warnings.at(-1) ?? '', /open but dead/);
+    assert.equal(socket.positionsTrustworthy, false);
+  });
+
+  it('can be disabled with stallTimeoutMs 0', async () => {
+    const socket = new PerplTradingSocket({
+      network: testnet,
+      apiKey: 'opaque-token',
+      secret,
+      webSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      signInTimeoutMs: 50,
+      pingIntervalMs: 10_000,
+      stallTimeoutMs: 0,
+    });
+    const connecting = socket.connect();
+    const fake = FakeSocket.last as FakeSocket;
+    fake.open();
+    await Promise.resolve();
+    fake.deliver(walletSnapshot);
+    await connecting;
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(socket.closed, false);
+    socket.close();
   });
 });

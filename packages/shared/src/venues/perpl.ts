@@ -111,6 +111,8 @@ export class PerplVenue implements Venue {
   #cached: { context: PerplContext; fetchedAtMs: number } | undefined;
   #inFlight: Promise<PerplContext> | undefined;
   #socket: PerplTradingSocket | undefined;
+  /** One connect at a time: two callers racing a dead socket must not open two. */
+  #connecting: Promise<PerplTradingSocket> | undefined;
   #marketData: PerplMarketDataSocket | undefined;
   #marketDataStarting: Promise<PerplMarketDataSocket> | undefined;
   /** Live subscribePrices callers. The shared feed closes when it hits zero. */
@@ -311,14 +313,26 @@ export class PerplVenue implements Venue {
   }
 
   /**
-   * The authenticated trading socket, connected on first use.
+   * The authenticated trading socket, connected on first use and REPLACED
+   * ONCE IT HAS CLOSED.
+   *
+   * The transport is single-use by design (see perpl-socket.ts): it never
+   * reopens itself, because doing so would re-sign and re-derive the `rq`
+   * high-water mark underneath an in-flight submission. Replacing it HERE is
+   * safe for the same reason it is unsafe there: a close has already failed
+   * everything in flight, so the caller holding an unknown outcome has been
+   * told so and must reconcile — nothing is retried blind — and the new
+   * socket reads `lfr` fresh off its own WalletSnapshot. Every action calls
+   * this on its way in, so an action after a drop lands on the live socket.
    *
    * Exposed because a caller sometimes needs the session state directly — the
    * account id it discovered, or the head block — but every submission goes
    * through #execute below rather than touching it.
    */
   async connectTrading(): Promise<PerplTradingSocket> {
-    if (this.#socket !== undefined) return this.#socket;
+    const current = this.#socket;
+    if (current !== undefined && !current.closed) return current;
+    if (this.#connecting !== undefined) return this.#connecting;
 
     const credentials = this.#options.credentials;
     if (credentials === undefined) {
@@ -344,9 +358,22 @@ export class PerplVenue implements Venue {
         ? {}
         : { webSocketImpl: this.#options.webSocketImpl }),
     });
-    await socket.connect();
-    this.#socket = socket;
-    return socket;
+    this.#connecting = (async () => {
+      try {
+        await socket.connect();
+      } catch (error) {
+        // A half-opened socket must not linger holding a ping timer.
+        socket.close();
+        throw error;
+      }
+      // The dead socket stays readable (last known balance, positions) until
+      // this moment, and is only now let go.
+      this.#socket = socket;
+      return socket;
+    })().finally(() => {
+      this.#connecting = undefined;
+    });
+    return this.#connecting;
   }
 
   /**

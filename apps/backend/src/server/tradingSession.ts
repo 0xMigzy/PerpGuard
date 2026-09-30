@@ -1,5 +1,14 @@
 /**
- * The authenticated session, connected in the background and retried forever.
+ * The authenticated session, connected in the background and retried forever —
+ * BEFORE the first sign-in and AFTER every drop.
+ *
+ * THE SOCKET IS SINGLE-USE; THE SESSION IS NOT. A trading socket that closes
+ * (1006 from the venue, a stall the watchdog caught, anything) is replaced by
+ * a fresh one through `venue.connectTrading()`, which reads the account's
+ * `lfr` off the new WalletSnapshot. Between the drop and the new sign-in the
+ * session reports `retrying` with the close reason, so /health and the pages
+ * say the positions are frozen rather than looking healthy. Nothing in flight
+ * is retried across the gap: the close failed it, and the caller reconciles.
  *
  * IT NEVER EXITS THE PROCESS AND NEVER THROWS AT THE CALLER. A trading socket
  * that cannot sign in is a reason to report DEGRADED, not a reason to take down
@@ -51,7 +60,11 @@ export class TradingSession {
   readonly #sleep: (ms: number) => Promise<void>;
 
   #socket: PerplTradingSocket | undefined;
+  /** Every connect ever tried, for /health. */
   #attempt = 0;
+  /** Failures since the last sign-in, which is what the backoff steps on. */
+  #failuresInARow = 0;
+  #signIns = 0;
   #state: TradingSessionStatus['state'];
   #reason: string | undefined;
   /** The last reason actually written to the log, so repeats stay silent. */
@@ -88,11 +101,14 @@ export class TradingSession {
   }
 
   /**
-   * Called once, on the first successful sign-in.
+   * Called on EVERY successful sign-in: the first, and each reconnect after a
+   * drop, with the new socket.
    *
-   * The position source and the risk loop are built from the socket, so they
-   * cannot exist until it does. Registered rather than awaited so a sign-in that
-   * never happens does not block startup.
+   * The position source is built from the socket, so it cannot exist until
+   * the socket does and must be rebuilt when the socket is replaced — a
+   * source still pointed at the dead socket would hold a frozen set forever.
+   * Registered rather than awaited so a sign-in that never happens does not
+   * block startup.
    */
   onSignedIn(listener: (socket: PerplTradingSocket) => void | Promise<void>): void {
     this.#onSignedIn = listener;
@@ -139,34 +155,52 @@ export class TradingSession {
   async #loop(): Promise<void> {
     while (!this.#stopped) {
       this.#attempt += 1;
+      let socket: PerplTradingSocket;
       try {
-        const socket = await this.#venue.connectTrading();
-        this.#socket = socket;
-        this.#state = 'signed-in';
-        this.#reason = undefined;
-        this.#loggedReason = undefined;
-        this.#logger.info(
-          `signed in: account ${socket.accountId ?? 'unknown'}, ` +
-            `forwarding ${socket.forwardingAllowed ?? 'unknown'}, ` +
-            `frozen ${socket.accountFrozen}`,
-        );
-        await this.#onSignedIn?.(socket);
-        return;
+        socket = await this.#venue.connectTrading();
       } catch (error) {
         // Never `error` itself, and never anything derived from the key: an
         // error object can carry a request that quotes a header.
+        this.#failuresInARow += 1;
         this.#state = 'retrying';
         this.#reason = `sign-in failed: ${describe(error)}`;
         this.#logOnce(this.#reason);
         if (this.#stopped) return;
-        await this.#sleep(this.#backoffFor(this.#attempt));
+        await this.#sleep(this.#backoffFor(this.#failuresInARow));
+        continue;
       }
+
+      this.#socket = socket;
+      this.#state = 'signed-in';
+      this.#reason = undefined;
+      this.#loggedReason = undefined;
+      this.#failuresInARow = 0;
+      this.#signIns += 1;
+      this.#logger.info(
+        `${this.#signIns === 1 ? 'signed in' : `signed in again (sign-in ${this.#signIns})`}: ` +
+          `account ${socket.accountId ?? 'unknown'}, ` +
+          `forwarding ${socket.forwardingAllowed ?? 'unknown'}, ` +
+          `frozen ${socket.accountFrozen}`,
+      );
+      await this.#onSignedIn?.(socket);
+
+      // Stay signed in until the socket goes. A stop() closes it too, which is
+      // how this wait ends on shutdown.
+      const closeReason = await new Promise<string>((resolve) => {
+        socket.onClose((error) => resolve(describe(error)));
+      });
+      if (this.#stopped) return;
+      this.#failuresInARow += 1;
+      this.#state = 'retrying';
+      this.#reason = `the trading socket closed (${closeReason}); signing in again`;
+      this.#logOnce(this.#reason);
+      await this.#sleep(this.#backoffFor(this.#failuresInARow));
     }
   }
 
-  #backoffFor(attempt: number): number {
+  #backoffFor(failures: number): number {
     if (this.#backoffMs.length === 0) return 0;
-    return this.#backoffMs[Math.min(attempt - 1, this.#backoffMs.length - 1)]!;
+    return this.#backoffMs[Math.min(Math.max(failures, 1) - 1, this.#backoffMs.length - 1)]!;
   }
 
   /** Log a reason only when it differs from the last one written. */
@@ -182,6 +216,11 @@ export class TradingSession {
   /** Exposed for tests: when the retry loop has settled. */
   get attempts(): number {
     return this.#attempt;
+  }
+
+  /** How many times a socket has signed in, reconnects included. */
+  get signIns(): number {
+    return this.#signIns;
   }
 
   get startedAtMs(): number {

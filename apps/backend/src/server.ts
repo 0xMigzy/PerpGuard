@@ -194,6 +194,10 @@ const positionSource = new DeferredPositionSource({
   },
 });
 
+// Rebuilt on EVERY sign-in, not just the first: a reconnect brings a new
+// socket, and a source still reading the dead one would hold a frozen set
+// forever while the venue happily served the live one to actions.
+let attachedSource: PerplPositionSource | undefined;
 trading.onSignedIn(async (socket) => {
   const collateral = await venue.getCollateralToken();
   const source = new PerplPositionSource({
@@ -204,6 +208,8 @@ trading.onSignedIn(async (socket) => {
     onSkippedMarket: (marketId) =>
       warn(`skipping a position on market ${marketId}: the context does not list it`),
   });
+  attachedSource?.stop();
+  attachedSource = source;
   source.start();
   positionSource.attach(source);
   log(`position source attached (collateral ${collateral.symbol}, ${collateral.decimals} dp)`);

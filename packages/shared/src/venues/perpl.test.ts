@@ -444,6 +444,13 @@ class VenueFakeSocket extends EventTarget {
     event.data = JSON.stringify(message);
     this.dispatchEvent(event);
   }
+  serverClose(code: number, reason = ''): void {
+    this.readyState = 3;
+    const event = new Event('close') as Event & { code: number; reason: string };
+    event.code = code;
+    event.reason = reason;
+    this.dispatchEvent(event);
+  }
 }
 
 /** The real testnet position, as captured. */
@@ -603,5 +610,79 @@ describe('PerplVenue.getOpenInterest', () => {
     assert.equal(reading.network, 'testnet');
     assert.equal(reading.marketId, 16);
     assert.equal(reading.openInterestSize, 22.47059);
+  });
+});
+
+describe('PerplVenue.connectTrading after a drop', () => {
+  it('returns the same socket while it is open, and a NEW one once it has closed', async () => {
+    const venue = await venueWithPositions();
+    const first = await venue.connectTrading();
+    assert.equal(await venue.connectTrading(), first, 'an open socket is reused');
+    const firstFake = VenueFakeSocket.last as VenueFakeSocket;
+
+    firstFake.serverClose(1006, 'connection lost');
+    assert.equal(first.closed, true);
+    // The dead socket is still what the venue holds for synchronous reads:
+    // the last known balance is better than "unknown" during the gap.
+    assert.equal(venue.freeBalanceFloorCNS(), 10_000_000_000n);
+
+    const reconnecting = venue.connectTrading();
+    const secondFake = VenueFakeSocket.last as VenueFakeSocket;
+    assert.notEqual(secondFake, firstFake, 'a fresh websocket is opened');
+    secondFake.open();
+    await Promise.resolve();
+    secondFake.deliver({
+      mt: 19,
+      sn: 200,
+      addr: OWNER,
+      as: [{ in: 12, id: 710, fr: false, fw: true, lfr: 11, b: '9000000000', lb: '0' }],
+    });
+    const second = await reconnecting;
+    assert.notEqual(second, first);
+    assert.equal(second.closed, false);
+    assert.equal(second.lastForwardedRequestId, 11, 'rq is re-derived from the NEW snapshot');
+    assert.equal(second.reserveRequestId(), 12);
+    assert.equal(venue.freeBalanceFloorCNS(), 9_000_000_000n, 'reads move to the new socket');
+    assert.equal(secondFake.sent[0]?.['mt'], 29, 'the new socket signs in first');
+    assert.equal(await venue.connectTrading(), second);
+  });
+
+  it('shares one connect between callers racing a dead socket', async () => {
+    const venue = await venueWithPositions();
+    (VenueFakeSocket.last as VenueFakeSocket).serverClose(1006);
+    const a = venue.connectTrading();
+    const openedFake = VenueFakeSocket.last as VenueFakeSocket;
+    const b = venue.connectTrading();
+    assert.equal(VenueFakeSocket.last, openedFake, 'the second caller did not open a second websocket');
+    openedFake.open();
+    await Promise.resolve();
+    openedFake.deliver({
+      mt: 19,
+      sn: 300,
+      addr: OWNER,
+      as: [{ in: 12, id: 710, fr: false, fw: true, lfr: 11, b: '1', lb: '0' }],
+    });
+    const [sa, sb] = await Promise.all([a, b]);
+    assert.equal(sa, sb);
+  });
+
+  it('lets a failed reconnect be tried again rather than caching the failure', async () => {
+    const venue = await venueWithPositions();
+    (VenueFakeSocket.last as VenueFakeSocket).serverClose(1006);
+    const attempt = venue.connectTrading();
+    (VenueFakeSocket.last as VenueFakeSocket).serverClose(3401);
+    await assert.rejects(attempt, /3401|sign-in rejected/);
+    const again = venue.connectTrading();
+    const fake = VenueFakeSocket.last as VenueFakeSocket;
+    fake.open();
+    await Promise.resolve();
+    fake.deliver({
+      mt: 19,
+      sn: 400,
+      addr: OWNER,
+      as: [{ in: 12, id: 710, fr: false, fw: true, lfr: 11, b: '1', lb: '0' }],
+    });
+    const socket = await again;
+    assert.equal(socket.closed, false);
   });
 });

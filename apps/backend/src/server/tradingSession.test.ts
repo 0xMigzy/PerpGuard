@@ -29,6 +29,33 @@ function venueThat(behaviour: () => Promise<unknown>): PerplVenue {
 
 const network = { name: 'testnet', chainId: 10143 } as never;
 
+/** A socket the test can close from the server side. */
+function fakeSocket(accountId: number): PerplTradingSocket & { drop(reason: string): void } {
+  const waiters = new Set<(error: Error) => void>();
+  let closed = false;
+  const fake = {
+    accountId,
+    forwardingAllowed: true,
+    accountFrozen: false,
+    get closed() {
+      return closed;
+    },
+    onClose(listener: (error: Error) => void) {
+      waiters.add(listener);
+      return () => waiters.delete(listener);
+    },
+    close() {
+      fake.drop('socket closed locally');
+    },
+    drop(reason: string) {
+      if (closed) return;
+      closed = true;
+      for (const waiter of [...waiters]) waiter(new Error(reason));
+    },
+  };
+  return fake as unknown as PerplTradingSocket & { drop(reason: string): void };
+}
+
 /** Let the background retry loop run. */
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
@@ -60,12 +87,7 @@ test('no credentials is not-configured, and nothing is attempted', async () => {
 });
 
 test('a successful sign-in reports the account and hands over the socket once', async () => {
-  const socket = {
-    accountId: 710,
-    forwardingAllowed: true,
-    accountFrozen: false,
-    close: () => {},
-  } as unknown as PerplTradingSocket;
+  const socket = fakeSocket(710);
 
   const handed: PerplTradingSocket[] = [];
   const session = new TradingSession({
@@ -179,4 +201,73 @@ test('the API key is only ever rendered masked', async () => {
   const everything = [...logger.infos, ...logger.warnings].join('\n');
   assert.ok(!everything.includes(apiKey), 'the key must never be logged in full');
   assert.match(everything, /SECR…TKEY \(63 chars\)/);
+});
+
+test('a socket that drops after sign-in is replaced: retrying meanwhile, then signed in again with the new one', async () => {
+  // The trading socket never reconnects itself. The session must notice the
+  // close, say so while it lasts, and hand the NEXT socket to whoever builds
+  // the position source — a source left on the dead socket is a frozen set.
+  const logger = new RecordingLogger();
+  const sockets = [fakeSocket(710), fakeSocket(710)];
+  let opened = 0;
+  // The backoff sleep is held open by the test, so the retrying state can be
+  // observed before the reconnect goes through.
+  let release: (() => void) | undefined;
+  const session = new TradingSession({
+    venue: venueThat(async () => sockets[opened++]),
+    network,
+    apiKey: 'a'.repeat(64),
+    logger,
+    backoffMs: [1_000],
+    sleep: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  });
+  const handed: PerplTradingSocket[] = [];
+  session.onSignedIn((s) => void handed.push(s));
+
+  session.start();
+  await settle();
+  assert.equal(session.status().state, 'signed-in');
+  assert.equal(handed.length, 1);
+  assert.equal(release, undefined, 'a successful sign-in never sleeps');
+
+  sockets[0]!.drop('socket closed with 1006');
+  await settle();
+  assert.equal(session.status().state, 'retrying');
+  assert.match(session.status().reason ?? '', /closed \(socket closed with 1006\); signing in again/);
+  assert.equal(logger.warnings.length, 1, 'the drop is logged once');
+  assert.match(logger.warnings[0]!, /1006/);
+  assert.equal(handed.length, 1, 'nothing new is handed over during the backoff');
+
+  release?.();
+  await settle();
+  assert.equal(session.status().state, 'signed-in');
+  assert.equal(session.signIns, 2);
+  assert.deepEqual(handed, sockets, 'the second sign-in hands over the second socket');
+  assert.equal(session.socket, sockets[1]);
+  assert.match(logger.infos.at(-1) ?? '', /signed in again/);
+  await session.stop();
+});
+
+test('stopping while signed in closes the socket and does not reconnect', async () => {
+  let opened = 0;
+  const session = new TradingSession({
+    venue: venueThat(async () => {
+      opened += 1;
+      return fakeSocket(710);
+    }),
+    network,
+    apiKey: 'a'.repeat(64),
+    logger: new RecordingLogger(),
+    backoffMs: [0],
+    sleep: async () => {},
+  });
+  session.start();
+  await settle();
+  assert.equal(opened, 1);
+  await session.stop();
+  await settle();
+  assert.equal(opened, 1, 'a local close is not a drop to recover from');
 });

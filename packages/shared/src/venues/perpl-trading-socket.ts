@@ -52,6 +52,14 @@ const DEFAULT_SIGN_IN_TIMEOUT_MS = 10_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
 const DEFAULT_RESULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PING_INTERVAL_MS = 30_000;
+/**
+ * Heartbeats (`mt: 100`) land on EVERY block, ~300ms apart (measured: 327 of
+ * 327 over 100s), so ten seconds without a single frame is not a quiet
+ * market — it is a connection that is open but dead, which a half-open TCP
+ * socket never reports on its own. The watchdog closes it with a reason so the
+ * ordinary close path, and whoever reconnects on it, takes over.
+ */
+const DEFAULT_STALL_TIMEOUT_MS = 10_000;
 
 /** The `mt: 3` command status. */
 export interface CommandStatus {
@@ -103,6 +111,12 @@ export interface TradingSocketOptions {
   readonly verbose?: boolean;
   readonly signInTimeoutMs?: number;
   readonly pingIntervalMs?: number;
+  /**
+   * Treat the connection as dead after this much total silence and close it.
+   * 0 disables the watchdog. See DEFAULT_STALL_TIMEOUT_MS for why silence on
+   * this socket is never normal.
+   */
+  readonly stallTimeoutMs?: number;
   readonly now?: () => number;
   /** Injectable for tests. Defaults to the global WebSocket Node ships. */
   readonly webSocketImpl?: typeof WebSocket;
@@ -111,8 +125,13 @@ export interface TradingSocketOptions {
 export class PerplTradingSocket {
   readonly #options: TradingSocketOptions;
   readonly #logger: Logger;
+  readonly #now: () => number;
+  readonly #stallTimeoutMs: number;
   /** The transport. Everything else in this class is session state on top. */
   readonly #conn: PerplSocketConnection;
+
+  #stallTimer: ReturnType<typeof setInterval> | undefined;
+  #lastFrameAtMs = 0;
 
   #nextSn = 1;
   #localRequestId = 0;
@@ -162,6 +181,8 @@ export class PerplTradingSocket {
   constructor(options: TradingSocketOptions) {
     this.#options = options;
     this.#logger = options.logger ?? silentLogger;
+    this.#now = options.now ?? Date.now;
+    this.#stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
     this.#conn = new PerplSocketConnection({
       venueId: VENUE_ID,
       url: options.network.tradingWsUrl,
@@ -177,15 +198,39 @@ export class PerplTradingSocket {
     // Both registered first, so session state is updated before any external
     // observer sees a frame, and so a close fails everything in flight before
     // it reaches anyone waiting on the connection.
-    this.#conn.onMessage((message) => this.#track(message));
+    this.#conn.onMessage((message) => {
+      this.#lastFrameAtMs = this.#now();
+      this.#track(message);
+    });
     this.#conn.onClose((error) => {
+      this.#stopStallWatchdog();
       this.#failPending(error);
       // The set has not changed, but its TRUSTWORTHINESS has: this socket does
-      // not reconnect, so from here the positions are frozen. Subscribers are
-      // told so they can re-read positionsTrustworthy rather than going on
-      // believing a stale set.
+      // not reconnect ITSELF, so from here the positions it holds are frozen
+      // until whoever owns it opens a replacement. Subscribers are told so they
+      // can re-read positionsTrustworthy rather than going on believing a
+      // stale set.
       this.#emitPositions();
     });
+  }
+
+  /**
+   * True once the connection has ended, for any reason. A closed socket never
+   * reopens: the owner constructs a new one, which is what keeps a reconnect
+   * from silently re-signing underneath an in-flight submission (every
+   * in-flight request is failed on close, so nothing can be retried blind).
+   */
+  get closed(): boolean {
+    return this.#conn.closed;
+  }
+
+  /**
+   * Observe the close, whenever it comes; fires exactly once, and immediately
+   * if the socket has already closed. This is the hook a reconnect policy
+   * hangs off — the policy lives with the owner, never here.
+   */
+  onClose(listener: (error: Error) => void): () => void {
+    return this.#conn.onClose(listener);
   }
 
   get accountId(): number | undefined {
@@ -305,9 +350,10 @@ export class PerplTradingSocket {
    * closed position showing as open, or hides one that was opened, and neither
    * is visible by looking at the position set itself.
    *
-   * This socket DOES NOT RECONNECT. Once it closes, the positions above are
-   * frozen at whatever they were, which is exactly the "monitor gone blind"
-   * case, so a caller must gate on this rather than on the set being non-empty.
+   * This socket DOES NOT RECONNECT ITSELF. Once it closes, the positions above
+   * are frozen at whatever they were — the "monitor gone blind" case — until
+   * the owner opens a replacement socket and a fresh snapshot arrives on it.
+   * A caller must gate on this rather than on the set being non-empty.
    */
   get positionsTrustworthy(): boolean {
     return this.#positionsSnapshotReceived && this.#conn.isOpen && !this.#sequenceGap;
@@ -379,8 +425,40 @@ export class PerplTradingSocket {
     }));
 
     this.#conn.startPing(this.#options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
+    this.#armStallWatchdog();
 
     await this.#awaitWalletSnapshot(this.#options.signInTimeoutMs ?? DEFAULT_SIGN_IN_TIMEOUT_MS);
+  }
+
+  /**
+   * Watch for total silence and close the connection when it stalls.
+   *
+   * Polls at half the timeout rather than re-arming a timer per frame: frames
+   * arrive several times a second. Closing routes into the ordinary close path
+   * — in-flight requests fail, subscribers are told, the owner reconnects —
+   * so a dead socket is indistinguishable from a dropped one, which is right.
+   */
+  #armStallWatchdog(): void {
+    this.#stopStallWatchdog();
+    if (this.#stallTimeoutMs <= 0) return;
+    this.#lastFrameAtMs = this.#now();
+    const tick = Math.max(1, Math.floor(this.#stallTimeoutMs / 2));
+    this.#stallTimer = setInterval(() => {
+      const silentFor = this.#now() - this.#lastFrameAtMs;
+      if (silentFor < this.#stallTimeoutMs) return;
+      this.#logger.warn(
+        `no frames on the trading socket for ${silentFor}ms — heartbeats land every block, so ` +
+          `the connection is open but dead. Dropping it so a reconnect can take over.`,
+      );
+      this.#stopStallWatchdog();
+      this.#conn.close(`stalled: no frames for ${silentFor}ms`);
+    }, tick);
+    this.#stallTimer.unref?.();
+  }
+
+  #stopStallWatchdog(): void {
+    if (this.#stallTimer !== undefined) clearInterval(this.#stallTimer);
+    this.#stallTimer = undefined;
   }
 
   #awaitWalletSnapshot(timeoutMs: number): Promise<void> {
