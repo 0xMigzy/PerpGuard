@@ -76,6 +76,11 @@ export class VenueActionExecutor implements ActionExecutor {
  */
 function toCommand(request: ExecuteRequest): ActionCommand | undefined {
   const { action } = request;
+  // `AlertActionType` is 'add-margin' only: an alert offers top-ups and nothing
+  // else. Closing and reducing ARE built on the venue and in the actions layer —
+  // measured `t: 3` round trips — but no ALERT offers them yet, so there is no
+  // action shape here to translate. When the alerts layer gains a close option
+  // this is where it joins.
   if (action.type !== 'add-margin') return undefined;
   return {
     kind: 'add-margin',
@@ -105,12 +110,16 @@ function describe(outcome: ActionOutcome): ExecutionOutcome {
         detail: appliedText(outcome),
       };
     case 'not-applied':
+      // SAYS WHY SENDING AGAIN IS SAFE, rather than leaving the user to wonder.
+      // The check is the whole justification: nothing landed, so nothing can land
+      // twice. A user who is not told that will either not retry a rescue that
+      // needs retrying, or retry something they should not.
       return {
         kind: 'not-applied',
         detail:
           `Nothing was added. I checked the position afterwards and its margin is unchanged, ` +
-          `so no collateral left your balance. Run /positions for current numbers before ` +
-          `trying again.`,
+          `so no collateral left your balance and the request did not reach the exchange. ` +
+          `Sending it again is safe — I verified nothing landed, so it cannot go through twice.`,
       };
     case 'unknown':
       return {

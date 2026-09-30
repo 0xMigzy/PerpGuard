@@ -27,7 +27,7 @@ import { authorise } from './auth.ts';
 import { UnknownFreeBalance, type FreeBalanceView } from './balance.ts';
 import { decodeCallback, encodeCallback } from './callback.ts';
 import type { BotConfig } from './config.ts';
-import { CONFIRM_BUTTON_LABEL, renderConfirmation } from './confirm.ts';
+import { CONFIRM_BUTTON_LABEL, RETRY_BUTTON_LABEL, renderConfirmation } from './confirm.ts';
 import {
   CANCELLED_TEXT,
   NOTHING_TO_CANCEL_TEXT,
@@ -541,12 +541,38 @@ async function runConfirmed(
       // teach the reader to distrust the answer.
       await ctx.reply(outcome.detail);
       return;
-    case 'not-applied':
-      await ctx.reply(outcome.detail);
+    case 'not-applied': {
+      // THE ONE OUTCOME THAT EARNS A RETRY BUTTON. The position was read after the
+      // send and had not moved, so nothing landed and nothing can land twice —
+      // see the reasoning on RETRY_BUTTON_LABEL. The dropped-forwarder case is
+      // real and common on testnet, and a trader whose rescue silently vanished
+      // with no way to send it again is worse off than one we never alerted.
+      //
+      // A FRESH TOKEN, not the spent one: the retry is a new action with its own
+      // `action_log` row, and it expires on the same fifteen minutes as every
+      // other button, so an old "Send again" cannot send a stale amount.
+      const retry = deps.store.put({
+        userId: pending.userId,
+        telegramUserId: pending.telegramUserId,
+        action,
+      });
+      const keyboard = new InlineKeyboard().text(
+        RETRY_BUTTON_LABEL,
+        encodeCallback({
+          kind: 'confirm',
+          token: retry.token,
+          marketId: action.marketId,
+          amountCNS: action.amountCNS,
+        }),
+      );
+      await ctx.reply(outcome.detail, { reply_markup: keyboard });
       return;
+    }
     case 'unknown':
-      // The one reply that must not read as either success or failure, and must
-      // not leave a gap a user fills with a retry.
+      // NO RETRY BUTTON HERE, deliberately. Something may have landed, and this is
+      // the one state where sending again could double it. The reply must read as
+      // neither success nor failure and must not leave a gap a user fills with a
+      // retry of their own, which is what `nextStep` is for.
       await ctx.reply(`${outcome.detail}\n\n${outcome.nextStep}`);
       return;
     case 'not-implemented':

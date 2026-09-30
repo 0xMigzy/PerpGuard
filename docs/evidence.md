@@ -665,3 +665,73 @@ venue said it had failed.
   each top-up.
 - A forwarded request that never reaches the chain is distinguishable from one
   that does, and neither is ever retried.
+
+## 2026-09-30 — the close and reduce round trips, measured
+
+`pnpm close:probe` and `pnpm close:probe --units 3 --reduce 1`
+(`apps/backend/src/scripts/probe-close.ts`). `buildClosePositionFrame` was written
+from the docs and had never been sent; this is what it does.
+
+| phase | frame | `rq` | `mt: 24` | `lfr` | size | `mt: 27` |
+| --- | --- | --- | --- | --- | --- | --- |
+| close | `t:3 s:1 lp:4382847991809` | 26 | `st: 4 Filled, sr: 43` | 25→26 | 0.00001 → 0 | `st: 2, sr: 13` |
+| open | `t:1 s:3` | 27 | `st: 4 Filled, sr: 43` | 26→27 | 0 → 0.00003 | `st: 1, sr: 21` |
+| reduce | `t:3 s:1 lp:4383112298497` | 28 | `st: 4 Filled, sr: 43` | 27→28 | 0.00003 → 0.00002 | `st: 1, sr: 14` |
+| close | `t:3 s:2 lp:4383112298497` | 29 | `st: 4 Filled, sr: 43` | 28→29 | 0.00002 → 0 | `st: 2, sr: 13` |
+
+All four landed on the first send. None was re-sent.
+
+### `t: 3` TELLS THE TRUTH — unlike `t: 6`
+
+This is the finding. A close reports `st: 4 Filled, sr: 43 TakerOrderFilled` on
+`mt: 24`, about a second after it goes out, on every one of the three round trips.
+The `sr 32` behaviour — reported failure, full effect — is **specific to
+`t: 6` IncreasePositionCollateral** and must not be generalised to the other
+order types.
+
+The actions layer still reconciles a close against the position's size rather than
+believing `mt: 24`. "Has told the truth so far" is not a guarantee, and the cost of
+keeping the discipline is nothing.
+
+### A reduce keeps the `pid` and releases margin in proportion
+
+The partial, `s: 1` against a 3-unit long:
+
+```
+mt:27  pid 4383112298497  st:1  sr:14 PositionDecreased  c:"111051"  ep:83197x
+```
+
+- **The position id is unchanged.** `pid 4383112298497` before and after. A reduce
+  does not create a new position, so anything keyed on `pid` survives it.
+- **Margin scales with size.** `c` 166576 → 111051 on a reduction from 3 units to
+  2. 166576 × 2/3 = 111050.67, which rounds to exactly the 111051 reported.
+- **The entry price does not move.** `ep` is the same before and after.
+
+Those three together are the measured arithmetic behind the rule in CLAUDE.md that
+a proportional reduce leaves the liquidation price **exactly** unchanged: size,
+margin and the maintenance requirement all scale by the same factor and it
+cancels. A reduce buys no room. It only slows the bleeding.
+
+A full close instead carries `st: 2 Closed, sr: 13 PositionClosed` with `c: "0"`
+and size 0 — **delivered as a row, not as an omission**, which is why the position
+decoder drops anything whose `st` is not 1 rather than waiting for it to vanish.
+
+### The balance ledger closes
+
+    9999920975  before the first close
+    9999997236  after it          +76261  (margin 77765 returned, less fees/PnL)
+    9999829798  after opening 3u  -167438 (margin posted)
+    9999885035  after reducing 1u  +55237 (one third of the margin, less fee)
+    9999995312  after closing 2u  +110277 (the rest)
+
+### What this run proves
+
+- `t: 3` CloseLong is correct as built: `lp` names the position, `s` is in the
+  market's own size units, `p: 0` with ImmediateOrCancel is a market exit.
+- A partial reduce is the same frame with a smaller `s`, and works.
+- `PerplVenue.closePosition` and `reducePosition` are now built on this rather
+  than on the docs, and `ClosePositionRequest`/`ReducePositionRequest` carry
+  `positionId`, `positionSide` and an exact `sizeLNS` because none of the three
+  can be derived.
+- `lfr` advanced on all four, so all four reached the contract — the same check
+  that identified the two dropped opens earlier the same day.

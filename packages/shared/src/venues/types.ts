@@ -320,12 +320,44 @@ export interface AddMarginRequest extends ActionRequest {
   readonly amountCNS: bigint;
 }
 
-export interface ReducePositionRequest extends ActionRequest {
-  /** Base units to close. */
-  readonly size: number;
+/**
+ * What a close or a reduce needs, beyond the base request.
+ *
+ * Every field here is one that CANNOT BE GUESSED, and each was confirmed by the
+ * measured round trips on 2026-09-30 (`fixtures/close-probe-testnet.json`):
+ *
+ *   `positionId` is `lp`. Read it off the live position. A market that goes flat
+ *   and reopens gets a new one, and a reduce KEEPS the id it had — measured,
+ *   `pid 4383112298497` was the same before and after a partial.
+ *
+ *   `positionSide` is the side of the POSITION, not of the order that closes it.
+ *   Closing a long sends CloseLong, which is itself a sell. Passing the order's
+ *   direction reverses the trade and doubles the position instead of flattening
+ *   it, which is the worst single mistake available in this file.
+ *
+ *   `sizeLNS` is scaled by the market's own `size_decimals`, as an exact integer.
+ *   Human floats do not appear in money or size maths here: `s: 1` is one size
+ *   unit, which on testnet BTC is 0.00001.
+ */
+interface PositionExitRequest extends ActionRequest {
+  readonly positionId: number;
+  readonly positionSide: Side;
+  readonly sizeLNS: bigint;
 }
 
-export type ClosePositionRequest = ActionRequest;
+/** Close part of a position, leaving the rest open. */
+export interface ReducePositionRequest extends PositionExitRequest {}
+
+/**
+ * Close a whole position.
+ *
+ * Structurally identical to a reduce, because on the wire it IS one: the same
+ * `t: 3`/`t: 4` frame with `s` equal to the whole size. Two methods rather than
+ * one because the CALLER's intent differs and the reconciliation differs — a
+ * close is judged against "is it flat", a reduce against "did the right amount
+ * come off".
+ */
+export interface ClosePositionRequest extends PositionExitRequest {}
 
 /** Cancels every open order, optionally limited to one market. */
 export interface CancelAllRequest {

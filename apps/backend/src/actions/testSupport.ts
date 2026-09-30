@@ -139,7 +139,10 @@ export interface SendRecord {
   readonly symbol: string;
   readonly positionId: number | undefined;
   readonly amountCNS: bigint | undefined;
-  readonly size: number | undefined;
+  /** Size in the market's own units, for a reduce or a close. */
+  readonly sizeLNS: bigint | undefined;
+  /** The POSITION's side, which a close must name correctly or it doubles it. */
+  readonly positionSide: Side | undefined;
 }
 
 /**
@@ -159,8 +162,17 @@ export class FakeVenue implements ActingVenue {
 
   /** What `addMargin` answers with. A thrown value is thrown. */
   addMarginResult: ActionResult | Error = rejected('st: 7 Failed, sr: 32 OrderDescIdTooLow');
-  reduceResult: ActionResult | Error = new NotImplementedError(VENUE, 'reducePosition');
-  closeResult: ActionResult | Error = new NotImplementedError(VENUE, 'closePosition');
+  /**
+   * What `reducePosition` / `closePosition` answer with.
+   *
+   * `confirmed` by default, because that is what the measured `t: 3` round trips
+   * actually reported — `st: 4 Filled, sr: 43 TakerOrderFilled`, three for three.
+   * Unlike a top-up, this order type has told the truth every time it has been
+   * sent; the layer still reconciles against the position's size rather than
+   * believing it.
+   */
+  reduceResult: ActionResult | Error = confirmed();
+  closeResult: ActionResult | Error = confirmed();
 
   /**
    * Called on every send, before the result is returned or thrown.
@@ -188,7 +200,8 @@ export class FakeVenue implements ActingVenue {
         symbol: request.symbol,
         positionId: request.positionId,
         amountCNS: request.amountCNS,
-        size: undefined,
+        sizeLNS: undefined,
+        positionSide: undefined,
       },
       this.addMarginResult,
     );
@@ -200,9 +213,10 @@ export class FakeVenue implements ActingVenue {
         kind: 'reduce-position',
         idempotencyKey: request.idempotencyKey,
         symbol: request.symbol,
-        positionId: undefined,
+        positionId: request.positionId,
         amountCNS: undefined,
-        size: request.size,
+        sizeLNS: request.sizeLNS,
+        positionSide: request.positionSide,
       },
       this.reduceResult,
     );
@@ -214,9 +228,10 @@ export class FakeVenue implements ActingVenue {
         kind: 'close-position',
         idempotencyKey: request.idempotencyKey,
         symbol: request.symbol,
-        positionId: undefined,
+        positionId: request.positionId,
         amountCNS: undefined,
-        size: undefined,
+        sizeLNS: request.sizeLNS,
+        positionSide: request.positionSide,
       },
       this.closeResult,
     );

@@ -9,6 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { NotImplementedError } from '@perpguard/shared';
 import { ActionsExecutor } from './executor.ts';
 import { InFlightRegistry } from './inflight.ts';
 import { InMemoryActionLog } from './log.pg.ts';
@@ -59,6 +60,17 @@ function harness(
   });
   return { executor, venue, positions, prices, log, inFlight, logger };
 }
+
+const closeCmd = (overrides: Partial<ActionCommand> = {}): ActionCommand =>
+  ({
+    kind: 'close-position',
+    idempotencyKey: 'close-1',
+    userId: 'trader-1',
+    marketId: MARKET,
+    symbol: 'BTC',
+    positionId: 4242,
+    ...overrides,
+  }) as ActionCommand;
 
 const topUp = (overrides: Partial<ActionCommand> = {}): ActionCommand =>
   ({
@@ -393,22 +405,134 @@ test('an account that does not allow forwarding refuses, and nothing is sent', a
   assert.match(outcome.detail, /Nothing was sent/);
 });
 
-test('an unbuilt action refuses as not-implemented rather than looking like a failure', async () => {
+test('an action the venue has not built refuses as not-implemented', async () => {
   const h = harness();
-  const outcome = await h.executor.execute({
-    kind: 'close-position',
-    idempotencyKey: 'k',
-    userId: 'trader-1',
-    marketId: MARKET,
-    symbol: 'BTC',
-    positionId: 4242,
-  });
+  h.venue.closeResult = new NotImplementedError('perpl', 'closePosition');
+
+  const outcome = await h.executor.execute(closeCmd());
 
   assert.ok(outcome.kind === 'refused');
   assert.equal(outcome.code, 'not-implemented');
   assert.match(outcome.detail, /has not been measured/);
   // The row was opened before the attempt, so it is settled rather than left open.
-  assert.equal(h.log.find('k')?.settlement?.outcome, 'refused');
+  assert.equal(h.log.find('close-1')?.settlement?.outcome, 'refused');
+});
+
+// ── close and reduce ───────────────────────────────────────────────────────
+
+test('a close that flattens the position is applied', async () => {
+  const h = harness();
+  h.venue.applyOnSend = () => h.positions.patch(MARKET, { sizeLNS: 0n });
+
+  const outcome = await h.executor.execute(closeCmd());
+
+  assert.equal(outcome.kind, 'applied');
+  assert.ok(outcome.kind === 'applied');
+  assert.equal(outcome.reconciliation.field, 'size');
+  assert.equal(outcome.reconciliation.after, 0n);
+  assert.equal(h.venue.sends.length, 1);
+});
+
+test('a close names the POSITION’s side, not the order’s', async () => {
+  // Closing a long sends CloseLong, which is itself a sell. Handing the venue the
+  // order's direction reverses the trade and DOUBLES the position.
+  const positions = new FakePositions([position({ side: 'short', sizeLNS: 5n })]);
+  const h = harness({ positions });
+  h.venue.applyOnSend = () => positions.patch(MARKET, { sizeLNS: 0n });
+
+  await h.executor.execute(closeCmd());
+
+  const sent = h.venue.sends[0]!;
+  assert.equal(sent.positionSide, 'short');
+  assert.equal(sent.sizeLNS, 5n, 'the whole position, as the position reports it');
+  assert.equal(sent.positionId, 4242);
+});
+
+test('a close whose position merely vanished is unknown unless the venue confirmed it', async () => {
+  // A liquidation looks exactly like a close from the outside. A kill switch
+  // reporting "closed" for a position the venue liquidated would be the tool
+  // taking credit for the disaster it existed to prevent.
+  const h = harness();
+  h.venue.closeResult = rejected('st: 7 Failed');
+  h.venue.applyOnSend = () => h.positions.remove(MARKET);
+
+  const outcome = await h.executor.execute(closeCmd());
+
+  assert.equal(outcome.kind, 'unknown');
+  assert.ok(outcome.kind === 'unknown');
+  assert.match(outcome.nextStep, /Do NOT send this action again/);
+});
+
+test('a confirmed close whose position vanished IS applied: two pieces of evidence agreeing', async () => {
+  const h = harness();
+  h.venue.closeResult = confirmed();
+  h.venue.applyOnSend = () => h.positions.remove(MARKET);
+
+  const outcome = await h.executor.execute(closeCmd());
+
+  assert.equal(outcome.kind, 'applied');
+  assert.ok(outcome.kind === 'applied');
+  assert.match(outcome.reconciliation.detail, /venue confirmed the close/);
+});
+
+test('a partial reduce that took the asked-for size off is applied', async () => {
+  // Measured live: s:1 against a 3-unit long left it at 2 units, same pid,
+  // mt: 27 st: 1 Open sr: 14 PositionDecreased.
+  const positions = new FakePositions([position({ sizeLNS: 3n })]);
+  const h = harness({ positions });
+  h.venue.applyOnSend = () => positions.patch(MARKET, { sizeLNS: 2n });
+
+  const outcome = await h.executor.execute({
+    kind: 'reduce-position',
+    idempotencyKey: 'reduce-1',
+    userId: 'trader-1',
+    marketId: MARKET,
+    symbol: 'BTC',
+    positionId: 4242,
+    sizeLNS: 1n,
+  });
+
+  assert.equal(outcome.kind, 'applied');
+  assert.ok(outcome.kind === 'applied');
+  assert.equal(outcome.reconciliation.before, 3n);
+  assert.equal(outcome.reconciliation.after, 2n);
+  assert.equal(h.venue.sends[0]!.sizeLNS, 1n);
+});
+
+test('a reduce that took off less than asked is unknown, not applied', async () => {
+  // An ImmediateOrCancel exit takes what the book offers and cancels the rest.
+  const positions = new FakePositions([position({ sizeLNS: 10n })]);
+  const h = harness({ positions });
+  h.venue.applyOnSend = () => positions.patch(MARKET, { sizeLNS: 8n });
+
+  const outcome = await h.executor.execute({
+    kind: 'reduce-position',
+    idempotencyKey: 'reduce-2',
+    userId: 'trader-1',
+    marketId: MARKET,
+    symbol: 'BTC',
+    positionId: 4242,
+    sizeLNS: 5n,
+  });
+
+  assert.equal(outcome.kind, 'unknown');
+  assert.match(outcome.detail, /2 lots closed of 5 requested/);
+});
+
+test('a non-positive reduce refuses before it can reach a frame builder', async () => {
+  const h = harness();
+  const outcome = await h.executor.execute({
+    kind: 'reduce-position',
+    idempotencyKey: 'reduce-3',
+    userId: 'trader-1',
+    marketId: MARKET,
+    symbol: 'BTC',
+    positionId: 4242,
+    sizeLNS: 0n,
+  });
+  assert.ok(outcome.kind === 'refused');
+  assert.equal(outcome.code, 'invalid-command');
+  assert.equal(h.venue.sends.length, 0);
 });
 
 // ── the before-figure is re-read ────────────────────────────────────────────

@@ -313,10 +313,24 @@ export class ActionsExecutor {
           });
           break;
         case 'reduce-position':
-          result = await this.#venue.reducePosition({ ...base, size: Number(command.sizeLNS) });
+          result = await this.#venue.reducePosition({
+            ...base,
+            positionId,
+            // THE POSITION'S SIDE, read off the position we just looked at, not
+            // derived from the action. A close of a long is itself a sell, and
+            // handing the venue the order's direction doubles the position.
+            positionSide: position.side,
+            sizeLNS: command.sizeLNS,
+          });
           break;
         case 'close-position':
-          result = await this.#venue.closePosition(base);
+          result = await this.#venue.closePosition({
+            ...base,
+            positionId,
+            positionSide: position.side,
+            // The whole of it, as the position reports it right now.
+            sizeLNS: position.sizeLNS,
+          });
           break;
       }
       return {
@@ -365,8 +379,6 @@ export class ActionsExecutor {
       return {
         reported: { status: 'threw', reason: message(error), venueRef: undefined },
       };
-    } finally {
-      void position;
     }
   }
 

@@ -96,6 +96,31 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   - And never report the failure to the user either: telling someone their
     rescue failed when it worked is how they double it by hand.
   See `docs/evidence.md` and `pnpm risk:live`.
+- THE `sr 32` LIE IS SPECIFIC TO `t: 6`. `t: 3`/`t: 4` CloseLong/CloseShort report
+  their outcome TRUTHFULLY on `mt: 24`: `st: 4 Filled, sr: 43 TakerOrderFilled` on
+  all three measured round trips, in about a second. So do not generalise the
+  top-up's behaviour to every order type — but do keep reconciling against the
+  position anyway, because "has told the truth so far" is not a guarantee.
+  - A REDUCE KEEPS THE POSITION'S `pid`, and releases margin IN PROPORTION: `c`
+    166576 -> 111051 on a 3-unit position reduced to 2, with `ep` unchanged. That
+    is the arithmetic behind the rule that a proportional reduce leaves the
+    liquidation price exactly where it was. `mt: 27` carries `st: 1 Open,
+    sr: 14 PositionDecreased`; a full close carries `st: 2 Closed, sr: 13`.
+  - See `fixtures/close-probe-testnet.json` and `pnpm close:probe`.
+- `mt: 3` WITH `code: 0` DOES NOT MEAN THE REQUEST REACHED THE CONTRACT. The
+  testnet forwarder drops requests: two of three opens produced an `mt: 3` code 0
+  and then no `mt: 24` at all. `lfr` IS THE DISCRIMINATOR — it advances even on a
+  request the contract REJECTS (every `sr 32` top-up moved it), so `lfr`
+  unchanged after an `mt: 3` means the frame never landed on chain and its `rq`
+  is still unconsumed. Reconcile with it; never retry on the `mt: 3` alone.
+- NEVER BLIND-RETRY; RETRYING AFTER RECONCILIATION IS CORRECT. These are not in
+  tension. A blind retry re-sends on the strength of a reported failure, which
+  for `t: 6` is wrong and adds the margin twice. A retry after reconciliation is
+  a fresh action taken once the POSITION has been read and shown not to have
+  moved — nothing landed, so nothing can land twice. The bot offers "Send again"
+  on a reconciled `not-applied` and NEVER on `unknown`, where something may have
+  landed. A trader whose rescue silently vanished with no way to resend is worse
+  off than one we never alerted: they think they are covered.
 - Order updates are keyed by `oid`, the wide globally-unique order id, NOT by
   `id`. The docs render `mt: 24` entries as `{ id, st, sr, r }`, but the wire
   sends `oid` plus `scid`, the short per-contract id the explorer and

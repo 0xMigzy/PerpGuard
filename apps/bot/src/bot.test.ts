@@ -823,3 +823,111 @@ test('a stranger cannot answer the owner’s prompt', async () => {
   assert.ok(h.amounts.get(OWNER_ID) !== undefined, 'the owner’s prompt is untouched');
   assert.equal(h.executor.calls.length, 0);
 });
+
+// ── retry after reconciliation ──────────────────────────────────────────────
+
+/** Confirm a top-up and return the confirm button's callback data. */
+async function confirmedTopUp(h: Harness): Promise<string> {
+  const data = await firstButton(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  return keyboardOf(h.telegram.last('sendMessage'))[0]!.callback_data;
+}
+
+test('a reconciled not-applied offers Send again, because nothing landed', async () => {
+  // The forwarder drops requests: mt: 3 code 0, no mt: 24, no lfr movement. The
+  // position was read afterwards and had not moved, so a retry cannot double
+  // anything — and a trader whose rescue silently vanished with no way to send it
+  // again is worse off than one we never alerted.
+  const h = harness();
+  h.executor.outcome = {
+    kind: 'not-applied',
+    detail: 'Nothing was added. I checked the position afterwards and its margin is unchanged.',
+  };
+  const confirm = await confirmedTopUp(h);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+
+  const reply = h.telegram.last('sendMessage');
+  assert.match(String(reply.payload['text']), /Nothing was added/);
+  const buttons = keyboardOf(reply);
+  assert.equal(buttons.length, 1);
+  assert.equal(buttons[0]!.text, 'Send again');
+});
+
+test('the Send again button sends the same amount, once, under a NEW key', async () => {
+  const h = harness();
+  h.executor.outcome = { kind: 'not-applied', detail: 'Nothing was added.' };
+  const confirm = await confirmedTopUp(h);
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+  const retry = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+
+  // The retry lands, this time.
+  h.executor.outcome = { kind: 'applied', detail: 'Done — the margin is in.' };
+  await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
+
+  assert.equal(h.executor.calls.length, 2, 'one original, one retry — not three');
+  const [first, second] = h.executor.calls;
+  assert.equal(second!.action.amountCNS, first!.action.amountCNS, 'the same amount');
+  assert.notEqual(second!.idempotencyKey, first!.idempotencyKey, 'a new action_log row');
+  assert.match(String(h.telegram.last('sendMessage').payload['text']), /Done — the margin is in/);
+});
+
+test('an unknown outcome gets NO retry button: something may have landed', async () => {
+  // The one state where sending again could double it.
+  const h = harness();
+  h.executor.outcome = {
+    kind: 'unknown',
+    detail: 'the position left the set, so its margin cannot be compared.',
+    nextStep: 'Read the position directly. Do NOT send this action again until you have.',
+  };
+  const confirm = await confirmedTopUp(h);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+
+  const reply = h.telegram.last('sendMessage');
+  assert.equal(keyboardOf(reply).length, 0, 'no button at all');
+  assert.match(String(reply.payload['text']), /Do NOT send this action again/);
+});
+
+test('an applied outcome gets no retry button either', async () => {
+  const h = harness();
+  h.executor.outcome = { kind: 'applied', detail: 'Done — the margin is in.' };
+  const confirm = await confirmedTopUp(h);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+  assert.equal(keyboardOf(h.telegram.last('sendMessage')).length, 0);
+});
+
+test('a Send again button expires on the same fifteen minutes as every other', async () => {
+  // An old retry must not send an amount computed against a mark that has moved.
+  const h = harness();
+  h.executor.outcome = { kind: 'not-applied', detail: 'Nothing was added.' };
+  const confirm = await confirmedTopUp(h);
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+  const retry = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+
+  h.nowMs += 16 * 60_000;
+  h.telegram.calls.length = 0;
+  await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
+
+  assert.equal(h.executor.calls.length, 1, 'the expired retry must not send');
+  assert.match(answers(h.telegram).at(-1)!, /expired/);
+});
+
+test('a Send again button is single use, so a double tap cannot send twice', async () => {
+  const h = harness();
+  h.executor.outcome = { kind: 'not-applied', detail: 'Nothing was added.' };
+  const confirm = await confirmedTopUp(h);
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+  const retry = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+
+  // Still not-applied, so the retry itself offers another retry — each one used once.
+  await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
+  const sendsAfterFirst = h.executor.calls.length;
+  await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
+
+  assert.equal(h.executor.calls.length, sendsAfterFirst, 'the second tap on the same button sends nothing');
+});

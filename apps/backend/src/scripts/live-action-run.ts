@@ -23,7 +23,6 @@ import { writeFileSync } from 'node:fs';
 import {
   PerplPositionSource,
   PerplVenue,
-  buildClosePositionFrame,
   buildMarketOrderFrame,
   computeLastExecBlock,
   fromVenuePosition,
@@ -396,18 +395,17 @@ try {
     const position = openPosition();
     if (position !== undefined) {
       try {
-        const frame = buildClosePositionFrame({
-          sn: socket.nextSequenceNumber(),
-          rq: socket.reserveRequestId(),
-          marketId: market.marketId,
-          accountId,
-          positionSide: position.side,
+        // THROUGH THE VENUE METHOD, not a hand-built frame: `t: 3` is measured and
+        // `PerplVenue.closePosition` is built on that measurement, so the cleanup
+        // exercises the real path rather than a parallel one that could drift.
+        const result = await venue.closePosition({
+          idempotencyKey: `live-close:${Date.now()}`,
+          symbol: market.symbol,
           positionId: position.positionId,
-          sizeScaled: Math.round(position.size * 10 ** market.sizeDecimals),
-          lastExecBlock: computeLastExecBlock(headBlock(), market.orderTtlBlocks, 2),
+          positionSide: position.side,
+          sizeLNS: BigInt(Math.round(position.size * 10 ** market.sizeDecimals)),
         });
-        log(`SEND ${JSON.stringify(frame)}`);
-        await socket.submit({ frame, intent: 'place', idempotencyKey: 'close', matches: () => true });
+        log(`CLOSE ${result.status}${result.reason === undefined ? '' : ` — ${result.reason}`}`);
       } catch (error) {
         log(`WARN close failed: ${error instanceof Error ? error.message : String(error)}`);
       }

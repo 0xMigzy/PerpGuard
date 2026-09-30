@@ -12,6 +12,7 @@ import {
 } from './perpl-market-data.ts';
 import {
   buildAddMarginFrame,
+  buildClosePositionFrame,
   buildCancelFrame,
   buildLimitOrderFrame,
   computeLastExecBlock,
@@ -804,12 +805,106 @@ export class PerplVenue implements Venue {
     });
   }
 
-  reducePosition(_request: ReducePositionRequest): Promise<ActionResult> {
-    return Promise.reject(new NotImplementedError(VENUE_ID, 'reducePosition'));
+  /**
+   * Close part of a position — `t: 3` CloseLong / `t: 4` CloseShort with `s` less
+   * than the whole size.
+   *
+   * MEASURED, not inferred. 2026-09-30: `s: 1` against a 3-unit long came back
+   * `st: 4 Filled, sr: 43 TakerOrderFilled` on `mt: 24` in under a second, and the
+   * `mt: 27` showed `st: 1 Open, sr: 14 PositionDecreased` with the SAME `pid` and
+   * margin released in proportion — `c` 166576 -> 111051, which is exactly two
+   * thirds, with the entry price unchanged. That is the arithmetic behind the rule
+   * that a proportional reduce leaves the liquidation price EXACTLY where it was:
+   * it buys no room at all, it only slows the bleeding.
+   *
+   * UNLIKE A TOP-UP, THIS ORDER TYPE TELLS THE TRUTH. `t: 6` reports
+   * `st: 7 Failed` while the collateral lands; `t: 3` reported `st: 4 Filled` on
+   * every one of the three round trips measured. The actions layer still
+   * reconciles against the position's size rather than believing it — the
+   * discipline does not get relaxed because one order type has behaved so far —
+   * but no caveat is appended to the status here, because none is warranted.
+   */
+  async reducePosition(request: ReducePositionRequest): Promise<ActionResult> {
+    return this.#exitPosition(request, 'reduce');
   }
 
-  closePosition(_request: ClosePositionRequest): Promise<ActionResult> {
-    return Promise.reject(new NotImplementedError(VENUE_ID, 'closePosition'));
+  /**
+   * Close a whole position — the same frame with `s` equal to the whole size.
+   *
+   * MEASURED, 2026-09-30: `st: 4 Filled, sr: 43` on `mt: 24`, and the `mt: 27`
+   * carried `st: 2 Closed, sr: 13 PositionClosed` with `c: "0"` and size 0. The
+   * position is DELIVERED AS A ROW, not as an omission — which is why the position
+   * decoder drops anything whose `st` is not 1 rather than waiting for it to
+   * disappear.
+   */
+  async closePosition(request: ClosePositionRequest): Promise<ActionResult> {
+    return this.#exitPosition(request, 'close');
+  }
+
+  /**
+   * The shared path for a close and a reduce, because they are one frame.
+   *
+   * A MARKET EXIT, always: `p: 0` with ImmediateOrCancel. A resting limit exit is
+   * not what any of this product's actions want — a kill switch that left orders
+   * resting would report "closed" over positions still open, and `order_ttl_blocks`
+   * means a resting exit is gone in seconds anyway.
+   */
+  async #exitPosition(
+    request: ReducePositionRequest,
+    label: 'reduce' | 'close',
+  ): Promise<ActionResult> {
+    // FIRST, before a socket is opened and before an `rq` is spent. A size we
+    // cannot send is a caller bug, and it costs nothing to say so immediately.
+    if (request.sizeLNS <= 0n) {
+      throw new VenueError(
+        VENUE_ID,
+        `a ${label} must name a positive size in the market's own units, got ${request.sizeLNS}`,
+      );
+    }
+    if (request.sizeLNS > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new VenueError(VENUE_ID, `size ${request.sizeLNS} is out of range for a wire frame`);
+    }
+
+    const market = await this.#requireActionable(request.symbol);
+    const socket = await this.connectTrading();
+
+    const accountId = socket.accountId;
+    if (accountId === undefined) {
+      throw new VenueError(
+        VENUE_ID,
+        'no account id: the WalletSnapshot carried none, so this key has no on-chain account ' +
+          'on this network yet',
+      );
+    }
+
+    const frame = buildClosePositionFrame({
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      marketId: market.marketId,
+      accountId,
+      // The POSITION's side. buildClosePositionFrame maps it to CloseLong /
+      // CloseShort; handing it the order's direction would double the position.
+      positionSide: request.positionSide,
+      positionId: request.positionId,
+      sizeScaled: Number(request.sizeLNS),
+      lastExecBlock: computeLastExecBlock(
+        await this.#headBlock(socket),
+        market.orderTtlBlocks,
+        LAST_EXEC_BLOCK_SAFETY,
+      ),
+    });
+
+    return this.#execute({
+      frame,
+      intent: 'place',
+      idempotencyKey: request.idempotencyKey,
+      symbol: request.symbol,
+      // The outcome carries our own `rq`, which matchPlacement prefers over every
+      // other correlator. Verified on all three measured round trips.
+      matches: matchPlacement(frame, socket.knownOrderIds),
+      onForwarded: request.onForwarded,
+      timeoutMs: request.timeoutMs,
+    });
   }
 
   cancelAll(_request: CancelAllRequest): Promise<ActionResult> {

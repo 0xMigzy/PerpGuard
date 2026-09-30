@@ -68,3 +68,28 @@ export function renderConfirmation(
 
 /** The Confirm button's label. The only button label PerpGuard writes itself. */
 export const CONFIRM_BUTTON_LABEL = 'Confirm';
+
+/**
+ * The retry button's label, offered ONLY after a reconciled `not-applied`.
+ *
+ * NEVER BLIND-RETRY; RETRYING AFTER RECONCILIATION IS CORRECT. Those are not in
+ * tension, and the difference is entirely about what is known:
+ *
+ *   A BLIND RETRY is a re-send on the strength of a reported failure. For `t: 6`
+ *   that report is wrong — `st: 7 Failed, sr: 32` comes back while the collateral
+ *   IS credited — so re-sending on it adds the margin twice. Observed live:
+ *   0.0559 -> 0.083584 -> 0.111268 AUSD.
+ *
+ *   A RETRY AFTER RECONCILIATION is a fresh action taken once the position itself
+ *   has been read and shown NOT to have moved. Nothing landed, so nothing can
+ *   land twice. The forwarder drops requests on testnet — `mt: 3` code 0 with no
+ *   `mt: 24` and no `lfr` movement — and that is exactly the case this button
+ *   exists for.
+ *
+ * The asymmetry that decides it: a trader whose rescue silently vanished, with no
+ * way to send it again, is worse off than one we never alerted at all. They think
+ * they are covered. So `not-applied` gets a button and `unknown` never does —
+ * under `unknown` something may have landed, and that is the one state where
+ * sending again could double it.
+ */
+export const RETRY_BUTTON_LABEL = 'Send again';

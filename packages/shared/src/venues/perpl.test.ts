@@ -311,18 +311,12 @@ describe('PerplVenue.getActionAvailability', () => {
   });
 });
 
-describe('unimplemented venue actions', () => {
+describe('venue action wiring', () => {
   const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
 
-  // These must reject, never resolve: a stub that resolved could be read as a
-  // completed action, and no action is complete before mt: 24 anyway.
-  // Reduce and close stay unbuilt DELIBERATELY: their wire frames have not been
-  // measured against a real round trip. Same rule that produced the position
-  // shape — measure, then build — and the actions layer reports them as refused
-  // rather than pretending.
+  // `cancelAll` must reject, never resolve: a stub that resolved could be read as
+  // a completed action, and no action is complete before mt: 24 anyway.
   const cases: Array<[string, () => Promise<unknown>]> = [
-    ['reducePosition', () => venue.reducePosition({ idempotencyKey: 'k', symbol: 'BTC', size: 1 })],
-    ['closePosition', () => venue.closePosition({ idempotencyKey: 'k', symbol: 'BTC' })],
     ['cancelAll', () => venue.cancelAll({ idempotencyKey: 'k' })],
   ];
 
@@ -332,22 +326,68 @@ describe('unimplemented venue actions', () => {
     });
   }
 
-  it('addMargin is built, so it fails on the missing key rather than as unimplemented', async () => {
-    // `t: 6` IS measured — four round trips in docs/evidence.md — so it is wired.
-    // Without credentials it cannot reach a socket, and that is a different and
-    // more honest failure than "not implemented".
-    await assert.rejects(
-      venue.addMargin({
-        idempotencyKey: 'k',
-        symbol: 'BTC',
-        positionId: 1,
-        amountCNS: 10_000_000n,
-      }),
-      (error: unknown) =>
-        error instanceof VenueError &&
-        !(error instanceof NotImplementedError) &&
-        /no API credentials/.test(error.message),
-    );
+  // Everything below IS built, off measured round trips, so each fails on the
+  // missing key rather than as unimplemented — a different and more honest
+  // failure. addMargin: four `t: 6` round trips. Reduce and close: three `t: 3`
+  // round trips on 2026-09-30, in fixtures/close-probe-testnet.json.
+  const built: Array<[string, () => Promise<unknown>]> = [
+    [
+      'addMargin',
+      () =>
+        venue.addMargin({ idempotencyKey: 'k', symbol: 'BTC', positionId: 1, amountCNS: 10_000_000n }),
+    ],
+    [
+      'reducePosition',
+      () =>
+        venue.reducePosition({
+          idempotencyKey: 'k',
+          symbol: 'BTC',
+          positionId: 1,
+          positionSide: 'long',
+          sizeLNS: 1n,
+        }),
+    ],
+    [
+      'closePosition',
+      () =>
+        venue.closePosition({
+          idempotencyKey: 'k',
+          symbol: 'BTC',
+          positionId: 1,
+          positionSide: 'long',
+          sizeLNS: 1n,
+        }),
+    ],
+  ];
+
+  for (const [name, call] of built) {
+    it(`${name} is built, so it fails on the missing key rather than as unimplemented`, async () => {
+      await assert.rejects(
+        call(),
+        (error: unknown) =>
+          error instanceof VenueError &&
+          !(error instanceof NotImplementedError) &&
+          /no API credentials/.test(error.message),
+      );
+    });
+  }
+
+  it('a close refuses a non-positive size before it opens a socket', async () => {
+    // Checked before `connectTrading`, so a caller bug costs neither a connection
+    // nor an `rq`. This venue has no credentials at all, and the size refusal is
+    // what comes back rather than the missing-key one.
+    for (const sizeLNS of [0n, -1n]) {
+      await assert.rejects(
+        venue.closePosition({
+          idempotencyKey: 'k',
+          symbol: 'BTC',
+          positionId: 1,
+          positionSide: 'long',
+          sizeLNS,
+        }),
+        /must name a positive size/,
+      );
+    }
   });
 });
 
