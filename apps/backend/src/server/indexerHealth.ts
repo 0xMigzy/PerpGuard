@@ -19,6 +19,7 @@
  * which `pg.Client` and `pg.Pool` both satisfy structurally.
  */
 import {
+  fetchChainHead,
   IndexerHealthMonitor,
   type IndexerHealth,
   type IndexerProgress,
@@ -134,21 +135,8 @@ export class IndexerLagMonitor {
 
   /** Real head, from a source that is not the indexer. Undefined on failure. */
   async #chainHead(): Promise<number | undefined> {
-    try {
-      const response = await this.#fetch(this.#rpcUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
-        signal: AbortSignal.timeout(this.#timeoutMs),
-      });
-      const json = (await response.json()) as { result?: string };
-      if (json.result === undefined) return undefined;
-      const head = Number.parseInt(json.result, 16);
-      return Number.isSafeInteger(head) ? head : undefined;
-    } catch {
-      // Handled, not swallowed: classifyIndexerHealth downgrades to `unknown`
-      // without an independent head rather than calling it synced.
-      return undefined;
-    }
+    // One implementation, shared with the analytics reader and the indexer's own
+    // verify script. See fetchChainHead on why undefined reduces confidence.
+    return fetchChainHead(this.#rpcUrl, { fetchImpl: this.#fetch, timeoutMs: this.#timeoutMs });
   }
 }

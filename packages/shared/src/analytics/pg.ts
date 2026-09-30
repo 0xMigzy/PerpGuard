@@ -45,9 +45,11 @@ import {
   windowFor,
   type SymbolResolver,
 } from './map.ts';
+import type { TvlReading } from './tvl.ts';
 import type {
   Analytics,
   CollateralFlowStats,
+  FeesForPeriod,
   DailyPoint,
   FundingStats,
   LiquidationStats,
@@ -81,6 +83,13 @@ export interface PostgresAnalyticsOptions {
    * the most reassuring possible answer in exactly the case that matters.
    */
   readonly chainHead?: () => Promise<number | undefined>;
+  /**
+   * Reads TVL off the chain. Absent means `tvl()` reports that it cannot know.
+   *
+   * Injected rather than constructed here so this class stays a database reader
+   * with no opinion about RPC endpoints, and so the tests need no network.
+   */
+  readonly tvlProbe?: { read(): Promise<TvlReading> };
   readonly now?: () => number;
 }
 
@@ -161,6 +170,22 @@ select coalesce(sum("amountCNS") filter (where kind = 'DEPOSIT'), 0)::text    as
        count(*) filter (where kind = 'WITHDRAWAL')::text                     as withdrawals
   from "CollateralFlow"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+`;
+
+/**
+ * Total fees over whole UTC days.
+ *
+ * THE ONE PLACE A HEADLINE FIGURE COMES FROM BUCKETS, and it does so because taker
+ * fees have no finer timestamp — a taker fill is an aggregate over a whole order.
+ * The range is returned alongside the figure so the caller labels it for what it
+ * is rather than borrowing the rolling window's name.
+ */
+const FEES_SQL = `
+select coalesce(sum("feesCNS"), 0)::text as fees,
+       count(distinct day)::text          as days,
+       min(day)                           as from_day
+  from "MarketDay"
+ where ($1::timestamptz is null or day >= $1::timestamptz)
 `;
 
 /** The day series. Buckets ARE the unit here, so they are the right source. */
@@ -367,6 +392,7 @@ export class PostgresAnalytics implements Analytics {
   readonly #chainId: number;
   readonly #resolve: SymbolResolver;
   readonly #chainHead: (() => Promise<number | undefined>) | undefined;
+  readonly #tvlProbe: { read(): Promise<TvlReading> } | undefined;
   readonly #now: () => number;
   /** The last reading whose processed block DIFFERED. See classifyIndexerHealth. */
   #lastProgress: IndexerProgress | undefined;
@@ -377,6 +403,7 @@ export class PostgresAnalytics implements Analytics {
     this.#chainId = options.chainId;
     this.#resolve = options.resolveSymbol;
     this.#chainHead = options.chainHead;
+    this.#tvlProbe = options.tvlProbe;
     this.#now = options.now ?? Date.now;
   }
 
@@ -451,12 +478,16 @@ export class PostgresAnalytics implements Analytics {
     const { sinceMs, untilMs } = windowFor(timeframe, this.#now());
     const since = iso(sinceMs);
 
-    const [totals, traders, liquidations, flows, exchange] = await Promise.all([
+    // Fees are asked for over whole days, so the bind is the day boundary rather
+    // than the rolling instant. Everything else uses the rolling window.
+    const feesSince = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
+
+    const [totals, traders, liquidations, flows, fees] = await Promise.all([
       this.#one(WINDOW_TOTALS_SQL, [since]),
       this.#one(ACTIVE_TRADERS_SQL, [since]),
       this.#one(LIQUIDATION_SQL, [since]),
       this.#one(COLLATERAL_FLOW_SQL, [since]),
-      timeframe === 'all' ? this.#one(EXCHANGE_SQL) : Promise.resolve(undefined),
+      this.#one(FEES_SQL, [feesSince]),
     ]);
 
     return {
@@ -466,13 +497,42 @@ export class PostgresAnalytics implements Analytics {
       volumeAusd: toAusd(totals?.['volume'], decimals),
       tradeCount: count(totals?.['trades']),
       makerFeesAusd: toAusd(totals?.['maker_fees'], decimals),
-      // Exact only for `all`, where the Exchange running total includes taker
-      // fees. A rolling window cannot have it: see the note on the type.
-      totalFeesAusd: exchange === undefined ? undefined : toAusd(exchange['feesCNS'], decimals),
+      fees: this.#fees(fees, decimals, untilMs),
       activeTraders: count(traders?.['traders']),
       liquidations: this.#liquidationStats(liquidations, decimals),
       rescues: this.#rescueStats(liquidations, decimals),
       collateralFlow: this.#flowStats(flows, decimals),
+    };
+  }
+
+  /**
+   * Fees, plus the range they actually cover.
+   *
+   * `label` is written here rather than in the UI so every surface says the same
+   * thing, and so it cannot be rendered under the timeframe's name by accident.
+   * `from_day` comes from the data, not from the requested window: if the indexer
+   * holds fewer days than were asked for, the label says what is really there.
+   */
+  #fees(
+    row: Record<string, unknown> | undefined,
+    decimals: number,
+    untilMs: number,
+  ): FeesForPeriod {
+    const days = count(row?.['days']);
+    const fromMs = toMs(row?.['from_day']) ?? startOfUtcDay(untilMs);
+    const from = new Date(fromMs).toISOString().slice(0, 10);
+    const label =
+      days === 0
+        ? 'no complete UTC day of fees is indexed yet'
+        : days === 1
+          ? `the UTC day from ${from} (today so far)`
+          : `the ${days} UTC days from ${from} (today so far)`;
+    return {
+      totalAusd: toAusd(row?.['fees'], decimals),
+      fromMs,
+      toMs: untilMs,
+      days,
+      label,
     };
   }
 
@@ -511,6 +571,27 @@ export class PostgresAnalytics implements Analytics {
       depositCount: count(row?.['deposits']),
       withdrawalCount: count(row?.['withdrawals']),
     };
+  }
+
+  /**
+   * Total value locked, from the chain.
+   *
+   * Requires a probe. Without one this reports `known: false` with a reason rather
+   * than falling back to the indexed flow — whose net is negative on mainnet, so a
+   * fallback would put a negative TVL on a dashboard.
+   */
+  async tvl(): Promise<TvlReading> {
+    if (this.#tvlProbe === undefined) {
+      return {
+        known: false,
+        reason:
+          'no chain RPC is configured for this reader, so the Exchange’s collateral balance ' +
+          'cannot be read. Indexed deposit and withdrawal flow is NOT a substitute: accounts ' +
+          'held collateral before the start block, so its net is negative.',
+        asOfMs: this.#now(),
+      };
+    }
+    return this.#tvlProbe.read();
   }
 
   async dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]> {

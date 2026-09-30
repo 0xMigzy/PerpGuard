@@ -17,6 +17,7 @@ import { Pool } from 'pg';
 import {
   PerplVenue,
   PostgresAnalytics,
+  TvlProbe,
   TIMEFRAMES,
   describeMarket,
   loadNetworkConfig,
@@ -103,11 +104,21 @@ const venue = new PerplVenue(network, {});
 const markets = await venue.getMarkets();
 const resolve = symbolResolver(markets.map((m) => ({ marketId: m.marketId, symbol: m.symbol })));
 
+// TVL IS A CHAIN READ. The indexed deposit/withdrawal net is a FLOW whose sign is
+// negative on mainnet, because accounts held collateral before the start block.
+// `balanceOf` the Exchange PROXY is the current truth regardless of when we started.
+const tvlRpcUrl = process.env['MONAD_RPC_URL']?.trim() || network.rpcUrl;
 const analytics: Analytics = new PostgresAnalytics({
   client: db,
   chainId: network.chainId,
   resolveSymbol: resolve,
   chainHead,
+  tvlProbe: new TvlProbe({
+    rpcUrl: tvlRpcUrl,
+    tokenAddress: network.collateralAddress,
+    exchangeAddress: network.exchangeAddress,
+    collateralDecimals: network.collateralDecimals,
+  }),
 });
 
 try {
@@ -149,6 +160,7 @@ try {
   console.log(`  ${'metric'.padEnd(20)}${TIMEFRAMES.map((t) => t.padStart(W)).join('')}`);
   const metrics = new Map<Timeframe, Awaited<ReturnType<Analytics['protocolMetrics']>>>();
   for (const timeframe of TIMEFRAMES) metrics.set(timeframe, await analytics.protocolMetrics(timeframe));
+  const metricsAll = metrics.get('all')!;
 
   const row = (label: string, pick: (m: ProtocolRow) => string): void => {
     const cells = TIMEFRAMES.map((t) => pick(metrics.get(t)!).padStart(W)).join('');
@@ -160,7 +172,8 @@ try {
   row('trades', (m) => m.tradeCount.toLocaleString('en-US'));
   row('active traders', (m) => m.activeTraders.toLocaleString('en-US'));
   row('maker fees', (m) => ausd(m.makerFeesAusd));
-  row('total fees', (m) => (m.totalFeesAusd === undefined ? 'n/a (see note)' : ausd(m.totalFeesAusd)));
+  row('total fees', (m) => ausd(m.fees.totalAusd));
+  row('  …covering', (m) => `${m.fees.days} UTC day${m.fees.days === 1 ? '' : 's'}`);
   row('liquidations', (m) => m.liquidations.count.toLocaleString('en-US'));
   row('liquidated notional', (m) => ausd(m.liquidations.notionalAusd));
   row('margin lost', (m) => ausd(m.liquidations.marginLostAusd));
@@ -169,18 +182,42 @@ try {
   row('withdrawals', (m) => ausd(m.collateralFlow.withdrawnAusd));
   row('net flow', (m) => ausd(m.collateralFlow.netAusd));
 
+  console.log('');
+  for (const timeframe of TIMEFRAMES) {
+    console.log(`  fees for ${timeframe.padEnd(4)} cover ${metrics.get(timeframe)!.fees.label}`);
+  }
   console.log(
-    '\n  total fees is n/a for a rolling window on purpose: a taker fill is an aggregate over\n' +
-      '  a whole order, so taker fees have no timestamp finer than the UTC day bucket. Maker\n' +
-      '  fees are exact for every window, and the DAY SERIES carries exact total fees.\n' +
-      '  net flow is a FLOW, not TVL: accounts held collateral before the start block, so the\n' +
-      '  net over our window is negative. Absolute TVL needs a balanceOf read of the proxy.',
+    '\n  TOTAL FEES COME FROM WHOLE UTC DAYS, not from the rolling window, and each row above\n' +
+      '  carries the range it actually covers. A taker fill is an aggregate over a whole order,\n' +
+      '  so taker fees have no timestamp finer than the day bucket — and they are the larger\n' +
+      '  share. Exact and honest beats precise-looking and wrong. Maker fees ARE exact for the\n' +
+      '  rolling window, and are reported separately above.\n' +
+      '  net flow is a FLOW, not a level. TVL is read from the chain — see below.',
   );
+
+  // ── TVL, from the chain ───────────────────────────────────────────────────
+  rule('total value locked — a CHAIN read, not indexed flow');
+  const tvl = await analytics.tvl();
+  if (tvl.known) {
+    console.log(`  TVL                ${ausd(tvl.totalValueLockedAusd)}`);
+    console.log(`  exact micros       ${tvl.totalValueLockedCNS}`);
+    console.log(`  source             ${tvl.source} (balanceOf on the Exchange proxy)`);
+    console.log(`  read at            ${when(tvl.asOfMs)}  via ${new URL(tvlRpcUrl).host}`);
+    const net = metricsAll.collateralFlow.netAusd;
+    console.log(
+      `\n  and the indexed FLOW, which answers a different question:\n` +
+        `  net over all time  ${ausd(net)} — negative, because accounts held collateral\n` +
+        `                     before our start block. That is why TVL is not derived from it.`,
+    );
+  } else {
+    // Never zero. An RPC that timed out and an empty treasury are different facts.
+    console.log(`  TVL                UNKNOWN`);
+    console.log(`  reason             ${tvl.reason}`);
+  }
 
   // ── the rescue figures ────────────────────────────────────────────────────
   rule('rescuable liquidations — the number PerpGuard quotes');
-  const all = metrics.get('all')!;
-  const r = all.rescues;
+  const r = metricsAll.rescues;
   console.log(`  liquidations                 ${r.count}`);
   console.log(`  of those, judgeable          ${r.judgeableCount}`);
   console.log(`  opened before our start      ${r.unknownCount}  (excluded, never counted as failures)`);

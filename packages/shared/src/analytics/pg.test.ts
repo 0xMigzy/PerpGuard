@@ -70,18 +70,28 @@ function reader(sql: FakeSql): PostgresAnalytics {
 
 // ── the window bug ──────────────────────────────────────────────────────────
 
-test('a rolling window is summed from Trade rows, NEVER from MarketDay buckets', () => {
+test('rolling VOLUME is summed from Trade rows, never from MarketDay buckets', () => {
   // THE fix. MarketDay.day is UTC midnight, so a rolling window against it sums
-  // partial buckets: measured 0.23x on mainnet.
+  // partial buckets: measured 0.238x on mainnet.
+  //
+  // Note what is NOT asserted: that MarketDay goes untouched. Fees legitimately
+  // read buckets, because taker fees have no finer timestamp — and they bind a DAY
+  // boundary and carry their own label saying so. The rule is about which source
+  // answers which question, not about avoiding a table.
   const sql = new FakeSql();
   return reader(sql)
     .protocolMetrics('24h')
     .then(() => {
-      assert.ok(sql.touching('Trade').length > 0, 'volume comes from raw fills');
-      assert.equal(
-        sql.touching('MarketDay').length,
-        0,
-        'a rolling window must not read day buckets at all',
+      const volume = sql.touching('Trade');
+      assert.ok(volume.length > 0, 'volume comes from raw fills');
+
+      const buckets = sql.touching('MarketDay');
+      assert.equal(buckets.length, 1, 'exactly one bucket read: the fees query');
+      assert.match(buckets[0]!.sql, /sum\("feesCNS"\)/, 'and it is the fees query');
+      assert.doesNotMatch(
+        buckets[0]!.sql,
+        /"volumeCNS"/,
+        'volume must never be read from a bucket for a rolling window',
       );
     });
 });
@@ -126,21 +136,56 @@ test('active traders are counted DISTINCT across both sides of a match', async (
 
 // ── fees, split honestly ────────────────────────────────────────────────────
 
-test('total fees are served for all-time and withheld for a rolling window', async () => {
+test('fees come from day buckets and carry the range they ACTUALLY cover', async () => {
   // A taker fill is an aggregate over a whole order, so taker fees have no
-  // timestamp finer than the day bucket. Maker fees are a third of the total on
-  // mainnet, so serving them as "fees" would repeat the volume bug.
-  const sql = new FakeSql().on(/from "Trade"/, [
-    { volume: '16139937620601', maker_fees: '42037159020', trades: '84837' },
+  // timestamp finer than the day bucket — and they are the larger share on
+  // mainnet. Serving maker fees under the name "fees" would repeat the volume bug,
+  // so fees come from buckets and say so.
+  const sql = new FakeSql()
+    .on(/from "Trade"/, [{ volume: '16139937620601', maker_fees: '42037159020', trades: '84837' }])
+    .on(/count\(distinct day\)/, [
+      { fees: '20000000000', days: '7', from_day: new Date('2026-09-24T00:00:00Z') },
+    ]);
+
+  const metrics = await reader(sql).protocolMetrics('7d');
+
+  assert.equal(metrics.fees.totalAusd, 20_000);
+  assert.equal(metrics.fees.days, 7);
+  assert.equal(new Date(metrics.fees.fromMs).toISOString(), '2026-09-24T00:00:00.000Z');
+  assert.equal(metrics.fees.toMs, NOW, 'through to now, including today’s partial bucket');
+  // THE LABEL IS THE POINT: a caller must not render this under "24h" or "7d".
+  assert.equal(metrics.fees.label, 'the 7 UTC days from 2026-09-24 (today so far)');
+  // And the maker half stays exact for the rolling window.
+  assert.equal(metrics.makerFeesAusd, 42_037.15902);
+});
+
+test('the fees bind is a DAY boundary while everything else is the rolling instant', async () => {
+  const sql = new FakeSql();
+  await reader(sql).protocolMetrics('24h');
+
+  const fees = sql.calls.find((call) => /count\(distinct day\)/.test(call.sql))!;
+  assert.equal(fees.values[0], '2026-09-29T00:00:00.000Z', 'aligned down to midnight');
+  // Volume is NOT aligned: that is the rolling window the bug got wrong.
+  assert.equal(sql.touching('Trade')[0]!.values[0], '2026-09-29T05:04:14.000Z');
+});
+
+test('a single indexed day is labelled as one day, not as seven', async () => {
+  const sql = new FakeSql().on(/count\(distinct day\)/, [
+    { fees: '500000000', days: '1', from_day: new Date('2026-09-30T00:00:00Z') },
   ]);
-  const analytics = reader(sql);
+  const metrics = await reader(sql).protocolMetrics('7d');
+  // The label follows the DATA, not the request: if only one day is indexed, the
+  // figure is one day's and must not claim to be a week's.
+  assert.equal(metrics.fees.label, 'the UTC day from 2026-09-30 (today so far)');
+  assert.equal(metrics.fees.days, 1);
+});
 
-  const all = await analytics.protocolMetrics('all');
-  assert.equal(all.totalFeesAusd, 128_060.257433);
-
-  const day = await analytics.protocolMetrics('24h');
-  assert.equal(day.totalFeesAusd, undefined, 'withheld rather than understated');
-  assert.equal(day.makerFeesAusd, 42_037.15902, 'and the exact half is still served');
+test('no indexed days says so rather than reporting zero fees for a week', async () => {
+  const sql = new FakeSql().on(/count\(distinct day\)/, [
+    { fees: '0', days: '0', from_day: null },
+  ]);
+  const metrics = await reader(sql).protocolMetrics('7d');
+  assert.equal(metrics.fees.label, 'no complete UTC day of fees is indexed yet');
 });
 
 // ── the rescue figures ──────────────────────────────────────────────────────

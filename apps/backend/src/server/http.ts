@@ -13,12 +13,23 @@
  * serving a frozen price.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { Analytics } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
+import { registerAnalyticsRoutes } from './analyticsRoutes.ts';
 
 export interface HealthServerOptions {
   readonly health: () => HealthReport;
   /** Fastify's own logging. Off by default: this process logs its own lines. */
   readonly logger?: boolean;
+  /**
+   * Mounts the analytics API when supplied.
+   *
+   * OPTIONAL, because the process must start without it. Analytics needs a
+   * database the risk loop does not, and a backend that refused to serve alerts
+   * because Postgres was unreachable would have the priorities exactly backwards
+   * — `/health` reports the degradation instead.
+   */
+  readonly analytics?: Analytics;
 }
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
@@ -30,13 +41,22 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
     return reply.code(report.status === 'OK' ? 200 : 503).send(report);
   });
 
+  if (options.analytics !== undefined) {
+    registerAnalyticsRoutes(app, { analytics: options.analytics });
+  }
+
   // A bare GET / is what a human types first. Point them at the real endpoint
   // rather than returning a 404 that reads like the process is broken.
   app.get('/', async (_request, reply) => {
     const report = options.health();
     return reply
       .code(report.status === 'OK' ? 200 : 503)
-      .send({ service: 'perpguard-backend', status: report.status, health: '/health' });
+      .send({
+        service: 'perpguard-backend',
+        status: report.status,
+        health: '/health',
+        ...(options.analytics === undefined ? {} : { analytics: '/api/analytics' }),
+      });
   });
 
   return app;

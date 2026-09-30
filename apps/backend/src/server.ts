@@ -36,6 +36,10 @@ import {
   ConfigError,
   PerplPositionSource,
   PerplVenue,
+  PostgresAnalytics,
+  TvlProbe,
+  fetchChainHead,
+  symbolResolver,
   loadAppConfig,
   loadNetworkConfig,
   loadPerplCredentials,
@@ -398,6 +402,7 @@ const engine = new AlertEngine({
 const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
 let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
+let analyticsReader: PostgresAnalytics | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
   // A pool, and NOT connected eagerly, for the same two reasons as the alert
   // log: a dead single client never recovers, and an indexer database that is
@@ -407,15 +412,59 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   indexerDb.on('error', (error) => {
     warn(`idle indexer Postgres connection dropped: ${error.message}. The pool will reconnect.`);
   });
-  const analytics = loadNetworkConfig(appConfig.analytics.name, process.env);
+  const analyticsNetwork = loadNetworkConfig(appConfig.analytics.name, process.env);
   indexerMonitor = new IndexerLagMonitor({
     sql: indexerDb,
-    chainId: analytics.chainId,
-    rpcUrl: analytics.rpcUrl,
+    chainId: analyticsNetwork.chainId,
+    rpcUrl: analyticsNetwork.rpcUrl,
   });
-  log(`indexer lag watched on chain ${analytics.chainId}`);
+  log(`indexer lag watched on chain ${analyticsNetwork.chainId}`);
+
+  // ── the analytics reader, on the same pool ────────────────────────────────
+  //
+  // CANONICAL TICKERS COME FROM THE VENUE CONTEXT, keyed by market id. The indexer
+  // stores what the chain said — mainnet market 31 is `SOL_v2` there — and market
+  // 80 (TAO) is indexed but absent from the context, so it resolves to no symbol
+  // rather than borrowing the chain's name.
+  //
+  // `markets` was already fetched for the risk configs, and it is the ANALYTICS
+  // network's market list when analytics and trading are the same network. When
+  // they differ the analytics venue is asked separately, because resolving mainnet
+  // market ids against testnet tickers would mislabel every row.
+  const analyticsMarkets =
+    analyticsNetwork.name === network.name
+      ? markets
+      : await new PerplVenue(analyticsNetwork, {}).getMarkets();
+
+  // TVL IS A CHAIN READ, NOT AN INDEXER READ. Accounts held collateral before the
+  // start block, so the indexed deposit/withdrawal net is a FLOW and on mainnet it
+  // is negative. `balanceOf` the Exchange proxy is the current truth whenever we
+  // started watching. MONAD_RPC_URL overrides, since that is the name people reach
+  // for; it falls back to the network's own RPC.
+  const tvlRpcUrl = process.env['MONAD_RPC_URL']?.trim() || analyticsNetwork.rpcUrl;
+  const tvlProbe = new TvlProbe({
+    rpcUrl: tvlRpcUrl,
+    tokenAddress: analyticsNetwork.collateralAddress,
+    // The PROXY. Collateral sits there; the implementation holds none.
+    exchangeAddress: analyticsNetwork.exchangeAddress,
+    collateralDecimals: analyticsNetwork.collateralDecimals,
+  });
+
+  analyticsReader = new PostgresAnalytics({
+    client: indexerDb,
+    chainId: analyticsNetwork.chainId,
+    resolveSymbol: symbolResolver(
+      analyticsMarkets.map((m) => ({ marketId: m.marketId, symbol: m.symbol })),
+    ),
+    // An INDEPENDENT chain head, so a halted indexer cannot report itself synced.
+    // The same helper the lag monitor uses, so the two cannot disagree about the
+    // head and then disagree about whether the indexer is healthy.
+    chainHead: () => fetchChainHead(analyticsNetwork.rpcUrl),
+    tvlProbe,
+  });
+  log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
 } else {
-  log('INDEXER_DATABASE_URL is not set; indexer lag is not being watched');
+  log('INDEXER_DATABASE_URL is not set; indexer lag and the analytics API are both off');
 }
 
 // ── 8. the health report, buildable before anything is ready ────────────────
@@ -436,7 +485,13 @@ const health = (): HealthReport =>
     assessing,
   });
 
-const app = createHealthApp({ health });
+const app = createHealthApp({
+  health,
+  // Mounted only when the indexer database is configured. A backend that refused
+  // to serve alerts because Postgres was unreachable would have the priorities
+  // exactly backwards; /health reports the degradation instead.
+  ...(analyticsReader === undefined ? {} : { analytics: analyticsReader }),
+});
 
 // ── 9. shutdown, registered BEFORE anything can need it ─────────────────────
 //

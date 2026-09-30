@@ -834,3 +834,101 @@ variation: BTC last 0.000030%, PUMP 0.000040%, MON mean 0.000015%.
   streak, profit factor 0.022, max drawdown 8,812.54 AUSD, average hold 2.7 s.
 - `health()` refuses to certify synced without an INDEPENDENT chain head, and got
   one: SYNCED, 68 blocks behind, `serveAsCurrent` true.
+
+## 2026-09-30 — TVL from the chain, fees from buckets, and the analytics endpoint
+
+Three decisions taken after the analytics interface landed, and the endpoint that
+serves it.
+
+### TVL is a chain read: 3,840,303.14 AUSD
+
+`balanceOf` the collateral token for the Exchange PROXY, one `eth_call`, cached
+30s.
+
+```
+TVL                3,840,303.14 AUSD
+exact micros       3840303142327
+source             chain (balanceOf on the Exchange proxy)
+via                rpc.monad.xyz
+```
+
+And the indexed flow alongside it, which is why the chain read was necessary:
+
+| figure | all time |
+| --- | --- |
+| deposits | 1,183,018.68 AUSD |
+| withdrawals | 2,436,467.43 AUSD |
+| **net flow** | **-1,253,448.75 AUSD** |
+
+The flow is exact and the level is not derivable from it: accounts held collateral
+before the start block, so withdrawals of pre-existing balances outweigh the
+deposits we can see. Both figures are served, because they answer different
+questions — what is in there now, and what moved in a window.
+
+Every failure path reports `known: false` with a reason, never zero. The one worth
+naming: an `eth_call` to a non-contract returns **`0x`**, and decoding that as a
+balance would put a confident `0.00 AUSD` on a dashboard. `decodeBalance` refuses
+an empty word and says to check the token address rather than the balance.
+
+### Fees come from day buckets, labelled by what they actually cover
+
+Not reindexed, deliberately. A taker fill is an aggregate over a whole order, so
+taker fees have no timestamp finer than the UTC day bucket — and they are the
+larger share. So fees are served from buckets and carry their own range:
+
+```
+fees for 24h  cover the 2 UTC days from 2026-09-29 (today so far)
+fees for 7d   cover the 8 UTC days from 2026-09-23 (today so far)
+fees for 30d  cover the 31 UTC days from 2026-08-31 (today so far)
+fees for all  cover the 34 UTC days from 2026-08-28 (today so far)
+```
+
+The figure is EXACT for the range it states: summing buckets from a midnight is
+precisely the fees charged since that midnight, today's partial bucket included.
+`makerFeesAusd` stays exact for the rolling window and is reported separately.
+`FeesForPeriod.label` exists so no surface can render this under the timeframe's
+name — exact and honest beats precise-looking and wrong, which is the lesson from
+the volume bug.
+
+**KNOWN IMPROVEMENT, with its cost.** A `takerFeeCNS` column on `Trade`, a handler
+change, and a reindex of 21.5M events would make fees exact for a rolling window
+like every other figure. That is comparable to the original backfill, so it runs
+overnight or not at all. Worth doing if there is slack after the frontend.
+
+### The endpoint
+
+`GET /api/analytics/*`, mounted only when `INDEXER_DATABASE_URL` is set — a backend
+that refused to serve alerts because Postgres was unreachable would have the
+priorities backwards, and `/health` reports the degradation instead.
+
+EVERY RESPONSE CARRIES THE INDEXER HEALTH AND A `stale` FLAG. A client must be able
+to render "these numbers are frozen" without a second request, because a client
+that has to ask separately will forget to. A halted indexer's figures are still
+served, flagged — the same rule as keeping the last known state visible when the
+price feed drops. The machine-readable gate stays at `/health`, which returns 503.
+
+Verified live:
+
+```
+GET /                      {"service":"perpguard-backend","status":"OK","analytics":"/api/analytics"}
+GET /api/analytics/tvl     known:true  3840303.142327  "totalValueLockedCNS":"3840303142327"
+GET /api/analytics/metrics stale:false  synced 128 behind  volume 16,451,577.22
+GET .../wallet/0x83107A…   found: account 5201, 12465 round trips, PF 2.172, maxDD 2003.38
+GET .../wallet/0x83107a…   found  (the same address lowercased)
+GET .../wallet/0x123       400
+GET .../metrics?timeframe=1h  400
+GET .../account/abc        400
+GET .../account/99999999   404
+```
+
+A bigint in a payload was a 500 before it was a bug: `JSON.stringify` throws on
+one, so a valid TVL reading crashed the route. Bigints now serialise as decimal
+STRINGS — emitting them as JSON numbers would be worse than the crash, since AUSD
+micros exceed float64's exact range. The serialiser is registered in an
+encapsulated Fastify scope so `/health` next door is untouched.
+
+`fetchChainHead` was extracted to `packages/shared` while wiring this: the lag
+monitor, the analytics reader and the indexer's `verify` script all need a REAL
+chain head, and there were two copies of the same call. One implementation means
+the three cannot disagree about the head and then disagree about whether the
+indexer is healthy.

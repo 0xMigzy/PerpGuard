@@ -118,25 +118,29 @@ export interface ProtocolMetrics {
    */
   readonly makerFeesAusd: number;
   /**
-   * ALL fees, maker and taker — exact for `all`, and UNDEFINED for a rolling
-   * window.
+   * ALL fees, maker and taker, over WHOLE UTC DAYS — and it carries its own
+   * period, because that period is not the rolling window above.
    *
-   * Not a bug and not laziness: a taker fill on this contract is an AGGREGATE
-   * OVER A WHOLE ORDER, not a per-match figure, so the indexer cannot attribute
-   * it to a single trade and there is no per-event row carrying it. Taker fees
-   * therefore have no timestamp finer than the UTC day bucket. On mainnet they
-   * are the larger share — 128,060 AUSD of total fees against 42,037 of maker
-   * fees — so serving maker fees under the name "fees" would report a third of
-   * the real figure, which is the same class of mistake as the 24h volume bug
-   * this layer was built to fix.
+   * A taker fill on this contract is an AGGREGATE OVER A WHOLE ORDER, not a
+   * per-match figure, so the indexer cannot attribute it to a single trade and no
+   * per-event row carries it. Taker fees therefore have no timestamp finer than
+   * the UTC day bucket — and they are the larger share: 128,097 AUSD of total fees
+   * against 42,038 of maker fees on mainnet. Serving maker fees under the name
+   * "fees" would report a third of the real figure, which is the same mistake as
+   * the volume bug this layer was built to fix.
    *
-   * `undefined` is the honest answer until the indexer grows a per-event
-   * taker-fee feed, which is a schema change and a reindex, and therefore a
-   * separate step. {@link DailyPoint.feesAusd} IS the total and IS exact, because
-   * there the day bucket is the unit being asked for — so a fees chart is
-   * available now even though a rolling fees headline is not.
+   * So fees come from buckets, and {@link FeesForPeriod} states the range it
+   * actually covers rather than borrowing the label of the rolling window. EXACT
+   * AND HONEST BEATS PRECISE-LOOKING AND WRONG. A caller rendering this must use
+   * `fees.label`, not the timeframe.
+   *
+   * KNOWN IMPROVEMENT, deliberately not taken yet: a per-event taker-fee feed
+   * would make fees exact for a rolling window like everything else. It needs a
+   * `takerFeeCNS` column on `Trade`, a handler change, and a reindex of 21.5M
+   * events — comparable to the original backfill, so it runs overnight or not at
+   * all. Recorded in docs/evidence.md.
    */
-  readonly totalFeesAusd: number | undefined;
+  readonly fees: FeesForPeriod;
   /**
    * DISTINCT accounts that traded in the window.
    *
@@ -194,6 +198,46 @@ export interface RescueStats {
   /** DIAGNOSTIC. See the note above. Never render this as a rate. */
   readonly withAnySpareBalanceCount: number;
 }
+
+/**
+ * Total fees over a range of whole UTC days.
+ *
+ * SEPARATE FROM THE TIMEFRAME ON PURPOSE. A `24h` request gets fees for the UTC
+ * day so far, not for the last 24 hours, and this type exists so a caller cannot
+ * render the former under the latter's label. The figure is EXACT for the range it
+ * states: the sum of day buckets from `fromMs` is precisely the fees charged since
+ * that midnight, today's partial bucket included.
+ */
+export interface FeesForPeriod {
+  /** Maker and taker. Exact for `[fromMs, toMs]`. */
+  readonly totalAusd: number;
+  /** UTC midnight of the first day included. */
+  readonly fromMs: number;
+  /** Now — the end of the partial current bucket. */
+  readonly toMs: number;
+  /** How many day buckets were summed, the partial current one included. */
+  readonly days: number;
+  /**
+   * A phrase a UI can render verbatim, e.g. "the 7 UTC days from 2026-09-24
+   * (today so far)". Use this rather than the timeframe label.
+   */
+  readonly label: string;
+}
+
+/**
+ * Total value locked, read from the CHAIN.
+ *
+ * NOT DERIVED FROM INDEXED FLOW, and that is the whole point. Accounts held
+ * collateral before the indexer's start block, so summing the deposits and
+ * withdrawals we can see gives a flow whose net is negative on mainnet. The
+ * collateral token's `balanceOf` the Exchange proxy is the current truth
+ * regardless of when we started watching.
+ *
+ * {@link CollateralFlowStats} stays alongside it and answers a different question:
+ * this is what is in there now, that is what moved in a window. Both are worth
+ * showing.
+ */
+export type { TvlReading } from './tvl.ts';
 
 /**
  * Deposits and withdrawals over a window.
@@ -428,6 +472,16 @@ export interface Analytics {
 
   /** Headline figures over one window. */
   protocolMetrics(timeframe: Timeframe): Promise<ProtocolMetrics>;
+
+  /**
+   * Total value locked, now, from the chain.
+   *
+   * NOT WINDOWED, which is why it is its own method rather than a field on
+   * {@link ProtocolMetrics}: a level does not belong inside an object keyed by a
+   * timeframe, and putting it there would invite a caller to read "TVL over 24h".
+   * Cached briefly — see `TvlProbe`.
+   */
+  tvl(): Promise<import('./tvl.ts').TvlReading>;
 
   /** Daily series, most recent last, for charting. */
   dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]>;

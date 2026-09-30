@@ -33,6 +33,41 @@
  * gates `serveAsCurrent`.
  */
 
+/**
+ * REAL chain head, from a source that is not the indexer. Undefined on failure.
+ *
+ * Its own function because three callers need it and the answer must be the same
+ * in all three: the lag monitor, the analytics reader, and the indexer's own
+ * `verify` script. Two of them previously had their own copy.
+ *
+ * NEVER THROWS, and undefined is meaningful. Without an independent head
+ * {@link classifyIndexerHealth} downgrades its verdict to `unknown` rather than
+ * calling the indexer synced — `chain_metadata.block_height` is the indexer's own
+ * reading, written by the same process, so when that process dies both columns
+ * freeze together and the table reports zero blocks behind. An RPC we could not
+ * reach must therefore reduce confidence, not silently leave it at maximum.
+ */
+export async function fetchChainHead(
+  rpcUrl: string,
+  options: { readonly fetchImpl?: typeof fetch; readonly timeoutMs?: number } = {},
+): Promise<number | undefined> {
+  const send = options.fetchImpl ?? fetch;
+  try {
+    const response = await send(rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+    });
+    const json = (await response.json()) as { result?: string };
+    if (typeof json.result !== 'string') return undefined;
+    const head = Number.parseInt(json.result, 16);
+    return Number.isSafeInteger(head) ? head : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** How a reader should treat the indexer's numbers right now. */
 export type IndexerState =
   /** Caught up to real head. Numbers may be presented as current. */

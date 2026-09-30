@@ -46,6 +46,20 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   direction, and the only one available once the figure is rounded at all.
 - NEVER hard-code market IDs, tick sizes or scaling. They differ between
   testnet and mainnet. Load them from `GET /v1/pub/context` at startup.
+- ADDRESSES ARE COMPARED CASE-INSENSITIVELY, EVERYWHERE, ALWAYS. Lowercase both
+  sides of every comparison: `lower(owner) = $1` in SQL, `a.toLowerCase() ===
+  b.toLowerCase()` in TypeScript. Never store a checksummed address and compare
+  it to a lowercased one.
+  - WHY THIS IS A RULE AND NOT A PREFERENCE: it fails SILENTLY. `Trader.owner`
+    holds the address exactly as the event gave it, which on mainnet is
+    mixed-case EIP-55 — `0xB7854953A71e45D1033B3d619E76d56391291765`. A lookup
+    that lowercased its input and compared exactly matched NOTHING, and the
+    result was indistinguishable from the correct answer, because "no account is
+    linked to this address" is the ORDINARY reply: 1366 of 1556 mainnet accounts
+    have no owner recorded. Found only because a live script printed no profile
+    for an address it had itself just selected as linked.
+  - It will recur the moment someone pastes a checksummed address into a wallet
+    search, which is how every block explorer hands an address to a user.
 - MARKET IDENTITY IS THE MARKET ID, NEVER THE NAME. The market id is the only
   key shared by the contract, the indexer and the API; names disagree across
   them. Mainnet market 31 is `SOL` in the context's `size_units` and `SOL_v2`
