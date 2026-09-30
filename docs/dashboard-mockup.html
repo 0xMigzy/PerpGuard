@@ -1,0 +1,564 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>PerpGuard Dashboard v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#07080D; --card:#0F1118; --card-2:#141724; --border:#1C1F2A; --border-2:#262A38;
+    --text:#ECEAFB; --muted:#8A8FA3; --muted-2:#5E6375;
+    --accent:#8B5CF6; --accent-hi:#A48BFF; --accent-deep:#6D3FF0; --cyan:#22D3EE;
+    --safe:#3DD9A0; --watch:#F5B93C; --danger:#FF6B80;
+    --safe-soft:rgba(61,217,160,.12); --watch-soft:rgba(245,185,60,.12); --danger-soft:rgba(255,107,128,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13.5px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .num,.tile-v,td.n,.mono{font-variant-numeric:tabular-nums}
+  a{color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding-inline:20px}
+
+  /* header */
+  header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:rgba(7,8,13,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+  .hdr{display:flex;align-items:center;gap:16px;padding-block:10px}
+  .brand{display:flex;align-items:center;gap:10px;flex:none}
+  .brand svg{width:30px;height:30px;display:block}
+  .brand b{font-weight:700;font-size:16px;letter-spacing:-.02em}
+  .brand b span{color:var(--accent-hi)}
+  .search{flex:1;max-width:520px;margin:0 auto;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border-2);border-radius:10px;padding:8px 12px;color:var(--muted)}
+  .search input{flex:1;background:none;border:0;color:var(--text);font:inherit;outline:none;min-width:0}
+  .status{flex:none;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border-2);border-radius:10px;padding:7px 10px;font-size:12px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--safe);box-shadow:0 0 0 3px rgba(61,217,160,.18)}
+  .tabs{display:flex;gap:4px;padding-block:8px 10px;overflow-x:auto}
+  .tab{appearance:none;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:13.5px;padding:7px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
+  .tab:hover{color:var(--text)}
+  .tab[aria-selected="true"]{background:var(--card-2);color:var(--text)}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* page */
+  main{padding-block:26px 60px}
+  .ph{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:28px;font-weight:700;letter-spacing:-.03em;margin:0 0 4px;text-wrap:balance}
+  h1 .thin{color:var(--muted);font-weight:500}
+  .sub{margin:0;color:var(--muted);max-width:70ch}
+  .pills{display:inline-flex;gap:2px;background:var(--card);border:1px solid var(--border-2);border-radius:10px;padding:3px}
+  .pill{border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .pill[aria-pressed="true"]{background:var(--card-2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border-2)}
+  .btn{appearance:none;border:1px solid var(--border-2);background:var(--card);color:var(--text);font:inherit;font-weight:600;font-size:12.5px;padding:8px 13px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .btn:hover{background:var(--card-2)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-hi);border-color:var(--accent-hi)}
+  .btn.danger{color:var(--danger);border-color:rgba(255,107,128,.4)}
+  .btn.danger:hover{background:var(--danger-soft)}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:1.2fr 1fr;border:1px solid var(--border);border-radius:14px;background:linear-gradient(180deg,var(--card-2),var(--card));overflow:hidden;margin-bottom:16px}
+  .hero > div{padding:20px 22px}
+  .hero > div + div{border-left:1px solid var(--border)}
+  .eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .hero-n{font-size:46px;font-weight:700;letter-spacing:-.04em;line-height:1.05;margin:6px 0 6px}
+  .hero-n small{font-size:20px;color:var(--muted);font-weight:600;letter-spacing:-.01em;margin-left:6px}
+  .hero p{margin:0;color:var(--muted);max-width:52ch}
+  .hero p b{color:var(--text);font-weight:600}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px;color:var(--muted);margin-top:10px}
+  .kv b{color:var(--text);font-weight:600}
+
+  /* tiles */
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px 10px;position:relative;overflow:hidden}
+  .tile-l{font-size:12.5px;color:var(--muted);font-weight:500}
+  .tile-v{font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1.1;margin:8px 0 6px}
+  .delta{font-size:12px;font-weight:600}
+  .delta.up{color:var(--safe)} .delta.down{color:var(--danger)} .delta.flat{color:var(--muted)}
+  .delta span{color:var(--muted);font-weight:500;margin-left:4px}
+  .tile-s{font-size:12px;color:var(--muted);margin-top:2px}
+  .spark{display:block;width:100%;height:44px;margin-top:8px}
+  .tile.warnlabel .tile-s{color:var(--watch)}
+
+  /* cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .card-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .card-h h2{font-size:15px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .card-h .sub{font-size:12.5px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .chart{width:100%;height:auto;display:block;margin-top:8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+  /* tables */
+  .twrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--card);margin-bottom:16px}
+  table{border-collapse:collapse;width:100%;min-width:760px}
+  th,td{padding:11px 14px;text-align:right;font-size:13px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:11.5px;color:var(--muted);font-weight:600;background:var(--card);position:sticky;top:0}
+  tbody tr:hover{background:var(--card-2)}
+  tbody tr:last-child td{border-bottom:0}
+  .sym{display:inline-flex;align-items:center;gap:9px;font-weight:600}
+  .ico{width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:#fff}
+  .up{color:var(--safe)} .down{color:var(--danger)}
+  .skew{display:inline-flex;width:64px;height:6px;border-radius:3px;overflow:hidden;background:var(--danger);vertical-align:middle;margin-right:6px}
+  .skew i{display:block;height:100%;background:var(--safe)}
+  .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px}
+  .b-yes{background:var(--watch-soft);color:var(--watch)} .b-no{background:var(--card-2);color:var(--muted)}
+  .b-danger{background:var(--danger-soft);color:var(--danger)} .b-watch{background:var(--watch-soft);color:var(--watch)} .b-safe{background:var(--safe-soft);color:var(--safe)}
+  .b-long{background:var(--safe-soft);color:var(--safe)} .b-short{background:var(--danger-soft);color:var(--danger)}
+  .score{display:inline-flex;align-items:center;gap:7px}
+  .score i{display:inline-block;width:38px;height:5px;border-radius:3px;background:var(--border-2);overflow:hidden}
+  .score i b{display:block;height:100%}
+
+  /* wallet */
+  .addr{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--card);border:1px solid var(--border-2);border-radius:9px;padding:7px 11px;display:inline-flex;gap:10px;align-items:center}
+  .perf{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
+  .perf div{background:var(--card);padding:12px 14px}
+  .perf .l{font-size:11.5px;color:var(--muted)} .perf .v{font-size:16px;font-weight:700;margin-top:3px;letter-spacing:-.02em}
+  .watchlist{display:flex;gap:10px;flex-wrap:wrap}
+  .wchip{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12.5px}
+  .wchip .a{font-family:ui-monospace,Menlo,monospace}
+  .slot{border:1px dashed var(--border-2);border-radius:12px;padding:16px 18px;color:var(--muted);font-size:12.5px;margin-bottom:16px}
+
+  /* my risk */
+  .alert{display:flex;gap:14px;padding:14px 16px;border-radius:12px;background:var(--watch-soft);border:1px solid rgba(245,185,60,.35);border-left:3px solid var(--watch);margin-bottom:16px}
+  .alert b{display:block;font-size:14px;margin-bottom:2px}
+  .alert p{margin:0;color:var(--muted);font-size:13px;max-width:70ch}
+  .alert p .mono{color:var(--text)}
+  .pos{border-left:3px solid var(--border-2);padding:0;overflow:hidden}
+  .pos.watch{border-left-color:var(--watch)} .pos.safe{border-left-color:var(--safe)}
+  .pos-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .pos-h .sy{font-weight:700;font-size:15px}
+  .pos-h .sz{color:var(--muted);font-size:12.5px}
+  .pos-h .st{margin-left:auto}
+  .pos-b{padding:14px 16px}
+  .meter{position:relative;height:28px;margin:6px 0 4px}
+  .track{position:absolute;inset:10px 0 auto 0;height:8px;border-radius:4px;overflow:hidden;display:flex;gap:2px}
+  .z{height:100%} .zd{background:rgba(255,107,128,.55);width:15%} .zw{background:rgba(245,185,60,.5);width:25%} .zs{background:rgba(61,217,160,.4);width:60%}
+  .mk{position:absolute;top:3px;width:3px;height:22px;border-radius:2px;background:#fff;box-shadow:0 0 0 2px var(--card);transform:translateX(-50%)}
+  .scale{position:relative;height:14px;font-size:11px;color:var(--muted)}
+  .scale span{position:absolute;top:0} .s0{left:0} .s1{left:15%;transform:translateX(-50%)} .s2{left:40%;transform:translateX(-50%)} .s3{right:0}
+  .facts{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-top:12px}
+  .facts div{background:var(--card);padding:9px 12px} .facts .l{font-size:11px;color:var(--muted)} .facts .v{font-size:13.5px;font-weight:600;margin-top:2px}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .confirm{margin-top:12px;background:var(--card-2);border:1px solid var(--border-2);border-radius:10px;padding:14px 16px}
+  .confirm h4{margin:0 0 8px;font-size:13.5px}
+  .steps{display:grid;gap:8px;margin:10px 0}
+  .step{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+  .step i{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--border-2);display:inline-block;flex:none}
+  .step.done{color:var(--text)} .step.done i{background:var(--safe);border-color:var(--safe)}
+  .step.act{color:var(--text)} .step.act i{border-color:var(--accent);border-style:dashed}
+  .stress{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .thr{width:100%;min-width:0}
+  .thr td.n.bad{color:var(--danger);font-weight:600}
+  footer{border-top:1px solid var(--border);color:var(--muted);font-size:12px;padding-block:18px 8px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .note{font-size:11.5px;color:var(--muted-2);margin-top:8px}
+
+  @media (max-width:900px){
+    .tiles{grid-template-columns:repeat(2,1fr)} .hero{grid-template-columns:1fr} .hero>div+div{border-left:0;border-top:1px solid var(--border)}
+    .perf{grid-template-columns:repeat(3,1fr)} .facts{grid-template-columns:repeat(3,1fr)} .grid2{grid-template-columns:1fr} .stress{grid-template-columns:1fr}
+    .search{max-width:none}
+  }
+  @media (max-width:560px){
+    .tiles{grid-template-columns:1fr} .perf{grid-template-columns:repeat(2,1fr)} .facts{grid-template-columns:repeat(2,1fr)}
+    .hero-n{font-size:38px} h1{font-size:24px}
+    .search input{display:none} .search{flex:none;padding:8px 10px}
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="pg-mark" viewBox="0 0 256 256">
+
+  <defs>
+    <linearGradient id="shieldFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#7C3AED" stop-opacity="0.85"/>
+      <stop offset="55%" stop-color="#5B3FD6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="shieldEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#F3EEFF"/>
+      <stop offset="45%" stop-color="#C4B2FF"/>
+      <stop offset="100%" stop-color="#5EEAD4"/>
+    </linearGradient>
+    <linearGradient id="barFill" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%"  stop-color="#7C3AED"/>
+      <stop offset="70%" stop-color="#C4B2FF"/>
+      <stop offset="100%" stop-color="#E9FEFF"/>
+    </linearGradient>
+    <radialGradient id="disc" cx="50%" cy="42%" r="60%">
+      <stop offset="0%"  stop-color="#171A2C"/>
+      <stop offset="100%" stop-color="#0A0C15"/>
+    </radialGradient>
+    <radialGradient id="outerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="70%" stop-color="#8B5CF6" stop-opacity="0.0"/>
+      <stop offset="84%" stop-color="#8B5CF6" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.0"/>
+    </radialGradient>
+    <filter id="neon" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.2" result="b1"/>
+      <feGaussianBlur stdDeviation="6" result="b2"/>
+      <feMerge><feMergeNode in="b2"/><feMergeNode in="b1"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="barGlow" x="-80%" y="-40%" width="260%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1"/>
+    </filter>
+  </defs>
+
+  <circle cx="128" cy="128" r="128" fill="url(#outerGlow)"/>
+  <circle cx="128" cy="128" r="100" fill="url(#disc)"/>
+
+  <circle cx="128" cy="128" r="104" fill="none" stroke="#A855F7" stroke-width="2.2" filter="url(#neon)"/>
+  <circle cx="128" cy="128" r="115" fill="none" stroke="#8B5CF6" stroke-width="0.8" opacity="0.35"/>
+  <line x1="236.00" y1="128.00" x2="241.00" y2="128.00" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="232.32" y1="155.95" x2="235.22" y2="156.73" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="221.53" y1="182.00" x2="224.13" y2="183.50" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="204.37" y1="204.37" x2="206.49" y2="206.49" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="182.00" y1="221.53" x2="183.50" y2="224.13" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="155.95" y1="232.32" x2="156.73" y2="235.22" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="128.00" y1="236.00" x2="128.00" y2="241.00" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="100.05" y1="232.32" x2="99.27" y2="235.22" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="74.00" y1="221.53" x2="72.50" y2="224.13" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="51.63" y1="204.37" x2="49.51" y2="206.49" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="34.47" y1="182.00" x2="31.87" y2="183.50" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="23.68" y1="155.95" x2="20.78" y2="156.73" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="20.00" y1="128.00" x2="15.00" y2="128.00" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="23.68" y1="100.05" x2="20.78" y2="99.27" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="34.47" y1="74.00" x2="31.87" y2="72.50" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="51.63" y1="51.63" x2="49.51" y2="49.51" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="74.00" y1="34.47" x2="72.50" y2="31.87" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="100.05" y1="23.68" x2="99.27" y2="20.78" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="128.00" y1="20.00" x2="128.00" y2="15.00" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="155.95" y1="23.68" x2="156.73" y2="20.78" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="182.00" y1="34.47" x2="183.50" y2="31.87" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="204.37" y1="51.63" x2="206.49" y2="49.51" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="221.53" y1="74.00" x2="224.13" y2="72.50" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+<line x1="232.32" y1="100.05" x2="235.22" y2="99.27" stroke="#B085FF" stroke-width="1.1" stroke-linecap="round" opacity="0.7"/>
+  
+  <g transform="translate(128 130) scale(0.47) translate(-100 -112)">
+    <path d="M100 6 187 38 V128 C187 180 150 205 100 218 C50 205 13 180 13 128 V38 Z" fill="url(#shieldFill)"/>
+    <path d="M100 22 L168 47 V110 C150 92 120 78 100 76 C80 78 50 92 32 110 V47 Z" fill="#FFFFFF" opacity="0.10"/>
+    <path d="M100 6 187 38 V128 C187 180 150 205 100 218 C50 205 13 180 13 128 V38 Z" fill="none" stroke="url(#shieldEdge)" stroke-width="3.2" stroke-linejoin="round"/>
+    <path d="M100 6 187 38 V128 C187 180 150 205 100 218 C50 205 13 180 13 128 V38 Z" fill="none" stroke="#22D3EE" stroke-width="1" stroke-linejoin="round" opacity="0.35" transform="translate(0 2)"/>
+    <g filter="url(#barGlow)">
+      <rect x="70"  y="128" width="18" height="40" rx="3" fill="url(#barFill)"/>
+      <rect x="91"  y="106" width="18" height="62" rx="3" fill="url(#barFill)"/>
+      <rect x="112" y="84"  width="18" height="84" rx="3" fill="url(#barFill)"/>
+    </g>
+    <rect x="70"  y="128" width="18" height="3" rx="1.5" fill="#E9FEFF"/>
+    <rect x="91"  y="106" width="18" height="3" rx="1.5" fill="#E9FEFF"/>
+    <rect x="112" y="84"  width="18" height="3" rx="1.5" fill="#E9FEFF"/>
+  </g>
+
+</symbol></svg>
+
+<header>
+  <div class="wrap">
+    <div class="hdr">
+      <div class="brand"><svg><use href="#pg-mark"/></svg><b>Perp<span>Guard</span></b></div>
+      <label class="search" for="q">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" placeholder="Search address or account ID" spellcheck="false" autocomplete="off">
+      </label>
+      <div class="status" title="Feed live · Positions live · Indexer 128 blocks behind"><span class="dot"></span>Live · 128 blocks</div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" aria-selected="true"  data-p="overview" id="t-overview">Overview</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="markets" id="t-markets">Markets</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="liq" id="t-liq">Liquidations</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="wallets" id="t-wallets">Wallets</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="risk" id="t-risk">My Risk</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ================= OVERVIEW ================= -->
+<section id="p-overview" role="tabpanel" aria-labelledby="t-overview">
+  <div class="ph">
+    <div><h1>Perpl <span class="thin">on Monad</span></h1><p class="sub">Live analytics for Perpl: markets, traders, liquidation risk — and the button that saves the position.</p></div>
+    <div class="row">
+      <a class="btn primary" href="https://app.perpl.xyz" target="_blank" rel="noopener">Trade on Perpl ↗</a>
+      <div class="pills" role="group" aria-label="Timeframe"><button class="pill" aria-pressed="true">24H</button><button class="pill" aria-pressed="false">7D</button><button class="pill" aria-pressed="false">30D</button><button class="pill" aria-pressed="false">All</button></div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Rescuable liquidations · 30 days</div>
+      <div class="hero-n num">485 <small>of 647 · 75.0%</small></div>
+      <p>Three in four liquidations on Perpl hit accounts holding enough free AUSD to survive the move. <b>Isolated margin never reached for it.</b></p>
+    </div>
+    <div>
+      <div class="eyebrow">Spare balance at the moment of liquidation</div>
+      <div class="hero-n num">1.13M <small>AUSD</small></div>
+      <div class="kv"><span>Median spare</span><b class="num">2,318 AUSD</b><span>Worst market</span><b>PUMP · 88% rescuable</b><span>Excluded</span><b>33 unjudgeable</b></div>
+    </div>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h"><h2>Trading volume</h2><span class="sub">Maker-fill notional by market · line: 7-day average</span></div>
+      <div class="legend" id="volLegend"></div>
+      <svg class="chart" id="volChart" viewBox="0 0 560 220" role="img" aria-label="Daily trading volume by market with a running total line"></svg>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>Net capital flow</h2><span class="sub">Deposits − withdrawals, per day</span></div>
+      <div class="legend"><span><i style="background:var(--safe)"></i>Net inflow</span><span><i style="background:var(--danger)"></i>Net outflow</span></div>
+      <svg class="chart" id="flowChart" viewBox="0 0 560 220" role="img" aria-label="Net capital flow per day"></svg>
+      <div class="note">TVL is read from the Exchange contract; flows are indexed. The two answer different questions and both are shown.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MARKETS ================= -->
+<section id="p-markets" role="tabpanel" aria-labelledby="t-markets" hidden>
+  <div class="ph">
+    <div><h1>Markets</h1><p class="sub">Every live Perpl market: mark, open interest, funding, liquidations, and a risk score you can decompose.</p></div>
+    <div class="pills"><button class="pill" aria-pressed="true">24H</button><button class="pill" aria-pressed="false">7D</button><button class="pill" aria-pressed="false">30D</button><button class="pill" aria-pressed="false">All</button></div>
+  </div>
+  <div class="twrap"><table>
+    <thead><tr><th>Market</th><th>Mark</th><th>Change</th><th>Low – High</th><th>Volume ↓</th><th>Trades</th><th>Open interest</th><th>Long / short</th><th>Funding (8h)</th><th>Liqs</th><th>Risk</th></tr></thead>
+    <tbody id="mkRows"></tbody>
+  </table></div>
+  <div class="note">Symbols resolve from the venue context by market id. Markets listed on-chain but not in the context (e.g. 80) are excluded. Funding shown to 6dp because real values are that small.</div>
+</section>
+
+<!-- ================= LIQUIDATIONS ================= -->
+<section id="p-liq" role="tabpanel" aria-labelledby="t-liq" hidden>
+  <div class="ph">
+    <div><h1>Liquidations</h1><p class="sub">Forced closes from exchange events — and how many of them the trader had the balance to prevent.</p></div>
+    <div class="pills"><button class="pill" aria-pressed="false">24H</button><button class="pill" aria-pressed="false">7D</button><button class="pill" aria-pressed="true">30D</button><button class="pill" aria-pressed="false">All</button></div>
+  </div>
+  <div class="tiles">
+    <div class="tile"><div class="tile-l">Liquidated · 30d</div><div class="tile-v num">1.50M</div><div class="delta down">▼ 48.7% <span>vs prev</span></div><div class="tile-s">647 liquidations · 614 judgeable</div></div>
+    <div class="tile"><div class="tile-l">Rescuable · 30d</div><div class="tile-v num" style="color:var(--watch)">485 <span style="font-size:16px;color:var(--muted)">· 75.0%</span></div><div class="delta flat">of 647 judgeable</div><div class="tile-s">Free balance ≥ margin to survive</div></div>
+    <div class="tile"><div class="tile-l">Spare balance at liquidation</div><div class="tile-v num">1.13M</div><div class="delta flat">AUSD, across rescuable cases</div><div class="tile-s">Median 2,318 · mean 2,323</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Liquidations per day</h2><span class="sub">Split by whether the account could have survived</span></div>
+    <div class="legend"><span><i style="background:var(--watch)"></i>Rescuable</span><span><i style="background:#3A3F52"></i>Unavoidable</span></div>
+    <svg class="chart" id="liqChart" viewBox="0 0 1140 230" role="img" aria-label="Liquidations per day, rescuable versus unavoidable"></svg>
+  </div>
+  <div class="twrap"><table>
+    <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Notional</th><th>Margin lost</th><th>Free balance at the time</th><th>Needed to survive</th><th>Rescuable</th></tr></thead>
+    <tbody>
+      <tr><td>14 Sep · 03:12</td><td>PUMP</td><td><span class="badge b-long">LONG</span></td><td class="n">2,754.00</td><td class="n">183.60</td><td class="n">176.00</td><td class="n">88.40</td><td><span class="badge b-yes">yes</span></td></tr>
+      <tr><td>14 Sep · 01:47</td><td>BTC</td><td><span class="badge b-short">SHORT</span></td><td class="n">41,220.00</td><td class="n">2,748.00</td><td class="n">6,410.22</td><td class="n">1,102.30</td><td><span class="badge b-yes">yes</span></td></tr>
+      <tr><td>13 Sep · 22:05</td><td>MON</td><td><span class="badge b-long">LONG</span></td><td class="n">9,870.00</td><td class="n">987.00</td><td class="n">12.40</td><td class="n">610.00</td><td><span class="badge b-no">no</span></td></tr>
+      <tr><td>13 Sep · 19:31</td><td>SOL</td><td><span class="badge b-long">LONG</span></td><td class="n">5,102.50</td><td class="n">510.25</td><td class="n">1,020.00</td><td class="n">204.10</td><td><span class="badge b-yes">yes</span></td></tr>
+      <tr><td>13 Sep · 16:58</td><td>HYPE</td><td><span class="badge b-short">SHORT</span></td><td class="n">3,340.00</td><td class="n">334.00</td><td class="n">0.00</td><td class="n">120.00</td><td><span class="badge b-no">no</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">Rate excludes 33 cases where the pre-liquidation balance couldn't be established. They are neither counted as rescuable nor as unavoidable.</div>
+</section>
+
+<!-- ================= WALLETS ================= -->
+<section id="p-wallets" role="tabpanel" aria-labelledby="t-wallets" hidden>
+  <div class="ph">
+    <div><h1>Wallet <span class="thin">0x8310…f3aC</span></h1><p class="sub">Account 5201 · first seen 4 Aug · <span class="mono">12,465</span> round trips</p></div>
+    <div class="row"><span class="addr">0x83107A83…f3aC <button class="btn" style="padding:3px 8px;font-size:11px">Copy</button></span><button class="btn">★ Watch</button><button class="btn">Compare</button><button class="btn">CSV</button></div>
+  </div>
+  <div class="tiles">
+    <div class="tile"><div class="tile-l">Volume · 30d</div><div class="tile-v num">18.4M</div><div class="delta up">▲ 12.1% <span>vs prev</span></div><div class="tile-s">AUSD notional, maker side</div></div>
+    <div class="tile"><div class="tile-l">Realised PnL · 30d</div><div class="tile-v num up">+41,208.55</div><div class="delta flat">after fees</div><div class="tile-s">Win rate 58.3% per round trip</div></div>
+    <div class="tile"><div class="tile-l">Liquidations · all time</div><div class="tile-v num">7</div><div class="delta flat"><span style="color:var(--watch)">4 rescuable</span></div><div class="tile-s">Spare balance was there 4 of 7 times</div></div>
+  </div>
+  <div class="perf">
+    <div><div class="l">Profit factor</div><div class="v num">2.172</div></div>
+    <div><div class="l">Max drawdown</div><div class="v num down">−2,003.38</div></div>
+    <div><div class="l">Best streak</div><div class="v num">14 wins</div></div>
+    <div><div class="l">Worst streak</div><div class="v num">6 losses</div></div>
+    <div><div class="l">Avg hold</div><div class="v num">3h 12m</div></div>
+    <div><div class="l">Best / worst</div><div class="v">MON / TAO</div></div>
+  </div>
+  <div class="twrap"><table>
+    <thead><tr><th>Open positions</th><th>Side</th><th>Size</th><th>Entry</th><th>Lev</th><th>Mark</th><th>uPnL</th><th>Liquidation</th><th>Buffer</th></tr></thead>
+    <tbody>
+      <tr><td class="sym"><span class="ico" style="background:#F7931A">₿</span>BTC</td><td><span class="badge b-long">LONG</span></td><td class="n">0.50</td><td class="n">84,029.5</td><td class="n">15×</td><td class="n">84,007.3</td><td class="n down">−11.10</td><td class="n">81,770.1</td><td class="n" style="color:var(--watch)">2.66%</td></tr>
+      <tr><td class="sym"><span class="ico" style="background:#627EEA">Ξ</span>ETH</td><td><span class="badge b-short">SHORT</span></td><td class="n">8.00</td><td class="n">3,180.40</td><td class="n">8×</td><td class="n">3,142.85</td><td class="n up">+300.40</td><td class="n">3,394.28</td><td class="n up">8.00%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="card-h"><h2 style="font-size:15px">Watched wallets</h2></div>
+  <div class="watchlist" style="margin-bottom:16px">
+    <div class="wchip"><span class="a">0x8310…f3aC</span><span class="badge b-safe">2 open</span><span class="num up">+41.2K</span></div>
+    <div class="wchip"><span class="a">0x6f3c…1a92</span><span class="badge b-watch">1 in WATCH</span><span class="num down">−2.7K</span></div>
+    <div class="wchip"><span class="a">0xcfe9…b477</span><span class="badge b-danger">1 in DANGER</span><span class="num up">+9.8K</span></div>
+  </div>
+  <div class="slot">Behavioural insights — reserved. "This wallet over-leverages after losses" lands here once the analytics layer feeds it; nothing invented until then.</div>
+</section>
+
+<!-- ================= MY RISK ================= -->
+<section id="p-risk" role="tabpanel" aria-labelledby="t-risk" hidden>
+  <div class="ph">
+    <div><h1>My Risk</h1><p class="sub">Account 710 on Perpl testnet · isolated margin: each position stands alone.</p></div>
+    <div class="status"><span class="dot"></span>Positions live · price 168 ms</div>
+  </div>
+
+  <div class="alert">
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" style="flex:none;margin-top:2px"><path d="M9 1.8 17 15.8H1L9 1.8Z" fill="none" stroke="var(--watch)" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 6.6v4.1" stroke="var(--watch)" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="13.3" r="1" fill="var(--watch)"/></svg>
+    <div>
+      <b>DANGER · BTC long — buffer 2.7%</b>
+      <p>Liquidation <span class="mono">81,770.1</span>, mark <span class="mono">84,007.3</span>. Isolated margin: your free AUSD is not used to rescue this position automatically.</p>
+      <div class="acts"><button class="btn primary" id="btnClear">Add 562 → buffer 4.0%, liq 80,647.1</button><button class="btn" id="btnSafe">Add 2,662 → buffer 9.0%, liq 76,446.7</button><button class="btn">Custom amount</button></div>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="tile-l">Free balance</div><div class="tile-v num">≥ 4,120.00</div><div class="delta flat">a floor, not your balance</div><div class="tile-s">Never used to rescue a position automatically</div></div>
+    <div class="tile"><div class="tile-l">Margin at risk</div><div class="tile-v num">11,017.13</div><div class="delta flat">posted across 3 positions</div><div class="tile-s">Notional 91,524.45</div></div>
+    <div class="tile"><div class="tile-l">Closest to liquidation</div><div class="tile-v num" style="color:var(--watch)">2.66%</div><div class="delta flat">BTC long · 1 of 3 flagged</div><div class="tile-s">≈ 45 min at the last hour's pace</div></div>
+  </div>
+
+  <div class="card pos watch">
+    <div class="pos-h"><span class="sy">BTC</span><span class="badge b-long">LONG</span><span class="sz num">0.5 @ 84,029.5 · 15×</span><span class="badge b-danger st">DANGER</span></div>
+    <div class="pos-b">
+      <div class="row" style="justify-content:space-between"><span class="eyebrow">Liquidation runway</span><b class="num" style="color:var(--watch)">2.66% · 2,237.2 away</b></div>
+      <div class="meter"><div class="track"><div class="z zd"></div><div class="z zw"></div><div class="z zs"></div></div><div class="mk" style="left:13.3%"></div></div>
+      <div class="scale"><span class="s0">Liq 81,770.1</span><span class="s1">3%</span><span class="s2">8%</span><span class="s3">20%+</span></div>
+      <div class="facts">
+        <div><div class="l">Mark</div><div class="v num">84,007.3</div></div><div><div class="l">Notional</div><div class="v num">42,003.65</div></div><div><div class="l">Margin</div><div class="v num">2,810.33</div></div><div><div class="l">Maint. margin</div><div class="v num">1,680.59</div></div><div><div class="l">uPnL</div><div class="v num down">−11.10</div></div>
+      </div>
+      <div class="acts"><button class="btn primary">Add margin</button><button class="btn">Reduce</button><button class="btn">Close</button><button class="btn danger" style="margin-left:auto">Kill switch</button></div>
+      <div class="confirm" id="confirm" hidden>
+        <h4>Confirm — add margin to BTC long</h4>
+        <div class="num">Add 562 → buffer 4.0%, liquidation 80,647.1</div>
+        <div class="note" style="color:var(--muted)">Exact amount sent: 562.000000 AUSD. Clears the danger band; not described as safe. Isolated margin: this collateral goes to this position only.</div>
+        <div class="steps"><div class="step" id="s1"><i></i>Signed locally with your API key</div><div class="step" id="s2"><i></i>Accepted by forwarder · mt 3 (not settlement)</div><div class="step" id="s3"><i></i>Reconciled against the position · margin delta matches</div></div>
+        <div class="row"><button class="btn primary" id="btnGo">Send</button><button class="btn">Cancel</button><span class="note" id="outcome" style="margin-top:0">Nothing has been sent yet.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card pos safe">
+    <div class="pos-h"><span class="sy">ETH</span><span class="badge b-short">SHORT</span><span class="sz num">8.0 @ 3,180.40 · 8×</span><span class="badge b-safe st">SAFE</span></div>
+    <div class="pos-b">
+      <div class="row" style="justify-content:space-between"><span class="eyebrow">Liquidation runway</span><b class="num up">8.00% · 251.43 away</b></div>
+      <div class="meter"><div class="track"><div class="z zd"></div><div class="z zw"></div><div class="z zs"></div></div><div class="mk" style="left:40%"></div></div>
+      <div class="scale"><span class="s0">Liq 3,394.28</span><span class="s1">3%</span><span class="s2">8%</span><span class="s3">20%+</span></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h"><h2>Stress test</h2><span class="sub">Numbers from the risk engine, not the browser</span></div>
+      <div class="stress">
+        <div><label for="sl" class="eyebrow">Market-wide move</label><input id="sl" type="range" min="-50" max="50" value="-5"><div class="num" id="slv" style="margin-top:4px">Mark moves <b>−5%</b></div></div>
+        <div>
+          <table class="thr"><tbody>
+            <tr><td>BTC long</td><td class="n bad">liquidated · −2,810.33</td></tr>
+            <tr><td>ETH short</td><td class="n up">survives · buffer 13.0%</td></tr>
+            <tr><td>SOL long</td><td class="n up">survives · buffer 9.1%</td></tr>
+          </tbody></table>
+          <div class="note">Free balance 4,120 covers the 1,129.74 shortfall 3.6× over. Isolated margin won't reach for it.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>Alert thresholds</h2><span class="sub">Condition vs current</span></div>
+      <table class="thr"><thead><tr><th style="text-align:left">Rule</th><th>Condition</th><th>Current</th></tr></thead><tbody>
+        <tr><td>Danger</td><td class="n">buffer &lt; 3%</td><td class="n bad">2.66%</td></tr>
+        <tr><td>Watch</td><td class="n">buffer &lt; 8%</td><td class="n bad">2.66%</td></tr>
+        <tr><td>Time to liquidation</td><td class="n">&lt; 60 min</td><td class="n bad">≈ 45 min</td></tr>
+        <tr><td>Feed stale</td><td class="n">&gt; 10 s</td><td class="n up">168 ms</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>Unofficial analytics. Not affiliated with or endorsed by Perpl or the Monad Foundation.</span>
+  <span><a href="#data">Data &amp; methodology</a> · Design mockup — figures are illustrative except the 485 / 647 headline, which is from the indexer.</span>
+</footer>
+</main>
+
+<script>
+  // ---------- tabs ----------
+  const tabs=[...document.querySelectorAll('.tab')];
+  tabs.forEach(t=>t.addEventListener('click',()=>{tabs.forEach(o=>{const on=o===t;o.setAttribute('aria-selected',String(on));document.getElementById('p-'+o.dataset.p).hidden=!on;});window.scrollTo({top:0,behavior:'smooth'});}));
+  document.querySelectorAll('.pills').forEach(g=>g.querySelectorAll('.pill').forEach(p=>p.addEventListener('click',()=>{g.querySelectorAll('.pill').forEach(x=>x.setAttribute('aria-pressed','false'));p.setAttribute('aria-pressed','true');})));
+
+  // ---------- sparkline ----------
+  function spark(vals,color,fill=true){const w=200,h=44,pad=2;const mn=Math.min(...vals),mx=Math.max(...vals);const sx=i=>pad+i*(w-2*pad)/(vals.length-1);const sy=v=>h-pad-(v-mn)/((mx-mn)||1)*(h-2*pad);const pts=vals.map((v,i)=>`${sx(i).toFixed(1)},${sy(v).toFixed(1)}`).join(' ');const area=fill?`<polygon points="${sx(0)},${h} ${pts} ${sx(vals.length-1)},${h}" fill="${color}" opacity="0.12"/>`:'';return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${area}<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${sx(vals.length-1)}" cy="${sy(vals.at(-1))}" r="2.4" fill="${color}"/></svg>`;}
+  const A='var(--accent-hi)';
+  const tiles=[
+    {l:'Volume · 24h',v:'16.45M',d:['up','▲ 22.7%','vs prev'],s:'85,845 trades',sp:[8,9,7,10,12,11,13,12,15,14,16,17,15,18,16,19]},
+    {l:'Open interest',v:'1.74M',d:['down','▼ 4.8%','in 24h'],s:'645 open positions',sp:[19,18,18,17,18,17,16,17,16,16,15,16,15,15,14,14]},
+    {l:'TVL',v:'3.84M',d:['down','▼ 3.0%','in 24h'],s:'−118.4K net flow · 24h',sp:[15,15,15,15,15,15,15,15,15,14,14,14,14,13,13,13]},
+    {l:'Fees · covers 2 UTC days',v:'4.70K',d:['up','▲ 26.1%','vs prev'],s:'maker exact · taker by day bucket',sp:[3,4,3,5,4,6,5,7,6,6,8,7,9,8,9,10],warn:true},
+    {l:'Active traders · 24h',v:'282',d:['down','▼ 11.9%','vs prev'],s:'15 new accounts',sp:[9,8,9,8,7,8,7,7,6,7,6,6,7,6,6,5]},
+    {l:'Liquidations · 24h',v:'59.09K',d:['up','▲ 196%','vs prev'],s:'11 liquidations · 8 rescuable',sp:[0,0,1,0,0,4,0,0,0,2,0,0,0,6,0,1],c:'var(--danger)'},
+  ];
+  document.getElementById('tiles').innerHTML=tiles.map(t=>`<div class="tile${t.warn?' warnlabel':''}"><div class="tile-l">${t.l}</div><div class="tile-v num">${t.v}</div><div class="delta ${t.d[0]}">${t.d[1]}<span>${t.d[2]}</span></div><div class="tile-s">${t.s}</div>${spark(t.sp,t.c||A)}</div>`).join('');
+
+  // ---------- volume chart (stacked, single axis, running total scaled to same axis as cumulative? -> no dual axis: show running total as separate small line in legend units) ----------
+  (function(){
+    const days=14, mk=[['BTC','#F7931A'],['ETH','#627EEA'],['SOL','#9945FF'],['MON','#8B5CF6'],['Other','#3A3F52']];
+    const data=Array.from({length:days},(_,i)=>[9+Math.sin(i/2)*2+i*0.15, 3+Math.cos(i/3)*0.8, 1.6+Math.sin(i/1.7)*0.4, 1.4+Math.cos(i/2.2)*0.5, 1.2]);
+    const W=560,H=220,L=44,R=12,T=14,B=30;const pw=W-L-R,ph=H-T-B;
+    const totals=data.map(d=>d.reduce((a,b)=>a+b,0));const mx=Math.ceil(Math.max(...totals)/5)*5;
+    const bw=pw/days*0.62;let s='';
+    // grid
+    for(let g=0;g<=4;g++){const y=T+ph-g/4*ph;s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--border)"/><text x="${L-8}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--muted)">${(mx*g/4).toFixed(0)}M</text>`;}
+    data.forEach((d,i)=>{let y0=T+ph;const x=L+i*pw/days+(pw/days-bw)/2;d.forEach((v,k)=>{const h=v/mx*ph;y0-=h;s+=`<rect x="${x}" y="${y0}" width="${bw}" height="${Math.max(h-2,0)}" rx="2" fill="${mk[k][1]}"/>`;});});
+    // running total as % of max cumulative -> draw on same axis by indexing? Keep single axis: draw 7-day moving average line instead of cumulative to avoid dual axis
+    const ma=totals.map((_,i)=>{const sl=totals.slice(Math.max(0,i-6),i+1);return sl.reduce((a,b)=>a+b,0)/sl.length;});
+    const pts=ma.map((v,i)=>`${(L+i*pw/days+pw/days/2).toFixed(1)},${(T+ph-v/mx*ph).toFixed(1)}`).join(' ');
+    s+=`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round" opacity="0.9"/>`;
+    [0,4,9,13].forEach(i=>{s+=`<text x="${L+i*pw/days+pw/days/2}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--muted)">${['16 Sep','20 Sep','25 Sep','29 Sep'][[0,4,9,13].indexOf(i)]}</text>`;});
+    document.getElementById('volChart').innerHTML=s;
+    document.getElementById('volLegend').innerHTML=mk.map(m=>`<span><i style="background:${m[1]}"></i>${m[0]}</span>`).join('')+`<span><i style="background:#fff"></i>7-day average</span>`;
+  })();
+
+  // ---------- flow chart ----------
+  (function(){
+    const v=[120,-80,210,-40,-118,60,-150,90,-30,140,-210,45,-118,-118];
+    const W=560,H=220,L=44,R=12,T=14,B=30;const pw=W-L-R,ph=H-T-B;const mx=250;const bw=pw/v.length*0.62;let s='';
+    const y0=T+ph/2;
+    [-250,-125,0,125,250].forEach(g=>{const y=y0-g/mx*(ph/2);s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="${g===0?'var(--border-2)':'var(--border)'}"/><text x="${L-8}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--muted)">${g}K</text>`;});
+    v.forEach((val,i)=>{const x=L+i*pw/v.length+(pw/v.length-bw)/2;const h=Math.abs(val)/mx*(ph/2);const y=val>=0?y0-h:y0;s+=`<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h-1,0)}" rx="2" fill="${val>=0?'var(--safe)':'var(--danger)'}"/>`;});
+    [0,4,9,13].forEach((i,k)=>{s+=`<text x="${L+i*pw/v.length+pw/v.length/2}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--muted)">${['16 Sep','20 Sep','25 Sep','29 Sep'][k]}</text>`;});
+    document.getElementById('flowChart').innerHTML=s;
+  })();
+
+  // ---------- liquidation chart ----------
+  (function(){
+    const d=[[38,12],[31,9],[25,11],[44,21],[22,8],[19,7],[27,14],[33,16],[21,6],[29,13],[17,5],[24,10],[36,18],[20,9],[26,12],[31,17],[23,9],[28,15],[19,6],[35,20],[24,11],[30,16],[18,7],[27,13],[22,10],[33,18],[25,12],[29,15],[21,8],[26,14]];
+    const W=1140,H=230,L=40,R=10,T=16,B=28;const pw=W-L-R,ph=H-T-B;const n=d.length;const mx=70;const bw=pw/n*0.66;let s='';
+    for(let g=0;g<=3;g++){const y=T+ph-g/3*ph;s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--border)"/><text x="${L-8}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(mx*g/3)}</text>`;}
+    d.forEach(([u,r],i)=>{const x=L+i*pw/n+(pw/n-bw)/2;const hu=u/mx*ph,hr=r/mx*ph;s+=`<rect x="${x}" y="${T+ph-hu}" width="${bw}" height="${hu}" rx="2" fill="#3A3F52"/><rect x="${x}" y="${T+ph-hu-hr-2}" width="${bw}" height="${hr}" rx="2" fill="var(--watch)"/>`;});
+    s+=`<text x="${L+3*pw/n+pw/n/2}" y="${T+ph-65/mx*ph-8}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--watch)">21 rescuable</text>`;
+    [0,7,14,21,29].forEach((i,k)=>{s+=`<text x="${L+i*pw/n+pw/n/2}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)">${['31 Aug','7 Sep','14 Sep','21 Sep','29 Sep'][k]}</text>`;});
+    document.getElementById('liqChart').innerHTML=s;
+  })();
+
+  // ---------- markets ----------
+  const mk=[['BTC','#F7931A','₿','84,007.3','+0.12%','82,880.4 – 84,509.9','11.79M','59,515','12.4M',62,'+0.000030%',9,22,'var(--safe)'],
+    ['ETH','#627EEA','Ξ','3,142.85','+0.17%','3,101.2 – 3,190.4','1.03M','4,594','8.1M',48,'+0.000024%',6,26,'var(--safe)'],
+    ['SOL','#9945FF','S','203.15','+1.25%','198.4 – 205.9','526.6K','2,394','4.6M',55,'−0.000112%',11,41,'var(--watch)'],
+    ['MON','#8B5CF6','M','3.4021','−1.65%','3.31 – 3.52','744.8K','4,577','6.9M',71,'+0.000090%',14,48,'var(--watch)'],
+    ['HYPE','#3DD9A0','H','38.914','−1.65%','37.9 – 40.2','166.8K','1,916','2.2M',44,'−0.000186%',8,57,'var(--watch)'],
+    ['PUMP','#F5B93C','P','0.006109','+17.23%','0.004828 – 0.006043','464.2K','3,781','0.8M',81,'−0.000402%',17,81,'var(--danger)'],
+    ['DOGE','#C2A633','D','0.18744','−0.40%','0.184 – 0.191','221.0K','1,204','1.1M',53,'−0.000147%',7,44,'var(--watch)'],
+    ['XRP','#346AA9','X','2.3318','+0.31%','2.29 – 2.36','198.4K','980','1.9M',50,'+0.000018%',4,29,'var(--safe)'],
+    ['LINK','#2A5ADA','L','17.882','+0.08%','17.6 – 18.1','120.3K','611','0.9M',47,'+0.000024%',3,33,'var(--safe)']];
+  document.getElementById('mkRows').innerHTML=mk.map(m=>`<tr><td class="sym"><span class="ico" style="background:${m[1]}">${m[2]}</span>${m[0]}</td><td class="n">${m[3]}</td><td class="n ${m[4].startsWith('+')?'up':'down'}">${m[4]}</td><td class="n" style="color:var(--muted)">${m[5]}</td><td class="n">${m[6]}</td><td class="n">${m[7]}</td><td class="n">${m[8]}</td><td class="n"><span class="skew"><i style="width:${m[9]}%"></i></span>${m[9]}% L</td><td class="n ${m[10].startsWith('+')?'up':'down'}">${m[10]}</td><td class="n">${m[11]}</td><td><span class="score"><i><b style="width:${m[12]}%;background:${m[13]}"></b></i>${m[12]}</span></td></tr>`).join('');
+
+  // ---------- my risk: confirm flow ----------
+  const confirm=document.getElementById('confirm');const outcome=document.getElementById('outcome');
+  const steps=['s1','s2','s3'].map(id=>document.getElementById(id));
+  document.getElementById('btnClear').addEventListener('click',()=>{confirm.hidden=false;confirm.scrollIntoView({behavior:'smooth',block:'center'});});
+  document.getElementById('btnSafe').addEventListener('click',()=>{confirm.hidden=false;confirm.scrollIntoView({behavior:'smooth',block:'center'});});
+  document.getElementById('btnGo').addEventListener('click',e=>{e.target.disabled=true;steps.forEach(s=>s.className='step');outcome.textContent='Sending…';
+    setTimeout(()=>{steps[0].className='step done';steps[1].className='step act';},250);
+    setTimeout(()=>{steps[1].className='step done';steps[2].className='step act';outcome.textContent='Venue reported: st 7 Failed · sr 32 — not trusted. Reconciling…';},1100);
+    setTimeout(()=>{steps[2].className='step done';outcome.innerHTML='<b style="color:var(--safe)">Applied.</b> Margin 2,810.33 → 3,372.33 (delta 562.00 = requested). One send, no resend. Buffer now 4.0%.';},2600);
+  });
+  const sl=document.getElementById('sl');sl.addEventListener('input',()=>{document.getElementById('slv').innerHTML=`Mark moves <b>${sl.value>0?'+':''}${sl.value}%</b>`;});
+</script>
+
+</body></html>
