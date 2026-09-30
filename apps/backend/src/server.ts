@@ -78,6 +78,7 @@ import { DeferredPositionSource } from './server/deferredPositionSource.ts';
 import { buildHealth, type HealthReport } from './server/health.ts';
 import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
+import { RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
 import { DynamicVerifier } from './server/protect/dynamic.ts';
@@ -447,6 +448,7 @@ let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
 let analyticsReader: PostgresAnalytics | undefined;
 let analyticsVenue: PerplVenue | undefined;
+let analyticsNetworkConfig: NetworkConfig | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
   // A pool, and NOT connected eagerly, for the same two reasons as the alert
   // log: a dead single client never recovers, and an indexer database that is
@@ -457,6 +459,7 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     warn(`idle indexer Postgres connection dropped: ${error.message}. The pool will reconnect.`);
   });
   const analyticsNetwork = loadNetworkConfig(appConfig.analytics.name, process.env);
+  analyticsNetworkConfig = analyticsNetwork;
   indexerMonitor = new IndexerLagMonitor({
     sql: indexerDb,
     chainId: analyticsNetwork.chainId,
@@ -586,12 +589,32 @@ const app = createHealthApp({
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader }),
+  // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same
+  // `getAccountByAddr` read Protect sign-in uses, so an address the index never
+  // saw an AccountCreated for still resolves.
+  ...(analyticsNetworkConfig === undefined
+    ? {}
+    : {
+        lookupAccountOnChain: (wallet: string) =>
+          lookupAccountByAddress(wallet, { rpcUrl: analyticsNetworkConfig!.rpcUrl, exchangeAddress: analyticsNetworkConfig!.exchangeAddress }),
+      }),
   // The open-interest LEVEL is a venue read on the analytics network; the
   // indexer only has the delta. Kept off the reader so the two cannot be confused.
-  ...(analyticsVenue === undefined
+  ...(analyticsVenue === undefined || analyticsReader === undefined || analyticsNetworkConfig === undefined
     ? {}
     : {
         openInterest: () => analyticsVenue!.getOpenInterest(),
+        // ONE NETWORK: positions from the analytics indexer, marks and configs
+        // from the analytics venue, insurance from the analytics chain.
+        riskSnapshot: (() => {
+          const source = new RiskSnapshotSource({
+            analytics: analyticsReader,
+            network: analyticsNetworkConfig,
+            riskConfigs: () => analyticsVenue!.getRiskConfigs(),
+            openInterest: () => analyticsVenue!.getOpenInterest(),
+          });
+          return () => source.read();
+        })(),
         // ONE NETWORK: configs and marks both come from the analytics venue, and
         // the positions from the analytics network's indexer. Nothing here can
         // reach the trading venue.

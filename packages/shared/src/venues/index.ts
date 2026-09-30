@@ -12,3 +12,4 @@ export * from './perpl-socket.ts';
 export * from './perpl-trading-socket.ts';
 export * from './perpl.ts';
 export * from './perpl-account-lookup.ts';
+export * from './perpl-insurance.ts';

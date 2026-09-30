@@ -160,7 +160,11 @@ export interface MarketRow {
   readonly high: number | undefined;
   readonly volumeAusd: number;
   readonly tradeCount: number;
+  /** Maker + taker over whole UTC days; `feesLabel` says which. Same definition as the Overview tile. */
   readonly feesAusd: number;
+  readonly feesLabel: string;
+  /** Maker only, exact for the rolling window. */
+  readonly makerFeesAusd: number;
   /** The LEVEL from the venue, undefined when it has no reading. */
   readonly openInterestNotional: number | undefined;
   readonly openInterestSize: number | undefined;
@@ -226,7 +230,9 @@ export function buildMarketTable(
       high: highs.length === 0 ? undefined : Math.max(...highs),
       volumeAusd: m.volumeAusd,
       tradeCount: m.tradeCount,
-      feesAusd: m.feesAusd,
+      feesAusd: m.fees.totalAusd,
+      feesLabel: m.fees.label,
+      makerFeesAusd: m.makerFeesAusd,
       openInterestNotional: oi?.openInterestNotional,
       openInterestSize: oi?.openInterestSize,
       openInterestAtMs: oi?.atMs,

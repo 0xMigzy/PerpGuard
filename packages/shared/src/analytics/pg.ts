@@ -54,8 +54,11 @@ import type {
   FeesForPeriod,
   DailyPoint,
   FundingStats,
+  IndexedOpenPosition,
+  LiquidationBand,
   LiquidationRecord,
   LiquidationStats,
+  LiquidationSummary,
   MarketBreakdown,
   MarketDailyPoint,
   MarketDailySeries,
@@ -65,11 +68,18 @@ import type {
   ProtocolMetrics,
   RescueStats,
   RoundTrip,
+  SortDirection,
   Timeframe,
+  TraderDayPoint,
+  TraderList,
+  TraderRow,
+  TraderSortKey,
+  TraderWindow,
   WalletLookup,
   WalletPerformance,
   WalletProfile,
 } from './types.ts';
+import { MIN_ROUND_TRIPS_FOR_RATIOS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -275,10 +285,13 @@ select d.market_id as id, m.name, m."priceDecimals",
 /**
  * Per-market figures over a window.
  *
- * The volume/fee/trade columns come from `Trade` rows inside the window; the
- * position counts and the OI delta come off `Market` and `Position`, which are
- * current state rather than windowed. Kept in one query so a caller cannot pair a
- * windowed figure with a stale one by accident, and the type names which is which.
+ * The volume/maker-fee/trade columns come from `Trade` rows inside the rolling
+ * window; FEES (maker plus taker) come from `MarketDay` buckets bound to a DAY
+ * boundary, exactly as the protocol figure does, so the two cannot disagree
+ * about what "fees" means; the position counts, the lots by side and the OI
+ * delta come off `Market` and `Position`, which are current state rather than
+ * windowed. Kept in one query so a caller cannot pair a windowed figure with a
+ * stale one by accident, and the type names which is which.
  */
 const MARKET_BREAKDOWN_SQL = `
 select m.id, m.name, m."priceDecimals", m."lotDecimals",
@@ -288,10 +301,15 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
        coalesce(t.volume, 0)::text    as volume,
        coalesce(t.fees, 0)::text      as maker_fees,
        coalesce(t.trades, 0)::text    as trades,
+       coalesce(d.fees, 0)::text      as fees,
+       coalesce(d.days, 0)::text      as fee_days,
+       d.from_day                     as fee_from_day,
        coalesce(l.liquidations, 0)::text as liquidations,
        coalesce(l.rescuable, 0)::text as rescuable,
        coalesce(p.longs, 0)::text     as longs,
-       coalesce(p.shorts, 0)::text    as shorts
+       coalesce(p.shorts, 0)::text    as shorts,
+       coalesce(p.long_lots, 0)::text  as long_lots,
+       coalesce(p.short_lots, 0)::text as short_lots
   from "Market" m
   left join (
     select market_id,
@@ -304,6 +322,15 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
   ) t on t.market_id = m.id
   left join (
     select market_id,
+           sum("feesCNS")      as fees,
+           count(distinct day) as days,
+           min(day)            as from_day
+      from "MarketDay"
+     where ($2::timestamptz is null or day >= $2::timestamptz)
+     group by market_id
+  ) d on d.market_id = m.id
+  left join (
+    select market_id,
            count(*)                                       as liquidations,
            count(*) filter (where "wasRescuable" = true)   as rescuable
       from "Liquidation"
@@ -313,7 +340,9 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
   left join (
     select market_id,
            count(*) filter (where side = 'LONG')  as longs,
-           count(*) filter (where side = 'SHORT') as shorts
+           count(*) filter (where side = 'SHORT') as shorts,
+           sum("lotLNS") filter (where side = 'LONG')  as long_lots,
+           sum("lotLNS") filter (where side = 'SHORT') as short_lots
       from "Position" where status = 'OPEN'
      group by market_id
   ) p on p.market_id = m.id
@@ -480,6 +509,130 @@ select p.market_id as id, m.name,
  where p.trader_id = $1 and p.status <> 'OPEN'
  group by p.market_id, m.name
 `;
+
+/**
+ * The Traders list, LIFETIME: straight off `Trader`, sorted and paged in SQL.
+ *
+ * `$1` is the sort expression's index into {@link TRADER_SORT_SQL}; the direction
+ * is interpolated from a two-value whitelist. Nothing user-supplied reaches the
+ * text. `count(*) over ()` gives the paging denominator in the same scan.
+ *
+ * The win rate SORTS WITH THE FLOOR: an account under the floor has no rate and
+ * sorts last in either direction, the same rule the UI applies to an unknown.
+ */
+const TRADER_SORT_SQL: Record<TraderSortKey, string> = {
+  netPnl: 'net_pnl',
+  volume: 'volume',
+  roundTrips: 'round_trips',
+  winRate: 'win_rate',
+  liquidations: 'liquidations',
+  freeBalance: 'free_balance',
+  lastActive: 'last_active',
+};
+
+const tradersLifetimeSql = (sort: TraderSortKey, direction: SortDirection): string => `
+select id, owner, "freeBalanceCNS"::text as free_balance, "openPositionCount" as open_positions,
+       "lastActiveAt" as last_active,
+       "netPnlCNS"::text as net_pnl, "volumeCNS"::text as volume, "tradeCount" as trades,
+       "roundTrips" as round_trips, wins, losses,
+       case when "roundTrips" >= ${MIN_ROUND_TRIPS_FOR_RATIOS} then wins::float / "roundTrips" end as win_rate,
+       "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable,
+       count(*) over () as total
+  from "Trader"
+ where "tradeCount" > 0
+ order by ${TRADER_SORT_SQL[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (id::bigint) asc
+ limit $1 offset $2
+`;
+
+/**
+ * The Traders list over a WINDOW: `TraderDay` buckets summed per trader, joined
+ * to `Trader` for the level columns. A day-aligned bind, because buckets are
+ * the unit, and the caller labels it that way.
+ */
+const tradersWindowSql = (sort: TraderSortKey, direction: SortDirection): string => `
+with w as (
+  select trader_id,
+         sum("netPnlCNS")       as net_pnl,
+         sum("volumeCNS")       as volume,
+         sum("tradeCount")      as trades,
+         sum(wins + losses)     as round_trips,
+         sum(wins)              as wins,
+         sum(losses)            as losses,
+         sum("liquidationCount") as liquidations,
+         sum("rescuableLiquidationCount") as rescuable
+    from "TraderDay"
+   where day >= $3::timestamptz
+   group by trader_id
+)
+select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionCount" as open_positions,
+       t."lastActiveAt" as last_active,
+       w.net_pnl::text as net_pnl, w.volume::text as volume, w.trades, w.round_trips, w.wins, w.losses,
+       case when w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS} then w.wins::float / w.round_trips end as win_rate,
+       w.liquidations, w.rescuable,
+       count(*) over () as total
+  from w join "Trader" t on t.id = w.trader_id
+ order by ${TRADER_SORT_SQL[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (t.id::bigint) asc
+ limit $1 offset $2
+`;
+
+/** One trader's days, oldest first. Buckets ARE the unit here. */
+const TRADER_DAYS_SQL = `
+select day, "volumeCNS"::text as volume, "tradeCount" as trades,
+       "realizedPnlCNS"::text as realised, "fundingCNS"::text as funding, "feesCNS"::text as fees,
+       "netPnlCNS"::text as net_pnl, wins, losses,
+       "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable,
+       "marginAddedCNS"::text as margin_added, "marginRemovedCNS"::text as margin_removed,
+       "depositedCNS"::text as deposited, "withdrawnCNS"::text as withdrawn,
+       "endFreeBalanceCNS"::text as end_free
+  from "TraderDay"
+ where trader_id = $1 and ($2::timestamptz is null or day >= $2::timestamptz)
+ order by day asc
+`;
+
+/**
+ * The finding banded, over the rolling window.
+ *
+ * Bands are in AUSD micros, computed here from the collateral decimals so the
+ * SQL never assumes 6. `width_bucket` against an explicit threshold array puts
+ * each row in exactly one band; the verdict is counted three ways per band.
+ */
+const LIQUIDATION_BANDS_SQL = `
+select width_bucket("notionalCNS"::numeric, $3::numeric[])       as size_band,
+       width_bucket("freeBalanceBeforeCNS"::numeric, $4::numeric[]) as spare_band,
+       count(*)::text                                            as total,
+       count(*) filter (where "wasRescuable" = true)::text       as rescuable,
+       count(*) filter (where "wasRescuable" = false)::text      as not_rescuable,
+       count(*) filter (where "wasRescuable" is null)::text      as unknown
+  from "Liquidation"
+ where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+ group by 1, 2
+`;
+
+const LIQUIDATION_SHORTFALL_SQL = `
+select (percentile_cont(0.5) within group (order by "marginToSurviveCNS")
+          filter (where "wasRescuable" = true))::text     as median_rescuable,
+       (percentile_cont(0.5) within group (order by "marginToSurviveCNS")
+          filter (where "wasRescuable" is not null))::text as median_all
+  from "Liquidation"
+ where ($1::timestamptz is null or timestamp >= $1::timestamptz)
+   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+`;
+
+/** Every open position, with its owner, for the protocol-wide risk snapshot. */
+const ALL_OPEN_POSITIONS_SQL = `
+select p.trader_id as account, p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
+       p.side, p."lotLNS"::text, p."entryPricePNS"::text, p."entryPriceKnown",
+       p."depositCNS"::text, p."leverageHdths"::text, p."openedAt",
+       p."marginAddedCNS"::text
+  from "Position" p join "Market" m on m.id = p.market_id
+ where p.status = 'OPEN'
+ order by (p.market_id::bigint), p."openedAt" desc
+`;
+
+/** The band edges, in AUSD. Named so the label and the SQL threshold cannot drift. */
+export const SIZE_BANDS_AUSD: readonly number[] = [100, 1_000, 10_000, 100_000];
+export const SPARE_BANDS_AUSD: readonly number[] = [1, 100, 1_000, 10_000];
 
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();
@@ -826,27 +979,39 @@ export class PostgresAnalytics implements Analytics {
 
   async marketBreakdown(timeframe: Timeframe): Promise<readonly MarketBreakdown[]> {
     const decimals = await this.#decimals();
-    const { sinceMs } = windowFor(timeframe, this.#now());
-    const rows = await this.#rows(MARKET_BREAKDOWN_SQL, [iso(sinceMs)]);
+    const { sinceMs, untilMs } = windowFor(timeframe, this.#now());
+    // Fees bind a day boundary, everything else the rolling instant — the same
+    // two binds `protocolMetrics` uses, for the same reason.
+    const feesSince = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
+    const rows = await this.#rows(MARKET_BREAKDOWN_SQL, [iso(sinceMs), feesSince]);
 
     return rows.map((row) => {
       const priceDecimals = count(row['priceDecimals']);
       const lotDecimals = count(row['lotDecimals']);
       const longs = count(row['longs']);
       const shorts = count(row['shorts']);
+      const markPrice = toPrice(row['markPricePNS'], priceDecimals);
+      // Size × indexed mark, per side. A hole only when there is no mark.
+      const longNotionalAusd = markPrice === undefined ? undefined : toLots(row['long_lots'], lotDecimals) * markPrice;
+      const shortNotionalAusd = markPrice === undefined ? undefined : toLots(row['short_lots'], lotDecimals) * markPrice;
       return {
         market: toMarketRef(row['id'], row['name'], this.#resolve),
         volumeAusd: toAusd(row['volume'], decimals),
         tradeCount: count(row['trades']),
-        feesAusd: toAusd(row['maker_fees'], decimals),
+        fees: this.#fees({ fees: row['fees'], days: row['fee_days'], from_day: row['fee_from_day'] }, decimals, untilMs),
+        makerFeesAusd: toAusd(row['maker_fees'], decimals),
         openPositions: count(row['open_positions']),
         longPositions: longs,
         shortPositions: shorts,
         longShareOfPositions: share(longs, longs + shorts),
+        longNotionalAusd,
+        shortNotionalAusd,
+        longShareOfNotional:
+          longNotionalAusd === undefined || shortNotionalAusd === undefined ? undefined : share(longNotionalAusd, longNotionalAusd + shortNotionalAusd),
         openInterestDeltaLots: toLots(row['oi_delta'], lotDecimals),
         liquidationCount: count(row['liquidations']),
         rescuableLiquidationCount: count(row['rescuable']),
-        markPrice: toPrice(row['markPricePNS'], priceDecimals),
+        markPrice,
         lastFundingRatePct: toRatePct(row['lastFundingRatePct100k']),
       };
     });
@@ -899,7 +1064,7 @@ export class PostgresAnalytics implements Analytics {
     if (profile === undefined) {
       return { kind: 'not-linked', address: wanted, reason: `account row for ${wanted} vanished mid-read` };
     }
-    return { kind: 'found', profile };
+    return { kind: 'found', profile, resolvedBy: 'index' };
   }
 
   async walletByAccountId(accountId: number): Promise<WalletProfile | undefined> {
@@ -929,15 +1094,17 @@ export class PostgresAnalytics implements Analytics {
       .sort((a, b) => b.netPnlAusd - a.netPnlAusd);
 
     const meanHoldS = curve?.['mean_hold_s'];
+    // WITHHELD UNDER THE FLOOR, not computed off a handful: the counts stay.
+    const enough = roundTrips >= MIN_ROUND_TRIPS_FOR_RATIOS;
     const performance: WalletPerformance = {
       roundTrips,
       wins,
       losses,
-      winRate: share(wins, roundTrips),
-      profitFactor: profitFactor(
-        toAusd(curve?.['gross_profit'], decimals),
-        toAusd(curve?.['gross_loss'], decimals),
-      ),
+      winRate: enough ? share(wins, roundTrips) : undefined,
+      profitFactor: enough
+        ? profitFactor(toAusd(curve?.['gross_profit'], decimals), toAusd(curve?.['gross_loss'], decimals))
+        : undefined,
+      minRoundTripsForRatios: MIN_ROUND_TRIPS_FOR_RATIOS,
       maxDrawdownAusd: toAusd(curve?.['max_drawdown'], decimals),
       longestWinStreak: count(curve?.['win_streak']),
       longestLossStreak: count(curve?.['loss_streak']),
@@ -959,23 +1126,7 @@ export class PostgresAnalytics implements Analytics {
       accountId: count(trader['accountId']),
       firstTradeAtMs: toMs(trader['firstTradeAt']),
       lastActiveAtMs: requireMs(trader['lastActiveAt']),
-      openPositions: positions.map((row): OpenPosition => {
-        const priceDecimals = count(row['priceDecimals']);
-        const lotDecimals = count(row['lotDecimals']);
-        return {
-          market: toMarketRef(row['id'], row['name'], this.#resolve),
-          side: sideFromRow(row['side']),
-          sizeLots: toLots(row['lotLNS'], lotDecimals),
-          // Undefined rather than wrong when the position predates the start
-          // block: `entryPriceKnown` false means the first event we saw carried
-          // no price.
-          entryPrice: row['entryPriceKnown'] === true ? toPrice(row['entryPricePNS'], priceDecimals) : undefined,
-          marginAusd: toAusd(row['depositCNS'], decimals),
-          leverage: Number(bigintOrZero(row['leverageHdths'])) / 100,
-          openedAtMs: requireMs(row['openedAt']),
-          marginAddedAusd: toAusd(row['marginAddedCNS'], decimals),
-        };
-      }),
+      openPositions: positions.map((row) => this.#openPosition(row, decimals)),
       performance,
       rescues: {
         count: total,
@@ -1065,6 +1216,166 @@ export class PostgresAnalytics implements Analytics {
       };
     });
   }
+
+  async traders(
+    timeframe: Timeframe,
+    options: { readonly sort?: TraderSortKey; readonly direction?: SortDirection; readonly limit?: number; readonly offset?: number } = {},
+  ): Promise<TraderList> {
+    const decimals = await this.#decimals();
+    const now = this.#now();
+    const { sinceMs } = windowFor(timeframe, now);
+    const sort: TraderSortKey = options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl';
+    const direction: SortDirection = options.direction === 'asc' ? 'asc' : 'desc';
+    // Capped like every other list: 1,565 accounts is a page, not a payload.
+    const limit = Math.min(Math.max(1, options.limit ?? 50), 200);
+    const offset = Math.max(0, options.offset ?? 0);
+
+    let rows: Array<Record<string, unknown>>;
+    let window: TraderWindow;
+    if (sinceMs === undefined) {
+      rows = await this.#rows(tradersLifetimeSql(sort, direction), [limit, offset]);
+      window = { timeframe, honoursTimeframe: true, label: 'all time', fromMs: undefined, toMs: now };
+    } else {
+      // Aligned DOWN to the bucket: the window is served as whole UTC days and
+      // labelled as such, because TraderDay has no finer grain.
+      const fromMs = startOfUtcDay(sinceMs);
+      rows = await this.#rows(tradersWindowSql(sort, direction), [limit, offset, iso(fromMs)]);
+      const days = Math.floor((startOfUtcDay(now) - fromMs) / 86_400_000) + 1;
+      const from = new Date(fromMs).toISOString().slice(0, 10);
+      window = {
+        timeframe,
+        honoursTimeframe: false,
+        label: days === 1 ? `the UTC day from ${from} (today so far)` : `the ${days} UTC days from ${from} (today so far)`,
+        fromMs,
+        toMs: now,
+      };
+    }
+
+    const list: TraderRow[] = rows.map((row) => {
+      const roundTrips = count(row['round_trips']);
+      const wins = count(row['wins']);
+      return {
+        accountId: count(row['id']),
+        address: String(row['owner'] ?? '').toLowerCase(),
+        netPnlAusd: toAusd(row['net_pnl'], decimals),
+        volumeAusd: toAusd(row['volume'], decimals),
+        tradeCount: count(row['trades']),
+        roundTrips,
+        wins,
+        losses: count(row['losses']),
+        winRate: roundTrips >= MIN_ROUND_TRIPS_FOR_RATIOS ? share(wins, roundTrips) : undefined,
+        liquidationCount: count(row['liquidations']),
+        rescuableLiquidationCount: count(row['rescuable']),
+        freeBalanceAusd: toAusd(row['free_balance'], decimals),
+        openPositionCount: count(row['open_positions']),
+        lastActiveAtMs: requireMs(row['last_active']),
+      };
+    });
+    return {
+      rows: list,
+      total: count(rows[0]?.['total']),
+      window,
+      sort,
+      direction,
+      limit,
+      offset,
+      minRoundTripsForRatios: MIN_ROUND_TRIPS_FOR_RATIOS,
+    };
+  }
+
+  async traderDays(accountId: number, timeframe: Timeframe): Promise<readonly TraderDayPoint[]> {
+    const decimals = await this.#decimals();
+    const { sinceMs } = windowFor(timeframe, this.#now());
+    const since = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
+    const rows = await this.#rows(TRADER_DAYS_SQL, [String(accountId), since]);
+    return rows.map((row) => ({
+      dayMs: requireMs(row['day']),
+      volumeAusd: toAusd(row['volume'], decimals),
+      tradeCount: count(row['trades']),
+      realisedPnlAusd: toAusd(row['realised'], decimals),
+      fundingAusd: toAusd(row['funding'], decimals),
+      feesAusd: toAusd(row['fees'], decimals),
+      netPnlAusd: toAusd(row['net_pnl'], decimals),
+      wins: count(row['wins']),
+      losses: count(row['losses']),
+      liquidationCount: count(row['liquidations']),
+      rescuableLiquidationCount: count(row['rescuable']),
+      marginAddedAusd: toAusd(row['margin_added'], decimals),
+      marginRemovedAusd: toAusd(row['margin_removed'], decimals),
+      depositedAusd: toAusd(row['deposited'], decimals),
+      withdrawnAusd: toAusd(row['withdrawn'], decimals),
+      endFreeBalanceAusd: toAusd(row['end_free'], decimals),
+    }));
+  }
+
+  async liquidationSummary(timeframe: Timeframe): Promise<LiquidationSummary> {
+    const decimals = await this.#decimals();
+    const { sinceMs, untilMs } = windowFor(timeframe, this.#now());
+    const since = iso(sinceMs);
+    const until = iso(untilMs);
+    const micros = (ausd: number) => (BigInt(Math.round(ausd)) * 10n ** BigInt(decimals)).toString();
+    const [cells, shortfall] = await Promise.all([
+      this.#rows(LIQUIDATION_BANDS_SQL, [since, until, SIZE_BANDS_AUSD.map(micros), SPARE_BANDS_AUSD.map(micros)]),
+      this.#one(LIQUIDATION_SHORTFALL_SQL, [since, until]),
+    ]);
+    return {
+      timeframe,
+      bySize: foldBands(cells, 'size_band', SIZE_BANDS_AUSD),
+      bySpareBalance: foldBands(cells, 'spare_band', SPARE_BANDS_AUSD),
+      medianShortfallAusd: medianAusd(shortfall?.['median_rescuable'], decimals),
+      medianShortfallAllAusd: medianAusd(shortfall?.['median_all'], decimals),
+    };
+  }
+
+  async openPositions(): Promise<readonly IndexedOpenPosition[]> {
+    const decimals = await this.#decimals();
+    const rows = await this.#rows(ALL_OPEN_POSITIONS_SQL);
+    return rows.map((row) => ({ accountId: count(row['account']), position: this.#openPosition(row, decimals) }));
+  }
+
+  /** One `Position` row -> an {@link OpenPosition}. Shared by the profile and the risk snapshot. */
+  #openPosition(row: Record<string, unknown>, decimals: number): OpenPosition {
+    const priceDecimals = count(row['priceDecimals']);
+    const lotDecimals = count(row['lotDecimals']);
+    return {
+      market: toMarketRef(row['id'], row['name'], this.#resolve),
+      side: sideFromRow(row['side']),
+      sizeLots: toLots(row['lotLNS'], lotDecimals),
+      // Undefined rather than wrong when the position predates the start
+      // block: `entryPriceKnown` false means the first event we saw carried
+      // no price.
+      entryPrice: row['entryPriceKnown'] === true ? toPrice(row['entryPricePNS'], priceDecimals) : undefined,
+      marginAusd: toAusd(row['depositCNS'], decimals),
+      leverage: Number(bigintOrZero(row['leverageHdths'])) / 100,
+      openedAtMs: requireMs(row['openedAt']),
+      marginAddedAusd: toAusd(row['marginAddedCNS'], decimals),
+    };
+  }
+}
+
+/**
+ * Band cells -> one row per band, in edge order, EVERY band present.
+ *
+ * `width_bucket` numbers bands from 0 (below the first edge) to `edges.length`
+ * (at or above the last). A band with no rows still appears with zeros, so a
+ * chart never drops a bar and a reader can see an empty band is empty.
+ */
+function foldBands(cells: Array<Record<string, unknown>>, key: 'size_band' | 'spare_band', edges: readonly number[]): readonly LiquidationBand[] {
+  const bands: LiquidationBand[] = [];
+  for (let i = 0; i <= edges.length; i += 1) {
+    const minAusd = i === 0 ? 0 : edges[i - 1]!;
+    const maxAusd = i === edges.length ? undefined : edges[i];
+    const label = maxAusd === undefined ? `≥ ${fmtBand(minAusd)}` : i === 0 ? `< ${fmtBand(maxAusd)}` : `${fmtBand(minAusd)} – ${fmtBand(maxAusd)}`;
+    const mine = cells.filter((c) => count(c[key]) === i);
+    const sum = (col: string) => mine.reduce((acc, c) => acc + count(c[col]), 0);
+    bands.push({ label, minAusd, maxAusd, count: sum('total'), rescuableCount: sum('rescuable'), notRescuableCount: sum('not_rescuable'), unknownCount: sum('unknown') });
+  }
+  return bands;
+}
+
+/** "1K", "10K", "100", for a band label. */
+function fmtBand(ausd: number): string {
+  return ausd >= 1_000 ? `${ausd / 1_000}K` : String(ausd);
 }
 
 /** UTC midnight of the day containing `ms`. */

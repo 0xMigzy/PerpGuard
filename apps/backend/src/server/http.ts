@@ -35,6 +35,10 @@ export interface HealthServerOptions {
   readonly openInterest?: () => Promise<readonly MarketOpenInterest[]>;
   /** Open positions assessed against the analytics network's venue. See the routes. */
   readonly assessPositions?: AnalyticsRouteOptions['assessPositions'];
+  /** Wallet -> account off the analytics chain, for addresses the index cannot link. See the routes. */
+  readonly lookupAccountOnChain?: AnalyticsRouteOptions['lookupAccountOnChain'];
+  /** The protocol-wide risk snapshot. See the routes. */
+  readonly riskSnapshot?: AnalyticsRouteOptions['riskSnapshot'];
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
   readonly protect?: ProtectRouteOptions;
 }
@@ -53,6 +57,8 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       analytics: options.analytics,
       ...(options.openInterest === undefined ? {} : { openInterest: options.openInterest }),
       ...(options.assessPositions === undefined ? {} : { assessPositions: options.assessPositions }),
+      ...(options.lookupAccountOnChain === undefined ? {} : { lookupAccountOnChain: options.lookupAccountOnChain }),
+      ...(options.riskSnapshot === undefined ? {} : { riskSnapshot: options.riskSnapshot }),
     });
   }
 

@@ -4,3 +4,4 @@ export * from './map.ts';
 export * from './tvl.ts';
 export * from './pg.ts';
 export * from './types.ts';
+export * from './exposure.ts';

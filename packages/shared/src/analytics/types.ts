@@ -49,6 +49,15 @@ export type Timeframe = '24h' | '7d' | '30d' | 'all';
 
 export const TIMEFRAMES: readonly Timeframe[] = ['24h', '7d', '30d', 'all'];
 
+/**
+ * BELOW THIS MANY ROUND TRIPS, RATIOS ARE WITHHELD. Three trades and two wins
+ * is 66.7%, and it means nothing. `winRate` and `profitFactor` come back
+ * undefined under this floor, the counts and the history are still served in
+ * full, and every payload that withholds says which floor it used. One number,
+ * here, and in CLAUDE.md.
+ */
+export const MIN_ROUND_TRIPS_FOR_RATIOS = 10;
+
 /** How long a timeframe covers, in milliseconds. `all` has no start. */
 export function timeframeMs(timeframe: Timeframe): number | undefined {
   switch (timeframe) {
@@ -358,12 +367,23 @@ export interface MarketDailySeries {
   readonly points: readonly MarketDailyPoint[];
 }
 
-/** Per-market figures over a window, with the long/short skew. */
+/**
+ * Per-market figures over a window, with the long/short skew.
+ *
+ * FEES ARE MAKER PLUS TAKER, HERE AND ON {@link ProtocolMetrics}. One
+ * definition: the sum of `MarketDay.feesCNS` over whole UTC days, labelled with
+ * the range it covers, because taker fees have no finer timestamp. The exact
+ * rolling maker half is served beside it under its own name and is never
+ * called "fees". (CLAUDE.md.)
+ */
 export interface MarketBreakdown {
   readonly market: MarketRef;
   readonly volumeAusd: number;
   readonly tradeCount: number;
-  readonly feesAusd: number;
+  /** Maker and taker, over whole UTC days. `fees.label` says which days. */
+  readonly fees: FeesForPeriod;
+  /** MAKER fees over the rolling window, exact. Not "fees". */
+  readonly makerFeesAusd: number;
   readonly openPositions: number;
   readonly longPositions: number;
   readonly shortPositions: number;
@@ -377,6 +397,18 @@ export interface MarketBreakdown {
    * a way nobody could see.
    */
   readonly longShareOfPositions: number | undefined;
+  /**
+   * Open position size by side, valued at the INDEXED mark, in collateral.
+   *
+   * The skew a reader wants is by exposure, not by headcount: one 10 BTC long
+   * against nine 0.01 BTC shorts is a long-crowded market. Size is known for
+   * every open position (`lotKnown`), so unlike an entry-price notional this
+   * has no hole. Undefined only when the market has no indexed mark.
+   */
+  readonly longNotionalAusd: number | undefined;
+  readonly shortNotionalAusd: number | undefined;
+  /** `long / (long + short)` by notional, or undefined when there is none. */
+  readonly longShareOfNotional: number | undefined;
   /**
    * Open interest change since the indexer's START BLOCK, in this market's lots.
    *
@@ -451,12 +483,23 @@ export interface LiquidationRecord {
  * see which account is yours".
  */
 export type WalletLookup =
-  | { readonly kind: 'found'; readonly profile: WalletProfile }
+  | {
+      readonly kind: 'found';
+      readonly profile: WalletProfile;
+      /**
+       * `index` when `AccountCreated` was indexed; `chain` when the Exchange's
+       * own `getAccountByAddr` resolved it — the lookup Protect sign-in already
+       * uses, and the one that works for the 88% with no owner recorded.
+       */
+      readonly resolvedBy: 'index' | 'chain';
+    }
   | {
       readonly kind: 'not-linked';
       readonly address: string;
       /** Safe to render directly. Says what would resolve it. */
       readonly reason: string;
+      /** Set when the chain named an account the index holds nothing for. */
+      readonly accountId?: number;
     };
 
 export interface WalletProfile {
@@ -567,15 +610,21 @@ export interface WalletPerformance {
   readonly roundTrips: number;
   readonly wins: number;
   readonly losses: number;
-  /** Undefined when there are no round trips, rather than a misleading 0. */
+  /**
+   * Undefined below {@link MIN_ROUND_TRIPS_FOR_RATIOS} round trips, rather
+   * than a figure computed off a handful of trades. The counts stay.
+   */
   readonly winRate: number | undefined;
   /**
    * Gross profit over gross loss.
    *
-   * Undefined when there are no losses — the ratio is unbounded there, and
-   * `Infinity` in a UI reads as a bug rather than as a perfect record.
+   * Undefined below the same floor, and undefined when there are no losses —
+   * the ratio is unbounded there, and `Infinity` in a UI reads as a bug rather
+   * than as a perfect record.
    */
   readonly profitFactor: number | undefined;
+  /** The floor the two ratios were withheld under. Rendered beside them. */
+  readonly minRoundTripsForRatios: number;
   /**
    * Largest peak-to-trough fall in cumulative net PnL, in AUSD, as a positive
    * magnitude. Zero when the curve never fell.
@@ -594,6 +643,124 @@ export interface MarketPnl {
   readonly market: MarketRef;
   readonly netPnlAusd: number;
   readonly roundTrips: number;
+}
+
+// ── the Traders section ─────────────────────────────────────────────────────
+
+export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive';
+export type SortDirection = 'asc' | 'desc';
+
+export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive'];
+
+/**
+ * Which rows the list's windowed columns were summed over.
+ *
+ * A trader's window comes from `TraderDay`, which is UTC-day bucketed, so a
+ * `7d` request is served as whole days and SAYS SO: `honoursTimeframe` is
+ * false and `label` names the days. `all` reads the lifetime `Trader` row and
+ * honours the request exactly. The level columns — free balance, last active,
+ * open positions — are always "now" whatever the window.
+ */
+export interface TraderWindow {
+  readonly timeframe: Timeframe;
+  readonly honoursTimeframe: boolean;
+  /** A phrase a UI renders verbatim, e.g. "the 8 UTC days from 2026-09-23 (today so far)". */
+  readonly label: string;
+  readonly fromMs: number | undefined;
+  readonly toMs: number;
+}
+
+export interface TraderRow {
+  readonly accountId: number;
+  /** Lowercased. Empty when the owner was never recorded. */
+  readonly address: string;
+  // ── over the window ──
+  readonly netPnlAusd: number;
+  readonly volumeAusd: number;
+  readonly tradeCount: number;
+  readonly roundTrips: number;
+  readonly wins: number;
+  readonly losses: number;
+  /** Undefined below {@link MIN_ROUND_TRIPS_FOR_RATIOS} round trips in the window. */
+  readonly winRate: number | undefined;
+  readonly liquidationCount: number;
+  readonly rescuableLiquidationCount: number;
+  // ── now ──
+  readonly freeBalanceAusd: number;
+  readonly openPositionCount: number;
+  readonly lastActiveAtMs: number;
+}
+
+export interface TraderList {
+  readonly rows: readonly TraderRow[];
+  /** Traders with any activity in the window: the paging denominator. */
+  readonly total: number;
+  readonly window: TraderWindow;
+  readonly sort: TraderSortKey;
+  readonly direction: SortDirection;
+  readonly limit: number;
+  readonly offset: number;
+  readonly minRoundTripsForRatios: number;
+}
+
+/** One UTC day of one trader, straight off `TraderDay`. Buckets are the unit. */
+export interface TraderDayPoint {
+  readonly dayMs: number;
+  readonly volumeAusd: number;
+  readonly tradeCount: number;
+  readonly realisedPnlAusd: number;
+  readonly fundingAusd: number;
+  readonly feesAusd: number;
+  readonly netPnlAusd: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly liquidationCount: number;
+  readonly rescuableLiquidationCount: number;
+  readonly marginAddedAusd: number;
+  readonly marginRemovedAusd: number;
+  readonly depositedAusd: number;
+  readonly withdrawnAusd: number;
+  /** Free balance at the end of the day. A level, from the last event that day. */
+  readonly endFreeBalanceAusd: number;
+}
+
+// ── the Liquidations section ────────────────────────────────────────────────
+
+/** One band of a histogram. `maxAusd` undefined means open-ended. */
+export interface LiquidationBand {
+  readonly label: string;
+  readonly minAusd: number;
+  readonly maxAusd: number | undefined;
+  readonly count: number;
+  readonly rescuableCount: number;
+  readonly notRescuableCount: number;
+  readonly unknownCount: number;
+}
+
+/**
+ * The finding taken apart, over one window.
+ *
+ * `bySize` bands liquidations by the notional taken; `bySpareBalance` bands
+ * them by the free AUSD the account held at that moment. Every band carries
+ * the three-way verdict so a reader can see WHERE the rescuable ones sit —
+ * and the median shortfall says what a typical rescue would have cost.
+ */
+export interface LiquidationSummary {
+  readonly timeframe: Timeframe;
+  readonly bySize: readonly LiquidationBand[];
+  readonly bySpareBalance: readonly LiquidationBand[];
+  /** Median `marginToSurvive` over the RESCUABLE cases, or undefined when none. */
+  readonly medianShortfallAusd: number | undefined;
+  /** Over every judgeable case, rescuable or not. */
+  readonly medianShortfallAllAusd: number | undefined;
+}
+
+// ── the Risk section ────────────────────────────────────────────────────────
+
+/** Every open position the index holds, with its owner. The risk snapshot's input. */
+export interface IndexedOpenPosition {
+  readonly accountId: number;
+  readonly position: OpenPosition;
 }
 
 // ── the interface ───────────────────────────────────────────────────────────
@@ -674,4 +841,29 @@ export interface Analytics {
     accountId: number,
     options?: { readonly limit?: number; readonly offset?: number },
   ): Promise<readonly RoundTrip[]>;
+
+  /**
+   * Every account with activity in the window, sorted and paged in SQL.
+   *
+   * `all` reads the lifetime `Trader` rows; a window sums `TraderDay` buckets
+   * and the result says so — see {@link TraderWindow}.
+   */
+  traders(
+    timeframe: Timeframe,
+    options?: { readonly sort?: TraderSortKey; readonly direction?: SortDirection; readonly limit?: number; readonly offset?: number },
+  ): Promise<TraderList>;
+
+  /** One account's UTC days in the window, oldest first. */
+  traderDays(accountId: number, timeframe: Timeframe): Promise<readonly TraderDayPoint[]>;
+
+  /** The liquidation finding banded by size and by spare balance. */
+  liquidationSummary(timeframe: Timeframe): Promise<LiquidationSummary>;
+
+  /**
+   * Every open position in the index, for the protocol-wide risk snapshot.
+   *
+   * Not paged: mainnet holds a few hundred, and a stress test over a page of
+   * them would be a stress test of nothing.
+   */
+  openPositions(): Promise<readonly IndexedOpenPosition[]>;
 }

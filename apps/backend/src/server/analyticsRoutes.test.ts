@@ -11,17 +11,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type {
+  AccountLookup,
   Analytics,
   DailyPoint,
   FundingStats,
+  IndexedOpenPosition,
   IndexerHealth,
   LiquidationRecord,
+  LiquidationSummary,
   MarketBreakdown,
   MarketDailySeries,
   MarketOpenInterest,
   ProtocolMetrics,
+  RiskSnapshot,
   RoundTrip,
   Timeframe,
+  TraderDayPoint,
+  TraderList,
   TvlReading,
   WalletLookup,
   WalletProfile,
@@ -157,6 +163,35 @@ class FakeAnalytics implements Analytics {
     options: { limit?: number; offset?: number } = {},
   ): Promise<readonly RoundTrip[]> {
     this.asked.push(`trips:${accountId}:${options.limit ?? '-'}:${options.offset ?? '-'}`);
+    return [];
+  }
+
+  async traders(timeframe: Timeframe, options: { sort?: string; direction?: string; limit?: number; offset?: number } = {}): Promise<TraderList> {
+    this.asked.push(`traders:${timeframe}:${options.sort ?? '-'}:${options.direction ?? '-'}:${options.limit ?? '-'}:${options.offset ?? '-'}`);
+    return {
+      rows: [],
+      total: 0,
+      window: { timeframe, honoursTimeframe: timeframe === 'all', label: timeframe === 'all' ? 'all time' : 'the 31 UTC days from 2026-08-31 (today so far)', fromMs: undefined, toMs: 0 },
+      sort: 'netPnl',
+      direction: 'desc',
+      limit: options.limit ?? 50,
+      offset: options.offset ?? 0,
+      minRoundTripsForRatios: 10,
+    };
+  }
+
+  async traderDays(accountId: number, timeframe: Timeframe): Promise<readonly TraderDayPoint[]> {
+    this.asked.push(`days:${accountId}:${timeframe}`);
+    return [];
+  }
+
+  async liquidationSummary(timeframe: Timeframe): Promise<LiquidationSummary> {
+    this.asked.push(`summary:${timeframe}`);
+    return { timeframe, bySize: [], bySpareBalance: [], medianShortfallAusd: undefined, medianShortfallAllAusd: undefined };
+  }
+
+  async openPositions(): Promise<readonly IndexedOpenPosition[]> {
+    this.asked.push('open-positions');
     return [];
   }
 }
@@ -449,7 +484,7 @@ test('assessed positions need a venue: 503 without one, the profile\'s rows thro
     address: '', accountId: 10, firstTradeAtMs: undefined, lastActiveAtMs: 1, openPositions: [
       { market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC Perp' }, side: 'long', sizeLots: 0.5, entryPrice: 84_000, marginAusd: 2_800, leverage: 15, openedAtMs: 1, marginAddedAusd: 0 },
     ],
-    performance: { roundTrips: 0, wins: 0, losses: 0, winRate: undefined, profitFactor: undefined, maxDrawdownAusd: 0, longestWinStreak: 0, longestLossStreak: 0, averageHoldMs: undefined, bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined },
+    performance: { roundTrips: 0, wins: 0, losses: 0, winRate: undefined, profitFactor: undefined, minRoundTripsForRatios: 10, maxDrawdownAusd: 0, longestWinStreak: 0, longestLossStreak: 0, averageHoldMs: undefined, bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined },
     rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, spareBalanceAusd: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
     realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0,
   };
@@ -477,4 +512,126 @@ test('without a venue, open interest is a 503 and never the indexer delta in dis
   const response = await instance.inject({ method: 'GET', url: '/api/analytics/open-interest' });
   assert.equal(response.statusCode, 503);
   assert.match(body(response.payload)['error'] as string, /only knows the change/);
+});
+
+// ── the on-chain fallback for a wallet the index cannot link ────────────────
+
+const PROFILE: WalletProfile = {
+  address: '',
+  accountId: 710,
+  firstTradeAtMs: undefined,
+  lastActiveAtMs: 1_790_000_000_000,
+  openPositions: [],
+  performance: {
+    roundTrips: 3, wins: 2, losses: 1, winRate: undefined, profitFactor: undefined, minRoundTripsForRatios: 10,
+    maxDrawdownAusd: 0, longestWinStreak: 2, longestLossStreak: 1, averageHoldMs: undefined,
+    bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined,
+  },
+  rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, spareBalanceAusd: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
+  realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0,
+};
+
+const chain = (answer: AccountLookup) => async (_address: string): Promise<AccountLookup> => answer;
+
+test('an address the index cannot link is asked of the Exchange, and resolves to its profile', async () => {
+  // The fix: 88% of mainnet accounts have no owner recorded, but the contract
+  // knows every one. Same lookup Protect sign-in already uses.
+  const analytics = new FakeAnalytics();
+  analytics.profileValue = PROFILE;
+  const { instance } = app(analytics, { lookupAccountOnChain: chain({ found: true, accountId: 710, address: '0xdead' }) });
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/wallet/0x000000000000000000000000000000000000dead' });
+  assert.equal(response.statusCode, 200);
+  const data = body(response.payload)['data'] as { kind: string; resolvedBy: string; profile: WalletProfile };
+  assert.equal(data.kind, 'found');
+  assert.equal(data.resolvedBy, 'chain', 'the page can say how it got there');
+  assert.equal(data.profile.accountId, 710);
+  assert.equal(data.profile.address, '0xdead', 'the looked-up address fills the empty owner');
+  assert.ok(analytics.asked.includes('account:710'));
+});
+
+test('a chain-resolved account the index has never seen is still not-linked, with the id and why', async () => {
+  const analytics = new FakeAnalytics();
+  analytics.profileValue = undefined;
+  const { instance } = app(analytics, { lookupAccountOnChain: chain({ found: true, accountId: 9999, address: '0xdead' }) });
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/wallet/0x000000000000000000000000000000000000dead' });
+  const data = body(response.payload)['data'] as { kind: string; accountId?: number; reason: string };
+  assert.equal(data.kind, 'not-linked');
+  assert.equal(data.accountId, 9999);
+  assert.match(data.reason, /resolves .* to account 9999/);
+  assert.match(data.reason, /no activity/);
+});
+
+test('a chain miss keeps the index answer and appends what the contract said', async () => {
+  const { instance } = app(new FakeAnalytics(), { lookupAccountOnChain: chain({ found: false, address: '0xdead', reason: 'this wallet has no account on the Exchange' }) });
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/wallet/0x000000000000000000000000000000000000dead' });
+  const data = body(response.payload)['data'] as { kind: string; reason: string };
+  assert.equal(data.kind, 'not-linked');
+  assert.match(data.reason, /no account in the index/);
+  assert.match(data.reason, /Exchange contract was asked too: this wallet has no account/);
+});
+
+test('an index hit never asks the chain', async () => {
+  const analytics = new FakeAnalytics();
+  analytics.walletValue = { kind: 'found', profile: PROFILE, resolvedBy: 'index' };
+  let asked = 0;
+  const { instance } = app(analytics, { lookupAccountOnChain: async () => { asked += 1; return { found: false, address: 'x', reason: 'no' }; } });
+  await instance.inject({ method: 'GET', url: '/api/analytics/wallet/0x000000000000000000000000000000000000dead' });
+  assert.equal(asked, 0);
+});
+
+// ── the Traders section ─────────────────────────────────────────────────────
+
+test('the traders list passes sort, direction and paging through, and validates them', async () => {
+  const { instance, analytics } = app();
+  const ok = await instance.inject({ method: 'GET', url: '/api/analytics/traders?timeframe=7d&sort=volume&direction=asc&limit=25&offset=50' });
+  assert.equal(ok.statusCode, 200);
+  assert.ok(analytics.asked.includes('traders:7d:volume:asc:25:50'));
+  const data = body(ok.payload)['data'] as TraderList;
+  assert.equal(data.window.honoursTimeframe, false, 'a window comes from day buckets and says so');
+  assert.equal(data.minRoundTripsForRatios, 10);
+
+  for (const bad of ['sort=pnl', 'direction=up', 'timeframe=1h']) {
+    const response = await instance.inject({ method: 'GET', url: `/api/analytics/traders?${bad}` });
+    assert.equal(response.statusCode, 400, bad);
+  }
+  assert.equal(analytics.asked.filter((a) => a.startsWith('traders:')).length, 1, 'a rejected query is never run');
+});
+
+test('an account’s days take the timeframe and validate the id', async () => {
+  const { instance, analytics } = app();
+  const ok = await instance.inject({ method: 'GET', url: '/api/analytics/account/710/days?timeframe=30d' });
+  assert.equal(ok.statusCode, 200);
+  assert.ok(analytics.asked.includes('days:710:30d'));
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/account/x/days' })).statusCode, 400);
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/account/710/days?timeframe=1h' })).statusCode, 400);
+});
+
+test('the liquidation summary is timeframed like the list', async () => {
+  const { instance, analytics } = app();
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/liquidations/summary?timeframe=all' })).statusCode, 200);
+  assert.ok(analytics.asked.includes('summary:all'));
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/liquidations/summary?timeframe=1h' })).statusCode, 400);
+});
+
+// ── the Risk section ────────────────────────────────────────────────────────
+
+test('risk is a 503 without a venue, and the snapshot in the envelope with one', async () => {
+  const none = app();
+  const refused = await none.instance.inject({ method: 'GET', url: '/api/analytics/risk' });
+  assert.equal(refused.statusCode, 503);
+  assert.match(String(body(refused.payload)['error']), /no venue/);
+
+  const snapshot = {
+    asOf: { indexerBlock: 109_000_000, marksAtMs: 1, insuranceAtMs: 1, generatedAtMs: 2 },
+    moves: [], counted: { positions: 0, priced: 0, unpriced: 0, unpricedReasons: {}, markets: 0 },
+    totals: { notionalAusd: 0, longNotionalAusd: 0, shortNotionalAusd: 0, marginAusd: 0, unrealisedPnlAusd: 0 },
+    insurance: { totalAusd: undefined, marketsWithReading: 0, marketsWithout: 0 },
+    ladder: [], atRisk: {}, weakestCover: undefined, markets: [], positions: [], statements: ['static'],
+  } satisfies RiskSnapshot;
+  const { instance } = app(new FakeAnalytics(), { riskSnapshot: async () => snapshot });
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/risk' });
+  assert.equal(response.statusCode, 200);
+  const payload = body(response.payload);
+  assert.ok('health' in payload, 'the envelope, like every route');
+  assert.equal((payload['data'] as RiskSnapshot).asOf.indexerBlock, 109_000_000);
 });

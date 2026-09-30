@@ -23,12 +23,18 @@
 import type { FastifyInstance } from 'fastify';
 import {
   TIMEFRAMES,
+  TRADER_SORT_KEYS,
+  type AccountLookup,
   type Analytics,
   type AssessedPositions,
   type IndexerHealth,
   type OpenPosition,
   type MarketOpenInterest,
+  type RiskSnapshot,
+  type SortDirection,
   type Timeframe,
+  type TraderSortKey,
+  type WalletLookup,
 } from '@perpguard/shared';
 
 export interface AnalyticsRouteOptions {
@@ -48,6 +54,22 @@ export interface AnalyticsRouteOptions {
    * absent the route says so rather than serving positions with invented marks.
    */
   readonly assessPositions?: (positions: readonly OpenPosition[]) => Promise<AssessedPositions>;
+  /**
+   * Wallet -> account id off the Exchange contract, on the analytics network.
+   *
+   * THE SAME LOOKUP PROTECT SIGN-IN USES. The index only links a wallet to an
+   * account when it saw `AccountCreated`, which is 12% of mainnet accounts; the
+   * chain knows every one. When the index says not-linked, this is asked before
+   * the page is told so. Absent means the index is the only source.
+   */
+  readonly lookupAccountOnChain?: (address: string) => Promise<AccountLookup>;
+  /**
+   * The protocol-wide risk snapshot: every open position under a price shock,
+   * with the venue's marks and the chain's insurance balances. A point-in-time
+   * read, so it takes no timeframe and carries the block it came from. Absent
+   * when no venue is wired on the analytics network.
+   */
+  readonly riskSnapshot?: () => Promise<RiskSnapshot>;
   /** Mounted under this prefix. */
   readonly prefix?: string;
 }
@@ -271,8 +293,40 @@ export function registerAnalyticsRoutes(
     // Case-insensitive, per CLAUDE.md: a checksummed address pasted from an
     // explorer must resolve, and the failure would otherwise be invisible because
     // "not linked" is the ordinary answer.
-    return envelope(await analytics.wallet(address));
+    return envelope(await resolveWallet(address));
   });
+
+  /**
+   * The index first, the chain second.
+   *
+   * An address the index cannot link is asked of the Exchange itself, which
+   * resolves every account regardless of when it was created. A chain answer
+   * that names an account the index holds is a profile, marked `chain` so the
+   * page can say how it got there; one the index has never seen is still
+   * not-linked, but now with the account id and a reason that says why.
+   */
+  async function resolveWallet(address: string): Promise<WalletLookup> {
+    const indexed = await analytics.wallet(address);
+    if (indexed.kind === 'found' || options.lookupAccountOnChain === undefined) return indexed;
+    const chain = await options.lookupAccountOnChain(address);
+    if (!chain.found) {
+      return { ...indexed, reason: `${indexed.reason} The Exchange contract was asked too: ${chain.reason}.` };
+    }
+    const profile = await analytics.walletByAccountId(chain.accountId);
+    if (profile === undefined) {
+      return {
+        kind: 'not-linked',
+        address: indexed.address,
+        accountId: chain.accountId,
+        reason:
+          `the Exchange contract resolves ${indexed.address} to account ${chain.accountId}, but the index holds no ` +
+          `activity for that account since its start block. It exists; it has not traded in the indexed window.`,
+      };
+    }
+    // The index never recorded the owner, so the profile's address is empty;
+    // the chain just said whose it is, and the page should be able to say so.
+    return { kind: 'found', profile: { ...profile, address: profile.address === '' ? indexed.address : profile.address }, resolvedBy: 'chain' };
+  }
 
   /** A wallet by account id — the handle that works when the owner is unrecorded. */
   scope.get<{ Params: { accountId: string } }>(
@@ -339,6 +393,69 @@ export function registerAnalyticsRoutes(
     },
   );
 
+  /**
+   * The Traders list: sorted and paged in SQL. Sort keys are whitelisted here
+   * AND in the reader; a typo is a 400, never a default, for the same reason a
+   * bad timeframe is.
+   */
+  scope.get<{ Querystring: { timeframe?: string; sort?: string; direction?: string; limit?: string; offset?: string } }>(
+    `${prefix}/traders`,
+    async (request, reply) => {
+      const timeframe = timeframeOf(request.query);
+      if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+      const { sort, direction } = request.query;
+      if (sort !== undefined && !(TRADER_SORT_KEYS as readonly string[]).includes(sort)) {
+        return reply.code(400).send({ error: `unknown sort ${JSON.stringify(sort)}. Use one of ${TRADER_SORT_KEYS.join(', ')}.` });
+      }
+      if (direction !== undefined && direction !== 'asc' && direction !== 'desc') {
+        return reply.code(400).send({ error: `unknown direction ${JSON.stringify(direction)}. Use asc or desc.` });
+      }
+      const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+      const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
+      return envelope(
+        await analytics.traders(timeframe, {
+          ...(sort === undefined ? {} : { sort: sort as TraderSortKey }),
+          ...(direction === undefined ? {} : { direction: direction as SortDirection }),
+          ...(limit === undefined || !Number.isFinite(limit) ? {} : { limit }),
+          ...(offset === undefined || !Number.isFinite(offset) ? {} : { offset }),
+        }),
+      );
+    },
+  );
+
+  /** One account's UTC days in the window: daily PnL, volume, wins, flows. */
+  scope.get<{ Params: { accountId: string }; Querystring: { timeframe?: string } }>(`${prefix}/account/:accountId/days`, async (request, reply) => {
+    const accountId = Number(request.params.accountId);
+    if (!Number.isSafeInteger(accountId) || accountId < 0) {
+      return reply.code(400).send({ error: `${JSON.stringify(request.params.accountId)} is not an account id` });
+    }
+    const timeframe = timeframeOf(request.query);
+    if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+    return envelope(await analytics.traderDays(accountId, timeframe));
+  });
+
+  /** The finding banded by size and by spare balance. */
+  scope.get(`${prefix}/liquidations/summary`, async (request, reply) => {
+    const timeframe = timeframeOf(request.query);
+    if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+    return envelope(await analytics.liquidationSummary(timeframe));
+  });
+
+  /**
+   * Protocol-wide liquidation exposure. NO TIMEFRAME: it is contract state at
+   * one block, and the payload says which. A 503 without a venue, because a
+   * stress test with no marks is not this route.
+   */
+  scope.get(`${prefix}/risk`, async (_request, reply) => {
+    const read = options.riskSnapshot;
+    if (read === undefined) {
+      return reply.code(503).send({
+        error: 'no venue is wired on the analytics network, so open positions cannot be priced and there is no exposure to report.',
+      });
+    }
+    return envelope(await read());
+  });
+
   /** What is here, for a human who typed the prefix. */
   scope.get(prefix, async () => ({
     service: 'perpguard-analytics',
@@ -355,10 +472,14 @@ export function registerAnalyticsRoutes(
       `${prefix}/markets?timeframe=24h`,
       `${prefix}/funding?timeframe=30d`,
       `${prefix}/liquidations?timeframe=30d&limit=50&offset=0`,
+      `${prefix}/liquidations/summary?timeframe=30d`,
+      `${prefix}/traders?timeframe=30d&sort=netPnl&direction=desc&limit=50&offset=0`,
       `${prefix}/wallet/:address`,
       `${prefix}/account/:accountId`,
       `${prefix}/account/:accountId/positions`,
       `${prefix}/account/:accountId/round-trips?limit=50&offset=0`,
+      `${prefix}/account/:accountId/days?timeframe=30d`,
+      `${prefix}/risk`,
     ],
   }));
   });

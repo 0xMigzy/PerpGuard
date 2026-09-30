@@ -619,3 +619,136 @@ test('an unrecognised forced-exit kind throws rather than being filed under a gu
   ]);
   await assert.rejects(reader(sql).liquidations('24h'), /unrecognised forced exit kind/);
 });
+
+// ── the Traders section ─────────────────────────────────────────────────────
+
+test('all-time traders read the lifetime Trader rows; a window sums TraderDay buckets from a DAY boundary', async () => {
+  // "This is plumbing, not new maths": the indexer already wrote both tables.
+  // A window has no finer grain than a bucket, so it is served day-aligned and
+  // the payload says so rather than borrowing the rolling label.
+  const all = new FakeSql();
+  const lifetime = await reader(all).traders('all');
+  assert.equal(all.touching('TraderDay').length, 0);
+  assert.equal(all.touching('Trader').length, 1);
+  assert.equal(lifetime.window.honoursTimeframe, true);
+  assert.equal(lifetime.window.label, 'all time');
+
+  const week = new FakeSql();
+  const windowed = await reader(week).traders('7d');
+  const query = week.touching('TraderDay')[0]!;
+  assert.match(query.sql, /sum\("netPnlCNS"\)/);
+  assert.match(query.sql, /sum\(wins \+ losses\)\s+as round_trips/, 'a round trip is a win or a loss');
+  assert.equal(query.values[2], '2026-09-23T00:00:00.000Z', 'aligned down to midnight');
+  assert.equal(windowed.window.honoursTimeframe, false);
+  assert.equal(windowed.window.label, 'the 8 UTC days from 2026-09-23 (today so far)');
+});
+
+test('trader sort keys are whitelisted into the SQL and the direction is never interpolated raw', async () => {
+  const sql = new FakeSql();
+  await reader(sql).traders('all', { sort: 'winRate', direction: 'asc', limit: 25, offset: 50 });
+  const query = sql.touching('Trader')[0]!;
+  assert.match(query.sql, /order by win_rate asc nulls last/);
+  assert.deepEqual(query.values, [25, 50]);
+  // An unknown key falls back to the default rather than reaching the text.
+  const bad = new FakeSql();
+  await reader(bad).traders('all', { sort: 'id; drop table' as never, direction: 'sideways' as never });
+  assert.match(bad.touching('Trader')[0]!.sql, /order by net_pnl desc nulls last/);
+  assert.doesNotMatch(bad.touching('Trader')[0]!.sql, /drop table/);
+});
+
+test('a trader row withholds the win rate under the floor and keeps the counts', async () => {
+  const sql = new FakeSql().on(/from "Trader"/, [
+    { id: '710', owner: '0xABC', free_balance: '1000000', open_positions: 1, last_active: new Date('2026-09-30T00:00:00Z'), net_pnl: '5000000', volume: '9000000', trades: 4, round_trips: 3, wins: 2, losses: 1, win_rate: null, liquidations: 0, rescuable: 0, total: '1' },
+    { id: '711', owner: '', free_balance: '0', open_positions: 0, last_active: new Date('2026-09-30T00:00:00Z'), net_pnl: '0', volume: '0', trades: 40, round_trips: 20, wins: 10, losses: 10, win_rate: 0.5, liquidations: 2, rescuable: 1, total: '1' },
+  ]);
+  const list = await reader(sql).traders('all');
+  assert.equal(list.rows[0]!.winRate, undefined, 'three trades and two wins is not a rate');
+  assert.equal(list.rows[0]!.wins, 2);
+  assert.equal(list.rows[0]!.address, '0xabc', 'lowercased');
+  assert.equal(list.rows[1]!.winRate, 0.5);
+  assert.equal(list.minRoundTripsForRatios, 10);
+});
+
+test('a profile under the floor withholds both ratios and says which floor', async () => {
+  const sql = new FakeSql().on(/from "Trader" where id/, [
+    { id: '710', accountId: '710', owner: '', firstTradeAt: null, lastActiveAt: new Date('2026-09-30T00:00:00Z'), realizedPnlCNS: '0', fundingCNS: '0', feesPaidCNS: '0', netPnlCNS: '0', volumeCNS: '0', tradeCount: 3, roundTrips: 3, wins: 3, losses: 0, bestRoundTripCNS: '0', worstRoundTripCNS: '0', liquidationCount: 0, rescuableLiquidationCount: 0, liquidationsWithSpareBalanceCount: 0, spareBalanceAtLiquidationCNS: '0' },
+  ]);
+  const profile = (await reader(sql).walletByAccountId(710))!;
+  assert.equal(profile.performance.winRate, undefined);
+  assert.equal(profile.performance.profitFactor, undefined);
+  assert.equal(profile.performance.minRoundTripsForRatios, 10);
+  assert.equal(profile.performance.wins, 3, 'the history is still served in full');
+});
+
+test('trader days read TraderDay for the account, day-aligned, oldest first', async () => {
+  const sql = new FakeSql().on(/from "TraderDay"/, [
+    { day: new Date('2026-09-29T00:00:00Z'), volume: '1000000', trades: 2, realised: '500000', funding: '-1000', fees: '2000', net_pnl: '497000', wins: 1, losses: 1, liquidations: 0, rescuable: 0, margin_added: '0', margin_removed: '0', deposited: '0', withdrawn: '0', end_free: '3000000' },
+  ]);
+  const days = await reader(sql).traderDays(710, '7d');
+  const query = sql.touching('TraderDay')[0]!;
+  assert.deepEqual(query.values, ['710', '2026-09-23T00:00:00.000Z']);
+  assert.match(query.sql, /order by day asc/);
+  assert.equal(days[0]!.netPnlAusd, 0.497);
+  assert.equal(days[0]!.endFreeBalanceAusd, 3);
+});
+
+// ── the Liquidations section ────────────────────────────────────────────────
+
+test('the liquidation summary bands the rolling window and reports EVERY band, empty ones included', async () => {
+  const sql = new FakeSql()
+    .on(/width_bucket/, [
+      { size_band: 1, spare_band: 4, total: '3', rescuable: '2', not_rescuable: '1', unknown: '0' },
+      { size_band: 4, spare_band: 0, total: '1', rescuable: '0', not_rescuable: '0', unknown: '1' },
+    ])
+    .on(/median_rescuable/, [{ median_rescuable: '412500000', median_all: '900000000' }]);
+  const summary = await reader(sql).liquidationSummary('30d');
+  const bands = sql.calls.find((c) => /width_bucket/.test(c.sql))!;
+  assert.equal(bands.values[0], '2026-08-31T05:04:14.000Z', 'the rolling instant, like every other window');
+  assert.deepEqual(bands.values[2], ['100000000', '1000000000', '10000000000', '100000000000'], 'edges in micros from the Exchange decimals');
+  assert.equal(summary.bySize.length, 5);
+  assert.equal(summary.bySize[1]!.label, '100 – 1K');
+  assert.equal(summary.bySize[1]!.count, 3);
+  assert.equal(summary.bySize[1]!.rescuableCount, 2);
+  assert.equal(summary.bySize[4]!.label, '≥ 100K');
+  assert.equal(summary.bySize[4]!.unknownCount, 1);
+  assert.equal(summary.bySize[2]!.count, 0, 'an empty band is present with zeros');
+  assert.equal(summary.bySpareBalance[0]!.label, '< 1');
+  assert.equal(summary.bySpareBalance[0]!.count, 1);
+  assert.equal(summary.bySpareBalance[4]!.count, 3);
+  assert.equal(summary.medianShortfallAusd, 412.5);
+  assert.equal(summary.medianShortfallAllAusd, 900);
+});
+
+test('every open position is read with its owner, scaled by its market, unknown entries kept as holes', async () => {
+  const sql = new FakeSql().on(/where p.status = 'OPEN'\s+order by/, [
+    { account: '710', id: 1, name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5, side: 'LONG', lotLNS: '50000', entryPricePNS: '840295', entryPriceKnown: true, depositCNS: '2810330000', leverageHdths: '1500', openedAt: new Date('2026-09-30T00:00:00Z'), marginAddedCNS: '0' },
+    { account: '711', id: 31, name: 'SOL_v2', priceDecimals: 3, lotDecimals: 3, side: 'SHORT', lotLNS: '2000', entryPricePNS: '0', entryPriceKnown: false, depositCNS: '100000000', leverageHdths: '500', openedAt: new Date('2026-09-30T00:00:00Z'), marginAddedCNS: '0' },
+  ]);
+  const positions = await reader(sql).openPositions();
+  assert.equal(positions.length, 2);
+  assert.equal(positions[0]!.accountId, 710);
+  assert.equal(positions[0]!.position.sizeLots, 0.5);
+  assert.equal(positions[0]!.position.entryPrice, 84_029.5);
+  assert.equal(positions[0]!.position.marginAusd, 2_810.33);
+  assert.equal(positions[1]!.position.market.symbol, 'SOL', 'resolved by id, not by the chain name');
+  assert.equal(positions[1]!.position.entryPrice, undefined);
+  assert.equal(positions[1]!.position.side, 'short');
+});
+
+test('per-market fees are maker PLUS taker from day buckets, with the same label as the protocol figure', async () => {
+  // One definition, both places (CLAUDE.md). The maker half stays exact under its own name.
+  const sql = new FakeSql().on(/from "Market" m/, [
+    { id: 1, name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5, markPricePNS: '800000', lastFundingRatePct100k: '4', oi_delta: '0', open_positions: '2', volume: '1000000000', maker_fees: '300000', trades: '10', fees: '1000000', fee_days: '7', fee_from_day: new Date('2026-09-24T00:00:00Z'), liquidations: '0', rescuable: '0', longs: '1', shorts: '1', long_lots: '100000', short_lots: '50000' },
+  ]);
+  const [btc] = await reader(sql).marketBreakdown('7d');
+  const query = sql.touching('Market')[0]!;
+  assert.equal(query.values[0], '2026-09-23T05:04:14.000Z', 'rolling for volume');
+  assert.equal(query.values[1], '2026-09-23T00:00:00.000Z', 'a day boundary for fees');
+  assert.equal(btc!.fees.totalAusd, 1);
+  assert.equal(btc!.fees.label, 'the 7 UTC days from 2026-09-24 (today so far)');
+  assert.equal(btc!.makerFeesAusd, 0.3);
+  // Skew by notional at the indexed mark: 1 BTC long, 0.5 BTC short at 80,000.
+  assert.equal(btc!.longNotionalAusd, 80_000);
+  assert.equal(btc!.shortNotionalAusd, 40_000);
+  assert.ok(Math.abs(btc!.longShareOfNotional! - 2 / 3) < 1e-12);
+});
