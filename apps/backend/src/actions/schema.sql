@@ -38,7 +38,9 @@ create table if not exists action_log (
 
   -- `lp` on the wire. Never null on a sent action: isolated margin means the
   -- action names one position, and one with no id is refused before it is sent.
-  position_id       integer,
+  -- BIGINT: a testnet pid is 4386927738881, past int32, and the first web
+  -- top-up was refused by Postgres on exactly that before anything was sent.
+  position_id       bigint,
 
   -- Which network this action went to. Analytics reads mainnet and actions run on
   -- testnet, so a row without this cannot be read safely a month later.
@@ -79,6 +81,9 @@ create table if not exists action_log (
     (settled_at is not null and outcome is not null and detail is not null)
   )
 );
+
+-- Widen a table created before position_id was bigint. A no-op once it is.
+alter table action_log alter column position_id type bigint;
 
 -- "What has been sent to this position, and when" — the read behind the UI's
 -- per-position action history and behind any reconciliation by hand.

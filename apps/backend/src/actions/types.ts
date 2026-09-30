@@ -150,7 +150,15 @@ export type RefusalCode =
   /** The command itself is not sendable — a non-positive amount, say. */
   | 'invalid-command'
   /** The venue has no implementation for this action yet. */
-  | 'not-implemented';
+  | 'not-implemented'
+  /**
+   * The `action_log` row could not be opened, so the send did not happen.
+   *
+   * The row is written BEFORE the send so an action nobody can account for can
+   * be found afterwards; an action with no row would be exactly that action.
+   * Refused, and certain: nothing reached the venue.
+   */
+  | 'not-recorded';
 
 interface OutcomeBase {
   readonly command: ActionCommand;

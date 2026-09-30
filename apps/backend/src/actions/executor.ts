@@ -264,19 +264,33 @@ export class ActionsExecutor {
     const before = field === 'margin' ? position.marginCNS : position.sizeLNS;
     const requested = requestedAmount(command, position);
 
-    await this.#log.open({
-      idempotencyKey: command.idempotencyKey,
-      userId: command.userId,
-      kind: command.kind,
-      marketId: command.marketId,
-      symbol: command.symbol,
-      positionId: command.positionId,
-      network: this.#venue.network.name,
-      field,
-      requested,
-      before,
-      openedAtMs: this.#now(),
-    });
+    try {
+      await this.#log.open({
+        idempotencyKey: command.idempotencyKey,
+        userId: command.userId,
+        kind: command.kind,
+        marketId: command.marketId,
+        symbol: command.symbol,
+        positionId: command.positionId,
+        network: this.#venue.network.name,
+        field,
+        requested,
+        before,
+        openedAtMs: this.#now(),
+      });
+    } catch (error) {
+      // BEFORE THE SEND, so this is a certain refusal rather than an unknown:
+      // nothing reached the venue. Found live: Postgres rejected a testnet pid
+      // that exceeds int32, and a throw here surfaced as "unknown" to a user
+      // whose margin had not moved at all.
+      return this.#refuse(
+        command,
+        'not-recorded',
+        `the action_log row could not be opened (${message(error)}), so nothing was sent. The ` +
+          `row is written before the send so an unaccounted-for action can be found; without it ` +
+          `the send is refused.`,
+      );
+    }
 
     this.#onProgress?.({ idempotencyKey: command.idempotencyKey, stage: 'sending' });
     const sent = await this.#send(command, position);

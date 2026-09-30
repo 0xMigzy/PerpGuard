@@ -671,3 +671,33 @@ test('no outcome, on any path, produces more than one send', async () => {
     );
   }
 });
+
+// ── the log row comes first, or nothing is sent ─────────────────────────────
+
+test('a log row that cannot be opened REFUSES the action; nothing reaches the venue', async () => {
+  // Found live: Postgres rejected a testnet pid past int32 and the throw
+  // surfaced as "unknown" for a top-up that was never sent.
+  const h = harness();
+  const executor = new ActionsExecutor({
+    venue: h.venue,
+    positions: h.positions,
+    prices: h.prices,
+    log: {
+      async open() {
+        throw new Error('value "4386927738881" is out of range for type integer');
+      },
+      async settle() {},
+    },
+    inFlight: h.inFlight,
+    logger: h.logger,
+    settleTimeoutMs: 25,
+  });
+  const outcome = await executor.execute(topUp({ positionId: 4_386_927_738_881 }));
+  assert.equal(outcome.kind, 'refused');
+  assert.ok(outcome.kind === 'refused');
+  assert.equal(outcome.code, 'not-recorded');
+  assert.match(outcome.detail, /out of range/);
+  assert.match(outcome.detail, /nothing was sent/);
+  assert.equal(h.venue.sends.length, 0, 'certain: the send never happened');
+  assert.equal(h.inFlight.held(MARKET), undefined, 'the lease is released');
+});

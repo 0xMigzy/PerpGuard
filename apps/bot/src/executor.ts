@@ -187,6 +187,8 @@ function refusedText(outcome: Extract<ActionOutcome, { kind: 'refused' }>): stri
       return `Not sent: ${outcome.detail}`;
     case 'not-implemented':
       return `Not sent: ${outcome.detail}`;
+    case 'not-recorded':
+      return `Not sent: ${outcome.detail}`;
     case 'invalid-command':
       return `Not sent: ${outcome.detail}`;
   }
