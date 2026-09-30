@@ -136,3 +136,19 @@ export function blocksToApproxMs(blocks: number): number {
 export function shortAddress(address: string): string {
   return address.length <= 12 ? address : `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
+
+/**
+ * A price at the precision the API SERVED it, up to six places. The market's
+ * own price decimals are not on the analytics payloads, and the float the API
+ * sends already carries them (83225.3, 0.026889), so rendering the digits it
+ * has is the honest choice; padding would invent precision.
+ */
+export function formatPriceAsServed(value: number): string {
+  return value.toLocaleString(EN, { maximumFractionDigits: 6 });
+}
+
+/** A funding rate in PERCENT units, signed, to six places: real values are that small. */
+export function formatFundingPct(pct: number): string {
+  const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
+  return `${sign}${Math.abs(pct).toLocaleString(EN, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}%`;
+}

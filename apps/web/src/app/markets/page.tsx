@@ -1,7 +1,13 @@
-import { ComingNext } from '@/components/ComingNext.tsx';
+import { Suspense } from 'react';
+import { MarketsView } from './MarketsView.tsx';
 
 export const metadata = { title: 'Markets' };
 
-export default function Page() {
-  return <ComingNext title="Markets" subtitle="Every live Perpl market: mark, open interest, funding, liquidations, and a risk score you can decompose." />;
+export default function MarketsPage() {
+  // Suspense: the view reads the URL's search params on the client.
+  return (
+    <Suspense fallback={null}>
+      <MarketsView />
+    </Suspense>
+  );
 }
