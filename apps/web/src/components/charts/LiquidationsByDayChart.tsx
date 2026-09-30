@@ -14,7 +14,7 @@ export function LiquidationsByDayChart({ days }: { readonly days: readonly Liqui
   return (
     <div>
       <div className="flex flex-wrap gap-[14px] text-[12px] text-muted">
-        <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: COLORS.watch }} />{RESCUABLE}</span>
+        <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: COLORS.accentHi }} />{RESCUABLE}</span>
         <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: OTHER_SERIES }} />{OTHER}</span>
       </div>
       <div className="mt-2 h-[240px] w-full">
@@ -32,7 +32,7 @@ export function LiquidationsByDayChart({ days }: { readonly days: readonly Liqui
                   <ChartTooltip
                     title={formatDayLong(Number(label))}
                     rows={[
-                      { swatch: COLORS.watch, label: RESCUABLE, value: formatCount(row.rescuable) },
+                      { swatch: COLORS.accentHi, label: RESCUABLE, value: formatCount(row.rescuable) },
                       { swatch: OTHER_SERIES, label: OTHER, value: formatCount(row.other) },
                       { label: 'Total', value: formatCount(row.total) },
                     ]}
@@ -41,7 +41,7 @@ export function LiquidationsByDayChart({ days }: { readonly days: readonly Liqui
               }}
             />
             <Bar dataKey="other" stackId="liq" fill={OTHER_SERIES} stroke={COLORS.card} strokeWidth={1} maxBarSize={24} isAnimationActive={false} />
-            <Bar dataKey="rescuable" stackId="liq" fill={COLORS.watch} stroke={COLORS.card} strokeWidth={1} maxBarSize={24} isAnimationActive={false} />
+            <Bar dataKey="rescuable" stackId="liq" fill={COLORS.accentHi} stroke={COLORS.card} strokeWidth={1} maxBarSize={24} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>

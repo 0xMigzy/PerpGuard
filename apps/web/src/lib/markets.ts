@@ -147,6 +147,42 @@ export function riskScore(inputs: RiskInputs): RiskScore {
   return { score, tier: score < 35 ? 'safe' : score < 65 ? 'watch' : 'danger', components };
 }
 
+// ── the risk tag ────────────────────────────────────────────────────────────
+
+/** One side holding more than this of a market's open notional is crowded. */
+export const CROWDED_SHARE = 0.7;
+
+export interface RiskTag {
+  readonly label: 'Normal' | 'Elevated' | 'High' | 'Crowded long' | 'Crowded short';
+  readonly tone: 'ok' | 'watch' | 'danger';
+  /** Why, fit to render on hover. */
+  readonly detail: string;
+}
+
+/**
+ * The one-word verdict a row shows.
+ *
+ * CROWDED means one side holds more than 70% of open notional AND funding is
+ * paying that side to stay in — positive with a long crowd, negative with a
+ * short crowd. That is the side with the most to lose from a move against it,
+ * and it is a risk signal, not a trade signal. Otherwise the tag is the
+ * composite score's tier. The rule is stated on the page.
+ */
+export function riskTag(score: RiskScore, longShare: number | undefined, fundingPct: number | undefined): RiskTag {
+  if (longShare !== undefined && fundingPct !== undefined) {
+    if (longShare > CROWDED_SHARE && fundingPct > 0) {
+      return { label: 'Crowded long', tone: 'danger', detail: `${pct(longShare, 0)} of open notional is long and funding is positive: longs pay to stay in` };
+    }
+    if (1 - longShare > CROWDED_SHARE && fundingPct < 0) {
+      return { label: 'Crowded short', tone: 'danger', detail: `${pct(1 - longShare, 0)} of open notional is short and funding is negative: shorts pay to stay in` };
+    }
+  }
+  const detail = `composite ${score.score} of 100`;
+  if (score.tier === 'danger') return { label: 'High', tone: 'danger', detail };
+  if (score.tier === 'watch') return { label: 'Elevated', tone: 'watch', detail };
+  return { label: 'Normal', tone: 'ok', detail };
+}
+
 // ── the rows ────────────────────────────────────────────────────────────────
 
 export interface MarketRow {
@@ -173,10 +209,15 @@ export interface MarketRow {
   readonly longPositions: number;
   readonly shortPositions: number;
   readonly longShare: number | undefined;
+  /** By open notional at the indexed mark: the skew a reader wants. Falls back to nothing, never to the headcount. */
+  readonly longNotionalAusd: number | undefined;
+  readonly shortNotionalAusd: number | undefined;
+  readonly longShareOfNotional: number | undefined;
   readonly fundingPct: number | undefined;
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
   readonly risk: RiskScore;
+  readonly tag: RiskTag;
 }
 
 export interface MarketTable {
@@ -220,6 +261,13 @@ export function buildMarketTable(
     const dailyRanges = points
       .filter((p) => p.markHigh !== undefined && p.markLow !== undefined && p.markClose !== undefined && p.markClose > 0)
       .map((p) => (p.markHigh! - p.markLow!) / p.markClose!);
+    const risk = riskScore({
+      dailyRanges,
+      liquidationCount: m.liquidationCount,
+      openPositions: m.openPositions,
+      longShare: m.longShareOfPositions,
+      fundingPct: m.lastFundingRatePct,
+    });
 
     rows.push({
       marketId: m.market.marketId,
@@ -240,16 +288,14 @@ export function buildMarketTable(
       longPositions: m.longPositions,
       shortPositions: m.shortPositions,
       longShare: m.longShareOfPositions,
+      longNotionalAusd: m.longNotionalAusd,
+      shortNotionalAusd: m.shortNotionalAusd,
+      longShareOfNotional: m.longShareOfNotional,
       fundingPct: m.lastFundingRatePct,
       liquidationCount: m.liquidationCount,
       rescuableLiquidationCount: m.rescuableLiquidationCount,
-      risk: riskScore({
-        dailyRanges,
-        liquidationCount: m.liquidationCount,
-        openPositions: m.openPositions,
-        longShare: m.longShareOfPositions,
-        fundingPct: m.lastFundingRatePct,
-      }),
+      risk,
+      tag: riskTag(risk, m.longShareOfNotional, m.lastFundingRatePct),
     });
   }
   return { rows, excluded };
@@ -265,6 +311,7 @@ export type SortKey =
   | 'tradeCount'
   | 'openInterestNotional'
   | 'longShare'
+  | 'longShareOfNotional'
   | 'fundingPct'
   | 'liquidationCount'
   | 'risk';

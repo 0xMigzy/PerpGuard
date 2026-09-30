@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MarketBreakdown, MarketDailySeries, MarketOpenInterest } from '@perpguard/shared';
-import { RISK_WEIGHT, buildMarketTable, markWindow, riskScore, sortRows } from './markets.ts';
+import { RISK_WEIGHT, buildMarketTable, markWindow, riskScore, riskTag, sortRows } from './markets.ts';
 
 const day = (n: number) => Date.parse('2026-09-01T00:00:00Z') + n * 86_400_000;
 
@@ -135,4 +135,16 @@ test('the mark window for 24h is one bucket and says it is not 24h', () => {
   assert.deepEqual(markWindow('24h'), { fetch: '7d', showDays: 1, label: 'since 00:00 UTC', warn: true });
   assert.equal(markWindow('7d').showDays, 8);
   assert.equal(markWindow('all').showDays, undefined);
+});
+
+test('the tag says crowded only when one side holds over 70% AND funding pays that side', () => {
+  const calm = riskScore({ dailyRanges: [], liquidationCount: 0, openPositions: 10, longShare: 0.5, fundingPct: undefined });
+  assert.equal(riskTag(calm, 0.8, 0.00001).label, 'Crowded long');
+  assert.equal(riskTag(calm, 0.8, -0.00001).label, 'Normal', 'longs are being paid, not paying');
+  assert.equal(riskTag(calm, 0.2, -0.00001).label, 'Crowded short');
+  assert.equal(riskTag(calm, 0.7, 0.00001).label, 'Normal', 'exactly 70% is not over it');
+  assert.equal(riskTag(calm, undefined, 0.00001).label, 'Normal', 'no notional, no crowd');
+  const hot = riskScore({ dailyRanges: [0.2], liquidationCount: 10, openPositions: 10, longShare: 0.5, fundingPct: 0.001 });
+  assert.equal(riskTag(hot, 0.5, 0.001).label, 'High');
+  assert.equal(riskTag(hot, 0.5, 0.001).tone, 'danger');
 });

@@ -3,22 +3,14 @@
 import { useMemo } from 'react';
 import type { MarketBreakdown } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import {
-  formatAge,
-  formatAusd,
-  formatAusdExact,
-  formatCompact,
-  formatCount,
-  formatPct,
-  formatSignedAusd,
-} from '@/lib/format.ts';
+import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd } from '@/lib/format.ts';
 import { deltaOf, deltaVsPrevious, lastDays, stackByMarket, tvlBefore, tvlHistory } from '@/lib/overview.ts';
 import { PERIOD_LABEL, chartWindow } from '@/lib/timeframe.ts';
-import { COLORS } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
+import { SkewBar } from '@/components/SkewBar.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
@@ -27,6 +19,26 @@ import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx
 
 const POLL_MS = 30_000;
 
+/** Long and short notional across every listed market, at the indexed mark. */
+function skewOf(markets: readonly MarketBreakdown[] | undefined): { readonly long: number; readonly short: number; readonly markets: number } | undefined {
+  if (markets === undefined) return undefined;
+  let long = 0;
+  let short = 0;
+  let counted = 0;
+  for (const m of markets) {
+    if (m.market.symbol === undefined || m.longNotionalAusd === undefined || m.shortNotionalAusd === undefined) continue;
+    long += m.longNotionalAusd;
+    short += m.shortNotionalAusd;
+    counted += 1;
+  }
+  return { long, short, markets: counted };
+}
+
+/**
+ * Protocol analytics only: no hero, no pitch. Every figure is derived from
+ * indexed events, carries its window, and says when it is a level rather
+ * than a windowed sum.
+ */
 export function OverviewView() {
   const t = useTimeframe();
   const { fetch: ct, showDays } = chartWindow(t);
@@ -38,37 +50,39 @@ export function OverviewView() {
   const byMarket = usePoll(() => api.seriesByMarket(ct), POLL_MS, `series-markets:${ct}`);
   const oi = usePoll(api.openInterest, POLL_MS, 'oi');
   const markets = usePoll(() => api.markets(t), POLL_MS, `markets:${t}`);
+  const health = usePoll(api.indexerHealth, POLL_MS, 'indexer-health');
 
   const m = metrics.data?.data;
   const days = useMemo(() => (series.data === undefined ? undefined : lastDays(series.data.data, showDays)), [series.data, showDays]);
-  const stacked = useMemo(
-    () => (byMarket.data === undefined ? undefined : stackByMarket(byMarket.data.data, 4, 7, showDays)),
-    [byMarket.data, showDays],
-  );
+  const stacked = useMemo(() => (byMarket.data === undefined ? undefined : stackByMarket(byMarket.data.data, 4, 7, showDays)), [byMarket.data, showDays]);
   const tvlReading = tvl.data?.data;
   const tvlNow = tvlReading?.known === true ? tvlReading.totalValueLockedAusd : undefined;
-  const tvlSpark = useMemo(
-    () => (tvlNow === undefined || days === undefined ? undefined : tvlHistory(tvlNow, days).map((p) => p.tvlAusd)),
-    [tvlNow, days],
-  );
+  const tvlSpark = useMemo(() => (tvlNow === undefined || days === undefined ? undefined : tvlHistory(tvlNow, days).map((p) => p.tvlAusd)), [tvlNow, days]);
   const openPositions = markets.data?.data.reduce((sum, mk) => sum + mk.openPositions, 0);
+  const skew = skewOf(markets.data?.data);
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
+  const block = health.data?.data.latestProcessedBlock;
 
   return (
     <>
       <PageHeader
         title="Perpl protocol"
         subtitle="Everything below is derived from indexed on-chain events. No account needed."
-        right={<TimeframePills />}
+        right={
+          <>
+            {block !== undefined && <span className="chip">indexed to block {formatCount(block)}</span>}
+            <TimeframePills />
+          </>
+        }
       />
 
       <StaleMarker envelope={metrics.data} />
       <ErrorNote error={metrics.error} what="Protocol metrics" />
 
-      {/* ── six tiles ───────────────────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ── five tiles ──────────────────────────────────────────────────── */}
+      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {m === undefined ? (
-          Array.from({ length: 6 }, (_, i) => <StatTileSkeleton key={i} />)
+          Array.from({ length: 5 }, (_, i) => <StatTileSkeleton key={i} />)
         ) : (
           <>
             <StatTile
@@ -76,7 +90,7 @@ export function OverviewView() {
               value={formatCompact(m.volumeAusd)}
               exact={`${formatAusdExact(m.volumeAusd)} AUSD`}
               delta={deltaVsPrevious(m, (p) => p.volumeAusd, m.volumeAusd)}
-              secondary={`${formatCount(m.tradeCount)} trades`}
+              secondary={`AUSD · ${formatCount(m.tradeCount)} trades`}
               sparkline={days?.map((d) => d.volumeAusd)}
             />
             <StatTile
@@ -85,14 +99,14 @@ export function OverviewView() {
               exact={oi.data === undefined ? undefined : `${formatAusdExact(oi.data.data.totalNotional)} AUSD, ${oi.data.data.markets.length} markets`}
               secondary={
                 <>
-                  <div>{openPositions === undefined ? '…' : `${formatCount(openPositions)} open positions`}</div>
-                  <div title="The indexer only knows the change since its start block, so the level comes from the venue and has no history to compare against.">
-                    level reported by the venue · no history to compare
-                  </div>
+                  <div>{oi.data === undefined ? '…' : `AUSD across ${formatCount(oi.data.data.markets.length)} markets`}</div>
+                  <div>{openPositions === undefined ? '…' : `${formatCount(openPositions)} open positions in the index`}</div>
                 </>
               }
               sparklineNote={
-                oi.data?.data.asOfMs === undefined ? 'no reading yet' : `as of ${formatAge(Date.now() - oi.data.data.asOfMs)} ago · size × mark, per market`
+                oi.data?.data.asOfMs === undefined
+                  ? 'no reading yet'
+                  : `level from the venue as of ${formatAge(Date.now() - oi.data.data.asOfMs)} ago · the index holds only deltas, so there is no history to draw`
               }
             />
             <StatTile
@@ -101,64 +115,114 @@ export function OverviewView() {
               exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)} AUSD, read from the Exchange contract`}
               delta={tvlNow === undefined ? undefined : deltaOf(tvlNow, tvlBefore(tvlNow, m.collateralFlow.netAusd))}
               deltaLabel={`in ${period}`}
-              secondary={`${formatSignedAusd(m.collateralFlow.netAusd, 0)} net flow · ${period}`}
+              secondary="AUSD collateral held by the Exchange"
               sparkline={tvlSpark}
             />
             <StatTile
-              label={`Fees · ${m.fees.label}`}
+              label={`Fees · ${m.fees.days === 0 ? 'no day yet' : `${formatCount(m.fees.days)} UTC day${m.fees.days === 1 ? '' : 's'}`}`}
               labelWarn={t !== 'all'}
               value={formatCompact(m.fees.totalAusd)}
               exact={`${formatAusdExact(m.fees.totalAusd)} AUSD over ${m.fees.label}`}
               delta={deltaVsPrevious(m, (p) => p.fees.totalAusd, m.fees.totalAusd)}
-              deltaLabel={m.previous === undefined ? 'vs prev' : `vs ${m.previous.fees.label}`}
-              secondary={`maker ${formatAusd(m.makerFeesAusd, 0)} exact · taker by day bucket`}
+              deltaLabel={m.previous === undefined ? 'vs prev' : `vs ${formatCount(m.previous.fees.days)} days before`}
+              secondary={`AUSD, maker + taker, over ${m.fees.label} · maker ${formatAusd(m.makerFeesAusd, 0)} exact`}
               sparkline={days?.map((d) => d.feesAusd)}
             />
             <StatTile
               label={`Active traders · ${period}`}
               value={formatCount(m.activeTraders)}
               delta={deltaVsPrevious(m, (p) => p.activeTraders, m.activeTraders)}
-              secondary="distinct accounts that traded"
+              secondary="accounts with ≥1 fill in the window"
               sparkline={days?.map((d) => d.activeTraders)}
-            />
-            <StatTile
-              label={`Liquidations · ${period}`}
-              value={formatCompact(m.liquidations.notionalAusd)}
-              exact={`${formatAusdExact(m.liquidations.notionalAusd)} AUSD notional liquidated`}
-              delta={deltaVsPrevious(m, (p) => p.liquidations.notionalAusd, m.liquidations.notionalAusd)}
-              goodDirection="down"
-              secondary={`${formatCount(m.liquidations.count)} liquidations · ${formatCount(m.rescues.rescuableCount)} rescuable`}
-              sparkline={days?.map((d) => d.liquidationCount)}
-              sparklineColor={COLORS.danger}
             />
           </>
         )}
       </section>
 
-      {/* ── charts ──────────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* ── volume, skew, flow ──────────────────────────────────────────── */}
+      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
-            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Trading volume</h2>
-            <span className="text-[12.5px] text-muted">Notional by market, per UTC day · line: 7-day average</span>
+            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Volume</h2>
+            <span className="text-[12.5px] text-muted">AUSD per UTC day, by market · line: 7-day average</span>
           </div>
           <ErrorNote error={byMarket.error} what="Volume by market" />
           {stacked === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <VolumeByMarketChart stacked={stacked} />}
           {chartNote !== undefined && <div className="mt-2 text-[11.5px] text-muted2">{chartNote}</div>}
         </div>
-        <div className="card px-[18px] py-4">
-          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
-            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Net capital flow</h2>
-            <span className="text-[12.5px] text-muted">Deposits − withdrawals, per UTC day</span>
+
+        <div className="grid grid-cols-1 gap-4">
+          <div className="card px-[18px] py-4">
+            <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+              <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Long / short skew</h2>
+              <span className="text-[12.5px] text-muted">by open position notional · now</span>
+            </div>
+            <ErrorNote error={markets.error} what="The market breakdown" />
+            {skew === undefined ? (
+              <Skeleton className="mt-3 h-[60px] w-full" />
+            ) : skew.long + skew.short === 0 ? (
+              <div className="mt-3 text-[12.5px] text-muted">No open position is indexed, so there is no skew to show.</div>
+            ) : (
+              <SkewBar
+                longAusd={skew.long}
+                shortAusd={skew.short}
+                note={`size × indexed mark, across ${formatCount(skew.markets)} markets and ${formatCount(openPositions ?? 0)} open positions`}
+              />
+            )}
           </div>
-          <ErrorNote error={series.error} what="Daily flows" />
-          {days === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <NetFlowChart days={days} />}
-          <div className="mt-2 text-[11.5px] text-muted2">
-            TVL is read from the Exchange contract; flows are indexed. The two answer different questions and both are shown.
-            {chartNote !== undefined && ` ${chartNote}`}
+
+          <div className="card px-[18px] py-4">
+            <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+              <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Net capital flow</h2>
+              <span className="text-[12.5px] text-muted">{period}</span>
+            </div>
+            {m === undefined ? (
+              <Skeleton className="mt-3 h-[90px] w-full" />
+            ) : (
+              <FlowSummary deposited={m.collateralFlow.depositedAusd} withdrawn={m.collateralFlow.withdrawnAusd} deposits={m.collateralFlow.depositCount} withdrawals={m.collateralFlow.withdrawalCount} />
+            )}
           </div>
         </div>
       </section>
+
+      <section className="card px-[18px] py-4">
+        <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Net capital flow per day</h2>
+          <span className="text-[12.5px] text-muted">Deposits − withdrawals, per UTC day</span>
+        </div>
+        <ErrorNote error={series.error} what="Daily flows" />
+        {days === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <NetFlowChart days={days} />}
+        <div className="mt-2 text-[11.5px] text-muted2">
+          TVL is read from the Exchange contract; flows are indexed. The two answer different questions and both are shown.
+          {chartNote !== undefined && ` ${chartNote}`}
+        </div>
+      </section>
     </>
+  );
+}
+
+/** Deposits, withdrawals and the net, with how much of the gross flow came in. Every figure keeps its count. */
+function FlowSummary({ deposited, withdrawn, deposits, withdrawals }: { readonly deposited: number; readonly withdrawn: number; readonly deposits: number; readonly withdrawals: number }) {
+  const net = deposited - withdrawn;
+  const gross = deposited + withdrawn;
+  const inbound = gross > 0 ? deposited / gross : undefined;
+  if (gross === 0) return <div className="mt-3 text-[12.5px] text-muted">No deposit or withdrawal in this window.</div>;
+  return (
+    <div className="mt-2">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-[6px] text-[12.5px]">
+        <dt className="text-muted">Deposits</dt>
+        <dd className="num m-0 text-right text-safe" title={`${formatCount(deposits)} deposits`}>{formatSignedAusd(deposited, 0)}</dd>
+        <dt className="text-muted">Withdrawals</dt>
+        <dd className="num m-0 text-right text-danger" title={`${formatCount(withdrawals)} withdrawals`}>{formatSignedAusd(-withdrawn, 0)}</dd>
+        <dt className="font-semibold text-text">Net {net >= 0 ? 'inflow' : 'outflow'}</dt>
+        <dd className={`num m-0 text-right font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : ''}`}>{formatSignedAusd(net, 0)}</dd>
+      </dl>
+      <div className="mt-3 h-[5px] overflow-hidden rounded-full bg-border" aria-hidden="true">
+        <i className="block h-full bg-safe" style={{ width: `${(inbound ?? 0) * 100}%` }} />
+      </div>
+      <div className="mt-[6px] text-[11.5px] text-muted2">
+        {inbound === undefined ? '' : `${formatPct(inbound)} of gross flow was inbound · ${formatCount(deposits)} deposits, ${formatCount(withdrawals)} withdrawals`}
+      </div>
+    </div>
   );
 }
