@@ -46,6 +46,25 @@ export function numberAt(node: Record<string, unknown>, key: string): number | u
   return typeof value === 'number' ? value : undefined;
 }
 
+/**
+ * An `Amount` field — which the wire sends as a DECIMAL STRING of the token's
+ * own micros — as an exact bigint.
+ *
+ * NEVER `Number()`. The docs say so and money maths in this repo is
+ * integer-only; a balance large enough to matter is exactly the one a float
+ * would round. Anything that is not an integer string is `undefined` rather
+ * than a guess: a balance we cannot parse must read as "unknown", never as 0,
+ * because 0 would be reported as a real figure.
+ */
+export function amountAt(node: Record<string, unknown>, key: string): bigint | undefined {
+  const value = node[key];
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return Number.isInteger(value) ? BigInt(value) : undefined;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return /^-?\d+$/.test(trimmed) ? BigInt(trimmed) : undefined;
+}
+
 export interface SocketConnectionOptions {
   readonly venueId: string;
   readonly url: string;

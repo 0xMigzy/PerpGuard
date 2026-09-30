@@ -27,6 +27,7 @@ import {
 } from './testSupport.ts';
 import { TelegramAlertTransport } from './transport.ts';
 import { decodeCallback } from './callback.ts';
+import { CUSTOM_BUTTON_LABEL } from './format.ts';
 import { InMemoryLinkStore } from './links.ts';
 
 interface Harness {
@@ -93,13 +94,14 @@ test('button labels are the action’s own rendered line, never composed here', 
   const message = dangerMessage();
   const h = harness();
   return h.transport.send(USER_ID, message).then(() => {
-    assert.deepEqual(
-      buttons(h.telegram).map((b) => b.text),
-      message.actions.map((a) => a.label),
-    );
-    assert.deepEqual(buttons(h.telegram).map((b) => b.text), [
+    const labels = buttons(h.telegram).map((b) => b.text);
+    assert.deepEqual(labels.slice(0, message.actions.length), message.actions.map((a) => a.label));
+    // Both computed options, unchanged, then the custom option BELOW them. It is
+    // a third choice, never a replacement for either.
+    assert.deepEqual(labels, [
       'Add 562 → buffer 4.0%, liquidation 80,647.1',
       'Add 2,662 → buffer 9.0%, liquidation 76,446.7',
+      CUSTOM_BUTTON_LABEL,
     ]);
   });
 });
@@ -112,14 +114,26 @@ test('each button carries the exact amount the text showed', async () => {
   const decoded = buttons(h.telegram).map((b) => decodeCallback(b.callback_data));
   assert.deepEqual(
     decoded.map((d) => (d.ok ? d.payload.amountCNS : undefined)),
-    [562_000_000n, 2_662_000_000n],
+    // The custom button carries 0: there is no amount on it yet.
+    [562_000_000n, 2_662_000_000n, 0n],
   );
   // And the store holds the same action behind each token.
   for (const [index, d] of decoded.entries()) {
     assert.ok(d.ok);
     const pending = h.store.get(d.payload.token);
-    assert.equal(pending?.action.amountCNS, message.actions[index]!.amountCNS);
-    assert.equal(pending?.action.label, message.actions[index]!.label);
+    const expected = message.actions[index];
+    if (expected === undefined) {
+      // The custom marker: this position, no amount, and NOT on message.actions —
+      // a zero-amount entry there would land in `action_log` as a top-up of
+      // nothing the trader never saw.
+      assert.equal(pending?.action.amountCNS, 0n);
+      assert.equal(pending?.action.intent, 'custom');
+      assert.equal(pending?.action.marketId, message.marketId);
+      assert.equal(message.actions.length, 2);
+      continue;
+    }
+    assert.equal(pending?.action.amountCNS, expected.amountCNS);
+    assert.equal(pending?.action.label, expected.label);
   }
 });
 
@@ -141,9 +155,12 @@ test('an unavailable market still gets its alert, with disabled buttons and the 
   assert.match(text, /Add 562 → buffer 4\.0%/);
   assert.match(text, /Actions are unavailable on testnet: BTC is not listed on testnet/);
 
-  // The options stay visible as buttons, but tapping one cannot execute.
+  // The options stay visible as buttons, but tapping one cannot execute. That
+  // includes the custom one: an unavailable market keeps every control it had,
+  // disabled and explained, rather than quietly losing one of them.
   const rows = buttons(h.telegram);
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
+  assert.equal(rows.at(-1)?.text, CUSTOM_BUTTON_LABEL);
   for (const row of rows) {
     const decoded = decodeCallback(row.callback_data);
     assert.ok(decoded.ok);

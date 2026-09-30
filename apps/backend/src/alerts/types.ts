@@ -52,12 +52,19 @@ export function isReassuring(kind: AlertKind): boolean {
 export type AlertActionType = 'add-margin';
 
 /**
- * Which of the two top-ups this is.
+ * Which top-up this is.
  *
  * `clear-danger` is the cheap one and reaches the danger exit threshold. It is
  * NOT the safe option and nothing may render it as one.
+ *
+ * `custom` is an amount THE USER PICKED, so it reaches whatever it reaches and
+ * has no target to name. It is never produced by this layer — an alert offers
+ * only the two computed options — and exists here because the action it becomes
+ * is the same shape, goes through the same confirmation and lands in the same
+ * `action_log`. A third intent rather than a flag on the other two, because
+ * "which of the two thresholds did this aim at" has no answer for it.
  */
-export type AlertActionIntent = 'clear-danger' | 'to-safe';
+export type AlertActionIntent = 'clear-danger' | 'to-safe' | 'custom';
 
 /**
  * Structured action data, for the bot to build a button from.

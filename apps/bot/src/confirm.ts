@@ -25,14 +25,29 @@ export function formatExactAusd(amountCNS: bigint, market: MarketRiskConfig | un
 
 /** What each intent actually buys, said without an adjective. */
 function intentLine(action: AlertAction): string {
-  return action.intent === 'clear-danger'
-    ? 'This is the cheaper option: it buys exactly enough room to leave the danger band, and no more.'
-    : 'This is the larger option: it reaches the buffer at which the position counts as safe again.';
+  switch (action.intent) {
+    case 'clear-danger':
+      return 'This is the cheaper option: it buys exactly enough room to leave the danger band, and no more.';
+    case 'to-safe':
+      return 'This is the larger option: it reaches the buffer at which the position counts as safe again.';
+    case 'custom':
+      // No threshold to name, because the amount did not aim at one. What it
+      // buys is on the line above, computed by the same engine as the offered
+      // options — which is the only claim this screen ever makes.
+      return 'This is your own amount. The buffer and liquidation price above are what it buys.';
+  }
 }
 
+/**
+ * @param notes things to read before confirming, shown above the final line.
+ *   NOT refusals — a note is why the Confirm button is still here rather than
+ *   why it is gone. They sit before "Nothing has been sent yet." so that
+ *   sentence stays last, where a reader stops.
+ */
 export function renderConfirmation(
   action: AlertAction,
   market: MarketRiskConfig | undefined,
+  notes: readonly string[] = [],
 ): string {
   const lines = [
     `Confirm — add margin to ${action.symbol}`,
@@ -46,6 +61,7 @@ export function renderConfirmation(
     // own handle there is nothing to address the action to.
     lines.push('I do not have this position’s venue id, so I cannot address the action to it.');
   }
+  lines.push(...notes);
   lines.push('Nothing has been sent yet.');
   return lines.join('\n');
 }

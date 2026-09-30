@@ -131,6 +131,50 @@ export interface TopUpOptions {
 }
 
 /**
+ * Where one position lands if a CALLER-CHOSEN amount of margin is added.
+ *
+ * The two computed top-ups above are the amounts PerpGuard picked. This is the
+ * same projection for an amount somebody else picked — the custom amount in the
+ * bot — and it exists so that path goes through the RISK ENGINE like every other
+ * number a trader acts on. A bot that computed its own buffer from an assessment
+ * would be a second implementation of the maths, and the two would eventually
+ * disagree about the figure somebody is about to send money against.
+ *
+ * `notionalCNS` rides along because it is not derivable from an assessment's
+ * top-ups and the caller needs it to judge whether an amount is plausible at
+ * all. It is the position's value at the mark BEFORE the add — adding margin
+ * does not change exposure.
+ */
+export interface MarginProjection {
+  readonly marketId: number;
+  readonly symbol: string;
+  readonly side: Side;
+  /** The amount asked about, echoed so a caller cannot mismatch them. */
+  readonly amountCNS: bigint;
+  /** Position value at the mark. Unchanged by adding margin. */
+  readonly notionalCNS: bigint;
+  /** The mark this projection was computed against. */
+  readonly markPricePNS: bigint;
+  /** Buffer after adding exactly `amountCNS`. SIGNED: may still be negative. */
+  readonly resultingBufferPct: number | undefined;
+  readonly resultingLiquidationPricePNS: bigint | undefined;
+}
+
+/**
+ * A projection, or why there is none.
+ *
+ * NEVER a bare undefined. The reasons are different and a caller has to be able
+ * to say which: a position we do not track, and a position we are currently
+ * BLIND on, are not the same thing, and the second must not be projected at all.
+ * Every price we hold while blind is frozen at whatever it was when we lost
+ * sight, so a buffer computed from one is a promise about a market we cannot
+ * see — the same rule that strips top-ups off a blind assessment.
+ */
+export type MarginProjectionResult =
+  | { readonly ok: true; readonly projection: MarginProjection }
+  | { readonly ok: false; readonly reason: string };
+
+/**
  * One position's risk, with every number the alerts layer could want attached
  * so that nothing downstream recomputes anything.
  */

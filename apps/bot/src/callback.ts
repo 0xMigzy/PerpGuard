@@ -23,6 +23,15 @@
 export type CallbackKind =
   /** Show the confirmation screen for this action. Executes nothing. */
   | 'act'
+  /**
+   * Ask the user for an amount of their own.
+   *
+   * Carries `amountCNS` 0, because there is no amount yet — it is a handle on a
+   * POSITION rather than on a top-up. Nothing may execute it: the zero would be
+   * a request to add no margin at all, so `runConfirmed` refuses a non-positive
+   * amount outright rather than relying on this kind never reaching it.
+   */
+  | 'custom'
   /** The user confirmed. This is the only kind that may reach the executor. */
   | 'confirm'
   /**
@@ -48,6 +57,7 @@ export const CALLBACK_DATA_MAX_BYTES = 64;
 const VERSION = '1';
 const PREFIX: Readonly<Record<CallbackKind, string>> = {
   act: 'a',
+  custom: 'm',
   confirm: 'c',
   blocked: 'x',
 };

@@ -158,9 +158,52 @@ function changeLine(assessment: RiskAssessment): string {
 }
 
 /**
- * One option line: what it costs, and what it buys. Nothing else.
+ * THE ONE SHAPE A TOP-UP LINE HAS: what it costs, and what it buys.
  *
  *   Add 562 → buffer 4.0%, liquidation 80,647.1
+ *
+ * Exported because the bot offers a THIRD top-up whose amount the user types,
+ * and that line has to be this line. Two formatters would eventually disagree
+ * about a separator, a precision or a word, and the disagreement would surface
+ * as a trader comparing an offered option against their own amount and finding
+ * the screens do not match. Same reason `/positions` renders through this
+ * module rather than through a formatter of its own.
+ *
+ * A NEGATIVE RESULTING BUFFER IS NOT A NEGATIVE PERCENTAGE. It cannot arise from
+ * the two computed options — both reach a positive target by construction — but a
+ * typed amount too small to rescue a doomed position lands exactly there, and
+ * "buffer -1.4%" invites the reader to see a small number rather than a position
+ * that is still past liquidation. (CLAUDE.md.)
+ */
+export function topUpLine(
+  amountText: string,
+  bufferPct: number | undefined,
+  liquidationPricePNS: bigint | undefined,
+  market: MarketRiskConfig,
+  bufferDecimals: number,
+): string {
+  const buffer =
+    bufferPct === undefined
+      ? 'buffer unknown'
+      : bufferPct < 0
+        ? 'still past liquidation'
+        : `buffer ${formatBufferPct(bufferPct, bufferDecimals)}`;
+  // A liquidation price at or below zero is not a price: the formula puts it
+  // there when the collateral exceeds anything the market could take away, and a
+  // price cannot go negative. Said in words, because "liquidation -9,918,229.9"
+  // is arithmetic leaking into a message. Unreachable from the computed options,
+  // which aim at modest buffers; entirely reachable once the user picks the amount.
+  const liquidation =
+    liquidationPricePNS === undefined
+      ? 'liquidation n/a'
+      : liquidationPricePNS <= 0n
+        ? 'no liquidation price left to reach'
+        : `liquidation ${formatPricePNS(liquidationPricePNS, market)}`;
+  return `Add ${amountText} → ${buffer}, ${liquidation}`;
+}
+
+/**
+ * One offered option's line.
  *
  * The buffer and liquidation price quoted are for the EXACT unrounded amount,
  * while the amount shown is ceiled. So the action lands a shade better than the
@@ -173,15 +216,16 @@ function optionLine(
   config: AlertConfig,
 ): { readonly label: string; readonly amountCNS: bigint } {
   const { amountCNS, text } = ceilAusd(option.amountCNS, market, config.ausdDisplayDecimals);
-  const buffer =
-    option.resultingBufferPct === undefined
-      ? `buffer ${formatBufferPct(option.targetBufferPct, config.bufferDecimals)}`
-      : `buffer ${formatBufferPct(option.resultingBufferPct, config.bufferDecimals)}`;
-  const liquidation =
-    option.resultingLiquidationPricePNS === undefined
-      ? 'liquidation n/a'
-      : `liquidation ${formatPricePNS(option.resultingLiquidationPricePNS, market)}`;
-  return { label: `Add ${text} → ${buffer}, ${liquidation}`, amountCNS };
+  return {
+    label: topUpLine(
+      text,
+      option.resultingBufferPct ?? option.targetBufferPct,
+      option.resultingLiquidationPricePNS,
+      market,
+      config.bufferDecimals,
+    ),
+    amountCNS,
+  };
 }
 
 /**

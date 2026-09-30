@@ -21,9 +21,10 @@ import type { ActionAvailability } from '@perpguard/shared';
 import { DEFAULT_ALERT_CONFIG, type AlertMessage } from '@perpguard/backend/alerts';
 import { buildMessage } from '@perpguard/backend/alerts/render';
 import { kindFor } from '@perpguard/backend/alerts/rules';
-import type { RiskAssessment } from '@perpguard/backend/risk';
-import { assessOne, BTC, CONFIGS, FIXTURE_BTC, FIXTURE_BTC_MARK } from '@perpguard/backend/alerts/test-support';
+import type { MarginProjectionResult, RiskAssessment } from '@perpguard/backend/risk';
+import { assessOne, BTC, CONFIGS, FIXTURE_BTC, FIXTURE_BTC_MARK, MON } from '@perpguard/backend/alerts/test-support';
 import { PendingActionStore, type ActionExecutor, type ExecuteRequest, type ExecutionOutcome } from './actions.ts';
+import type { FreeBalanceReading, FreeBalanceView } from './balance.ts';
 import { InMemoryLinkStore, type LinkRecord } from './links.ts';
 import type { RiskView } from './view.ts';
 
@@ -164,7 +165,15 @@ export class FakeExecutor implements ActionExecutor {
   }
 }
 
-/** A risk view whose health and contents are set directly by the test. */
+/**
+ * A risk view whose health and contents are set directly by the test.
+ *
+ * `projectAddMargin` DELEGATES TO THE REAL RISK LOOP by default, through the same
+ * harness the assessments come from. The custom-amount tests are about a buffer
+ * and a liquidation price a trader is going to act on, so they have to be the
+ * engine's own output — a hand-written projection would let the bot and the engine
+ * disagree and still pass.
+ */
 export class FakeView implements RiskView {
   network = 'mainnet' as const;
   assessments: readonly RiskAssessment[] = [];
@@ -174,6 +183,10 @@ export class FakeView implements RiskView {
     lastUpdateMs: 1_000_000,
     ageMs: 500,
   };
+  /** Set to a loop to project through it; left undefined to refuse. */
+  loop: { projectAddMargin: RiskView['projectAddMargin'] } | undefined;
+  /** Overrides the loop entirely, for the "we cannot see it" paths. */
+  projectionRefusal: string | undefined;
 
   snapshot(): readonly RiskAssessment[] {
     return this.assessments;
@@ -185,6 +198,25 @@ export class FakeView implements RiskView {
 
   positionsStatus(): ReturnType<RiskView['positionsStatus']> {
     return this.positions;
+  }
+
+  projectAddMargin(marketId: number, amountCNS: bigint): MarginProjectionResult {
+    if (this.projectionRefusal !== undefined) {
+      return { ok: false, reason: this.projectionRefusal };
+    }
+    if (this.loop === undefined) {
+      return { ok: false, reason: `no risk loop wired into this view (market ${marketId})` };
+    }
+    return this.loop.projectAddMargin(marketId, amountCNS);
+  }
+}
+
+/** A free-balance view a test sets outright. */
+export class FakeBalance implements FreeBalanceView {
+  reading: FreeBalanceReading = { known: true, floorCNS: 10_000_000_000n };
+
+  freeBalance(): FreeBalanceReading {
+    return this.reading;
   }
 }
 
@@ -206,6 +238,21 @@ export function newLinks(seed: readonly LinkRecord[] = [OWNER_LINK]): InMemoryLi
 export function dangerAssessment(): RiskAssessment {
   const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
   return change.assessment;
+}
+
+/**
+ * The same, with the LOOP THAT PRODUCED IT, so a view can project through it.
+ *
+ * The loop is the projection's only honest source: it holds the raw position, and
+ * a test that hand-rolled one would be asserting against its own arithmetic
+ * rather than against the engine a trader's money goes through.
+ */
+export function dangerScenario(): {
+  readonly loop: { projectAddMargin: RiskView['projectAddMargin'] };
+  readonly assessment: RiskAssessment;
+} {
+  const { harness, change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  return { loop: harness.loop, assessment: change.assessment };
 }
 
 /** The same, rendered by the alerts layer's own renderer. */
@@ -266,4 +313,4 @@ export function callbackUpdate(
   } as Parameters<Bot['handleUpdate']>[0];
 }
 
-export { BTC, CONFIGS, DEFAULT_ALERT_CONFIG, FIXTURE_BTC, FIXTURE_BTC_MARK, assessOne };
+export { BTC, CONFIGS, DEFAULT_ALERT_CONFIG, FIXTURE_BTC, FIXTURE_BTC_MARK, MON, assessOne };

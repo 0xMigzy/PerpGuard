@@ -46,9 +46,11 @@ import {
 import {
   InMemoryLinkStore,
   PendingActionStore,
+  PendingAmountStore,
   StubActionExecutor,
   TelegramAlertTransport,
   createBot,
+  freeBalanceFrom,
   loadBotConfig,
   type RiskView,
 } from '@perpguard/bot';
@@ -259,9 +261,16 @@ const links = new InMemoryLinkStore({
     : { ownerTelegramUserId: botConfig.ownerTelegramUserId }),
 });
 const pendingActions = new PendingActionStore();
+const pendingAmounts = new PendingAmountStore();
 const executor = new StubActionExecutor({
   availability: (symbol) => venue.getActionAvailability(symbol),
 });
+
+// A FLOOR on spendable AUSD, read off the account snapshot, and undefined before
+// sign-in — which the bot renders as "I could not check your free balance" rather
+// than as a balance of nothing. It is never used to refuse an amount: see
+// `freeBalanceFloorCNS` on the trading socket for why `b - lb` is a floor.
+const balance = freeBalanceFrom(() => venue.freeBalanceFloorCNS());
 
 const bot =
   botConfig === undefined
@@ -276,8 +285,11 @@ const bot =
           snapshot: () => loop.snapshot(),
           feedStatus: () => venue.feedStatus(),
           positionsStatus: () => loop.positionsStatus(),
+          projectAddMargin: (marketId, amountCNS) => loop.projectAddMargin(marketId, amountCNS),
         } satisfies RiskView,
         configs: riskConfigs,
+        amounts: pendingAmounts,
+        balance,
       });
 
 const transport =

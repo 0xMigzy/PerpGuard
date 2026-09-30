@@ -24,9 +24,18 @@ import {
   type PendingActionStore,
 } from './actions.ts';
 import { authorise } from './auth.ts';
+import { UnknownFreeBalance, type FreeBalanceView } from './balance.ts';
 import { decodeCallback, encodeCallback } from './callback.ts';
 import type { BotConfig } from './config.ts';
 import { CONFIRM_BUTTON_LABEL, renderConfirmation } from './confirm.ts';
+import {
+  CANCELLED_TEXT,
+  NOTHING_TO_CANCEL_TEXT,
+  PendingAmountStore,
+  customAction,
+  renderAmountPrompt,
+  validateCustomAmount,
+} from './custom.ts';
 import { buildTelegramMessage } from './format.ts';
 import { HELP_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
@@ -42,6 +51,19 @@ export interface BotDeps {
   readonly view: RiskView;
   /** Market scaling, so `/positions` renders every price at its own precision. */
   readonly configs: MarketConfigs;
+  /**
+   * Open custom-amount prompts. Defaults to a fresh store on the same 15-minute
+   * expiry as the action tokens.
+   */
+  readonly amounts?: PendingAmountStore;
+  /**
+   * Where the free-balance floor comes from.
+   *
+   * Defaults to "unknown", which is a real answer and the honest one for a bot
+   * with no trading session behind it. It never blocks the custom-amount flow —
+   * the amount is warned about, not refused. See `balance.ts`.
+   */
+  readonly balance?: FreeBalanceView;
   readonly alerts?: AlertConfig;
   readonly now?: () => number;
   /**
@@ -66,6 +88,8 @@ async function answer(ctx: Context, text: string, alert = true): Promise<void> {
 export function createBot(deps: BotDeps): Bot {
   const alerts = deps.alerts ?? DEFAULT_ALERT_CONFIG;
   const now = deps.now ?? Date.now;
+  const amounts = deps.amounts ?? new PendingAmountStore({ now });
+  const balance = deps.balance ?? new UnknownFreeBalance();
   const bot = new Bot(deps.config.token, {
     ...(deps.botInfo === undefined ? {} : { botInfo: deps.botInfo }),
   });
@@ -181,6 +205,30 @@ export function createBot(deps: BotDeps): Bot {
     }
   });
 
+  // ── /cancel ───────────────────────────────────────────────────────────────
+  // The way out of a prompt, from anywhere. It only ever clears the pending
+  // question — there is nothing in flight for it to stop, because nothing is sent
+  // before a confirmation.
+  bot.command('cancel', async (ctx) => {
+    const telegramUserId = ctx.from?.id;
+    if (telegramUserId === undefined) return;
+    const pending = amounts.get(telegramUserId);
+    amounts.delete(telegramUserId);
+    await ctx.reply(pending === undefined ? NOTHING_TO_CANCEL_TEXT : CANCELLED_TEXT);
+  });
+
+  // ── a typed amount ────────────────────────────────────────────────────────
+  // Registered last, so it sees only text no command claimed. It does nothing at
+  // all unless a prompt is open: a bot that answered every stray message would be
+  // one people mute, and the muted bot is the one whose DANGER alert goes unread.
+  bot.on('message:text', async (ctx) => {
+    const telegramUserId = ctx.from?.id;
+    if (telegramUserId === undefined) return;
+    const pending = amounts.get(telegramUserId);
+    if (pending === undefined) return;
+    await handleTypedAmount(ctx, deps, { amounts, balance, alerts }, pending, ctx.message.text);
+  });
+
   // ── button taps ───────────────────────────────────────────────────────────
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
@@ -242,6 +290,13 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
 
+    if (payload.kind === 'custom') {
+      // Nothing is stored yet but the question. The amount arrives as a message.
+      await answer(ctx, 'Reply with an amount in AUSD.', false);
+      await openAmountPrompt(ctx, deps, { amounts, balance, alerts }, pending, action);
+      return;
+    }
+
     if (payload.kind === 'act') {
       await answer(ctx, 'Check the amount, then confirm.', false);
       const keyboard = new InlineKeyboard().text(
@@ -264,6 +319,160 @@ export function createBot(deps: BotDeps): Bot {
   });
 
   return bot;
+}
+
+/** What the custom-amount flow needs beyond {@link BotDeps}, resolved once. */
+interface CustomDeps {
+  readonly amounts: PendingAmountStore;
+  readonly balance: FreeBalanceView;
+  readonly alerts: AlertConfig;
+}
+
+/**
+ * Ask for an amount.
+ *
+ * The projection at ZERO is doing two jobs: it restates where the position stands
+ * for the prompt, and it establishes that a projection is possible AT ALL before
+ * a question is asked. Asking someone for a number and only then discovering we
+ * cannot price it would waste their time at the moment they have least of it.
+ */
+async function openAmountPrompt(
+  ctx: Context,
+  deps: BotDeps,
+  custom: CustomDeps,
+  pending: PendingAction,
+  action: AlertAction,
+): Promise<void> {
+  const market = deps.configs.get(action.marketId);
+  if (market === undefined) {
+    await ctx.reply(
+      `I have no market configuration for ${action.symbol}, so I cannot price an amount at the ` +
+        `right precision. I am still watching the position.`,
+    );
+    return;
+  }
+
+  const projected = deps.view.projectAddMargin(action.marketId, 0n);
+  if (!projected.ok) {
+    await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
+    return;
+  }
+  const now = projected.projection;
+
+  custom.amounts.put({
+    userId: pending.userId,
+    telegramUserId: pending.telegramUserId,
+    marketId: action.marketId,
+    symbol: action.symbol,
+    positionId: action.positionId,
+  });
+
+  await ctx.reply(
+    renderAmountPrompt({
+      symbol: now.symbol,
+      side: now.side,
+      market,
+      freeBalance: custom.balance.freeBalance(),
+      bufferPct: now.resultingBufferPct,
+      liquidationPricePNS: now.resultingLiquidationPricePNS,
+      markPricePNS: now.markPricePNS,
+      notionalCNS: now.notionalCNS,
+      bufferDecimals: custom.alerts.bufferDecimals,
+    }),
+  );
+}
+
+/**
+ * A reply to that question.
+ *
+ * THE PROMPT SURVIVES A BAD NUMBER. A refused amount says what is expected and
+ * leaves the question open, so a typo costs one more message rather than sending
+ * the user back through `/positions`. Everything that ENDS the flow — an
+ * unavailable market, a position we can no longer see, a confirmation screen —
+ * closes it.
+ */
+async function handleTypedAmount(
+  ctx: Context,
+  deps: BotDeps,
+  custom: CustomDeps,
+  pending: ReturnType<PendingAmountStore['put']>,
+  text: string,
+): Promise<void> {
+  const close = (): void => custom.amounts.delete(pending.telegramUserId);
+
+  const market = deps.configs.get(pending.marketId);
+  if (market === undefined) {
+    close();
+    await ctx.reply(
+      `I have no market configuration for ${pending.symbol}, so I cannot price an amount at the ` +
+        `right precision.`,
+    );
+    return;
+  }
+
+  // Re-projected at reply time, not trusted from the prompt: the feed may have
+  // dropped, or the position closed, in the seconds since the question was asked.
+  const current = deps.view.projectAddMargin(pending.marketId, 0n);
+  if (!current.ok) {
+    close();
+    await ctx.reply(`${current.reason}. Run /positions when I can see it again.`);
+    return;
+  }
+
+  const verdict = validateCustomAmount(text, {
+    market,
+    freeBalance: custom.balance.freeBalance(),
+    notionalCNS: current.projection.notionalCNS,
+  });
+  if (!verdict.ok) {
+    // Prompt stays open on purpose.
+    await ctx.reply(verdict.message);
+    return;
+  }
+
+  const projected = deps.view.projectAddMargin(pending.marketId, verdict.amountCNS);
+  if (!projected.ok) {
+    close();
+    await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
+    return;
+  }
+
+  const action = customAction(
+    projected.projection,
+    market,
+    pending.positionId,
+    custom.alerts.bufferDecimals,
+  );
+
+  // Asked of the ACTING venue, and asked HERE rather than only on the confirm
+  // tap: a confirmation screen for a market that cannot be acted on is an offer
+  // PerpGuard cannot honour.
+  const availability = await availabilityFor(deps, action.symbol, [action]);
+  if (availability === undefined || !availability.actionable) {
+    close();
+    await ctx.reply(unavailableText(availability));
+    return;
+  }
+
+  const parked = deps.store.put({
+    userId: pending.userId,
+    telegramUserId: pending.telegramUserId,
+    action,
+  });
+  close();
+
+  const keyboard = new InlineKeyboard().text(
+    CONFIRM_BUTTON_LABEL,
+    encodeCallback({
+      kind: 'confirm',
+      token: parked.token,
+      marketId: action.marketId,
+      amountCNS: action.amountCNS,
+    }),
+  );
+  await ctx.reply(renderConfirmation(action, market, verdict.warnings), {
+    reply_markup: keyboard,
+  });
 }
 
 /** Ask the ACTING venue, and treat a thrown answer as "we do not know". */
@@ -303,6 +512,19 @@ async function runConfirmed(
 ): Promise<void> {
   deps.store.delete(pending.token);
   await ctx.answerCallbackQuery();
+
+  // THE MARKER CAN NEVER EXECUTE. The "Custom amount" button parks an action with
+  // `amountCNS` 0 — it is a handle on a position, not a top-up — and a confirm
+  // payload can be crafted against any token that exists. Refused here rather
+  // than relying on the callback kinds never crossing, because "add no margin" is
+  // a request the venue would happily accept and report on.
+  if (action.amountCNS <= 0n) {
+    await ctx.reply(
+      'That button has no amount on it, so there is nothing to send. Tap Custom amount and ' +
+        'reply with a figure, or run /positions.',
+    );
+    return;
+  }
 
   const idempotencyKey = `${pending.userId}:${action.marketId}:${action.intent}:${pending.token}`;
   const outcome = await deps.executor.execute({

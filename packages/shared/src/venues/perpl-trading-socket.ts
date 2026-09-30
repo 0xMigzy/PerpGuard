@@ -22,6 +22,7 @@ import { ActionTimeoutError, VenueRequestError } from '../errors.ts';
 import { buildApiKeySignInFrame, type ApiSecret } from './perpl-signing.ts';
 import {
   PerplSocketConnection,
+  amountAt,
   isRecord,
   numberAt,
   silentLogger,
@@ -120,6 +121,10 @@ export class PerplTradingSocket {
   #walletAddress: string | undefined;
   #accountFrozen = false;
   #forwardingAllowed: boolean | undefined;
+  /** `b` on the account, in AUSD micros. Undefined until a snapshot arrives. */
+  #balanceCNS: bigint | undefined;
+  /** `lb` on the account, in AUSD micros. */
+  #lockedBalanceCNS: bigint | undefined;
   #lastForwardedRequestId = 0;
   #headBlock: number | undefined;
   #lastSn: number | undefined;
@@ -219,6 +224,50 @@ export class PerplTradingSocket {
   /** Whether the account is frozen (`fr`). Frozen accounts reject orders. */
   get accountFrozen(): boolean {
     return this.#accountFrozen;
+  }
+
+  /** `b` on the account snapshot, in AUSD micros. Undefined before a snapshot. */
+  get balanceCNS(): bigint | undefined {
+    return this.#balanceCNS;
+  }
+
+  /** `lb` on the account snapshot, in AUSD micros. Undefined before a snapshot. */
+  get lockedBalanceCNS(): bigint | undefined {
+    return this.#lockedBalanceCNS;
+  }
+
+  /**
+   * A FLOOR on the AUSD that could be moved into a position right now.
+   *
+   * `b - lb`, and it is a floor rather than the figure, because WHAT `lb`
+   * OVERLAPS WITH IS UNRESOLVED. The docs give `b` as "Balance (decimal
+   * string)" and `lb` as "Locked balance (decimal string)" and say no more —
+   * in particular they do not say whether `b` already excludes what `lb`
+   * counts.
+   *
+   * Both readings are covered by subtracting:
+   *   - If `lb` sits INSIDE `b`, then `b - lb` is exactly the spendable amount.
+   *   - If `lb` sits OUTSIDE `b`, then `b` was already spendable and `b - lb`
+   *     understates it by `lb`.
+   * So this never OVERSTATES, which is the only direction that matters for a
+   * caller about to tell a trader what they can afford. It can understate, so
+   * callers must present it as "at least", never as "you have", and must not
+   * refuse an action for exceeding it — see the note in `apps/bot/src/custom.ts`.
+   *
+   * The chain says an account balance excludes collateral posted to a position:
+   * `IncreasePositionCollateral` carries both the position's new deposit and the
+   * account's `balanceCNS`, and `apps/indexer` reads the latter as free balance —
+   * which is what the `rescuableLiquidationCount` headline rests on. That is the
+   * CONTRACT though, not the wire, so it does not settle `lb`, and a question is
+   * out to Perpl to make this exact rather than conservative.
+   *
+   * Clamped at zero: a negative floor is not a balance, and would read as a
+   * debt we have no evidence for.
+   */
+  get freeBalanceFloorCNS(): bigint | undefined {
+    if (this.#balanceCNS === undefined) return undefined;
+    const floor = this.#balanceCNS - (this.#lockedBalanceCNS ?? 0n);
+    return floor > 0n ? floor : 0n;
   }
 
   get headBlock(): number | undefined {
@@ -518,6 +567,18 @@ export class PerplTradingSocket {
     }
   }
 
+  /**
+   * Read `b` and `lb` off an account object.
+   *
+   * A field we cannot parse LEAVES THE PREVIOUS VALUE STANDING rather than
+   * clearing it or defaulting to zero: the last figure we did parse is the last
+   * thing we know, and zero would be reported as a real balance of nothing.
+   */
+  #readBalance(account: Record<string, unknown>): void {
+    this.#balanceCNS = amountAt(account, 'b') ?? this.#balanceCNS;
+    this.#lockedBalanceCNS = amountAt(account, 'lb') ?? this.#lockedBalanceCNS;
+  }
+
   #track(message: InboundMessage): void {
     const mt = message['mt'];
 
@@ -531,6 +592,7 @@ export class PerplTradingSocket {
         this.#lastForwardedRequestId = numberAt(account, 'lfr') ?? this.#lastForwardedRequestId;
         if (typeof account['fw'] === 'boolean') this.#forwardingAllowed = account['fw'];
         if (typeof account['fr'] === 'boolean') this.#accountFrozen = account['fr'];
+        this.#readBalance(account);
       }
       this.#lastSn = numberAt(message, 'sn') ?? this.#lastSn;
       return;
@@ -538,6 +600,9 @@ export class PerplTradingSocket {
 
     if (mt === MT.AccountUpdate) {
       this.#lastForwardedRequestId = numberAt(message, 'lfr') ?? this.#lastForwardedRequestId;
+      // The update carries the whole account, balance included, so it is what
+      // keeps the figure current between sign-ins.
+      this.#readBalance(message);
       return;
     }
 

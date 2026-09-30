@@ -56,6 +56,7 @@ import {
   DEFAULT_THRESHOLDS,
   isBlind,
   type BlindState,
+  type MarginProjectionResult,
   type MarketConfigs,
   type PositionSource,
   type RiskAssessment,
@@ -134,6 +135,18 @@ interface Tracked {
   /** The severity held before the feed went down, so the UI keeps a last-known. */
   lastKnownState: RiskState | undefined;
   assessment: RiskAssessment;
+  /**
+   * The raw position the last SIGHTED assessment was made from, with the mark it
+   * was made against.
+   *
+   * Kept only so {@link RiskLoop.projectAddMargin} can answer for an amount
+   * nobody had picked yet at evaluation time. Absent on a blind assessment, which
+   * is what makes "we cannot project this" fall out of the data rather than
+   * depending on a caller remembering to check the state first.
+   */
+  sighted:
+    | { readonly position: RiskPosition; readonly markPricePNS: bigint; readonly config: MarketRiskConfig }
+    | undefined;
 }
 
 export class RiskLoop {
@@ -204,6 +217,60 @@ export class RiskLoop {
   /** Every position's current assessment, for the UI to read between changes. */
   snapshot(): readonly RiskAssessment[] {
     return [...this.#tracked.values()].map((t) => t.assessment);
+  }
+
+  /**
+   * Where one position lands if `amountCNS` of margin is added, for an amount the
+   * loop did not choose.
+   *
+   * The same `afterAddMargin` projection the two offered top-ups go through, so a
+   * custom amount is quoted by the risk engine rather than by whoever asked. The
+   * mark is the one from the last evaluation — the caller is expected to be
+   * asking about a position it has just read, and a projection is only ever as
+   * fresh as the assessment beside it.
+   *
+   * REFUSES WHILE BLIND, for the reason on {@link MarginProjectionResult}: there
+   * is no price we can stand behind, so there is no buffer to promise.
+   */
+  projectAddMargin(marketId: number, amountCNS: bigint): MarginProjectionResult {
+    if (amountCNS < 0n) {
+      return { ok: false, reason: `a margin amount cannot be negative, got ${amountCNS}` };
+    }
+    const tracked = this.#tracked.get(marketId);
+    if (tracked === undefined) {
+      return { ok: false, reason: `I am not tracking a position on market ${marketId}` };
+    }
+    if (tracked.sighted === undefined) {
+      return {
+        ok: false,
+        reason:
+          tracked.assessment.reason === ''
+            ? `I cannot currently see ${tracked.assessment.symbol}, so I cannot tell you what an amount would buy`
+            : `I cannot currently see ${tracked.assessment.symbol}: ${tracked.assessment.reason}`,
+      };
+    }
+
+    const { position, markPricePNS, config } = tracked.sighted;
+    if (position.lotLNS === 0n) {
+      return {
+        ok: false,
+        reason: `${position.symbol} has no size, so it has no liquidation price to move`,
+      };
+    }
+    const after = afterAddMargin(position, amountCNS, markPricePNS, config);
+    return {
+      ok: true,
+      projection: {
+        marketId,
+        symbol: position.symbol,
+        side: position.side,
+        amountCNS,
+        notionalCNS: after.metrics.notionalCNS,
+        markPricePNS,
+        resultingBufferPct: after.metrics.liqBufferPct,
+        resultingLiquidationPricePNS: after.metrics.liquidationPricePNS,
+      },
+    };
   }
 
   /**
@@ -374,6 +441,10 @@ export class RiskLoop {
       enteredAtMs: nowMs,
       lastKnownState,
       assessment,
+      // DROPPED, not carried over. The position and mark we last saw are exactly
+      // what a projection must not be computed from while blind, and keeping them
+      // would leave a stale pair sitting behind an ok-looking answer.
+      sighted: undefined,
     });
     return { assessment, previousState, changed };
   }
@@ -450,6 +521,7 @@ export class RiskLoop {
       enteredAtMs: decision.enteredAtMs,
       lastKnownState: decision.state,
       assessment,
+      sighted: { position: risk, markPricePNS, config },
     });
     return { assessment, previousState: existing?.state, changed };
   }

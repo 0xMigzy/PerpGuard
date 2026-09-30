@@ -15,8 +15,12 @@ import { createBot } from './bot.ts';
 import { HELP_TEXT, REFUSAL_TEXT, WRONG_CHAT_TEXT } from './help.ts';
 import { InMemoryLinkStore } from './links.ts';
 import { PendingActionStore } from './actions.ts';
+import { CONFIRM_BUTTON_LABEL } from './confirm.ts';
+import { PendingAmountStore } from './custom.ts';
+import { CUSTOM_BUTTON_LABEL } from './format.ts';
 import {
   CONFIGS,
+  FakeBalance,
   FakeExecutor,
   FakeTelegram,
   FakeView,
@@ -29,6 +33,7 @@ import {
   countingTokens,
   dangerAssessment,
   dangerMessage,
+  dangerScenario,
   fakeBot,
   messageUpdate,
   newLinks,
@@ -40,6 +45,8 @@ interface Harness {
   readonly executor: FakeExecutor;
   readonly view: FakeView;
   readonly store: PendingActionStore;
+  readonly amounts: PendingAmountStore;
+  readonly balance: FakeBalance;
   readonly links: InMemoryLinkStore;
   nowMs: number;
 }
@@ -48,17 +55,23 @@ function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness 
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
+  const balance = new FakeBalance();
   const links = options.links ?? newLinks();
   const state = { nowMs: 1_000_000 };
   const store = new PendingActionStore({
     now: () => state.nowMs,
     nextToken: countingTokens(),
   });
+  // The same clock as the action store, so the two expiries can be tested against
+  // one advance of one number — which is also how they are meant to behave.
+  const amounts = new PendingAmountStore({ now: () => state.nowMs });
 
   const built = createBot({
     config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: undefined },
     links,
     store,
+    amounts,
+    balance,
     executor,
     view,
     configs: CONFIGS,
@@ -74,6 +87,8 @@ function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness 
     executor,
     view,
     store,
+    amounts,
+    balance,
     links,
     get nowMs() {
       return state.nowMs;
@@ -90,9 +105,13 @@ const texts = (telegram: FakeTelegram): string[] =>
 const answers = (telegram: FakeTelegram): string[] =>
   telegram.of('answerCallbackQuery').map((call) => String(call.payload['text'] ?? ''));
 
-function keyboardOf(call: FakeTelegram['calls'][number]): Array<{ callback_data: string }> {
+function keyboardOf(
+  call: FakeTelegram['calls'][number],
+): Array<{ text: string; callback_data: string }> {
   const markup = call.payload['reply_markup'] as InlineKeyboard | undefined;
-  return markup === undefined ? [] : (markup.inline_keyboard.flat() as Array<{ callback_data: string }>);
+  return markup === undefined
+    ? []
+    : (markup.inline_keyboard.flat() as Array<{ text: string; callback_data: string }>);
 }
 
 // ── authorisation ───────────────────────────────────────────────────────────
@@ -230,7 +249,8 @@ test('/positions renders each position with the alert layer’s own words', asyn
       const decoded = decodeCallback(b.callback_data);
       return decoded.ok ? decoded.payload.amountCNS : undefined;
     }),
-    [562_000_000n, 2_662_000_000n],
+    // The two computed amounts, then the custom marker, which carries none.
+    [562_000_000n, 2_662_000_000n, 0n],
   );
 });
 
@@ -460,4 +480,346 @@ test('an unreadable button says so rather than guessing at what it meant', async
   await h.bot.handleUpdate(callbackUpdate('a0:t1:1:562000000'));
   assert.equal(h.executor.calls.length, 0);
   assert.match(answers(h.telegram).at(-1)!, /older version of the bot/);
+});
+
+// ── the custom amount ───────────────────────────────────────────────────────
+
+/**
+ * Send /positions with the real loop behind the view, and return the callback
+ * data of the "Custom amount" button.
+ */
+async function customTap(h: Harness): Promise<string> {
+  const scenario = dangerScenario();
+  h.view.assessments = [scenario.assessment];
+  h.view.loop = scenario.loop;
+  await h.bot.handleUpdate(messageUpdate('/positions'));
+  const rows = keyboardOf(h.telegram.of('sendMessage')[1]!);
+  const last = rows.at(-1);
+  assert.ok(last !== undefined, 'expected a keyboard');
+  assert.equal(last.text, CUSTOM_BUTTON_LABEL);
+  return last.callback_data;
+}
+
+/** Tap Custom amount, then reply with `amount`. Returns the last message sent. */
+async function typeAmount(h: Harness, amount: string): Promise<string> {
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  await h.bot.handleUpdate(messageUpdate(amount));
+  return texts(h.telegram).at(-1)!;
+}
+
+test('/positions offers Custom amount below both computed options, never instead of one', async () => {
+  const h = harness();
+  await customTap(h);
+  assert.deepEqual(
+    keyboardOf(h.telegram.of('sendMessage')[1]!).map((b) => b.text),
+    [
+      'Add 562 → buffer 4.0%, liquidation 80,647.1',
+      'Add 2,662 → buffer 9.0%, liquidation 76,446.7',
+      'Custom amount',
+    ],
+  );
+});
+
+test('tapping Custom amount asks for a figure and states where the position stands', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(data));
+
+  const prompt = texts(h.telegram).at(-1)!;
+  assert.equal(
+    prompt,
+    [
+      'Custom amount — add margin to BTC long',
+      'Now: buffer 2.7%, liquidation 81,770.1, mark 84,007.3.',
+      'Position size at the mark: 42,003.65 AUSD.',
+      'At least 10,000 AUSD free — a floor, not your balance.',
+      'Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.',
+      'Smallest increment 0.000001 AUSD. /cancel to drop this.',
+      'Nothing has been sent, and nothing will be until you confirm.',
+    ].join('\n'),
+  );
+  // The prompt is open, and it knows which position it is for.
+  const pending = h.amounts.get(OWNER_ID);
+  assert.equal(pending?.marketId, 1);
+  assert.equal(pending?.positionId, 4_242);
+  // Nothing was executed and no amount was parked by merely asking.
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('a custom amount gets the outcome computed for it, on the computed options’ screen', async () => {
+  const h = harness();
+  const confirmation = await typeAmount(h, '1000');
+
+  assert.equal(
+    confirmation,
+    [
+      'Confirm — add margin to BTC',
+      'Add 1,000 → buffer 5.0%, liquidation 79,770.1',
+      'Exact amount sent: 1000.000000 AUSD.',
+      'This is your own amount. The buffer and liquidation price above are what it buys.',
+      'Isolated margin: this collateral goes to this position only.',
+      'Nothing has been sent yet.',
+    ].join('\n'),
+  );
+  assert.equal(h.executor.calls.length, 0, 'the confirmation screen executes nothing');
+  // The question is answered, so it is closed.
+  assert.equal(h.amounts.get(OWNER_ID), undefined);
+});
+
+test('the custom confirmation screen is the computed one’s shape, line for line', async () => {
+  // The two screens have to be the same screen with a different number in it.
+  // Divergence here is how a trader ends up comparing two layouts and trusting
+  // neither.
+  const computed = harness();
+  const data = await firstButton(computed);
+  await computed.bot.handleUpdate(callbackUpdate(data));
+  const computedLines = texts(computed.telegram).at(-1)!.split('\n');
+
+  const custom = harness();
+  const customLines = (await typeAmount(custom, '1000')).split('\n');
+
+  assert.equal(customLines.length, computedLines.length);
+  assert.equal(customLines[0], computedLines[0]);
+  for (const lines of [computedLines, customLines]) {
+    assert.match(lines[1]!, /^Add [\d,.]+ → buffer \d+\.\d%, liquidation [\d,.]+$/);
+    assert.match(lines[2]!, /^Exact amount sent: \d+\.\d{6} AUSD\.$/);
+    assert.equal(lines[4], 'Isolated margin: this collateral goes to this position only.');
+    assert.equal(lines.at(-1), 'Nothing has been sent yet.');
+  }
+  // Only the sentence that says WHICH option this is differs.
+  assert.notEqual(customLines[3], computedLines[3]);
+});
+
+test('confirming a custom amount sends exactly the figure that was shown', async () => {
+  const h = harness();
+  await typeAmount(h, '1000.5');
+  const confirm = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+  assert.equal(confirm.text, CONFIRM_BUTTON_LABEL);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(confirm.callback_data));
+
+  assert.equal(h.executor.calls.length, 1);
+  const request = h.executor.calls[0]!;
+  // The exact typed figure, in micros, neither ceiled nor rounded: the user chose
+  // it, so it is not ours to adjust.
+  assert.equal(request.action.amountCNS, 1_000_500_000n);
+  assert.equal(request.action.label, 'Add 1,000.5 → buffer 5.0%, liquidation 79,769.1');
+  assert.equal(request.action.intent, 'custom');
+  assert.equal(request.action.positionId, 4_242);
+  assert.match(request.idempotencyKey, new RegExp(`^${USER_ID}:1:custom:`));
+  assert.match(texts(h.telegram).at(-1)!, /^Not sent\./);
+});
+
+test('typing something that is not a number leaves the prompt open rather than stuck', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('a hundred quid'));
+
+  const reply = texts(h.telegram).at(-1)!;
+  assert.match(reply, /I need a number of AUSD/);
+  assert.match(reply, /\/cancel/);
+  assert.ok(h.amounts.get(OWNER_ID) !== undefined, 'the prompt must survive a typo');
+
+  // And the retry works, without going back through /positions.
+  await h.bot.handleUpdate(messageUpdate('1000'));
+  assert.match(texts(h.telegram).at(-1)!, /^Confirm — add margin to BTC$/m);
+});
+
+test('each validation path answers with its own message', async () => {
+  for (const [input, pattern] of [
+    ['-5', /has to be more than zero/],
+    ['0', /has to be more than zero/],
+    ['0.0000004', /smaller than the smallest amount BTC collateral can take/],
+    ['1.0000004', /finer than that/],
+  ] as const) {
+    const h = harness();
+    const data = await customTap(h);
+    await h.bot.handleUpdate(callbackUpdate(data));
+    h.telegram.calls.length = 0;
+    await h.bot.handleUpdate(messageUpdate(input));
+    assert.match(texts(h.telegram).at(-1)!, pattern, input);
+    assert.equal(h.executor.calls.length, 0);
+  }
+});
+
+test('an amount over the free-balance floor warns, and the Confirm button is still there', async () => {
+  const h = harness();
+  h.balance.reading = { known: true, floorCNS: 42_100_000n };
+  const confirmation = await typeAmount(h, '1000');
+
+  assert.match(confirmation, /This may be more than your free balance/);
+  assert.match(confirmation, /I can see at least 42\.1 AUSD available/);
+  assert.match(confirmation, /floor rather than your balance/);
+  // Warned, not refused: our floor can understate, and blocking a legitimate
+  // rescue is worse than letting the venue reject a genuinely short request.
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, CONFIRM_BUTTON_LABEL);
+  // And the warning sits above the last line, which stays the last line.
+  assert.match(confirmation, /Nothing has been sent yet\.$/);
+});
+
+test('an unknown balance says so instead of implying it was checked', async () => {
+  const h = harness();
+  h.balance.reading = { known: false, reason: 'I am not signed in to the trading account.' };
+  const confirmation = await typeAmount(h, '1000');
+  assert.match(confirmation, /could not check your free balance: I am not signed in/);
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, CONFIRM_BUTTON_LABEL);
+});
+
+test('an implausibly large amount asks whether it was meant, rather than refusing it', async () => {
+  const h = harness();
+  h.balance.reading = { known: true, floorCNS: 10n ** 15n };
+  const confirmation = await typeAmount(h, '500000');
+
+  assert.match(confirmation, /more than 10x this position's whole size at the mark \(42,003\.65 AUSD\)/);
+  assert.match(confirmation, /Confirm only if you meant it/);
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, CONFIRM_BUTTON_LABEL);
+});
+
+test('a pending amount expires on the same fifteen minutes as an action token', async () => {
+  // An amount typed against a mark from twenty minutes ago is a wrong number.
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.nowMs += 16 * 60_000;
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('1000'));
+
+  // Not answered at all: with the prompt gone there is no question for it to be
+  // an answer to, and a stray "1000" must not become a margin transfer.
+  assert.equal(texts(h.telegram).length, 0);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('/cancel drops a pending amount, and says so when there was none', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('/cancel'));
+  assert.match(texts(h.telegram).at(-1)!, /^Dropped\. Nothing was sent\./);
+  assert.equal(h.amounts.get(OWNER_ID), undefined);
+
+  await h.bot.handleUpdate(messageUpdate('/cancel'));
+  assert.match(texts(h.telegram).at(-1)!, /Nothing was pending/);
+
+  // And a number typed after cancelling is not an amount any more.
+  await h.bot.handleUpdate(messageUpdate('1000'));
+  assert.equal(h.executor.calls.length, 0);
+  assert.match(texts(h.telegram).at(-1)!, /Nothing was pending/);
+});
+
+test('ordinary chatter with no prompt open is left alone', async () => {
+  // A bot that answered every stray message is one people mute, and the muted bot
+  // is the one whose DANGER alert goes unread.
+  const h = harness();
+  await h.bot.handleUpdate(messageUpdate('morning'));
+  assert.equal(texts(h.telegram).length, 0);
+});
+
+test('the Custom amount marker can never be executed, however its token is used', async () => {
+  // It parks an action with amountCNS 0 — a handle on a position, not a top-up —
+  // and a confirm payload can be crafted against any token that exists.
+  const h = harness();
+  const data = await customTap(h);
+  const decoded = decodeCallback(data);
+  assert.ok(decoded.ok);
+  assert.equal(decoded.payload.kind, 'custom');
+  assert.equal(decoded.payload.amountCNS, 0n);
+
+  const forged = encodeCallback({ ...decoded.payload, kind: 'confirm' });
+  h.telegram.calls.length = 0;
+  await h.bot.handleUpdate(callbackUpdate(forged));
+
+  assert.equal(h.executor.calls.length, 0, 'zero margin must never reach the executor');
+  assert.match(texts(h.telegram).at(-1)!, /has no amount on it, so there is nothing to send/);
+});
+
+test('a disabled Custom amount button reports the reason and opens no prompt', async () => {
+  const h = harness();
+  h.executor.available = {
+    actionable: false,
+    network: 'testnet',
+    code: 'market-closed',
+    reason: 'the venue has BTC closed',
+  };
+  const data = await customTap(h);
+  assert.equal(decodeCallback(data).ok && decodeCallback(data).ok, true);
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(data));
+
+  assert.match(answers(h.telegram).at(-1)!, /Not actionable on testnet: the venue has BTC closed/);
+  assert.equal(h.amounts.get(OWNER_ID), undefined, 'no prompt for a market we cannot act on');
+  assert.equal(texts(h.telegram).length, 0);
+});
+
+test('a market that closes between the prompt and the reply ends the flow, with no confirmation', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.executor.available = {
+    actionable: false,
+    network: 'testnet',
+    code: 'market-closed',
+    reason: 'the venue has BTC closed',
+  };
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('1000'));
+
+  assert.match(texts(h.telegram).at(-1)!, /Not actionable on testnet/);
+  assert.doesNotMatch(texts(h.telegram).at(-1)!, /Confirm/);
+  assert.equal(h.amounts.get(OWNER_ID), undefined);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('going blind between the prompt and the reply refuses to price the amount', async () => {
+  // NO TOP-UPS WHILE BLIND, and that includes an amount the user chose: the mark
+  // behind the projection is frozen, so the buffer it would claim is not a claim
+  // we can stand behind.
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.view.projectionRefusal = 'I cannot currently see BTC: the price feed is disconnected';
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('1000'));
+
+  assert.match(texts(h.telegram).at(-1)!, /I cannot currently see BTC: the price feed is disconnected/);
+  assert.match(texts(h.telegram).at(-1)!, /Run \/positions when I can see it again/);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('tapping Custom amount while blind asks nothing rather than asking for a number it cannot price', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  h.view.projectionRefusal = 'I cannot currently see BTC: the position set is stale';
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(data));
+
+  assert.match(texts(h.telegram).at(-1)!, /I cannot currently see BTC: the position set is stale/);
+  assert.equal(h.amounts.get(OWNER_ID), undefined);
+});
+
+test('a stranger cannot answer the owner’s prompt', async () => {
+  const h = harness();
+  const data = await customTap(h);
+  await h.bot.handleUpdate(callbackUpdate(data));
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(messageUpdate('1000', { from: STRANGER_ID, chat: 7_777 }));
+
+  assert.deepEqual(texts(h.telegram), [REFUSAL_TEXT]);
+  assert.ok(h.amounts.get(OWNER_ID) !== undefined, 'the owner’s prompt is untouched');
+  assert.equal(h.executor.calls.length, 0);
 });

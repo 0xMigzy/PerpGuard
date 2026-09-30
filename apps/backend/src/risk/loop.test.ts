@@ -660,3 +660,124 @@ test('a price series oscillating across the boundary emits one alert, not one pe
       h.changes.slice(baseline).map((c) => c.assessment.state).join(' -> '),
   );
 });
+
+// ── projecting a caller-chosen amount ────────────────────────────────────────
+
+test('a custom amount is projected through the same engine as the offered top-ups', () => {
+  // The bot offers a third top-up whose amount the user types. It has to be
+  // priced HERE, by the engine, rather than approximated by whoever asked.
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  const [assessment] = h.loop.evaluate();
+
+  // Ask for exactly the clear-danger amount and the projection must agree with
+  // the option the loop already computed, to the last integer.
+  const option = assessment!.topUp!.clearDanger;
+  const projected = h.loop.projectAddMargin(1, option.amountCNS);
+  assert.ok(projected.ok);
+  assert.equal(projected.projection.resultingBufferPct, option.resultingBufferPct);
+  assert.equal(
+    projected.projection.resultingLiquidationPricePNS,
+    option.resultingLiquidationPricePNS,
+  );
+  assert.equal(projected.projection.amountCNS, option.amountCNS);
+  assert.equal(projected.projection.side, 'long');
+  assert.equal(projected.projection.symbol, 'BTC');
+  assert.equal(projected.projection.markPricePNS, 840_073n);
+});
+
+test('a projection carries the notional, which no top-up option does', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  const [assessment] = h.loop.evaluate();
+
+  const projected = h.loop.projectAddMargin(1, 1_000_000_000n);
+  assert.ok(projected.ok);
+  // Adding margin does not change exposure, so the notional is the position's own.
+  assert.equal(projected.projection.notionalCNS, assessment!.metrics.notionalCNS);
+});
+
+test('adding more margin always moves the liquidation price further away', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+
+  let previous: bigint | undefined;
+  for (const amount of [0n, 1n, 1_000_000n, 1_000_000_000n, 5_000_000_000n]) {
+    const projected = h.loop.projectAddMargin(1, amount);
+    assert.ok(projected.ok);
+    const liq = projected.projection.resultingLiquidationPricePNS!;
+    // A long is liquidated from below, so more margin means a LOWER price.
+    if (previous !== undefined) assert.ok(liq <= previous, `${amount}: ${liq} > ${previous}`);
+    previous = liq;
+  }
+});
+
+test('projecting refuses while blind, for the same reason a blind assessment has no top-ups', () => {
+  // Every price we hold is frozen at whatever it was when the feed died, so a
+  // buffer computed from one is a promise about a market we cannot see.
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+  assert.equal(h.loop.projectAddMargin(1, 1_000_000_000n).ok, true);
+
+  h.health = { state: 'disconnected', reason: 'socket closed', reconnectAttempt: 3 };
+  h.loop.evaluate();
+
+  const projected = h.loop.projectAddMargin(1, 1_000_000_000n);
+  assert.equal(projected.ok, false);
+  assert.ok(!projected.ok);
+  assert.match(projected.reason, /cannot currently see BTC/);
+  assert.match(projected.reason, /socket closed/);
+});
+
+test('projecting refuses while the position set cannot be trusted', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+
+  h.positionsState = 'stale';
+  h.positionsReason = 'the account socket closed';
+  h.loop.evaluate();
+
+  const projected = h.loop.projectAddMargin(1, 1_000_000_000n);
+  assert.ok(!projected.ok);
+  assert.match(projected.reason, /the account socket closed/);
+});
+
+test('a projection is available again as soon as we can see', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+  h.health = { state: 'disconnected', reconnectAttempt: 1 };
+  h.loop.evaluate();
+  assert.equal(h.loop.projectAddMargin(1, 1n).ok, false);
+
+  h.health = { state: 'connected', reconnectAttempt: 0 };
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+  assert.equal(h.loop.projectAddMargin(1, 1n).ok, true);
+});
+
+test('projecting an untracked market says so rather than answering with nothing', () => {
+  const h = new Harness();
+  const projected = h.loop.projectAddMargin(20, 1_000_000_000n);
+  assert.ok(!projected.ok);
+  assert.match(projected.reason, /not tracking a position on market 20/);
+});
+
+test('a negative amount is refused rather than projected', () => {
+  const h = new Harness();
+  h.positions = [btcLong];
+  h.price(1, 'BTC', 84007.3);
+  h.loop.evaluate();
+  const projected = h.loop.projectAddMargin(1, -1n);
+  assert.ok(!projected.ok);
+  assert.match(projected.reason, /cannot be negative/);
+});

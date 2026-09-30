@@ -336,6 +336,23 @@ export class PerplVenue implements Venue {
     return socket;
   }
 
+  /**
+   * A FLOOR on the account's spendable AUSD, in micros, or undefined when we do
+   * not know — no trading socket, or no account snapshot on it yet.
+   *
+   * SYNCHRONOUS, and undefined rather than awaited, for the same reason
+   * {@link feedStatus} is: something about to tell a trader what they can afford
+   * must not have to open a socket to find out, and "we have not been told" is a
+   * real answer that has to be representable.
+   *
+   * It is a FLOOR, not the balance. See `freeBalanceFloorCNS` on the trading
+   * socket for why `b - lb` is the most that can be asserted today, and why a
+   * caller must say "at least" and must not refuse an amount for exceeding it.
+   */
+  freeBalanceFloorCNS(): bigint | undefined {
+    return this.#socket?.freeBalanceFloorCNS;
+  }
+
   /** Close both sockets, if they were opened. */
   disconnect(): void {
     this.#socket?.close();

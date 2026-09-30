@@ -337,6 +337,60 @@ describe('session tracking', () => {
   });
 });
 
+describe('account balance', () => {
+  it('reads b and lb off the WalletSnapshot as exact micros', async () => {
+    const { socket } = await connected();
+    assert.equal(socket.balanceCNS, 100_000_000n);
+    assert.equal(socket.lockedBalanceCNS, 0n);
+    assert.equal(socket.freeBalanceFloorCNS, 100_000_000n);
+  });
+
+  it('knows nothing before a snapshot, rather than reporting zero', async () => {
+    // Zero would be rendered as a real balance of nothing, to the one person who
+    // most needs not to be told that wrongly.
+    const { socket } = await connected({ skipSnapshot: true });
+    assert.equal(socket.balanceCNS, undefined);
+    assert.equal(socket.freeBalanceFloorCNS, undefined);
+  });
+
+  it('subtracts the locked balance, so the floor never overstates', async () => {
+    // `b - lb` is exact if `lb` sits inside `b` and conservative if it sits
+    // outside. The docs do not say which, and only one direction of error is
+    // tolerable in a figure a trader is about to spend against.
+    const { socket, fake } = await connected();
+    fake.deliver({
+      mt: 21,
+      in: 12,
+      id: 9001,
+      fr: false,
+      fw: true,
+      lfr: 531,
+      b: '100000000',
+      lb: '40000000',
+    });
+    assert.equal(socket.freeBalanceFloorCNS, 60_000_000n);
+  });
+
+  it('never reports a negative floor', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 21, id: 9001, b: '10000000', lb: '40000000' });
+    assert.equal(socket.freeBalanceFloorCNS, 0n, 'a debt is not a balance');
+  });
+
+  it('keeps the last figure it could parse rather than clearing it', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 21, id: 9001, b: 'not-a-number' });
+    assert.equal(socket.balanceCNS, 100_000_000n);
+  });
+
+  it('parses a decimal string without going through a float', async () => {
+    // 2^53 micros and a bit: Number() would come back one micro short.
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 21, id: 9001, b: '9007199254740993', lb: '0' });
+    assert.equal(socket.freeBalanceFloorCNS, 9_007_199_254_740_993n);
+  });
+});
+
 describe('lastOrderState', () => {
   it('knows nothing about an order it never heard of', async () => {
     const { socket } = await connected();

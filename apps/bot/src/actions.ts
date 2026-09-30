@@ -126,7 +126,18 @@ export interface PendingActionStoreOptions {
   readonly nextToken?: () => string;
 }
 
-const DEFAULT_TTL_MS = 15 * 60_000;
+/**
+ * How long anything the user was shown an amount against stays live.
+ *
+ * EXPORTED so the custom-amount prompt shares it rather than declaring its own
+ * fifteen minutes. The two expire for one reason — a figure quoted against a
+ * mark stops being that figure when the mark moves — so they must expire
+ * together, and two constants set to the same number is exactly how they stop
+ * being the same number.
+ */
+export const ACTION_TTL_MS = 15 * 60_000;
+
+const DEFAULT_TTL_MS = ACTION_TTL_MS;
 
 /** Lowercase alnum, which is what {@link encodeCallback} accepts. */
 function randomToken(): string {

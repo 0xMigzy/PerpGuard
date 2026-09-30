@@ -67,6 +67,33 @@ export function buttonsFor(
   }));
 }
 
+/** The third button's label. A prompt, not an amount: there is no amount yet. */
+export const CUSTOM_BUTTON_LABEL = 'Custom amount';
+
+/**
+ * The marker action behind the "Custom amount" button.
+ *
+ * A HANDLE ON A POSITION, NOT A TOP-UP. `amountCNS` is 0 because nothing has been
+ * chosen — it exists so the tap can find its way back to the right market,
+ * symbol and venue position id through the same pending-action store and the same
+ * token cross-check as every other button.
+ *
+ * It is NOT put on `message.actions`. That list is what the alert offered and
+ * what `action_log` records; a synthetic zero-amount entry in it would show up in
+ * the log as a top-up of nothing that a trader never saw.
+ */
+export function customMarkerAction(message: AlertMessage): AlertAction {
+  return {
+    type: 'add-margin',
+    intent: 'custom',
+    marketId: message.marketId,
+    symbol: message.symbol,
+    positionId: message.positionId,
+    amountCNS: 0n,
+    label: CUSTOM_BUTTON_LABEL,
+  };
+}
+
 /**
  * The line that explains why the buttons do nothing, or undefined when they do.
  *
@@ -111,6 +138,13 @@ export interface BuildOptions {
  * One button per row. The labels are whole sentences — "Add 2,662 → buffer 9.0%,
  * liquidation 76,446.7" — and two of those side by side are unreadable on a
  * phone, which is where this message is read.
+ *
+ * "CUSTOM AMOUNT" GOES LAST, BELOW BOTH COMPUTED OPTIONS AND NEVER INSTEAD OF
+ * THEM. The computed amounts are the primary answer — they are the ones that come
+ * with a stated outcome already — and a third button offers the same thing for a
+ * figure the user chooses. It appears only when the message offers top-ups at
+ * all: an alert sent while blind carries no actions, and a way to add margin
+ * against a frozen price is exactly what "no top-ups while blind" forbids.
  */
 export function buildTelegramMessage(options: BuildOptions): TelegramMessage {
   const { message, availability, store, userId, telegramUserId } = options;
@@ -124,7 +158,20 @@ export function buildTelegramMessage(options: BuildOptions): TelegramMessage {
 
   if (buttons.length === 0) return { text, keyboard: undefined };
 
+  // Blocked when the venue cannot act, exactly like the computed buttons: the
+  // option stays visible and the tap reports the reason.
+  const marker = customMarkerAction(message);
+  const custom: ActionButton = {
+    label: CUSTOM_BUTTON_LABEL,
+    data: encodeCallback({
+      kind: availability?.actionable === true ? 'custom' : 'blocked',
+      token: store.put({ userId, telegramUserId, action: marker }).token,
+      marketId: marker.marketId,
+      amountCNS: marker.amountCNS,
+    }),
+  };
+
   const keyboard = new InlineKeyboard();
-  for (const button of buttons) keyboard.text(button.label, button.data).row();
+  for (const button of [...buttons, custom]) keyboard.text(button.label, button.data).row();
   return { text, keyboard };
 }
