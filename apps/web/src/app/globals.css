@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/*
+ * The palette, as Tailwind tokens. `src/lib/theme.ts` carries the same values
+ * for chart fills; change both or neither.
+ */
+@theme {
+  --color-page: #07080D;
+  --color-card: #0F1118;
+  --color-card2: #141724;
+  --color-border: #1C1F2A;
+  --color-border2: #262A38;
+  --color-text: #ECEAFB;
+  --color-muted: #8A8FA3;
+  --color-muted2: #5E6375;
+  --color-accent: #8B5CF6;
+  --color-accent-hi: #A48BFF;
+  --color-accent-deep: #6D3FF0;
+  --color-cyan: #22D3EE;
+  --color-safe: #3DD9A0;
+  --color-watch: #F5B93C;
+  --color-danger: #FF6B80;
+  --font-sans: var(--font-inter), Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-page);
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every figure is tabular: columns of numbers line up and nothing jitters when a digit changes. */
+.num,
+table td,
+table th {
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: 16px;
+}
+@media (min-width: 640px) {
+  .wrap {
+    padding-inline: 24px;
+  }
+}
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--color-border2);
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 8px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:hover {
+  background: var(--color-card2);
+}
+.btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.btn.primary:hover {
+  background: var(--color-accent-hi);
+  border-color: var(--color-accent-hi);
+}
+.btn.danger {
+  color: var(--color-danger);
+  border-color: rgba(255, 107, 128, 0.4);
+}
+.btn.danger:hover {
+  background: rgba(255, 107, 128, 0.12);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:focus-visible,
+.pill:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.skeleton {
+  background: var(--color-card2);
+  border-radius: 6px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* Recharts: recessive grid and axes; text never wears the data colour. */
+.recharts-cartesian-grid line {
+  stroke: var(--color-border);
+}
+.recharts-text {
+  fill: var(--color-muted);
+  font-size: 10.5px;
+}
