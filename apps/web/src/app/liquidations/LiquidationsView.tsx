@@ -7,7 +7,9 @@ import { api } from '@/lib/api.ts';
 import { formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit, splitLiquidationDays } from '@/lib/liquidations.ts';
 import { deltaVsPrevious, lastDays } from '@/lib/overview.ts';
-import { PERIOD_LABEL, chartWindow } from '@/lib/timeframe.ts';
+import { chartWindow } from '@/lib/timeframe.ts';
+import { inPeriod, periodLabel, windowRange } from '@/lib/history.ts';
+import { useHistoryStart } from '@/lib/useHistory.ts';
 import { COLORS, OTHER_SERIES } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { BandBars } from '@/components/BandBars.tsx';
@@ -30,7 +32,9 @@ const COLUMNS = ['Time (UTC)', 'Account', 'Market', 'Size', 'Margin lost', 'Shor
  */
 export function LiquidationsView() {
   const t = useTimeframe();
-  const period = PERIOD_LABEL[t];
+  const start = useHistoryStart();
+  const period = periodLabel(t, start);
+  const within = inPeriod(t, start);
   const { fetch: ct, showDays } = chartWindow(t);
   const [limit, setLimit] = useState(LIST_STEP);
 
@@ -72,7 +76,7 @@ export function LiquidationsView() {
             <div className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi">—</div>
             <p className="m-0 max-w-[52ch] text-[13px] text-[#C9C4E4]">
               {r.count === 0
-                ? `No liquidation in the last ${period}. The finding needs one to judge; widen the window to see it.`
+                ? `No liquidation ${within}. The finding needs one to judge; widen the window to see it.`
                 : `${formatCount(r.count)} liquidation${r.count === 1 ? '' : 's'} in the window, none of which can be judged: every one is of a position opened before the index starts.`}
             </p>
           </div>
@@ -85,12 +89,18 @@ export function LiquidationsView() {
             <div className="min-w-0 flex-1 basis-[300px]">
               <p className="m-0 max-w-[60ch] text-[13px] text-[#C9C4E4]">
                 <b className="font-semibold text-text">
-                  {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations in the last {period} could have been prevented.
+                  {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations {within} could have been prevented.
                 </b>{' '}
                 The trader was holding enough free AUSD at that moment to cover the shortfall — but Perpl uses isolated margin, so that balance never moves on its own.
                 They were liquidated with the money to survive sitting in the same account.
               </p>
-              <p className="mt-[10px] mb-0 text-[13px] text-muted">
+              <p className="mt-[10px] mb-0 text-[12.5px] text-text/85">
+                <span className="eyebrow mr-2">Window</span>
+                <span className="num">{windowRange(m?.sinceMs, m?.untilMs ?? Date.now(), start)}</span>
+                {' · '}
+                {formatCount(r.judgeableCount)} judgeable of {formatCount(r.count)} liquidations. A rate over a different window is a different number.
+              </p>
+              <p className="mt-[6px] mb-0 text-[13px] text-muted">
                 {r.unknownCount === 0
                   ? 'Every liquidation in the window could be judged.'
                   : `${formatCount(r.unknownCount)} liquidation${r.unknownCount === 1 ? ' was' : 's were'} excluded because the position was opened before the index starts, so the account's state at that block cannot be established. Excluded from the denominator, never counted as failures.`}
@@ -266,7 +276,7 @@ export function LiquidationsView() {
             {rows !== undefined && rows.length === 0 && (
               <tr>
                 <td colSpan={COLUMNS.length} className="px-[10px] py-8 text-center text-muted">
-                  <div className="text-[14px] font-semibold text-text">No liquidation in the last {period}.</div>
+                  <div className="text-[14px] font-semibold text-text">No liquidation {within}.</div>
                   <div className="mt-1 text-[12.5px]">That is a quiet window, not an empty index. Widen it to see earlier ones.</div>
                 </td>
               </tr>

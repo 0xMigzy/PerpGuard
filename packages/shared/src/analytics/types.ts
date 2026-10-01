@@ -321,6 +321,30 @@ export interface MarketFundingStats {
   readonly lastAtMs: number | undefined;
 }
 
+/**
+ * The protocol's whole history, by UTC month: the growth curve. Independent
+ * of any timeframe — it always runs from the index's first event to now —
+ * and it carries that first event, so a page can name the window "All"
+ * really covers instead of calling it all-time on trust.
+ */
+export interface HistoryCurve {
+  /** The first event the index holds: the Exchange's own deployment, when it is complete. */
+  readonly startsAtMs: number | undefined;
+  readonly startBlock: number | undefined;
+  readonly months: readonly HistoryMonth[];
+}
+
+export interface HistoryMonth {
+  /** UTC midnight on the 1st. */
+  readonly monthMs: number;
+  /** Maker fills: one per trade. */
+  readonly trades: number;
+  readonly volumeAusd: number;
+  readonly newAccounts: number;
+  /** The month still running: its bar is not comparable with a whole month's. */
+  readonly partial: boolean;
+}
+
 /** One day of one figure, for a chart. Buckets ARE the unit here. */
 export interface DailyPoint {
   /** UTC midnight of the day. */
@@ -821,6 +845,8 @@ export interface Analytics {
 
   /** Daily series, most recent last, for charting. */
   dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]>;
+  /** Every month since the index's first event. See {@link HistoryCurve}. */
+  history(): Promise<HistoryCurve>;
 
   /**
    * The same days split per market, for a stacked chart. Markets ordered by

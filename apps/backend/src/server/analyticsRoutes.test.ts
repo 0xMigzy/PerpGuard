@@ -15,6 +15,7 @@ import type {
   Analytics,
   DailyPoint,
   FundingStats,
+  HistoryCurve,
   IndexedOpenPosition,
   IndexerHealth,
   LiquidationRecord,
@@ -34,7 +35,7 @@ import type {
   WalletProfile,
 } from '@perpguard/shared';
 import Fastify from 'fastify';
-import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
+import { defaultWarmEntries, registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
 
 const SYNCED: IndexerHealth = {
   state: 'synced',
@@ -125,6 +126,11 @@ class FakeAnalytics implements Analytics {
   async dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]> {
     this.asked.push(`series:${timeframe}`);
     return [];
+  }
+
+  async history(): Promise<HistoryCurve> {
+    this.asked.push('history');
+    return { startsAtMs: Date.UTC(2026, 1, 11, 23, 2, 27), startBlock: 54_773_010, months: [{ monthMs: Date.UTC(2026, 1, 1), trades: 12_576, volumeAusd: 1, newAccounts: 148, partial: false }] };
   }
 
   async dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]> {
@@ -705,4 +711,16 @@ test('risk is a 503 without a venue, and the snapshot in the envelope with one',
   const payload = body(response.payload);
   assert.ok('health' in payload, 'the envelope, like every route');
   assert.equal((payload['data'] as RiskSnapshot).asOf.indexerBlock, 109_000_000);
+});
+
+test('the history curve is served through the cache with its start, and is warmed at boot', async () => {
+  const { instance, analytics } = app();
+  const response = await instance.inject({ method: 'GET', url: '/api/analytics/history' });
+  assert.equal(response.statusCode, 200);
+  const data = body(response.payload)['data'] as HistoryCurve;
+  assert.equal(data.startBlock, 54_773_010);
+  assert.equal(data.months[0]!.trades, 12_576);
+  assert.ok(analytics.asked.includes('history'));
+  assert.ok(defaultWarmEntries(analytics).some((e) => e.key === 'history'));
+  assert.ok(defaultWarmEntries(analytics).some((e) => e.key === 'metrics:all'), 'All is the slow one, so it is kept warm');
 });

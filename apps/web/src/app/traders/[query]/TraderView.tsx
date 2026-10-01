@@ -22,7 +22,8 @@ import {
 } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
-import { PERIOD_LABEL } from '@/lib/timeframe.ts';
+import { periodLabel } from '@/lib/history.ts';
+import { useHistoryStart } from '@/lib/useHistory.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf, type TraderQuery } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
@@ -112,7 +113,8 @@ function PrefixSearch({ query, prefix }: { readonly query: string; readonly pref
 
 function TraderProfile({ query, parsed }: { readonly query: string; readonly parsed: Exclude<TraderQuery, { kind: 'prefix' }> }) {
   const t = useTimeframe();
-  const period = PERIOD_LABEL[t];
+  const start = useHistoryStart();
+  const period = periodLabel(t, start);
 
   // One lookup by whatever was typed. An address resolves to a profile or to
   // `not-linked`; an id resolves to a profile or a 404. Both are answers.
@@ -153,7 +155,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
   const dayRows = days.data?.data;
   const window = useMemo(() => (dayRows === undefined ? undefined : sumDays(dayRows)), [dayRows]);
   const dayCurve = useMemo(() => (dayRows === undefined ? undefined : cumulativeDays(dayRows)), [dayRows]);
-  const windowLabel = t === 'all' ? 'all time' : window === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
+  const windowLabel = t === 'all' ? periodLabel('all', start) : window === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
 
   // ── the three non-profile outcomes ───────────────────────────────────────
   if (parsed.kind === 'invalid') {

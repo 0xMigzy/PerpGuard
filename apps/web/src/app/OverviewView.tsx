@@ -3,9 +3,13 @@
 import { useMemo } from 'react';
 import type { MarketBreakdown } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd } from '@/lib/format.ts';
+import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatDayLong, formatPct, formatSignedAusd } from '@/lib/format.ts';
 import { deltaOf, deltaVsPrevious, lastDays, stackByMarket, tvlBefore, tvlHistory } from '@/lib/overview.ts';
-import { PERIOD_LABEL, chartWindow } from '@/lib/timeframe.ts';
+import { chartWindow } from '@/lib/timeframe.ts';
+import { periodLabel } from '@/lib/history.ts';
+import { useHistory, useHistoryStart } from '@/lib/useHistory.ts';
+import { biggestStep, formatMonth } from '@/lib/growth.ts';
+import { GrowthChart } from '@/components/charts/GrowthChart.tsx';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
@@ -42,7 +46,7 @@ function skewOf(markets: readonly MarketBreakdown[] | undefined): { readonly lon
 export function OverviewView() {
   const t = useTimeframe();
   const { fetch: ct, showDays } = chartWindow(t);
-  const period = PERIOD_LABEL[t];
+  const period = periodLabel(t, useHistoryStart());
 
   const metrics = usePoll(() => api.metrics(t), POLL_MS, `metrics:${t}`);
   const tvl = usePoll(api.tvl, POLL_MS, 'tvl');
@@ -140,6 +144,8 @@ export function OverviewView() {
       </section>
 
       {/* ── volume, skew, flow ──────────────────────────────────────────── */}
+      <GrowthSection />
+
       <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
@@ -224,5 +230,72 @@ function FlowSummary({ deposited, withdrawn, deposits, withdrawals }: { readonly
         {inbound === undefined ? '' : `${formatPct(inbound)} of gross flow was inbound · ${formatCount(deposits)} deposits, ${formatCount(withdrawals)} withdrawals`}
       </div>
     </div>
+  );
+}
+
+/**
+ * The protocol's growth, every UTC month since the Exchange was deployed.
+ * Deliberately OUTSIDE the page's timeframe: it always runs from the first
+ * month, and its label says so, so it cannot be read as "30 days".
+ */
+function GrowthSection() {
+  const history = useHistory();
+  const h = history.data?.data;
+  const step = h === undefined ? undefined : biggestStep(h.months);
+  const total = h?.months.reduce((sum, m) => sum + m.trades, 0);
+  return (
+    <section className="card mb-4 px-[18px] py-4">
+      <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+        <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Trades per month, since launch</h2>
+        <span className="text-[12.5px] text-muted">
+          {h?.startsAtMs === undefined ? 'all indexed history' : `every UTC month since ${formatDayLong(h.startsAtMs)} · not affected by the timeframe`}
+        </span>
+      </div>
+      <ErrorNote error={history.error} what="The growth curve" />
+      {h === undefined ? (
+        <Skeleton className="mt-2 h-[260px] w-full" />
+      ) : h.months.length === 0 ? (
+        <div className="mt-3 text-[12.5px] text-muted">No trade is indexed yet, so there is no curve to draw.</div>
+      ) : (
+        <>
+          {step !== undefined && step.factor >= 2 && (
+            <p className="m-0 mt-1 max-w-[70ch] text-[13px] text-[#C9C4E4]">
+              <b className="font-semibold text-text">{formatMonth(step.to.monthMs)} was the step change:</b>{' '}
+              {formatCount(step.to.trades)} trades against {formatCount(step.from.trades)} in {formatMonth(step.from.monthMs)}, {Math.round(step.factor)}× in one month.
+            </p>
+          )}
+          <GrowthChart months={h.months} />
+          <div className="mt-2 text-[11.5px] text-muted2">
+            One trade is one maker fill. {total === undefined ? '' : `${formatCount(total)} in all. `}
+            {h.months.some((m) => m.partial) ? 'The faint bar is the month still running.' : ''}
+          </div>
+          <details className="mt-2 text-[12px] text-muted">
+            <summary className="cursor-pointer">The numbers</summary>
+            <div className="mt-2 overflow-x-auto">
+              <table className="num w-full text-left">
+                <thead>
+                  <tr className="text-muted2">
+                    <th className="py-1 pr-4 font-medium">Month</th>
+                    <th className="py-1 pr-4 text-right font-medium">Trades</th>
+                    <th className="py-1 pr-4 text-right font-medium">Volume (AUSD)</th>
+                    <th className="py-1 text-right font-medium">New accounts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {h.months.map((m) => (
+                    <tr key={m.monthMs} className="border-t border-border text-text">
+                      <td className="py-1 pr-4">{formatMonth(m.monthMs)}{m.partial ? ' (so far)' : ''}</td>
+                      <td className="py-1 pr-4 text-right">{formatCount(m.trades)}</td>
+                      <td className="py-1 pr-4 text-right">{formatCompact(m.volumeAusd)}</td>
+                      <td className="py-1 text-right">{formatCount(m.newAccounts)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      )}
+    </section>
   );
 }

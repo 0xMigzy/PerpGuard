@@ -79,6 +79,7 @@ import type {
   WalletMatch,
   WalletPerformance,
   WalletProfile,
+  HistoryCurve,
 } from './types.ts';
 import { MIN_ROUND_TRIPS_FOR_RATIOS, TRADER_SORT_KEYS } from './types.ts';
 
@@ -423,6 +424,24 @@ select id, "accountId", owner, "firstTradeAt", "lastActiveAt",
        "liquidationsWithSpareBalanceCount", "spareBalanceAtLiquidationCNS",
        "freeBalanceCNS"::text as free_balance
   from "Trader" where id = $1
+`;
+
+/** Trades and volume by UTC month, from the day buckets: one maker fill is one trade. */
+const HISTORY_MONTHS_SQL = `
+select date_trunc('month', day) as month, sum("tradeCount")::text as trades, sum("volumeCNS")::text as volume
+  from "MarketDay" group by 1 order by 1
+`;
+
+/** Accounts opened per UTC month. */
+const HISTORY_ACCOUNTS_SQL = `
+select date_trunc('month', "createdAt") as month, count(*)::text as accounts
+  from "Trader" where "createdAt" is not null group by 1
+`;
+
+/** Where the index's history begins: its first market sighting and its configured start block. */
+const HISTORY_START_SQL = `
+select (select min("firstSeenAt") from "Market") as starts_at,
+       (select start_block from chain_metadata limit 1) as start_block
 `;
 
 /** A trader's liquidations, for the unknown count the Trader row does not carry. */
@@ -971,6 +990,31 @@ export class PostgresAnalytics implements Analytics {
       withdrawnAusd: toAusd(row['withdrawn'], decimals),
       netFlowAusd: toAusd(row['deposited'], decimals) - toAusd(row['withdrawn'], decimals),
     }));
+  }
+
+  async history(): Promise<HistoryCurve> {
+    const decimals = await this.#decimals();
+    const [months, accounts, start] = await Promise.all([
+      this.#rows(HISTORY_MONTHS_SQL, []),
+      this.#rows(HISTORY_ACCOUNTS_SQL, []),
+      this.#one(HISTORY_START_SQL, []),
+    ]);
+    const newByMonth = new Map(accounts.map((row) => [requireMs(row['month']), count(row['accounts'])]));
+    const thisMonth = Date.UTC(new Date(this.#now()).getUTCFullYear(), new Date(this.#now()).getUTCMonth(), 1);
+    return {
+      startsAtMs: toMs(start?.['starts_at']),
+      startBlock: start?.['start_block'] === null || start?.['start_block'] === undefined ? undefined : Number(start['start_block']),
+      months: months.map((row) => {
+        const monthMs = requireMs(row['month']);
+        return {
+          monthMs,
+          trades: count(row['trades']),
+          volumeAusd: toAusd(row['volume'], decimals),
+          newAccounts: newByMonth.get(monthMs) ?? 0,
+          partial: monthMs >= thisMonth,
+        };
+      }),
+    };
   }
 
   async dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]> {

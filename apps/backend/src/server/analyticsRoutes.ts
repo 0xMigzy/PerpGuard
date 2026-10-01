@@ -141,6 +141,7 @@ export function analyticsLoaders(analytics: Analytics) {
   return {
     metrics: (t: Timeframe) => entry(`metrics:${t}`, () => analytics.protocolMetrics(t)),
     series: (t: Timeframe) => entry(`series:${t}`, () => analytics.dailySeries(t)),
+    history: () => entry('history', () => analytics.history()),
     seriesByMarket: (t: Timeframe) => entry(`series-markets:${t}`, () => analytics.dailySeriesByMarket(t)),
     markets: (t: Timeframe) => entry(`markets:${t}`, () => analytics.marketBreakdown(t)),
     funding: (t: Timeframe) => entry(`funding:${t}`, () => analytics.funding(t)),
@@ -178,6 +179,10 @@ export function defaultWarmEntries(analytics: Analytics): ReadonlyArray<{ readon
   const l = analyticsLoaders(analytics);
   return [
     l.metrics('30d'),
+    // All covers the whole history: the slowest answers, so they are kept warm.
+    l.metrics('all'),
+    l.liquidationSummary('all'),
+    l.history(),
     l.series('30d'),
     l.series('all'),
     l.seriesByMarket('30d'),
@@ -318,6 +323,8 @@ export function registerAnalyticsRoutes(
    * what a client should read. The envelope is still attached for shape consistency.
    */
   scope.get(`${prefix}/tvl`, async () => envelope(await analytics.tvl()));
+
+  scope.get(`${prefix}/history`, async () => served(loaders.history()));
 
   scope.get(`${prefix}/series`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);

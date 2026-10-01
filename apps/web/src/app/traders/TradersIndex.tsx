@@ -5,7 +5,8 @@ import { useState } from 'react';
 import type { SortDirection, TraderRow, TraderSortKey } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
-import { PERIOD_LABEL } from '@/lib/timeframe.ts';
+import { periodLabel } from '@/lib/history.ts';
+import { useHistoryStart } from '@/lib/useHistory.ts';
 import { defaultTraderDirection, pageRange } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
@@ -43,7 +44,8 @@ export function TradersIndex() {
   const data = list.data?.data;
   const window = data?.window;
   // The column sub-label is short; the long form goes in the chip and the note.
-  const windowed = window === undefined ? PERIOD_LABEL[t] : window.days === undefined ? 'all time' : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
+  const start = useHistoryStart();
+  const windowed = window === undefined ? periodLabel(t, start) : window.days === undefined ? periodLabel('all', start) : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
   const warn = window !== undefined && !window.honoursTimeframe;
   const floor = data?.minRoundTripsForRatios;
 

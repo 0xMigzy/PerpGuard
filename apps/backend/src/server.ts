@@ -104,6 +104,7 @@ import { LinkService } from './server/link/service.ts';
 import { InMemoryKeyStore, PostgresKeyStore, PostgresLinkStore, type KeyStore } from './server/link/stores.ts';
 import { WatchLoop } from './watch/loop.ts';
 import { thresholdsFor } from './risk/warn.ts';
+import { StartupDeliveryGate } from './alerts/startupGate.ts';
 import { PostgresAccountSettingsStore } from './sessions/settings.pg.ts';
 import { createWatchResolver } from './watch/resolve.ts';
 import { PostgresWatchStore } from './watch/store.pg.ts';
@@ -404,12 +405,48 @@ const activity = new AlertActivity({
 // registry (it routes to sessions), so the registry is handed a transport
 // that forwards to whichever one exists by the time an alert is sent.
 let transport: TelegramAlertTransport | undefined;
-const forwardingTransport: AlertTransport = {
+const telegramTransport: AlertTransport = {
   send: (recipient, message) =>
     transport === undefined
       ? Promise.resolve({ ok: false, reason: 'no Telegram transport is configured, so this alert has nowhere to go', retryable: false })
       : transport.send(recipient, message),
 };
+
+// ── the startup gate: a restart never says "I cannot see this position" ────
+// Every alert from every engine — owner sessions and the watch tier — is held
+// until each loop has completed a pass with nothing blind, then the startup
+// blindness is dropped and every real severity delivered. Past the deadline
+// it is an outage, not a restart, and everything held goes out as decided.
+const STARTUP_GATE_DEADLINE_MS = Number(process.env['STARTUP_ALERT_HOLD_MS'] ?? 180_000);
+const startupClean = (): boolean => {
+  // Polled from boot, while later declarations may not exist yet: anything
+  // not yet there is simply not clean yet.
+  try {
+    return startupCleanNow();
+  } catch {
+    return false;
+  }
+};
+const startupCleanNow = (): boolean => {
+  if (venue.feedStatus().state !== 'connected') return false;
+  for (const session of registry.list()) {
+    const status = session.status();
+    if (status.positions.state !== 'live' || !status.assessing) return false;
+    if (session.loop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED')) return false;
+  }
+  if (process.env['INDEXER_DATABASE_URL']?.trim()) {
+    if (watchLoop?.lastRunAtMs === undefined || watchLoop.lastHealth?.serveAsCurrent !== true) return false;
+    if (watchLoop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED')) return false;
+  }
+  return true;
+};
+const forwardingTransport = new StartupDeliveryGate({
+  inner: telegramTransport,
+  isClean: startupClean,
+  deadlineMs: STARTUP_GATE_DEADLINE_MS,
+  logger: { info: log, warn },
+});
+forwardingTransport.start();
 
 // ── each linked account's own settings ("Warn me at") ─────────────────────
 // Loaded before the registry opens anything, so a session opens with its

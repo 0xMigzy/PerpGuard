@@ -264,6 +264,11 @@ export class AlertEngine {
         result = { ok: false, reason: describeError(error), retryable: true };
       }
 
+      if (result.suppressed === true) {
+        this.#logger.info(`alert for ${message.symbol} (${message.state}) to ${recipient.userId} not sent: ${result.reason ?? 'suppressed'}`);
+        return;
+      }
+
       if (result.ok) {
         await this.#record({
           ...(accountId === undefined ? {} : { accountId }),

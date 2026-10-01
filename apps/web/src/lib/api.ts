@@ -13,6 +13,7 @@
 import type {
   AssessedPositions,
   DailyPoint,
+  HistoryCurve,
   IndexerHealth,
   LiquidationRecord,
   LiquidationSummary,
@@ -185,6 +186,8 @@ export const api = {
   metrics: (t: Timeframe) => getJson<Envelope<ProtocolMetrics>>(`${A}/metrics?timeframe=${t}`),
   tvl: () => getJson<Envelope<TvlReading>>(`${A}/tvl`),
   series: (t: Timeframe) => getJson<Envelope<readonly DailyPoint[]>>(`${A}/series?timeframe=${t}`),
+  /** Every UTC month since the index's first event, and where that history starts. */
+  history: () => getJson<Envelope<HistoryCurve>>(`${A}/history`),
   seriesByMarket: (t: Timeframe) =>
     getJson<Envelope<readonly MarketDailySeries[]>>(`${A}/series/markets?timeframe=${t}`),
   openInterest: () => getJson<Envelope<OpenInterestPayload>>(`${A}/open-interest`),

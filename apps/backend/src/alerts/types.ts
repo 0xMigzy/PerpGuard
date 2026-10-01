@@ -170,6 +170,11 @@ export interface DeliveryResult {
   readonly ok: boolean;
   readonly reason?: string;
   readonly retryable?: boolean;
+  /**
+   * Deliberately not sent (the startup gate dropped a blindness alert about
+   * the process starting). Logged; neither a delivery nor a failure.
+   */
+  readonly suppressed?: boolean;
 }
 
 export interface AlertTransport {

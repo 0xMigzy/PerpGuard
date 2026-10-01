@@ -4,7 +4,8 @@ import { Fragment, useMemo, useState } from 'react';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusdExact, formatCompact, formatCount, formatFundingPct, formatPct, formatPriceAsServed } from '@/lib/format.ts';
 import { CROWDED_SHARE, buildMarketTable, defaultDirection, markWindow, sortRows, type MarketRow, type RiskScore, type RiskTag, type SortDirection, type SortKey } from '@/lib/markets.ts';
-import { PERIOD_LABEL } from '@/lib/timeframe.ts';
+import { periodLabel } from '@/lib/history.ts';
+import { useHistoryStart } from '@/lib/useHistory.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
@@ -31,7 +32,7 @@ interface Column {
 
 export function MarketsView() {
   const t = useTimeframe();
-  const period = PERIOD_LABEL[t];
+  const period = periodLabel(t, useHistoryStart());
   const mw = markWindow(t);
 
   const markets = usePoll(() => api.markets(t), POLL_MS, `markets:${t}`);
