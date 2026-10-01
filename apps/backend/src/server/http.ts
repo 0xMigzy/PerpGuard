@@ -17,6 +17,7 @@ import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
 import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
 import { registerProtectRoutes, type ProtectRouteOptions } from './protect/routes.ts';
+import { registerLinkRoutes, type LinkRouteOptions } from './link/routes.ts';
 
 export interface HealthServerOptions {
   readonly health: () => HealthReport;
@@ -43,6 +44,8 @@ export interface HealthServerOptions {
   readonly analyticsCache?: AnalyticsRouteOptions['cache'];
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
   readonly protect?: ProtectRouteOptions;
+  /** The linking page's API: the one place in the web app with a session. */
+  readonly link?: LinkRouteOptions;
 }
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
@@ -66,6 +69,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
   }
 
   if (options.protect !== undefined) registerProtectRoutes(app, options.protect);
+  if (options.link !== undefined) registerLinkRoutes(app, options.link);
 
   // A bare GET / is what a human types first. Point them at the real endpoint
   // rather than returning a 404 that reads like the process is broken.

@@ -15,7 +15,7 @@
  * Needs an open position on the account. `pnpm actions:live --open
  * --no-close --units 1` opens a one-lot BTC long on testnet.
  */
-import { PerplVenue, loadAppConfig, loadNetworkConfig, loadPerplCredentials, type AlertRecipient as _R } from '@perpguard/shared';
+import { PerplVenue, loadAppConfig, loadNetworkConfig, loadPerplCredentials } from '@perpguard/shared';
 import { InMemoryActionLog } from '../actions/index.ts';
 import { InMemoryAlertLog } from '../alerts/log.pg.ts';
 import type { AlertMessage, AlertRecipient, AlertTransport, DeliveryResult } from '../alerts/types.ts';

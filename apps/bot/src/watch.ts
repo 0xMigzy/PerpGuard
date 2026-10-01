@@ -263,4 +263,4 @@ export function renderWatched(sub: WatchSubscription, resolved: ResolvedWatchTar
 export const TIERS_TEXT =
   'Two ways to use PerpGuard:\n' +
   '  • Watch anything, right now: /watch <0x address or account id>. No wallet, no sign-up. Alerts only, no actions.\n' +
-  '  • Link your own account when you want to act: the linked chat gets the same alerts with Add-margin buttons.';
+  '  • Link your own account when you want to act: /link, prove you own it on the page, and this chat gets the same alerts with Add-margin buttons.';

@@ -107,6 +107,77 @@ async function getJson<T>(path: string): Promise<T> {
   return parsed as T;
 }
 
+/** A POST with a JSON body, same error shape as a GET. The one place the web app writes anything. */
+async function postJson<T>(path: string, body: unknown, method: 'POST' | 'DELETE' = 'POST'): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method, cache: 'no-store', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: body === undefined ? null : JSON.stringify(body) });
+  } catch {
+    throw new ApiError(path, undefined, 'the backend could not be reached');
+  }
+  const text = await response.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ApiError(path, response.status, `the backend answered ${response.status} without JSON`);
+  }
+  if (!response.ok) {
+    const message = typeof parsed === 'object' && parsed !== null && 'error' in parsed ? String((parsed as { error: unknown }).error) : `the backend answered ${response.status}`;
+    throw new ApiError(path, response.status, message);
+  }
+  return parsed as T;
+}
+
+// ── the linking page: the ONE route with a session ──────────────────────────
+
+export interface LinkSessionStatus {
+  readonly accountId: number;
+  readonly trading: { readonly state: string; readonly reason?: string; readonly forwardingAllowed?: boolean };
+  readonly positions: { readonly state: string; readonly reason?: string };
+  readonly assessing: boolean;
+  readonly tracked: number;
+  readonly mismatch?: string;
+}
+
+export interface LinkStatus {
+  readonly accountId: number;
+  readonly proof: 'wallet' | 'key';
+  readonly session: LinkSessionStatus | undefined;
+  readonly needsRelink?: string;
+}
+
+export interface LinkMe {
+  readonly identity: { readonly userId: string; readonly telegramUserId: number };
+  readonly link: LinkStatus | null;
+  readonly provenAccountId: number | null;
+  readonly dynamicConfigured: boolean;
+  readonly keyStorageConfigured: boolean;
+  readonly network: string;
+  readonly envAccountId: number | null;
+}
+
+export type WalletProof =
+  | { readonly kind: 'linked'; readonly accountId: number }
+  | { readonly kind: 'proven-needs-key'; readonly accountId: number; readonly reason: string }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+export type KeyProof =
+  | { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+const L = '/api/link';
+
+export const link = {
+  session: (code: string) => postJson<LinkMe>(`${L}/session`, { code }),
+  signOut: () => postJson<{ signedOut: boolean }>(`${L}/session`, undefined, 'DELETE'),
+  me: () => getJson<LinkMe>(`${L}/me`),
+  wallet: (dynamicToken: string) => postJson<{ proof: WalletProof; me: LinkMe }>(`${L}/wallet`, { dynamicToken }),
+  /** The key goes to this origin's backend and nowhere else, and is never read back. */
+  key: (apiKey: string, secret: string) => postJson<{ proof: KeyProof; me: LinkMe }>(`${L}/key`, { apiKey, secret }),
+  unlink: () => postJson<{ ok: boolean; text: string; me: LinkMe }>(`${L}/unlink`, {}),
+};
+
 const A = '/api/analytics';
 
 export const api = {

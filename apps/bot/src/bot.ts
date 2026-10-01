@@ -92,6 +92,17 @@ export interface BotDeps {
    */
   readonly identities?: IdentityStore;
   /**
+   * Proof-based linking: `/link` mints a one-time deep link to the page that
+   * collects the proof; `/unlink` tears the link, its key and its session
+   * down. Absent means the bot says linking is not available here.
+   */
+  readonly link?: {
+    mint(userId: string): { readonly url: string; readonly expiresAtMs: number };
+    unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }>;
+    /** Why a linked account cannot be served right now (a rotated key, say). */
+    needsRelink?(userId: string): string | undefined;
+  };
+  /**
    * The public watch tier. Absent means `/watch` says it is not available on
    * this deployment, which is the honest answer for a backend with no index.
    */
@@ -118,7 +129,7 @@ export interface BotDeps {
  * button tap, needs the link. Matched on the first word with any @mention
  * stripped, so `/watch@PerpGuardBot 0x…` in a group is `/watch`.
  */
-const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/unwatch', '/watching']);
+const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/unwatch', '/watching', '/link', '/unlink']);
 
 function commandOf(text: string | undefined): string | undefined {
   const first = text?.trim().split(/\s+/)[0];
@@ -157,6 +168,10 @@ export function createBot(deps: BotDeps): Bot {
     if (telegramUserId === undefined) return { refusal: REFUSAL_TEXT };
     const link = deps.links.byTelegramUserId(telegramUserId);
     if (link === undefined) return { refusal: REFUSAL_TEXT };
+    const relink = deps.link?.needsRelink?.(link.userId);
+    if (relink !== undefined) {
+      return { refusal: `Your link to account ${link.accountId} needs renewing: ${relink}. Send /link to do that.` };
+    }
     const account = deps.sessions.forAccount(link.accountId);
     if (account === undefined) {
       return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try /status in a moment.` };
@@ -243,6 +258,44 @@ export function createBot(deps: BotDeps): Bot {
         `${TIERS_TEXT}\n\n` +
         `Linking your own account, to get the buttons, is a separate step that proves you own it; it is not done from this chat.\n\n${HELP_TEXT}`,
     );
+  });
+
+  // ── linking: the proof happens on the page, never in this chat ───────────
+  bot.command('link', async (ctx) => {
+    const telegramUserId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    if (telegramUserId === undefined || chatId === undefined) return;
+    if (!(await withinLimit(ctx))) return;
+    if (deps.link === undefined) {
+      await ctx.reply('Linking is not available on this deployment.');
+      return;
+    }
+    const { identity } = identities.register(telegramUserId, chatId, now());
+    const minted = deps.link.mint(identity.userId);
+    const minutes = Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000));
+    await ctx.reply(
+      `Open this to link your Perpl account to this chat:\n${minted.url}\n\n` +
+        `It works once, for ${minutes} minutes, and it proves nothing by itself: the page asks you to prove you own the account, ` +
+        `with the wallet that owns it or with an API key for it. Never paste a key here in Telegram — only on that page.`,
+      { link_preview_options: { is_disabled: true } },
+    );
+  });
+
+  bot.command('unlink', async (ctx) => {
+    const telegramUserId = ctx.from?.id;
+    if (telegramUserId === undefined) return;
+    if (!(await withinLimit(ctx))) return;
+    if (deps.link === undefined) {
+      await ctx.reply('Linking is not available on this deployment.');
+      return;
+    }
+    const link = deps.links.byTelegramUserId(telegramUserId);
+    if (link === undefined) {
+      await ctx.reply('This chat is not linked to any account.');
+      return;
+    }
+    const result = await deps.link.unlink(link.userId);
+    await ctx.reply(result.text);
   });
 
   // ── the public watch tier ─────────────────────────────────────────────────

@@ -33,6 +33,7 @@
  */
 import { Pool } from 'pg';
 import {
+  ApiSecret,
   assessOpenPositions,
   ConfigError,
   PerplPositionSource,
@@ -61,6 +62,7 @@ import {
   loadBotConfig,
   InMemoryIdentityStore,
   type IdentityStore,
+  type LinkStore,
   type RiskView,
   type WatchResolver,
   type WatchStore,
@@ -92,6 +94,9 @@ import { ActionProgressTracker } from './server/protect/progress.ts';
 import { DynamicVerifier } from './server/protect/dynamic.ts';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { AccountRegistry, DEFAULT_MAX_SESSIONS } from './sessions/registry.ts';
+import { KeyVault } from './server/link/crypto.ts';
+import { LinkService } from './server/link/service.ts';
+import { InMemoryKeyStore, PostgresKeyStore, PostgresLinkStore, type KeyStore } from './server/link/stores.ts';
 import { WatchLoop } from './watch/loop.ts';
 import { createWatchResolver } from './watch/resolve.ts';
 import { PostgresWatchStore } from './watch/store.pg.ts';
@@ -248,12 +253,37 @@ if (databaseUrl === undefined || databaseUrl === '') {
   }
 }
 
-const links = new InMemoryLinkStore({
-  capacity: 1,
-  ...(botConfig?.ownerTelegramUserId === undefined
-    ? {}
-    : { ownerTelegramUserId: botConfig.ownerTelegramUserId }),
+// WHO MAY ACT ON WHICH ACCOUNT. One link per Telegram user, as many users as
+// there may be sessions plus the environment owner, persisted so a restart
+// keeps every link — the sealed keys behind them are reopened below.
+const linkCapacity = MAX_ACCOUNT_SESSIONS + 1;
+let links: LinkStore = new InMemoryLinkStore({
+  capacity: linkCapacity,
+  ...(botConfig?.ownerTelegramUserId === undefined ? {} : { ownerTelegramUserId: botConfig.ownerTelegramUserId }),
 });
+let keyStore: KeyStore = new InMemoryKeyStore();
+if (alertDb !== undefined) {
+  try {
+    links = await PostgresLinkStore.load({ pool: alertDb, capacity: linkCapacity, ownerTelegramUserId: botConfig?.ownerTelegramUserId, logger: { warn } });
+    keyStore = await PostgresKeyStore.load({ pool: alertDb, logger: { warn } });
+    log(`account links loaded from Postgres: ${links.list().length} link(s), ${keyStore.list().length} sealed key(s)`);
+  } catch (error) {
+    warn(`account links could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); links are in memory until the next restart`);
+  }
+}
+// THE KEY THAT SEALS PASTED API KEYS. Without it the key path refuses and says
+// so; wallet proof still links to an account the process already runs.
+// Rotating it invalidates every sealed key: the links survive, the sessions do
+// not reopen, and each user re-links. See server/link/crypto.ts.
+const keyEncryptionHex = process.env['PERPGUARD_KEY_ENCRYPTION_KEY']?.trim();
+let vault: KeyVault | undefined;
+if (keyEncryptionHex === undefined || keyEncryptionHex === '') {
+  warn('PERPGUARD_KEY_ENCRYPTION_KEY is not set: pasted API keys cannot be stored, so linking by key is off (wallet proof still works for the environment account)');
+} else {
+  vault = new KeyVault(keyEncryptionHex);
+  log(`key vault ready (environment key id ${vault.keyId})`);
+}
+const PUBLIC_WEB_URL = process.env['PUBLIC_WEB_URL']?.trim() || 'http://localhost:3000';
 const pendingActions = new PendingActionStore();
 const pendingAmounts = new PendingAmountStore();
 
@@ -283,6 +313,7 @@ if (alertDb !== undefined) {
     warn(`telegram identities could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); in memory until the next restart`);
   }
 }
+let linkServiceImpl: LinkService | undefined;
 let watchResolverImpl: WatchResolver | undefined;
 const watchResolver: WatchResolver = {
   resolve: (target: WatchTarget) =>
@@ -421,6 +452,14 @@ const bot =
         configs: riskConfigs,
         amounts: pendingAmounts,
         identities,
+        link: {
+          mint: (id) => {
+            if (linkServiceImpl === undefined) throw new Error('linking is not wired yet');
+            return linkServiceImpl.mint(id);
+          },
+          unlink: (id) => (linkServiceImpl === undefined ? Promise.resolve({ ok: false, text: 'Linking is not available right now.' }) : linkServiceImpl.unlink(id)),
+          needsRelink: (id) => linkServiceImpl?.needsRelink(id),
+        },
         watch: {
           store: watchStore,
           resolver: watchResolver,
@@ -443,6 +482,35 @@ transport =
         executor: { availability: (symbol) => venue.getActionAvailability(symbol), execute: async () => ({ kind: 'refused', detail: 'the transport never executes' }) },
         logger: { warn },
       });
+
+// ── linking: proof on the page, sessions in the registry ───────────────────
+const linkService = new LinkService({
+  codes: webLinkCodes,
+  identities,
+  links,
+  keys: keyStore,
+  vault,
+  registry,
+  // ONE sign-in to learn whose key it is, then closed; the registry opens the
+  // socket that stays.
+  probe: async (sealed) => {
+    const probeVenue = new PerplVenue(network, { credentials: { apiKey: sealed.apiKey, secret: ApiSecret.fromHex(sealed.secretHex) } });
+    try {
+      const socket = await probeVenue.connectTrading();
+      return { accountId: socket.accountId, forwardingAllowed: socket.forwardingAllowed };
+    } finally {
+      probeVenue.disconnect();
+    }
+  },
+  lookupAccount: (address) => lookupAccountByAddress(address, { rpcUrl: network.rpcUrl, exchangeAddress: network.exchangeAddress }),
+  secretFromHex: (hex) => ApiSecret.fromHex(hex),
+  envAccountId,
+  webUrl: PUBLIC_WEB_URL,
+  ...(bot === undefined ? {} : { notify: async (chatId, text) => { await bot.api.sendMessage(chatId, text); } }),
+  logger: { info: log, warn },
+});
+linkServiceImpl = linkService;
+await linkService.reopenAll();
 
 // ── 6b. the watch tier's alerts: the same engine, a recipient list per change ──
 //
@@ -676,6 +744,14 @@ const app = createHealthApp({
     },
     logger: { info: log, warn },
   } }),
+  // The linking page's API: the one session in the web app.
+  link: {
+    service: linkService,
+    ...(dynamicVerifier === undefined ? {} : { dynamic: dynamicVerifier }),
+    network: network.name,
+    ...(envAccountId === undefined ? {} : { envAccountId }),
+    keyStorageConfigured: vault !== undefined,
+  },
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.

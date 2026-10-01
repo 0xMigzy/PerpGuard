@@ -68,7 +68,7 @@ class FakeResolver implements WatchResolver {
   }
 }
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']> } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -98,6 +98,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     now: () => state.nowMs,
     botInfo: bot.botInfo,
     ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer } }),
+    ...(options.link === undefined ? {} : { link: options.link }),
   });
   // The bot under test must talk to the fake, not to Telegram.
   telegram.install(built.api);
@@ -1081,4 +1082,91 @@ test('without a watch tier wired, the public commands say so instead of failing'
   const h = harness({ watch: false });
   await h.bot.handleUpdate(stranger('/watch 710'));
   assert.match(texts(h.telegram).at(-1)!, /not available on this deployment/);
+});
+
+// ── linking: /link and /unlink ──────────────────────────────────────────────
+
+/** A fake link service: records who asked, hands out a URL, and can be told a link needs renewing. */
+function fakeLinkService() {
+  const minted: string[] = [];
+  const unlinked: string[] = [];
+  let relink: string | undefined;
+  return {
+    minted,
+    unlinked,
+    setRelink: (reason: string | undefined) => {
+      relink = reason;
+    },
+    service: {
+      mint: (userId: string) => {
+        minted.push(userId);
+        return { code: 'ABCD-EFGH', url: 'https://perpguard.example/link?code=ABCD-EFGH', expiresAtMs: 1_000_000 + 5 * 60_000 };
+      },
+      unlink: async (userId: string) => {
+        unlinked.push(userId);
+        return { ok: true, text: `Unlinked from account 710. The session is closed.` };
+      },
+      needsRelink: (_userId: string) => relink,
+    },
+  };
+}
+
+test('/link from a stranger registers an identity and replies with a one-time URL that says it proves nothing by itself', async () => {
+  const fake = fakeLinkService();
+  const h = harness({ links: new InMemoryLinkStore({ capacity: 2 }), link: fake.service });
+  await h.bot.handleUpdate(messageUpdate('/link', { from: STRANGER_ID, chat: 7_777 }));
+  const reply = texts(h.telegram).at(-1)!;
+  assert.match(reply, /https:\/\/perpguard\.example\/link\?code=ABCD-EFGH/);
+  assert.match(reply, /works once, for 5 minutes, and it proves nothing by itself/);
+  assert.match(reply, /Never paste a key here in Telegram/);
+  assert.deepEqual(fake.minted, ['tg:6060'], 'minted for the Telegram identity, not a slot');
+  assert.equal(h.links.byTelegramUserId(STRANGER_ID), undefined, 'minting links nothing');
+  const call = h.telegram.of('sendMessage').at(-1)!;
+  assert.equal((call.payload['link_preview_options'] as { is_disabled: boolean }).is_disabled, true);
+});
+
+test('/link without a link service says so instead of pretending', async () => {
+  const h = harness({ links: new InMemoryLinkStore({ capacity: 2 }) });
+  await h.bot.handleUpdate(messageUpdate('/link', { from: STRANGER_ID, chat: 7_777 }));
+  assert.equal(texts(h.telegram).at(-1), 'Linking is not available on this deployment.');
+});
+
+test('/unlink from an unlinked chat says so; from the linked user it calls the service with that user and relays the text', async () => {
+  const fake = fakeLinkService();
+  const h = harness({ link: fake.service });
+  await h.bot.handleUpdate(messageUpdate('/unlink', { from: STRANGER_ID, chat: 7_777 }));
+  assert.equal(texts(h.telegram).at(-1), 'This chat is not linked to any account.');
+  assert.deepEqual(fake.unlinked, []);
+
+  await h.bot.handleUpdate(messageUpdate('/unlink'));
+  assert.deepEqual(fake.unlinked, [USER_ID]);
+  assert.match(texts(h.telegram).at(-1)!, /^Unlinked from account 710\./);
+});
+
+test('a linked user whose key needs renewing is told to /link again on every gated command and every tap, until it is renewed', async () => {
+  const fake = fakeLinkService();
+  const h = harness({ link: fake.service });
+  h.view.assessments = [dangerAssessment()];
+  fake.setRelink('the environment key was rotated');
+
+  await h.bot.handleUpdate(messageUpdate('/status'));
+  assert.match(texts(h.telegram).at(-1)!, /^Your link to account 710 needs renewing: the environment key was rotated\. Send \/link to do that\.$/);
+  await h.bot.handleUpdate(messageUpdate('/positions'));
+  assert.match(texts(h.telegram).at(-1)!, /needs renewing/);
+
+  // A tap on a real button is refused at tap time, before any executor call.
+  fake.setRelink(undefined);
+  await h.bot.handleUpdate(messageUpdate('/positions'));
+  const keyboard = h.telegram.of('sendMessage').at(-1)!.payload['reply_markup'] as InlineKeyboard;
+  const data = keyboard.inline_keyboard[0]![0]!;
+  assert.ok('callback_data' in data);
+  fake.setRelink('the environment key was rotated');
+  await h.bot.handleUpdate(callbackUpdate(data.callback_data));
+  assert.match(answers(h.telegram).at(-1)!, /needs renewing/);
+  assert.equal(h.executor.calls.length, 0);
+
+  // Renewed: the same commands work again, with no restart.
+  fake.setRelink(undefined);
+  await h.bot.handleUpdate(messageUpdate('/status'));
+  assert.match(texts(h.telegram).at(-1)!, /PerpGuard is watching 1 position/);
 });
