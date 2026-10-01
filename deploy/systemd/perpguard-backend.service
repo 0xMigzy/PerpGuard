@@ -1,0 +1,27 @@
+# The backend: risk loop, alerts, Telegram bot, analytics API on :8080.
+#   cp deploy/systemd/perpguard-backend.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now perpguard-backend
+[Unit]
+Description=PerpGuard backend (risk loop, alerts, bot, analytics API)
+After=network-online.target postgresql.service perpguard-indexer.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PerpGuard
+EnvironmentFile=/root/PerpGuard/.env
+# Per-unit overrides, loaded second so they win over the shared file.
+EnvironmentFile=/root/PerpGuard/deploy/systemd/backend.env
+ExecStart=/root/PerpGuard/apps/backend/scripts/run-backend.sh
+# The process drains alert deliveries and closes its sockets on SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/perpguard/backend.log
+StandardError=append:/var/log/perpguard/backend.log
+
+[Install]
+WantedBy=multi-user.target

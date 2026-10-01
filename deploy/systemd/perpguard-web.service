@@ -1,0 +1,26 @@
+# The web app, served from its production build on :3000.
+#   cp deploy/systemd/perpguard-web.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now perpguard-web
+[Unit]
+Description=PerpGuard web (Next.js production server)
+After=network-online.target perpguard-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PerpGuard/apps/web
+EnvironmentFile=/root/PerpGuard/.env
+# Per-unit overrides, loaded second so they win over the shared file.
+EnvironmentFile=/root/PerpGuard/deploy/systemd/web.env
+ExecStart=/root/PerpGuard/apps/web/scripts/run-web.sh
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/perpguard/web.log
+StandardError=append:/var/log/perpguard/web.log
+
+[Install]
+WantedBy=multi-user.target
