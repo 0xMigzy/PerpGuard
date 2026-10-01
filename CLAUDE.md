@@ -372,9 +372,63 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   first-come. `/start` links only `TELEGRAM_OWNER_ID` to the environment
   account; everyone else links through `/link`, the proof-based page below.
   A linked chat gets the account's alerts with the buttons to act.
-- `pnpm watch:demo` runs a stranger through /start, /watch, /watching, a live
-  loop pass, a crafted tap and /unwatch against the real index and venue, with
-  only Telegram's wire faked.
+
+## The Telegram bot: screens, not commands
+- THE LAYOUT IS `docs/bot-screens.html`. Every screen is reachable by button;
+  the only commands are `/start` (the menu), `/watch`, `/link` and `/help`,
+  and the BotFather menu is set to exactly those at startup
+  (`BOT_MENU_COMMANDS`). `/positions`, `/status`, `/cancel`, `/unwatch`,
+  `/watching` and `/unlink` are gone; their jobs are buttons.
+- NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
+  `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The
+  gate lets an unlinked chat through ONLY with a nav payload that decodes to a
+  route marked public (home, watch, watchlist, wallet, stop watching, connect).
+  Every action payload is still refused before any handler, and account
+  routes resolve the link at tap time like a command. Screens edit the message
+  they were tapped on; a `fresh` button (`+` on the code) opens a new message
+  instead — used on outcome and kill-switch reports, which are the record of
+  what happened to someone's money and must never be edited away.
+- WHEN THE BOT ASKS, IT HEARS THE ANSWER. Questions go out with
+  `force_reply` and are parked (`questions.ts`, and the amount store for a
+  custom amount); the next plain message from that person in that chat is
+  the answer, threaded or not. A pasted address is watched at once; a BARE
+  NUMBER nobody asked for is only offered ("Watch account #1000?"), because
+  it may be an amount typed after its prompt expired. Other chatter gets one
+  pointer to the menu an hour, not a reply each.
+- A NEW WATCH IS SPARED FIRST-SIGHT ALERTS for two minutes
+  (`watchRecipients`): its wallet screen has just shown every position, and
+  the first live run sent six alerts on top of it. Real changes go to all.
+- PLAIN VOICE (`apps/backend/src/alerts/plain.ts`), shared by screens and
+  watch alerts: money first and in bold; what someone HOLDS or would LOSE is
+  floored, what something NEEDS is ceiled; under one AUSD is "under 1 AUSD",
+  never "0 AUSD"; never the word "safe"; a negative buffer is "past its
+  closing price". Watch alerts carry freshness and "No buttons" every time.
+- THE ACCOUNT HALF (`apps/bot/src/account.ts`): My positions, a position
+  screen with Add (computed or custom), Reduce 25%, Close position and the
+  kill switch, Settings. Every money button is a pending-action token through
+  the existing confirmation, one-in-flight lock and reconciliation; nothing is
+  offered while the feed or the position list is blind. The confirmation turns
+  into the progress line and then the outcome IN PLACE, so Send cannot be
+  tapped twice; Cancel deletes the token; Send again only after a reconciled
+  not-applied. Reduce says the closing price does not move (proportional
+  release). A top-up above the free-balance FLOOR is offered WITH a warning,
+  not hidden: the floor can understate (warn, don't refuse). The `sr 32`
+  top-up's outcome says the exchange reported a rejection AND that the margin
+  applied, as the layout asks.
+- KILL SWITCH per account (`AccountSession.killSwitch`), behind a single-use
+  nonce shown on its confirmation; a crafted or replayed `kill-go` fires
+  nothing. Worded as closed / still open / not known; never "fire again".
+- "WARN ME AT" (`apps/backend/src/risk/warn.ts`) is a real per-account
+  threshold on that account's loop: Early 10%, Normal 8% (today's default),
+  Last minute 3% (no WATCH band). DANGER stays at 3% for every level.
+  Persisted in `account_settings`, applied when the session opens and at once
+  on change. Quiet hours and a daily summary are in the layout but NOT
+  BUILT: they need a timezone Telegram does not give and a rule for DANGER
+  during quiet hours.
+- `pnpm watch:demo` (mainnet, read-only) and `pnpm bot:account-demo`
+  (testnet, MOVES REAL TESTNET COLLATERAL; stop the backend first, two
+  clients on one key collide on request ids) drive the real bot with only
+  Telegram's wire faked and write the chat as JSON for screenshots.
 
 ## Account sessions: one of everything PER LINKED ACCOUNT
 - `AccountRegistry` (`apps/backend/src/sessions/registry.ts`) owns an
