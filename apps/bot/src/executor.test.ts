@@ -206,11 +206,11 @@ test('a refusal only the bot can explain gets the bot’s own words', async () =
   // These have no venue-supplied reason, so a pass-through would say nothing.
   // Each one has to tell the user what would make the action possible.
   const expectations: ReadonlyArray<readonly [string, RegExp]> = [
-    ['already-in-flight', /Wait a moment, then run \/positions/],
-    ['feed-down', /\/status shows when it is back/],
-    ['positions-untrusted', /\/status has the detail/],
+    ['already-in-flight', /Wait a moment, then open My positions/],
+    ['feed-down', /My positions shows when it is back/],
+    ['positions-untrusted', /My positions has the detail/],
     ['no-position', /nothing to add margin to/],
-    ['no-position-id', /Run \/positions — a fresh snapshot usually carries it/],
+    ['no-position-id', /Open My positions — a fresh snapshot usually carries it/],
   ];
 
   for (const [code, pattern] of expectations) {

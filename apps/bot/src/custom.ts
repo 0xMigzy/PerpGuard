@@ -274,21 +274,21 @@ export function validateCustomAmount(input: string, context: AmountContext): Amo
           ok: false,
           message:
             `I need a number of AUSD, and “${echo(input)}” is not one. Reply with an amount — ` +
-            `250, or 250.5 — and I will show you what it buys. /cancel to drop this.`,
+            `250, or 250.5 — and I will show you what it buys. Tap Back on the position to drop this.`,
         };
       case 'not-positive':
         return {
           ok: false,
           message:
             'An amount has to be more than zero: adding nothing buys nothing. Reply with how ' +
-            'much AUSD to add, or /cancel.',
+            'much AUSD to add, or tap Back on the position to drop it.',
         };
       case 'below-increment':
         return {
           ok: false,
           message:
             `That is smaller than the smallest amount ${market.symbol} collateral can take. ` +
-            `The increment is ${increment} AUSD, so reply with at least that, or /cancel.`,
+            `The increment is ${increment} AUSD, so reply with at least that, or tap Back on the position to drop it.`,
         };
       case 'finer-than-increment':
         return {
@@ -297,14 +297,14 @@ export function validateCustomAmount(input: string, context: AmountContext): Amo
             `Collateral is AUSD to ${market.collateralDecimals} decimal places, so the smallest ` +
             `increment is ${increment} AUSD and “${echo(input)}” is finer than that. I will not ` +
             `round it for you — the amount you confirm has to be the amount you typed. Reply ` +
-            `with a figure to ${market.collateralDecimals} places, or /cancel.`,
+            `with a figure to ${market.collateralDecimals} places, or tap Back on the position to drop it.`,
         };
       case 'too-large':
         return {
           ok: false,
           message:
             `That is a larger number than I can put in a button, and larger than any real ` +
-            `balance. Reply with an amount you actually hold, or /cancel.`,
+            `balance. Reply with an amount you actually hold, or tap Back on the position to drop it.`,
         };
     }
   }
@@ -382,7 +382,7 @@ export function renderAmountPrompt(context: AmountPromptContext): string {
         `a floor, not your balance.`
       : `I could not check your free balance: ${context.freeBalance.reason}`,
     `Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.`,
-    `Smallest increment ${smallestIncrement(market)} AUSD. /cancel to drop this.`,
+    `Smallest increment ${smallestIncrement(market)} AUSD. Tap Back on the position to drop this.`,
     'Nothing has been sent, and nothing will be until you confirm.',
   ];
   return lines.join('\n');
@@ -408,6 +408,7 @@ export function customAction(
   market: MarketRiskConfig,
   positionId: number | undefined,
   bufferDecimals: number,
+  fromBufferPct?: number,
 ): AlertAction {
   return {
     type: 'add-margin',
@@ -416,6 +417,9 @@ export function customAction(
     symbol: projection.symbol,
     positionId,
     amountCNS: projection.amountCNS,
+    ...(projection.resultingLiquidationPricePNS === undefined ? {} : { resultingLiquidationPricePNS: projection.resultingLiquidationPricePNS }),
+    ...(projection.resultingBufferPct === undefined ? {} : { resultingBufferPct: projection.resultingBufferPct }),
+    ...(fromBufferPct === undefined ? {} : { fromBufferPct }),
     label: topUpLine(
       formatCustomAusd(projection.amountCNS, market.collateralDecimals),
       projection.resultingBufferPct,
@@ -428,5 +432,5 @@ export function customAction(
 
 /** What `/cancel` says when there was a prompt open, and when there was not. */
 export const CANCELLED_TEXT =
-  'Dropped. Nothing was sent. Run /positions when you want current numbers.';
+  'Dropped. Nothing was sent. My positions has current numbers.';
 export const NOTHING_TO_CANCEL_TEXT = 'Nothing was pending, so there was nothing to drop.';

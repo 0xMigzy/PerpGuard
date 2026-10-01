@@ -41,6 +41,7 @@ import {
 import { freeBalanceFrom, type AccountView, type FreeBalanceView, type RiskView } from '@perpguard/bot';
 import { VenueActionExecutor } from '@perpguard/bot';
 import { ActionsExecutor, LoopPositionReader, type ActionLog } from '../actions/index.ts';
+import { describeKillSwitch, fireKillSwitch } from '../actions/killSwitch.ts';
 import type { ActionProgress } from '../actions/executor.ts';
 import { AlertEngine } from '../alerts/engine.ts';
 import type { AlertLog, AlertRecipient, AlertTransport } from '../alerts/types.ts';
@@ -48,7 +49,7 @@ import type { MarketFeed } from '../ingest/marketFeed.ts';
 import { RiskLoop } from '../risk/loop.ts';
 import type { MarketConfigs, RiskAssessment, RiskThresholds } from '../risk/types.ts';
 import { DeferredPositionSource } from '../server/deferredPositionSource.ts';
-import type { PositionSourceStatus } from '@perpguard/shared';
+import { fromVenuePosition, type PositionSourceStatus, type RiskPosition } from '@perpguard/shared';
 import type { TradingSessionStatus } from '../server/health.ts';
 import { TradingSession } from '../server/tradingSession.ts';
 
@@ -73,6 +74,8 @@ export interface SessionDeps {
   readonly venueFactory: (credentials: SessionCredentials) => PerplVenue;
   readonly evaluateIntervalMs: number;
   readonly thresholds?: Partial<RiskThresholds>;
+  /** This account's own thresholds (its "Warn me at"), applied when the session opens. */
+  readonly thresholdsFor?: (accountId: number) => Partial<RiskThresholds> | undefined;
   readonly logger: { info(message: string): void; warn(message: string): void };
   readonly onProgress?: (progress: ActionProgress) => void;
   readonly now?: () => number;
@@ -179,6 +182,9 @@ export class AccountSession {
       ...(deps.thresholds === undefined ? {} : { thresholds: deps.thresholds }),
       ...(deps.now === undefined ? {} : { now: deps.now }),
     });
+    // The account's own "Warn me at", remembered across restarts.
+    const own = deps.thresholdsFor?.(accountId);
+    if (own !== undefined) this.loop.setThresholds(own);
 
     this.engine = new AlertEngine({
       source: this.loop,
@@ -231,7 +237,53 @@ export class AccountSession {
         availability: (symbol) => this.venue.getActionAvailability(symbol),
       }),
       balance: this.balance,
+      killSwitch: (userId) => this.killSwitch(userId),
     };
+  }
+
+  /**
+   * Close every open position on THIS account, worst first, through the same
+   * executor (and so the same one-in-flight lock, feed gate and position
+   * reconciliation) as any single close. Returns the report in words.
+   *
+   * Refused outright while the position list cannot be trusted: a kill switch
+   * fired against a stale list closes the wrong set, or misses one.
+   */
+  async killSwitch(userId: string): Promise<string> {
+    const status = this.positionSource.status();
+    if (status.state !== 'live') {
+      return `Kill switch not fired. I cannot see your positions right now (the list is ${status.state}), so I do not know what to close. Nothing was sent.`;
+    }
+    const configs = this.#deps.riskConfigs;
+    const marks = new Map<number, bigint>();
+    for (const a of this.loop.snapshot()) if (a.markPricePNS > 0n) marks.set(a.marketId, a.markPricePNS);
+    const positions: RiskPosition[] = [];
+    const positionIds = new Map<number, number>();
+    const unpriceable: string[] = [];
+    for (const p of this.positionSource.snapshot()) {
+      const config = configs.get(p.marketId);
+      if (config === undefined || !marks.has(p.marketId)) {
+        unpriceable.push(p.symbol);
+        continue;
+      }
+      positions.push(fromVenuePosition(p, config));
+      if (p.positionId !== undefined) positionIds.set(p.marketId, p.positionId);
+    }
+    const run = (this.#deps.now ?? Date.now)().toString(36);
+    const result = await fireKillSwitch({
+      runner: this.executor,
+      userId,
+      positions,
+      markPrices: marks,
+      configs,
+      positionIds,
+      keyFor: (marketId, order) => `${userId}:kill:${this.accountId}:${run}:${marketId}:${order}`,
+      logger: { info: this.#log, warn: this.#warn },
+    });
+    const report = describeKillSwitch(result);
+    return unpriceable.length === 0
+      ? report
+      : `${report}\nNOT closed, because I cannot price them right now: ${unpriceable.join(', ')}. You still hold these.`;
   }
 
   /** Called when the key turns out to sign for another account. The registry closes the session. */

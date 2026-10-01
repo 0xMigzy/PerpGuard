@@ -39,7 +39,9 @@ export type CallbackKind =
    * stays visible and so the reason can be shown on tap — it is the Telegram
    * equivalent of a disabled control, and it never executes.
    */
-  | 'blocked';
+  | 'blocked'
+  /** Cancel a confirmation: the token is deleted, so its Send button can never fire. */
+  | 'cancel';
 
 export interface CallbackPayload {
   readonly kind: CallbackKind;
@@ -60,6 +62,7 @@ const PREFIX: Readonly<Record<CallbackKind, string>> = {
   custom: 'm',
   confirm: 'c',
   blocked: 'x',
+  cancel: 'z',
 };
 const KIND_BY_PREFIX = new Map<string, CallbackKind>(
   Object.entries(PREFIX).map(([kind, prefix]) => [prefix, kind as CallbackKind]),

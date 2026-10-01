@@ -55,8 +55,7 @@ export class VenueActionExecutor implements ActionExecutor {
       return {
         kind: 'not-implemented',
         detail:
-          `I can only add margin so far. ${request.action.type} is not built yet, and nothing ` +
-          `was sent.`,
+          `That ${request.action.type} carries no size to send, so nothing was sent.`,
       };
     }
     return describeExecutionOutcome(await this.#runner.execute(command));
@@ -76,22 +75,24 @@ export class VenueActionExecutor implements ActionExecutor {
  */
 function toCommand(request: ExecuteRequest): ActionCommand | undefined {
   const { action } = request;
-  // `AlertActionType` is 'add-margin' only: an alert offers top-ups and nothing
-  // else. Closing and reducing ARE built on the venue and in the actions layer —
-  // measured `t: 3` round trips — but no ALERT offers them yet, so there is no
-  // action shape here to translate. When the alerts layer gains a close option
-  // this is where it joins.
-  if (action.type !== 'add-margin') return undefined;
-  return {
-    kind: 'add-margin',
+  const base = {
     idempotencyKey: request.idempotencyKey,
     userId: request.userId,
     ...(request.accountId === undefined ? {} : { accountId: request.accountId }),
     marketId: action.marketId,
     symbol: action.symbol,
     positionId: action.positionId,
-    amountCNS: action.amountCNS,
   };
+  switch (action.type) {
+    case 'add-margin':
+      return { kind: 'add-margin', ...base, amountCNS: action.amountCNS };
+    case 'reduce-position':
+      // Lots pass through untouched, exactly as the confirmation quoted them.
+      if (action.sizeLNS === undefined || action.sizeLNS <= 0n) return undefined;
+      return { kind: 'reduce-position', ...base, sizeLNS: action.sizeLNS };
+    case 'close-position':
+      return { kind: 'close-position', ...base };
+  }
 }
 
 /**
@@ -113,6 +114,7 @@ export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutco
       return {
         kind: 'applied',
         detail: appliedText(outcome),
+        ...(outcome.reported.status === 'rejected' ? { venueRejected: true } : {}),
       };
     case 'not-applied':
       // SAYS WHY SENDING AGAIN IS SAFE, rather than leaving the user to wonder.
@@ -141,14 +143,20 @@ export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutco
 
 function appliedText(outcome: Extract<ActionOutcome, { kind: 'applied' }>): string {
   const reconciliation = outcome.reconciliation;
+  if (outcome.command.kind === 'close-position') {
+    return 'Done — the position is closed. I checked afterwards and it is gone.';
+  }
+  if (outcome.command.kind === 'reduce-position') {
+    return 'Done — the position is smaller. I checked its size afterwards and the reduction is there.';
+  }
   if (reconciliation.field !== 'margin' || reconciliation.after === undefined) {
     return 'Done. I checked the position afterwards and the change is there.';
   }
   return (
     `Done — the margin is in. I checked the position afterwards: it went from ` +
     `${reconciliation.before} to ${reconciliation.after} AUSD micros, which is exactly the ` +
-    `${reconciliation.requested} that was sent. Run /positions for the new buffer and ` +
-    `liquidation price.`
+    `${reconciliation.requested} that was sent. My positions shows the new buffer and ` +
+    `closing price.`
   );
 }
 
@@ -164,25 +172,25 @@ function refusedText(outcome: Extract<ActionOutcome, { kind: 'refused' }>): stri
       return (
         `There is already an action in flight on this position and it has not settled. I am ` +
         `refusing rather than queueing this one: a second top-up sent behind the first is how ` +
-        `the same amount lands twice. Wait a moment, then run /positions.`
+        `the same amount lands twice. Wait a moment, then open My positions.`
       );
     case 'feed-down':
       return (
         `I will not act while the price feed is down. Every price I hold is frozen at whatever ` +
         `it was when the connection died, so the amount you confirmed may no longer be the ` +
-        `right one. Nothing was sent. /status shows when it is back.`
+        `right one. Nothing was sent. My positions shows when it is back.`
       );
     case 'positions-untrusted':
       return (
         `I have lost track of your positions, so I cannot check this one before or after acting. ` +
-        `Nothing was sent. /status has the detail.`
+        `Nothing was sent. My positions has the detail.`
       );
     case 'no-position':
       return `I no longer hold a position on this market, so there was nothing to add margin to. Nothing was sent.`;
     case 'no-position-id':
       return (
         `I do not have this position's venue id, so I cannot address the top-up to it. Nothing ` +
-        `was sent. Run /positions — a fresh snapshot usually carries it.`
+        `was sent. Open My positions — a fresh snapshot usually carries it.`
       );
     case 'not-actionable':
       return `Not sent: ${outcome.detail}`;

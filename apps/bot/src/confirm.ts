@@ -35,6 +35,10 @@ function intentLine(action: AlertAction): string {
       // buys is on the line above, computed by the same engine as the offered
       // options — which is the only claim this screen ever makes.
       return 'This is your own amount. The buffer and liquidation price above are what it buys.';
+    case 'reduce':
+      return 'Perpl releases margin in proportion, so the price that closes this position does not move. It lowers what you can lose.';
+    case 'close':
+      return 'This closes the whole position at the market price.';
   }
 }
 

@@ -33,7 +33,10 @@ export type Route =
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
   | { readonly to: 'disconnect-ask' }
-  | { readonly to: 'disconnect' };
+  | { readonly to: 'disconnect' }
+  | { readonly to: 'kill-ask' }
+  /** Fires the kill switch: the nonce must match the one kill-ask issued, once. */
+  | { readonly to: 'kill-go'; readonly nonce: number };
 
 type RouteName = Route['to'];
 
@@ -54,11 +57,14 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'warn-set': 'sv',
   'disconnect-ask': 'dq',
   disconnect: 'dx',
+  'kill-ask': 'kq',
+  'kill-go': 'kx',
 };
 const NAME_BY_CODE = new Map<string, RouteName>(Object.entries(CODE).map(([name, code]) => [code, name as RouteName]));
 
 /** Routes whose single argument is required, and what it is called. */
-const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
+const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level' | 'nonce'>> = {
+  'kill-go': 'nonce',
   wallet: 'accountId',
   unwatch: 'accountId',
   'watch-id': 'accountId',

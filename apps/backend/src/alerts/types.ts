@@ -75,7 +75,12 @@ export function isReassuring(kind: AlertKind): boolean {
 }
 
 /** The only action an alert offers today. Closing is the actions layer's job. */
-export type AlertActionType = 'add-margin';
+/**
+ * What a button does. Alerts offer only top-ups; the bot's position screen
+ * also offers a reduce and a close, through the same token, confirmation and
+ * reconciliation path.
+ */
+export type AlertActionType = 'add-margin' | 'reduce-position' | 'close-position';
 
 /**
  * Which top-up this is.
@@ -90,7 +95,7 @@ export type AlertActionType = 'add-margin';
  * `action_log`. A third intent rather than a flag on the other two, because
  * "which of the two thresholds did this aim at" has no answer for it.
  */
-export type AlertActionIntent = 'clear-danger' | 'to-safe' | 'custom';
+export type AlertActionIntent = 'clear-danger' | 'to-safe' | 'custom' | 'reduce' | 'close';
 
 /**
  * Structured action data, for the bot to build a button from.
@@ -113,8 +118,18 @@ export interface AlertAction {
   readonly symbol: string;
   /** The venue handle to address the action to. Undefined when unknown. */
   readonly positionId: number | undefined;
-  /** AUSD micros to send, matching the rendered text exactly. */
+  /** AUSD micros to send, matching the rendered text exactly. 0 for a reduce or a close. */
   readonly amountCNS: bigint;
+  /** Lots to close, for a reduce. In the market's own lot scaling. */
+  readonly sizeLNS?: bigint;
+  /**
+   * Where a top-up lands, for the confirmation and outcome screens to quote
+   * without parsing `label`: the closing price and the room to fall after
+   * the EXACT unrounded amount, and the room to fall before it.
+   */
+  readonly resultingLiquidationPricePNS?: bigint;
+  readonly resultingBufferPct?: number;
+  readonly fromBufferPct?: number;
   /** The rendered line this action came from, so the button can reuse it. */
   readonly label: string;
 }

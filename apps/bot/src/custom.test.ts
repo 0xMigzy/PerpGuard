@@ -204,7 +204,7 @@ test('each way of getting it wrong gets its own message, and each says what to d
     assert.equal(verdict.ok, false, JSON.stringify(input));
     assert.ok(!verdict.ok);
     assert.match(verdict.message, pattern);
-    assert.match(verdict.message, /\/cancel/, `${JSON.stringify(input)} must offer a way out`);
+    assert.match(verdict.message, /Tap Back on the position|tap Back on the position/, `${JSON.stringify(input)} must offer a way out`);
   }
 });
 
@@ -292,7 +292,7 @@ test('the prompt names the position, restates where it stands, and offers a way 
       'Position size at the mark: 42,003.65 AUSD.',
       'At least 12,480 AUSD free — a floor, not your balance.',
       'Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.',
-      'Smallest increment 0.000001 AUSD. /cancel to drop this.',
+      'Smallest increment 0.000001 AUSD. Tap Back on the position to drop this.',
       'Nothing has been sent, and nothing will be until you confirm.',
     ].join('\n'),
   );

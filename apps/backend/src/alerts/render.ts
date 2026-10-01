@@ -296,6 +296,9 @@ function topUpBlock(
       positionId: assessment.positionId,
       amountCNS,
       label,
+      ...(option.resultingLiquidationPricePNS === undefined ? {} : { resultingLiquidationPricePNS: option.resultingLiquidationPricePNS }),
+      ...(option.resultingBufferPct === undefined ? {} : { resultingBufferPct: option.resultingBufferPct }),
+      ...(assessment.liqBufferPct === undefined ? {} : { fromBufferPct: assessment.liqBufferPct }),
     });
   }
 

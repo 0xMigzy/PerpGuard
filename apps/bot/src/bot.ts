@@ -31,6 +31,22 @@ import {
   type PendingActionStore,
 } from './actions.ts';
 import { authorise } from './auth.ts';
+import {
+  confirmScreen,
+  disconnectAskScreen,
+  killAskScreen,
+  outcomeScreen,
+  positionScreen,
+  positionsScreen,
+  sendingScreen,
+  settingsScreen,
+  warnAskScreen,
+} from './account.ts';
+import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
+import { buildMessage } from '@perpguard/backend/alerts/render';
+import { esc } from '@perpguard/backend/alerts/plain';
+import { kindFor } from '@perpguard/backend/alerts/rules';
+import { warnLevelByIndex, warnLevelInfo } from '@perpguard/backend/risk/warn';
 import { decodeNav, encodeNav, isPublicRoute, type Route } from './nav.ts';
 import { PendingQuestionStore } from './questions.ts';
 import {
@@ -51,21 +67,14 @@ import type { LinkRecord } from './links.ts';
 import type { AccountView, SessionRouter } from './sessions.ts';
 import { decodeCallback, encodeCallback } from './callback.ts';
 import type { BotConfig } from './config.ts';
-import { CONFIRM_BUTTON_LABEL, RETRY_BUTTON_LABEL, renderConfirmation } from './confirm.ts';
 import {
-  CANCELLED_TEXT,
-  NOTHING_TO_CANCEL_TEXT,
   PendingAmountStore,
   customAction,
   renderAmountPrompt,
   validateCustomAmount,
 } from './custom.ts';
-import { buildTelegramMessage } from './format.ts';
 import { HELP_TEXT, REFUSAL_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
-import { positionEntries, positionsHeader } from './positions.ts';
-import { renderStatus } from './status.ts';
-import type { RiskView } from './view.ts';
 import {
   DEFAULT_RATE_LIMIT,
   RateLimiter,
@@ -140,6 +149,8 @@ export interface BotDeps {
   readonly webUrl?: string;
   /** Open questions; defaults to a fresh store. */
   readonly questions?: PendingQuestionStore;
+  /** Each linked account's own settings ("Warn me at"). Defaults to in memory. */
+  readonly settings?: AccountSettingsStore;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -155,7 +166,7 @@ export interface BotDeps {
  * button tap, needs the link. Matched on the first word with any @mention
  * stripped, so `/watch@PerpGuardBot 0x…` in a group is `/watch`.
  */
-const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/link', '/unlink']);
+const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/link']);
 
 /** At most one "I did not catch that" per chat per hour. */
 const HINT_EVERY_MS = 60 * 60_000;
@@ -174,7 +185,9 @@ function withoutUrlButtons(screen: Screen): Screen {
 /** A screen's buttons as Telegram's keyboard: routes become nav payloads, URLs stay URLs. */
 export function keyboardFor(screen: Screen): InlineKeyboard {
   return InlineKeyboard.from(
-    screen.buttons.map((row) => row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : InlineKeyboard.text(b.text, encodeNav(b.route))))),
+    screen.buttons.map((row) =>
+      row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : 'data' in b ? InlineKeyboard.text(b.text, b.data) : InlineKeyboard.text(b.text, encodeNav(b.route)))),
+    ),
   );
 }
 
@@ -205,6 +218,7 @@ export function createBot(deps: BotDeps): Bot {
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
   const identities = deps.identities ?? new InMemoryIdentityStore();
   const questions = deps.questions ?? new PendingQuestionStore({ now });
+  const settings = deps.settings ?? new InMemoryAccountSettingsStore();
   const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
   /** When each chat was last pointed at the menu for chatter it sent. */
   const hinted = new Map<number, number>();
@@ -225,7 +239,7 @@ export function createBot(deps: BotDeps): Bot {
     }
     const account = deps.sessions.forAccount(link.accountId);
     if (account === undefined) {
-      return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try /status in a moment.` };
+      return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try again in a moment.` };
     }
     return { link, account };
   };
@@ -462,23 +476,6 @@ export function createBot(deps: BotDeps): Bot {
     );
   });
 
-  bot.command('unlink', async (ctx) => {
-    const telegramUserId = ctx.from?.id;
-    if (telegramUserId === undefined) return;
-    if (!(await withinLimit(ctx))) return;
-    if (deps.link === undefined) {
-      await ctx.reply('Linking is not available on this deployment.');
-      return;
-    }
-    const link = deps.links.byTelegramUserId(telegramUserId);
-    if (link === undefined) {
-      await ctx.reply('This chat is not linked to any account.');
-      return;
-    }
-    const result = await deps.link.unlink(link.userId);
-    await ctx.reply(result.text);
-  });
-
   // ── the public watch tier ─────────────────────────────────────────────────
   // Anyone, any chat. Rate-limited per chat, capped per chat and bot-wide by
   // the store, resolved through the same index-then-chain lookups the web uses.
@@ -502,77 +499,6 @@ export function createBot(deps: BotDeps): Bot {
   // ── /help ─────────────────────────────────────────────────────────────────
   bot.command('help', async (ctx) => {
     await ctx.reply(HELP_TEXT);
-  });
-
-  // ── /status ───────────────────────────────────────────────────────────────
-  bot.command('status', async (ctx) => {
-    const resolved = resolveAccount(ctx.from?.id);
-    if ('refusal' in resolved) {
-      await ctx.reply(resolved.refusal);
-      return;
-    }
-    const { view } = resolved.account;
-    await ctx.reply(
-      `Account ${resolved.account.accountId}.\n` +
-        renderStatus({
-          network: view.network,
-          feed: view.feedStatus(),
-          positions: view.positionsStatus(),
-          assessments: view.snapshot(),
-          nowMs: now(),
-        }),
-    );
-  });
-
-  // ── /positions ────────────────────────────────────────────────────────────
-  bot.command('positions', async (ctx) => {
-    await sendPositions(ctx);
-  });
-
-  async function sendPositions(ctx: Context): Promise<void> {
-    const telegramUserId = ctx.from?.id;
-    if (telegramUserId === undefined) return;
-    const resolved = resolveAccount(telegramUserId);
-    if ('refusal' in resolved) {
-      await ctx.reply(resolved.refusal);
-      return;
-    }
-    const { account, link } = resolved;
-
-    const assessments = account.view.snapshot();
-    const positions = account.view.positionsStatus();
-    await ctx.reply(positionsHeader(assessments, positions));
-
-    for (const entry of positionEntries(assessments, deps.configs, alerts)) {
-      if (!entry.ok) {
-        await ctx.reply(entry.reason);
-        continue;
-      }
-      const availability = await availabilityFor(account, entry.message.symbol, entry.message.actions);
-      const { text, keyboard } = buildTelegramMessage({
-        message: entry.message,
-        availability,
-        store: deps.store,
-        userId: link.userId,
-        telegramUserId,
-      });
-      await ctx.reply(text, {
-        ...(keyboard === undefined ? {} : { reply_markup: keyboard }),
-        link_preview_options: { is_disabled: true },
-      });
-    }
-  }
-
-  // ── /cancel ───────────────────────────────────────────────────────────────
-  // The way out of a prompt, from anywhere. It only ever clears the pending
-  // question — there is nothing in flight for it to stop, because nothing is sent
-  // before a confirmation.
-  bot.command('cancel', async (ctx) => {
-    const telegramUserId = ctx.from?.id;
-    if (telegramUserId === undefined) return;
-    const pending = amounts.get(telegramUserId);
-    amounts.delete(telegramUserId);
-    await ctx.reply(pending === undefined ? NOTHING_TO_CANCEL_TEXT : CANCELLED_TEXT);
   });
 
   // ── plain text: an answer, a typed amount, or a paste ────────────────────
@@ -730,18 +656,116 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
         return;
       }
+      default:
+        await accountNav(ctx, route);
+        return;
+    }
+  }
+
+  // ── the account half: every route resolves the link at tap time ──────────
+  /** Kill-switch confirmations: a nonce per person, single use, short-lived. */
+  const killNonces = new Map<number, { readonly nonce: number; readonly atMs: number }>();
+  const KILL_NONCE_TTL_MS = 2 * 60_000;
+
+  async function accountNav(ctx: Context, route: Route): Promise<void> {
+    const telegramUserId = ctx.from?.id;
+    if (telegramUserId === undefined) return;
+    const resolved = resolveAccount(telegramUserId);
+    if ('refusal' in resolved) {
+      await answer(ctx, resolved.refusal);
+      return;
+    }
+    const { account, link } = resolved;
+    const { view } = account;
+    // Navigating away drops a half-typed custom amount: Back is the way out.
+    amounts.delete(telegramUserId);
+
+    const mint = (action: AlertAction, kind: 'act' | 'custom' | 'blocked'): string =>
+      encodeCallback({ kind, token: deps.store.put({ userId: link.userId, telegramUserId, action }).token, marketId: action.marketId, amountCNS: action.amountCNS });
+
+    switch (route.to) {
       case 'positions':
         await ctx.answerCallbackQuery();
-        await sendPositions(ctx);
+        await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
         return;
-      case 'position':
+      case 'position': {
+        const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
+        const market = deps.configs.get(route.marketId);
+        if (assessment === undefined || market === undefined) {
+          await answer(ctx, assessment === undefined ? 'That position is not open any more.' : 'I have no market details for that position, so I cannot price it.');
+          await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        const topUps = buildMessage(assessment, kindFor(assessment.state), { alerts, market, snapshot: true }).actions;
+        const availability = await availabilityFor(account, assessment.symbol, [{ type: 'close-position' } as AlertAction]);
+        await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, topUps, button: mint, bufferDecimals: alerts.bufferDecimals }));
+        return;
+      }
       case 'settings':
-      case 'warn-ask':
-      case 'warn-set':
-      case 'disconnect-ask':
-      case 'disconnect':
-        await answer(ctx, 'That screen is not built yet.');
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
         return;
+      case 'warn-ask':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, warnAskScreen(settings.get(account.accountId).warnLevel));
+        return;
+      case 'warn-set': {
+        const level = warnLevelByIndex(route.level);
+        if (level === undefined) {
+          await answer(ctx, 'I do not know that setting.');
+          return;
+        }
+        try {
+          await settings.set(account.accountId, { ...settings.get(account.accountId), warnLevel: level });
+        } catch {
+          await answer(ctx, 'I could not save that, so nothing changed. Try again in a moment.');
+          return;
+        }
+        await ctx.answerCallbackQuery({ text: `Saved: ${warnLevelInfo(level).label}.` });
+        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
+        return;
+      }
+      case 'disconnect-ask':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, disconnectAskScreen(account.accountId));
+        return;
+      case 'disconnect': {
+        await ctx.answerCallbackQuery();
+        const result = deps.link !== undefined ? await deps.link.unlink(link.userId) : { ok: deps.links.unlink(telegramUserId), text: `Disconnected from account #${account.accountId}.` };
+        const chatId = ctx.chat?.id ?? link.chatId;
+        const after = home(chatId, telegramUserId);
+        await showScreen(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
+        return;
+      }
+      case 'kill-ask': {
+        await ctx.answerCallbackQuery();
+        const nonce = 100_000 + Math.floor(Math.random() * 899_999_999);
+        killNonces.set(telegramUserId, { nonce, atMs: now() });
+        await showScreen(ctx, killAskScreen(account.accountId, view.snapshot(), nonce));
+        return;
+      }
+      case 'kill-go': {
+        // SINGLE USE, and only the nonce THIS person was just shown. A crafted
+        // or replayed kill-go finds nothing and fires nothing.
+        const issued = killNonces.get(telegramUserId);
+        killNonces.delete(telegramUserId);
+        if (issued === undefined || issued.nonce !== route.nonce || now() - issued.atMs > KILL_NONCE_TTL_MS) {
+          await answer(ctx, 'That kill switch button has expired. Nothing was sent. Open it again from My positions.');
+          return;
+        }
+        if (account.killSwitch === undefined) {
+          await answer(ctx, 'The kill switch is not available for this account here. Nothing was sent.');
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, { html: 'Closing every position, closest to its closing price first, and checking each one afterwards. This can take a minute per position. Do not fire it again meanwhile.', buttons: [] });
+        const report = await account.killSwitch(link.userId);
+        await sendScreen(ctx, { html: esc(report), buttons: [[{ text: '🛡 My positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
+        return;
+      }
+      default:
+        await answer(ctx, 'That screen is not available.');
     }
   }
 
@@ -755,7 +779,7 @@ export function createBot(deps: BotDeps): Bot {
     }
     const decoded = decodeCallback(data);
     if (!decoded.ok) {
-      await answer(ctx, `I can't read that button: ${decoded.reason}. Run /positions for a current one.`);
+      await answer(ctx, `I can't read that button: ${decoded.reason}. Open My positions for a current one.`);
       return;
     }
     const payload = decoded.payload;
@@ -768,7 +792,7 @@ export function createBot(deps: BotDeps): Bot {
       await answer(
         ctx,
         'That button has expired. The amount on it was for the mark at the time it was ' +
-          'sent. Run /positions for a current one.',
+          'sent. Open My positions for a current one.',
       );
       return;
     }
@@ -790,8 +814,16 @@ export function createBot(deps: BotDeps): Bot {
       await answer(
         ctx,
         'That button does not match the action I have on file for it, so I have discarded ' +
-          'it. Run /positions and try again.',
+          'it. Open My positions and try again.',
       );
+      return;
+    }
+
+    if (payload.kind === 'cancel') {
+      // Deleted, not just hidden: its Send button can never fire now.
+      deps.store.delete(payload.token);
+      await ctx.answerCallbackQuery({ text: 'Cancelled. Nothing was sent.' });
+      await showScreen(ctx, { html: 'Cancelled. Nothing was sent.', buttons: [[{ text: '🛡 My positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
       return;
     }
 
@@ -820,7 +852,7 @@ export function createBot(deps: BotDeps): Bot {
       // The button was disabled when it was sent and the market has since opened.
       await answer(
         ctx,
-        `${action.symbol} is actionable again on ${availability.network}. Run /positions ` +
+        `${action.symbol} is actionable again on ${availability.network}. Open My positions ` +
           `for a live button with a current amount.`,
       );
       return;
@@ -834,19 +866,8 @@ export function createBot(deps: BotDeps): Bot {
     }
 
     if (payload.kind === 'act') {
-      await answer(ctx, 'Check the amount, then confirm.', false);
-      const keyboard = new InlineKeyboard().text(
-        CONFIRM_BUTTON_LABEL,
-        encodeCallback({
-          kind: 'confirm',
-          token: payload.token,
-          marketId: action.marketId,
-          amountCNS: action.amountCNS,
-        }),
-      );
-      await ctx.reply(renderConfirmation(action, deps.configs.get(action.marketId)), {
-        reply_markup: keyboard,
-      });
+      await answer(ctx, 'Check it, then send it.', false);
+      await sendScreen(ctx, confirmFor(deps, account, pending, action));
       return;
     }
 
@@ -861,6 +882,24 @@ export function createBot(deps: BotDeps): Bot {
 interface Resolved {
   readonly link: LinkRecord;
   readonly account: AccountView;
+}
+
+/**
+ * The confirmation screen for a parked action: the second tap. Its Send and
+ * Cancel buttons both carry the action's own token, so Cancel deletes the very
+ * thing Send would have fired.
+ */
+function confirmFor(deps: BotDeps, account: AccountView, pending: PendingAction, action: AlertAction, notes: readonly string[] = []): Screen {
+  const data = (kind: 'confirm' | 'cancel'): string => encodeCallback({ kind, token: pending.token, marketId: action.marketId, amountCNS: action.amountCNS });
+  return confirmScreen({
+    action,
+    market: deps.configs.get(action.marketId),
+    assessment: account.view.snapshot().find((a) => a.marketId === action.marketId),
+    free: account.balance.freeBalance(),
+    confirmData: data('confirm'),
+    cancelData: data('cancel'),
+    notes,
+  });
 }
 
 /** What the custom-amount flow needs beyond {@link BotDeps}, resolved once per request. */
@@ -897,7 +936,7 @@ async function openAmountPrompt(
 
   const projected = custom.account.view.projectAddMargin(action.marketId, 0n);
   if (!projected.ok) {
-    await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
+    await ctx.reply(`${projected.reason}. Open My positions when I can see it again.`);
     return;
   }
   const now = projected.projection;
@@ -922,6 +961,8 @@ async function openAmountPrompt(
       notionalCNS: now.notionalCNS,
       bufferDecimals: custom.alerts.bufferDecimals,
     }),
+    // ASKED WITH force_reply, so the keyboard opens on the answer.
+    { reply_markup: { force_reply: true, input_field_placeholder: 'Amount in AUSD' } },
   );
 }
 
@@ -958,7 +999,7 @@ async function handleTypedAmount(
   const current = custom.account.view.projectAddMargin(pending.marketId, 0n);
   if (!current.ok) {
     close();
-    await ctx.reply(`${current.reason}. Run /positions when I can see it again.`);
+    await ctx.reply(`${current.reason}. Open My positions when I can see it again.`);
     return;
   }
 
@@ -976,7 +1017,7 @@ async function handleTypedAmount(
   const projected = custom.account.view.projectAddMargin(pending.marketId, verdict.amountCNS);
   if (!projected.ok) {
     close();
-    await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
+    await ctx.reply(`${projected.reason}. Open My positions when I can see it again.`);
     return;
   }
 
@@ -985,6 +1026,7 @@ async function handleTypedAmount(
     market,
     pending.positionId,
     custom.alerts.bufferDecimals,
+    current.projection.resultingBufferPct,
   );
 
   // Asked of the ACTING venue, and asked HERE rather than only on the confirm
@@ -1004,18 +1046,8 @@ async function handleTypedAmount(
   });
   close();
 
-  const keyboard = new InlineKeyboard().text(
-    CONFIRM_BUTTON_LABEL,
-    encodeCallback({
-      kind: 'confirm',
-      token: parked.token,
-      marketId: action.marketId,
-      amountCNS: action.amountCNS,
-    }),
-  );
-  await ctx.reply(renderConfirmation(action, market, verdict.warnings), {
-    reply_markup: keyboard,
-  });
+  const screen = confirmFor(deps, custom.account, parked, action, verdict.warnings);
+  await ctx.reply(screen.html, { parse_mode: 'HTML', reply_markup: keyboardFor(screen) });
 }
 
 /** Ask the ACTING venue, and treat a thrown answer as "we do not know". */
@@ -1079,13 +1111,24 @@ async function runConfirmed(
   // payload can be crafted against any token that exists. Refused here rather
   // than relying on the callback kinds never crossing, because "add no margin" is
   // a request the venue would happily accept and report on.
-  if (action.amountCNS <= 0n) {
+  if (action.type === 'add-margin' && action.amountCNS <= 0n) {
     await ctx.reply(
-      'That button has no amount on it, so there is nothing to send. Tap Custom amount and ' +
-        'reply with a figure, or run /positions.',
+      'That button has no amount on it, so there is nothing to send. Tap Add custom amount and ' +
+        'reply with a figure, or open My positions.',
     );
     return;
   }
+  // A reduce with no size is the same mistake in another unit.
+  if (action.type === 'reduce-position' && (action.sizeLNS === undefined || action.sizeLNS <= 0n)) {
+    await ctx.reply('That reduce has no size on it, so there is nothing to send. Open My positions.');
+    return;
+  }
+
+  // The confirmation becomes the progress line, so its Send button is gone
+  // while the action is in flight and cannot be tapped twice.
+  await editOrSend(ctx, sendingScreen(action));
+  const market = deps.configs.get(action.marketId);
+  const assessment = account.view.snapshot().find((a) => a.marketId === action.marketId);
 
   const idempotencyKey = `${pending.userId}:${action.marketId}:${action.intent}:${pending.token}`;
   const outcome = await account.executor.execute({
@@ -1095,58 +1138,29 @@ async function runConfirmed(
     action,
   });
 
-  switch (outcome.kind) {
-    case 'applied':
-      // EARNED, not assumed. The actions layer read this position's margin before
-      // and after and saw the exact delta; the venue's own `st: 7 Failed` does not
-      // appear here, because it is not what happened and saying it would only
-      // teach the reader to distrust the answer.
-      await ctx.reply(outcome.detail);
-      return;
-    case 'not-applied': {
-      // THE ONE OUTCOME THAT EARNS A RETRY BUTTON. The position was read after the
-      // send and had not moved, so nothing landed and nothing can land twice —
-      // see the reasoning on RETRY_BUTTON_LABEL. The dropped-forwarder case is
-      // real and common on testnet, and a trader whose rescue silently vanished
-      // with no way to send it again is worse off than one we never alerted.
-      //
-      // A FRESH TOKEN, not the spent one: the retry is a new action with its own
-      // `action_log` row, and it expires on the same fifteen minutes as every
-      // other button, so an old "Send again" cannot send a stale amount.
-      const retry = deps.store.put({
-        userId: pending.userId,
-        telegramUserId: pending.telegramUserId,
-        action,
-      });
-      const keyboard = new InlineKeyboard().text(
-        RETRY_BUTTON_LABEL,
-        encodeCallback({
-          kind: 'confirm',
-          token: retry.token,
-          marketId: action.marketId,
-          amountCNS: action.amountCNS,
-        }),
-      );
-      await ctx.reply(outcome.detail, { reply_markup: keyboard });
-      return;
-    }
-    case 'unknown':
-      // NO RETRY BUTTON HERE, deliberately. Something may have landed, and this is
-      // the one state where sending again could double it. The reply must read as
-      // neither success nor failure and must not leave a gap a user fills with a
-      // retry of their own, which is what `nextStep` is for.
-      await ctx.reply(`${outcome.detail}\n\n${outcome.nextStep}`);
-      return;
-    case 'not-implemented':
-      await ctx.reply(`Not sent. ${outcome.detail}`);
-      return;
-    case 'refused':
-      await ctx.reply(`Refused before sending. ${outcome.detail}`);
-      return;
-    case 'submitted':
-      // NOT success. Perpl answers a submission with `mt: 3` / `code: 0`, which
-      // means forwarded and nothing more — the real outcome arrives later.
-      await ctx.reply(`Sent. The outcome is not known yet. ${outcome.detail}`);
-      return;
+  // THE ONE OUTCOME THAT EARNS A RETRY BUTTON is a reconciled not-applied: the
+  // position was read after the send and had not moved, so nothing landed and
+  // nothing can land twice. A FRESH TOKEN, not the spent one: the retry is a
+  // new action with its own `action_log` row and its own fifteen minutes.
+  // `unknown` never gets one — something may have landed.
+  let retryData: string | undefined;
+  if (outcome.kind === 'not-applied') {
+    const retry = deps.store.put({ userId: pending.userId, telegramUserId: pending.telegramUserId, action });
+    retryData = encodeCallback({ kind: 'confirm', token: retry.token, marketId: action.marketId, amountCNS: action.amountCNS });
   }
+  await editOrSend(ctx, outcomeScreen({ action, outcome, market, assessment, ...(retryData === undefined ? {} : { retryData }) }));
+}
+
+/** Edit the tapped message into a screen; send it fresh when that is not possible. */
+async function editOrSend(ctx: Context, screen: Screen): Promise<void> {
+  const options = { parse_mode: 'HTML' as const, reply_markup: keyboardFor(screen), link_preview_options: { is_disabled: true } };
+  if (ctx.callbackQuery?.message !== undefined) {
+    try {
+      await ctx.editMessageText(screen.html, options);
+      return;
+    } catch (error) {
+      if (error instanceof Error && /message is not modified/i.test(error.message)) return;
+    }
+  }
+  await ctx.reply(screen.html, options);
 }

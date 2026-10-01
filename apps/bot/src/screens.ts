@@ -28,7 +28,13 @@ import type { WatchSubscription } from './watch.ts';
 
 export type Button =
   | { readonly text: string; readonly route: Route }
-  | { readonly text: string; readonly url: string };
+  | { readonly text: string; readonly url: string }
+  /**
+   * An ACTION button: pre-encoded `callback.ts` data carrying a pending-action
+   * token. Only the account screens build these, and only for a linked chat;
+   * the gate refuses every one of them from anyone else.
+   */
+  | { readonly text: string; readonly data: string };
 
 export interface Screen {
   /** Telegram HTML. */

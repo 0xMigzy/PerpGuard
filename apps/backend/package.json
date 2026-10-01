@@ -11,6 +11,7 @@
     "./alerts/engine": "./src/alerts/engine.ts",
     "./risk": "./src/risk/types.ts",
     "./risk/loop": "./src/risk/loop.ts",
+    "./risk/warn": "./src/risk/warn.ts",
     "./ingest/market-feed": "./src/ingest/marketFeed.ts",
     "./alerts/test-support": "./src/alerts/testSupport.ts",
     "./actions": "./src/actions/index.ts",

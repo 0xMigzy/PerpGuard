@@ -17,6 +17,11 @@ export interface AccountView {
   readonly view: RiskView;
   readonly executor: ActionExecutor;
   readonly balance: FreeBalanceView;
+  /**
+   * Close every open position on this account, worst first, and say what
+   * happened. Absent where no session can fire one (tests, demos).
+   */
+  readonly killSwitch?: (userId: string) => Promise<string>;
 }
 
 export interface SessionRouter {

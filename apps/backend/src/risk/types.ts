@@ -272,6 +272,8 @@ export interface RiskAssessment {
    * Undefined on a blind assessment that never saw the position.
    */
   readonly marginCNS?: bigint;
+  /** The position's size in lots, in the market's own lot scaling. Undefined when blind. */
+  readonly lotLNS?: bigint;
   readonly metrics: PositionMetrics;
 
   readonly feed: FeedConnectionState;

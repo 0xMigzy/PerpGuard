@@ -52,6 +52,9 @@ import {
 } from '@perpguard/shared';
 import {
   BOT_MENU_COMMANDS,
+  InMemoryAccountSettingsStore,
+  type AccountSettings,
+  type AccountSettingsStore,
   watchRecipients,
   DEFAULT_RATE_LIMIT,
   InMemoryLinkStore,
@@ -100,6 +103,8 @@ import { KeyVault } from './server/link/crypto.ts';
 import { LinkService } from './server/link/service.ts';
 import { InMemoryKeyStore, PostgresKeyStore, PostgresLinkStore, type KeyStore } from './server/link/stores.ts';
 import { WatchLoop } from './watch/loop.ts';
+import { thresholdsFor } from './risk/warn.ts';
+import { PostgresAccountSettingsStore } from './sessions/settings.pg.ts';
 import { createWatchResolver } from './watch/resolve.ts';
 import { PostgresWatchStore } from './watch/store.pg.ts';
 import { PostgresIdentityStore } from './watch/identity.pg.ts';
@@ -406,6 +411,23 @@ const forwardingTransport: AlertTransport = {
       : transport.send(recipient, message),
 };
 
+// ── each linked account's own settings ("Warn me at") ─────────────────────
+// Loaded before the registry opens anything, so a session opens with its
+// account's own thresholds; a change applies to the live loop at once.
+const applySettings = (accountId: number, value: AccountSettings): void => {
+  registry.get(accountId)?.loop.setThresholds(thresholdsFor(value.warnLevel));
+  log(`[account ${accountId}] warn level set to ${value.warnLevel}`);
+};
+let accountSettings: AccountSettingsStore = new InMemoryAccountSettingsStore({ onChange: (id, v) => applySettings(id, v) });
+if (alertDb !== undefined) {
+  try {
+    accountSettings = await PostgresAccountSettingsStore.load({ pool: alertDb, onChange: (id, v) => applySettings(id, v) });
+    log('account settings loaded from Postgres');
+  } catch (error) {
+    warn(`account settings could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); they are in memory until the next restart`);
+  }
+}
+
 const registry = new AccountRegistry({
   maxSessions: MAX_ACCOUNT_SESSIONS,
   deps: {
@@ -422,6 +444,7 @@ const registry = new AccountRegistry({
     recipients: (accountId) => links.byAccountId(accountId).map((link) => ({ userId: link.userId, rights: 'act' as const })),
     venueFactory: (sessionCredentials) => new PerplVenue(network, { credentials: sessionCredentials, logger: { log, warn } }),
     evaluateIntervalMs: EVALUATE_INTERVAL_MS,
+    thresholdsFor: (accountId) => thresholdsFor(accountSettings.get(accountId).warnLevel),
     logger: { info: log, warn },
     // The web page shows the steps as they happen; the bot's actions are
     // ignored by the tracker because it never started them.
@@ -472,6 +495,7 @@ const bot =
           configs: () => watchLoop?.marketConfigs,
           refresh: async () => watchLoop?.evaluate(),
         },
+        settings: accountSettings,
         // Telegram refuses a URL button it cannot open, so a local-only
         // address is not offered as one.
         ...(/^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? {} : { webUrl: PUBLIC_WEB_URL }),

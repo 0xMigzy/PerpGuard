@@ -47,7 +47,16 @@ export type ExecutionOutcome =
    *
    * Earned by evidence, never by a status code.
    */
-  | { readonly kind: 'applied'; readonly detail: string }
+  | {
+      readonly kind: 'applied';
+      readonly detail: string;
+      /**
+       * The venue reported a rejection, and reconciliation found the change
+       * there anyway: the `t: 6` top-up's `sr 32`. Said on the outcome screen
+       * WITH the fact that it applied, never as a failure.
+       */
+      readonly venueRejected?: boolean;
+    }
   /** Sent, reconciled, and the position did not move. */
   | { readonly kind: 'not-applied'; readonly detail: string }
   /**

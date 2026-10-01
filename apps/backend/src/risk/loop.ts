@@ -160,7 +160,7 @@ export class RiskLoop {
   readonly #positions: PositionSource;
   readonly #feedStatus: () => FeedHealth;
   readonly #configs: MarketConfigs;
-  readonly #thresholds: RiskThresholds;
+  #thresholds: RiskThresholds;
   readonly #accountId: number | undefined;
   readonly #now: () => number;
 
@@ -198,6 +198,19 @@ export class RiskLoop {
 
   get thresholds(): RiskThresholds {
     return this.#thresholds;
+  }
+
+  /**
+   * Change this loop's thresholds, effective from the next tick: the owner's
+   * "Warn me at" setting. The DANGER pair is refused if it would sit above the
+   * WATCH pair, because the state machine's ordering depends on it.
+   */
+  setThresholds(next: Partial<RiskThresholds>): void {
+    const merged = { ...this.#thresholds, ...next };
+    if (merged.watchEnterPct < merged.dangerEnterPct || merged.watchExitPct < merged.dangerExitPct) {
+      throw new RangeError('WATCH thresholds may not sit below DANGER thresholds');
+    }
+    this.#thresholds = merged;
   }
 
   /** The one network this loop assesses. */
@@ -550,6 +563,7 @@ export class RiskLoop {
       topUp: topUpOptions(risk, markPricePNS, config, this.#thresholds),
       marginToSurviveCNS: metrics.marginToSurviveCNS,
       marginCNS: risk.depositCNS,
+      lotLNS: risk.lotLNS,
       metrics,
       feed: health.state,
       positions: posStatus.state,
