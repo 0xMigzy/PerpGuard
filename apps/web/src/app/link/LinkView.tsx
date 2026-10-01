@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ApiError, describeError, link, type KeyProof, type LinkMe, type WalletProof } from '@/lib/api.ts';
 import { PageHeader } from '@/components/PageHeader.tsx';
-import { DYNAMIC_ENVIRONMENT_ID } from './layout.tsx';
+import { DYNAMIC_ENVIRONMENT_ID } from './dynamicEnv.ts';
 import { WalletProofCard } from './WalletProofCard.tsx';
 
 type Phase = { kind: 'opening' } | { kind: 'no-session'; reason: string } | { kind: 'ready'; me: LinkMe };

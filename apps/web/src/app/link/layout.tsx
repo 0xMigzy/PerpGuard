@@ -13,7 +13,7 @@ import type { ReactNode } from 'react';
 import { DynamicContextProvider, mergeNetworks } from '@dynamic-labs/sdk-react-core';
 import { EthereumWalletConnectors } from '@dynamic-labs/ethereum';
 
-export const DYNAMIC_ENVIRONMENT_ID = process.env['NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID']?.trim() || undefined;
+import { DYNAMIC_ENVIRONMENT_ID } from './dynamicEnv.ts';
 
 type GenericNetwork = Parameters<typeof mergeNetworks>[0][number];
 
