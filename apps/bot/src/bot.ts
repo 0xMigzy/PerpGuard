@@ -31,6 +31,7 @@ import {
   type PendingActionStore,
 } from './actions.ts';
 import { authorise } from './auth.ts';
+import { InMemoryIdentityStore, type IdentityStore } from './identity.ts';
 import { UnknownFreeBalance, type FreeBalanceView } from './balance.ts';
 import { decodeCallback, encodeCallback } from './callback.ts';
 import type { BotConfig } from './config.ts';
@@ -83,6 +84,11 @@ export interface BotDeps {
    */
   readonly balance?: FreeBalanceView;
   readonly alerts?: AlertConfig;
+  /**
+   * Who the bot has met. Every /start registers the sender here, whether or
+   * not they will ever link an account. Defaults to an in-memory store.
+   */
+  readonly identities?: IdentityStore;
   /**
    * The public watch tier. Absent means `/watch` says it is not available on
    * this deployment, which is the honest answer for a backend with no index.
@@ -138,6 +144,7 @@ export function createBot(deps: BotDeps): Bot {
   });
 
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
+  const identities = deps.identities ?? new InMemoryIdentityStore();
 
   // ── the gate ──────────────────────────────────────────────────────────────
   // Before every handler. The PUBLIC commands are let through to handlers that
@@ -187,6 +194,10 @@ export function createBot(deps: BotDeps): Bot {
 
     if (!(await withinLimit(ctx))) return;
 
+    // EVERYONE IS SOMEBODY. The sender gets their own identity on first sight,
+    // whatever else happens below; the watch tier is theirs from here.
+    const registered = identities.register(telegramUserId, chatId, now());
+
     const existing = deps.links.byTelegramUserId(telegramUserId);
     if (existing !== undefined) {
       await ctx.reply(
@@ -197,25 +208,23 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
 
-    const result = deps.links.link({
-      userId: deps.config.userId,
-      telegramUserId,
-      chatId,
-      linkedAtMs: now(),
-    });
-
-    if (!result.ok) {
-      // Deliberately the same flat refusal whatever the cause: telling a
-      // stranger whether the slot is taken or whether they are the wrong person
-      // is the one useful fact to someone probing a leaked token. The public
-      // tier is still theirs, and the reply says so.
-      await ctx.reply(
-        `PerpGuard is not accepting this chat as a linked account: it acts for one account and nobody else.\n\n${TIERS_TEXT}`,
-      );
-      return;
+    // THE ACTING SLOT IS NEVER FIRST-COME ON A PUBLIC BOT. Only the configured
+    // owner claims it from /start; everyone else is told how the two tiers work
+    // and that linking their own account is a separate, proof-based step.
+    const owner = deps.config.ownerTelegramUserId;
+    if (owner !== undefined && owner === telegramUserId) {
+      const result = deps.links.link({ userId: deps.config.userId, telegramUserId, chatId, linkedAtMs: now() });
+      if (result.ok) {
+        await ctx.reply(`Linked. I will send your alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
+        return;
+      }
     }
 
-    await ctx.reply(`Linked. I will send your alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
+    await ctx.reply(
+      `${registered.created ? 'Hello. ' : 'Welcome back. '}You are ${registered.identity.userId} here, and you can watch any account right now.\n\n` +
+        `${TIERS_TEXT}\n\n` +
+        `Linking your own account, to get the buttons, is a separate step that proves you own it; it is not done from this chat.\n\n${HELP_TEXT}`,
+    );
   });
 
   // ── the public watch tier ─────────────────────────────────────────────────

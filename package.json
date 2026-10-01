@@ -19,7 +19,8 @@
     "risk:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-risk-run.ts",
     "actions:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-action-run.ts",
     "close:probe": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-close.ts",
-    "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts"
+    "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts",
+    "watch:demo": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-e2e-demo.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",

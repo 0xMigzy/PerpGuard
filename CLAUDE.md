@@ -366,8 +366,17 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
   persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
   does not unsubscribe anyone.
-- The linked tier is unchanged: one linked chat, the account the trading socket
-  signs for, alerts with the buttons to act.
+- EVERY TELEGRAM USER IS SOMEBODY: `/start` registers an identity
+  (`tg:<telegram user id>`, `apps/bot/src/identity.ts`, persisted in
+  `telegram_identities`) for anyone, and NEVER hands out the acting slot
+  first-come. Until the proof-based linking step exists, the one acting link
+  is claimed from `/start` only by `TELEGRAM_OWNER_ID`; unset means nobody can
+  link, and the reply says linking is a separate step. The linked tier is
+  otherwise unchanged: one linked chat, the account the trading socket signs
+  for, alerts with the buttons to act.
+- `pnpm watch:demo` runs a stranger through /start, /watch, /watching, a live
+  loop pass, a crafted tap and /unwatch against the real index and venue, with
+  only Telegram's wire faked.
 
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk

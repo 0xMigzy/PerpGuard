@@ -66,7 +66,7 @@ class FakeResolver implements WatchResolver {
   }
 }
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -86,7 +86,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
   const indexer = { state: 'synced', blocksBehind: 7, latestProcessedBlock: 109_000_000, serveAsCurrent: true } as unknown as IndexerHealth;
 
   const built = createBot({
-    config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: undefined },
+    config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: options.owner },
     links,
     store,
     amounts,
@@ -212,8 +212,8 @@ test('the linked user speaking from another chat is refused, so nothing leaks to
   assert.deepEqual(texts(h.telegram), [WRONG_CHAT_TEXT]);
 });
 
-test('an unlinked chat gets /start and nothing else', async () => {
-  const h = harness({ links: new InMemoryLinkStore({ capacity: 1 }) });
+test('the configured owner links with /start; an unlinked chat gets an identity and the watch tier, never the acting slot', async () => {
+  const h = harness({ links: new InMemoryLinkStore({ capacity: 1, ownerTelegramUserId: OWNER_ID }), owner: OWNER_ID });
   h.view.assessments = [dangerAssessment()];
 
   await h.bot.handleUpdate(messageUpdate('/positions'));
@@ -227,15 +227,24 @@ test('an unlinked chat gets /start and nothing else', async () => {
   // And now the same commands work.
   await h.bot.handleUpdate(messageUpdate('/status'));
   assert.match(texts(h.telegram).at(-1)!, /PerpGuard is watching 1 position/);
-});
 
-test('once one user is linked, a second /start is refused and the link is unchanged', async () => {
-  const h = harness();
+  // A stranger's /start is an identity, not a link, and not a refusal.
   await h.bot.handleUpdate(messageUpdate('/start', { from: STRANGER_ID, chat: 7_777 }));
-
-  assert.match(texts(h.telegram).at(-1)!, /not accepting this chat/);
+  const hello = texts(h.telegram).at(-1)!;
+  assert.match(hello, /^Hello\. You are tg:6060 here, and you can watch any account right now\./);
+  assert.ok(hello.includes(TIERS_TEXT));
+  assert.match(hello, /separate step that proves you own it/);
   assert.equal(h.links.byTelegramUserId(STRANGER_ID), undefined);
   assert.equal(h.links.byUserId(USER_ID)?.telegramUserId, OWNER_ID);
+});
+
+test('with no owner configured, /start links NOBODY: a public bot has no first-come acting slot', async () => {
+  const h = harness({ links: new InMemoryLinkStore({ capacity: 1 }) });
+  await h.bot.handleUpdate(messageUpdate('/start'));
+  assert.match(texts(h.telegram).at(-1)!, /^Hello\. You are tg:4242 here/);
+  assert.equal(h.links.list().length, 0, 'the first person to arrive does not become the owner');
+  await h.bot.handleUpdate(messageUpdate('/start'));
+  assert.match(texts(h.telegram).at(-1)!, /^Welcome back\. You are tg:4242 here/);
 });
 
 test('/start from the already-linked user is idempotent', async () => {
@@ -1021,15 +1030,15 @@ test('a chat that sends too many public commands is told to slow down, with a wa
   assert.match(texts(h.telegram).at(-1)!, /watches nothing yet/);
 });
 
-test('/start from a stranger who cannot link still gets both tiers, and so does the owner', async () => {
+test('/start states both tiers to a stranger and to the owner, and nothing points at the old Protect page', async () => {
   const h = harness();
   await h.bot.handleUpdate(stranger('/start'));
-  const refused = texts(h.telegram).at(-1)!;
-  assert.match(refused, /not accepting this chat as a linked account/);
-  assert.ok(refused.includes(TIERS_TEXT), 'the public tier is offered in the same breath');
-  assert.doesNotMatch(refused, /\/web/);
+  const hello = texts(h.telegram).at(-1)!;
+  assert.match(hello, /^Hello\. You are tg:6060 here/);
+  assert.ok(hello.includes(TIERS_TEXT), 'the public tier is offered in the same breath');
+  assert.doesNotMatch(hello, /\/web/);
 
-  const fresh = harness({ links: new InMemoryLinkStore({ capacity: 1 }) });
+  const fresh = harness({ links: new InMemoryLinkStore({ capacity: 1, ownerTelegramUserId: OWNER_ID }), owner: OWNER_ID });
   await fresh.bot.handleUpdate(messageUpdate('/start', { from: OWNER_ID, chat: OWNER_CHAT }));
   const linked = texts(fresh.telegram).at(-1)!;
   assert.match(linked, /^Linked\. I will send your alerts here, with the buttons to act\./);

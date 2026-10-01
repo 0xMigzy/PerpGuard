@@ -61,6 +61,8 @@ import {
   createBot,
   freeBalanceFrom,
   loadBotConfig,
+  InMemoryIdentityStore,
+  type IdentityStore,
   type RiskView,
   type WatchResolver,
   type WatchStore,
@@ -95,6 +97,7 @@ import { TradingSession } from './server/tradingSession.ts';
 import { WatchLoop } from './watch/loop.ts';
 import { createWatchResolver } from './watch/resolve.ts';
 import { PostgresWatchStore } from './watch/store.pg.ts';
+import { PostgresIdentityStore } from './watch/identity.pg.ts';
 
 const startedAtMs = Date.now();
 const log = (line: string): void => console.log(`[perpguard] ${line}`);
@@ -315,6 +318,16 @@ if (alertDb !== undefined) {
     warn(`watch subscriptions could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); watching is in memory until the next restart`);
   }
 }
+// Everyone who has ever said /start, so a restart does not forget them.
+let identities: IdentityStore = new InMemoryIdentityStore();
+if (alertDb !== undefined) {
+  try {
+    identities = await PostgresIdentityStore.load({ pool: alertDb, logger: { warn } });
+    log(`telegram identities loaded from Postgres: ${identities.list().length}`);
+  } catch (error) {
+    warn(`telegram identities could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); in memory until the next restart`);
+  }
+}
 let watchResolverImpl: WatchResolver | undefined;
 const watchResolver: WatchResolver = {
   resolve: (target: WatchTarget) =>
@@ -430,6 +443,7 @@ const bot =
         configs: riskConfigs,
         amounts: pendingAmounts,
         balance,
+        identities,
         watch: {
           store: watchStore,
           resolver: watchResolver,
