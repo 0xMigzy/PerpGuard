@@ -241,7 +241,7 @@ function FlowSummary({ deposited, withdrawn, deposits, withdrawals }: { readonly
 function GrowthSection() {
   const history = useHistory();
   const h = history.data?.data;
-  const step = h === undefined ? undefined : biggestStep(h.months);
+  const step = h === undefined ? undefined : biggestStep(h.months, h.startsAtMs);
   const total = h?.months.reduce((sum, m) => sum + m.trades, 0);
   return (
     <section className="card mb-4 px-[18px] py-4">
@@ -267,7 +267,7 @@ function GrowthSection() {
           <GrowthChart months={h.months} />
           <div className="mt-2 text-[11.5px] text-muted2">
             One trade is one maker fill. {total === undefined ? '' : `${formatCount(total)} in all. `}
-            {h.months.some((m) => m.partial) ? 'The faint bar is the month still running.' : ''}
+            {h.months.some((m) => m.partial) ? 'The faint bar is the month still running. ' : ''}{h.startsAtMs === undefined ? '' : `${formatMonth(h.startsAtMs)} starts at launch, ${formatDayLong(h.startsAtMs)}, so it is not a whole month either.`}
           </div>
           <details className="mt-2 text-[12px] text-muted">
             <summary className="cursor-pointer">The numbers</summary>

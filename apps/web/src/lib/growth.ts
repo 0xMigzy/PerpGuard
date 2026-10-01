@@ -12,11 +12,16 @@ export function formatMonth(ms: number): string {
 
 /**
  * The largest month-on-month step between two WHOLE months, as "×17": the
- * running month is never compared, because a partial bar is not a month.
+ * running month is never compared, and neither is the launch month (the
+ * index starts part-way through it), because a partial bar is not a month.
  * Undefined until there are two whole months with trades.
  */
-export function biggestStep(months: readonly HistoryMonth[]): { readonly from: HistoryMonth; readonly to: HistoryMonth; readonly factor: number } | undefined {
-  const whole = months.filter((m) => !m.partial);
+export function biggestStep(
+  months: readonly HistoryMonth[],
+  /** Where the history starts: a month it starts after the 1st of is the launch month, not a whole month. */
+  startsAtMs?: number,
+): { readonly from: HistoryMonth; readonly to: HistoryMonth; readonly factor: number } | undefined {
+  const whole = months.filter((m) => !m.partial && !(startsAtMs !== undefined && startsAtMs > m.monthMs && startsAtMs < nextMonth(m.monthMs)));
   let best: { from: HistoryMonth; to: HistoryMonth; factor: number } | undefined;
   for (let i = 1; i < whole.length; i++) {
     const from = whole[i - 1]!, to = whole[i]!;
@@ -25,4 +30,9 @@ export function biggestStep(months: readonly HistoryMonth[]): { readonly from: H
     if (best === undefined || factor > best.factor) best = { from, to, factor };
   }
   return best;
+}
+
+function nextMonth(monthMs: number): number {
+  const d = new Date(monthMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
 }
