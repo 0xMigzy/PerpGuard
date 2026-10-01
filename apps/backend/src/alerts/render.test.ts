@@ -506,3 +506,25 @@ test('a WATCHED position renders with its account first, a freshness line, and n
   assert.equal(own.title, 'DANGER · BTC long');
   assert.equal(own.actions.length, 2);
 });
+
+// ── "Changed from" is about a change, never about a view ────────────────────
+
+test('a steady DANGER position never reads "DANGER … Changed from DANGER"', () => {
+  // What the loop stores on every tick after the first: previousState is the
+  // previous TICK's state, which for a position sitting in DANGER is DANGER.
+  const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  const steady = { ...change.assessment, previousState: 'DANGER' as const };
+  const asAlert = buildMessage(steady, 'danger', { alerts: config, market: BTC });
+  assert.ok(asAlert.text.startsWith('DANGER · BTC long'));
+  assert.ok(!asAlert.text.includes('Changed from'), asAlert.text);
+});
+
+test('a snapshot view has no change line at all; an alert about a real change keeps it', () => {
+  const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  const fromWatch = { ...change.assessment, previousState: 'WATCH' as const };
+  assert.match(buildMessage(fromWatch, 'danger', { alerts: config, market: BTC }).text, /\nChanged from WATCH\.$/);
+  const view = buildMessage(fromWatch, 'danger', { alerts: config, market: BTC, snapshot: true }).text;
+  assert.ok(!view.includes('Changed from') && !view.includes('First time'), view);
+  const first = buildMessage(change.assessment, 'danger', { alerts: config, market: BTC, snapshot: true }).text;
+  assert.ok(!first.includes('First time'), 'a view is not a first sighting either');
+});

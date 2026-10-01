@@ -64,7 +64,7 @@ export function positionEntries(
     }
     return {
       ok: true,
-      message: buildMessage(assessment, kindFor(assessment.state), { alerts, market }),
+      message: buildMessage(assessment, kindFor(assessment.state), { alerts, market, snapshot: true }),
     };
   });
 }

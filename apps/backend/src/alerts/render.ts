@@ -172,10 +172,18 @@ function watchLine(assessment: RiskAssessment): string {
  * a message now comes from one place at one precision, and `reason` stays
  * available to callers that want the plumbing detail.
  */
-function changeLine(assessment: RiskAssessment): string {
+function changeLine(assessment: RiskAssessment, snapshot: boolean): string {
+  // A SNAPSHOT IS NOT A CHANGE. `/positions` renders the loop's latest
+  // assessment, which the loop rebuilds on EVERY tick with the previous TICK's
+  // state — so a position sitting in DANGER carries `previousState: DANGER`,
+  // and this line used to print "DANGER … Changed from DANGER". The previous
+  // state was reported correctly; the line was the wrong line for a view.
+  if (snapshot) return '';
   if (assessment.previousState === undefined) {
     return 'First time PerpGuard has seen this position.';
   }
+  // Never claim a change that did not happen, whoever the caller is.
+  if (assessment.previousState === assessment.state) return '';
   return `Changed from ${headline(assessment.previousState)}.`;
 }
 
@@ -357,6 +365,17 @@ export interface RenderedAlert {
 }
 
 /**
+ * What a render needs besides the assessment. `snapshot` marks a VIEW of the
+ * current state (`/positions`, a position screen) rather than an alert about a
+ * change: a view has no "Changed from" line, because nothing changed.
+ */
+export interface RenderContext {
+  readonly alerts: AlertConfig;
+  readonly market: MarketRiskConfig;
+  readonly snapshot?: boolean;
+}
+
+/**
  * Render one alert.
  *
  * The caller has already decided this message should exist and what kind it is;
@@ -366,7 +385,7 @@ export interface RenderedAlert {
 export function renderAlert(
   assessment: RiskAssessment,
   kind: AlertKind,
-  context: { readonly alerts: AlertConfig; readonly market: MarketRiskConfig },
+  context: RenderContext,
 ): RenderedAlert {
   const { alerts: config, market } = context;
   if (market.marketId !== assessment.marketId) {
@@ -447,7 +466,8 @@ export function renderAlert(
     }
   }
 
-  lines.push(changeLine(assessment));
+  const change = changeLine(assessment, context.snapshot === true);
+  if (change !== '') lines.push(change);
 
   return { title: heading, lines, text: [heading, ...lines].join('\n'), actions };
 }
@@ -456,7 +476,7 @@ export function renderAlert(
 export function buildMessage(
   assessment: RiskAssessment,
   kind: AlertKind,
-  context: { readonly alerts: AlertConfig; readonly market: MarketRiskConfig },
+  context: RenderContext,
 ): AlertMessage {
   const rendered = renderAlert(assessment, kind, context);
   return {

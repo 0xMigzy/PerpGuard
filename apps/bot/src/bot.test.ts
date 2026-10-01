@@ -278,7 +278,9 @@ test('/positions renders each position with the alert layer’s own words', asyn
 
   const sent = texts(h.telegram);
   assert.equal(sent[0], '1 position, worst first.');
-  assert.equal(sent[1], dangerMessage().text);
+  // A view, not an alert: the alert's words without its "what changed" line.
+  assert.equal(sent[1], dangerMessage({ snapshot: true }).text);
+  assert.ok(!sent[1]!.includes('Changed from') && !sent[1]!.includes('First time'));
   assert.deepEqual(
     keyboardOf(h.telegram.of('sendMessage')[1]!).map((b) => {
       const decoded = decodeCallback(b.callback_data);

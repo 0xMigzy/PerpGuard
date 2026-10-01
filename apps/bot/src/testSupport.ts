@@ -260,11 +260,12 @@ export function dangerScenario(): {
 }
 
 /** The same, rendered by the alerts layer's own renderer. */
-export function dangerMessage(): AlertMessage {
+export function dangerMessage(options: { readonly snapshot?: boolean } = {}): AlertMessage {
   const assessment = dangerAssessment();
   return buildMessage(assessment, kindFor(assessment.state), {
     alerts: DEFAULT_ALERT_CONFIG,
     market: BTC,
+    ...(options.snapshot === true ? { snapshot: true } : {}),
   });
 }
 
