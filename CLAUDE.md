@@ -548,6 +548,24 @@ Day 6 (Oct 1): the web app is the six public, read-only sections above,
 served by the analytics API behind a stale-while-revalidate cache; the
 Telegram bot has the public watch tier beside the linked tier and the
 backend runs one session per linked account behind `AccountRegistry`,
-with proof-based `/link` (wallet or sealed API key) feeding it; all four
-processes run under systemd (`deploy/systemd/`); full mainnet history is
-backfilling into schema `perpguard_full`. Actions live in the Telegram bot.
+with proof-based `/link` (wallet or sealed API key) feeding it; processes
+run under systemd (`deploy/systemd/`). Actions live in the Telegram bot.
+
+THE INDEX IS FULL HISTORY (cut over 1 Oct 2026, 20:47 UTC). The backend
+reads schema `perpguard_full`, indexed from the Exchange's deployment block
+54,773,010 (11 Feb 2026), via `search_path` on `INDEXER_DATABASE_URL`. It is
+written by the `perpguard-backfill` unit, now the only indexer: do NOT
+rename it or change its env, or Envio may reset the schema. The old live
+index (schema `public`, from block 100,000,000, unit `perpguard-indexer`)
+is stopped and disabled; its schema is kept for rollback until the owner
+says drop it. "All" is named from the index's real start ("since Feb 11,
+2026"), never "all time" on trust. The rescuable finding over all time
+is 2,318 of 3,463 (66.9%) against 467 of 637 (73.3%) over 30 days, captured
+in `docs/liquidation-finding-2026-10-01.md`; always quote one with its window.
+- A RESTART NEVER SENDS "I CANNOT SEE THIS POSITION": every alert is held
+  until each loop has assessed cleanly (`alerts/startupGate.ts`), then the
+  startup blindness is dropped; past 3 minutes it is an outage and goes out.
+- EVERY WEB BUILD IS CLEAN (`apps/web/scripts/build-web.sh` deletes the dist
+  dir and `tsconfig.tsbuildinfo`), and CI runs it. Deploy by building into
+  `NEXT_DIST_DIR=.next-staged` and swapping it for `.next`: seconds of
+  downtime instead of minutes.
