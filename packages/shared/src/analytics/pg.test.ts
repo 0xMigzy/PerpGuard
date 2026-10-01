@@ -779,3 +779,19 @@ test('per-market fees are maker PLUS taker from day buckets, with the same label
   assert.equal(btc!.shortNotionalAusd, 40_000);
   assert.ok(Math.abs(btc!.longShareOfNotional! - 2 / 3) < 1e-12);
 });
+
+test('the current window\u2019s fees include today\u2019s bucket however much time passes mid-read (the 1 Oct race)', async () => {
+  // untilMs is "now" at the start of the read; by the fee query the clock has
+  // moved on. That used to drop today at random. Here the clock advances one
+  // millisecond on every read, which is the losing case every time.
+  const sql = new FakeSql();
+  sql.on(/from "Exchange"/, [exchangeRow]);
+  let clock = NOW;
+  const analytics = new PostgresAnalytics({ client: sql, chainId: 143, resolveSymbol: RESOLVE, now: () => (clock += 1) });
+  const metrics = await analytics.protocolMetrics('7d');
+  const fees = sql.calls.filter((c) => /count\(distinct day\)/.test(c.sql));
+  assert.equal(fees.length, 2, 'current and previous windows');
+  assert.equal(fees[0]!.values[1], null, 'the current window is open-ended: today counts');
+  assert.notEqual(fees[1]!.values[1], null, 'the previous window ends at a day boundary');
+  assert.match(metrics.fees.label, /today so far|no complete UTC day/, 'labelled as the current window');
+});

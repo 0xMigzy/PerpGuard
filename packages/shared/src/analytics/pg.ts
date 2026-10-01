@@ -801,11 +801,11 @@ export class PostgresAnalytics implements Analytics {
     const span = sinceMs === undefined ? undefined : untilMs - sinceMs;
     const previousSince = sinceMs === undefined || span === undefined ? undefined : sinceMs - span;
     const [current, indexedFrom, previous] = await Promise.all([
-      this.#metricsOver(timeframe, sinceMs, untilMs),
+      this.#metricsOver(timeframe, sinceMs, untilMs, true),
       this.#one(INDEXED_FROM_SQL),
       sinceMs === undefined || previousSince === undefined
         ? undefined
-        : this.#metricsOver(timeframe, previousSince, sinceMs),
+        : this.#metricsOver(timeframe, previousSince, sinceMs, false),
     ]);
     const indexedFromMs = toMs(indexedFrom?.['from_day']);
     if (previous === undefined || previousSince === undefined) return { ...current, indexedFromMs };
@@ -831,6 +831,8 @@ export class PostgresAnalytics implements Analytics {
     timeframe: Timeframe,
     sinceMs: number | undefined,
     untilMs: number,
+    /** The window that ends now, rather than a previous one. Said, not inferred from the clock. */
+    current: boolean,
   ): Promise<Omit<ProtocolMetrics, 'previous' | 'indexedFromMs'>> {
     const decimals = await this.#decimals();
     const since = iso(sinceMs);
@@ -841,7 +843,10 @@ export class PostgresAnalytics implements Analytics {
     const feesSince = sinceMs === undefined ? null : iso(startOfUtcDay(sinceMs));
     // Open-ended for the current window, so today's partial bucket is included;
     // for a previous window this is the current window's first day, exclusive.
-    const feesUntil = untilMs >= this.#now() ? null : iso(startOfUtcDay(untilMs));
+    // NOT `untilMs >= now()`: untilMs WAS now a moment ago, so that comparison
+    // flipped on whether a millisecond had passed, and today's fees came and
+    // went at random (seen 1 Oct 2026: the same 7D read gave 7 days or 8).
+    const feesUntil = current ? null : iso(startOfUtcDay(untilMs));
 
     const [totals, traders, liquidations, flows, fees] = await Promise.all([
       this.#one(WINDOW_TOTALS_SQL, [since, until]),
@@ -858,7 +863,7 @@ export class PostgresAnalytics implements Analytics {
       volumeAusd: toAusd(totals?.['volume'], decimals),
       tradeCount: count(totals?.['trades']),
       makerFeesAusd: toAusd(totals?.['maker_fees'], decimals),
-      fees: this.#fees(fees, decimals, untilMs),
+      fees: this.#fees(fees, decimals, untilMs, current),
       activeTraders: count(traders?.['traders']),
       liquidations: this.#liquidationStats(liquidations, decimals),
       rescues: this.#rescueStats(liquidations, decimals),
@@ -878,13 +883,14 @@ export class PostgresAnalytics implements Analytics {
     row: Record<string, unknown> | undefined,
     decimals: number,
     untilMs: number,
+    /** The current window, whose last bucket is today so far. Said, not read off the clock. */
+    open: boolean,
   ): FeesForPeriod {
     const days = count(row?.['days']);
     const fromMs = toMs(row?.['from_day']) ?? startOfUtcDay(untilMs);
     const from = new Date(fromMs).toISOString().slice(0, 10);
     // A window that ends before now is a closed range of whole days; only the
     // current window's last bucket is "today so far".
-    const open = untilMs >= this.#now();
     const tail = open ? ' (today so far)' : '';
     const label =
       days === 0
@@ -1071,7 +1077,7 @@ export class PostgresAnalytics implements Analytics {
         market: toMarketRef(row['id'], row['name'], this.#resolve),
         volumeAusd: toAusd(row['volume'], decimals),
         tradeCount: count(row['trades']),
-        fees: this.#fees({ fees: row['fees'], days: row['fee_days'], from_day: row['fee_from_day'] }, decimals, untilMs),
+        fees: this.#fees({ fees: row['fees'], days: row['fee_days'], from_day: row['fee_from_day'] }, decimals, untilMs, true),
         makerFeesAusd: toAusd(row['maker_fees'], decimals),
         openPositions: count(row['open_positions']),
         longPositions: longs,
