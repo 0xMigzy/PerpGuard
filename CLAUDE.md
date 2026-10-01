@@ -278,6 +278,17 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   column and `pg.test.ts` pins them.
 
 ## The web app
+- INDEXED ANSWERS ARE SERVED FROM A STALE-WHILE-REVALIDATE CACHE, AND SAY HOW
+  OLD THEY ARE. A 30-day `/metrics` is five aggregate scans over millions of
+  fill rows (3.6s measured; the timestamp index cannot help when the window is
+  the whole table), so every indexed route serves its last computed answer at
+  once and refreshes behind the reader past a 20s TTL (`SwrCache` in
+  `apps/backend/src/server/responseCache.ts`); the indexer-health verdict is
+  cached 2s. The envelope carries `computedAtMs`, `ageMs` and `revalidating`,
+  and the page says "computed Ns ago" past 45s. Never cache without the age:
+  a snapshot presented as the present is the same lie as a frozen price. The
+  default views are warmed at boot and every 60s; the first request for any
+  other window pays its scan once.
 - PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
   reduce, close or kill switch from the web; every action happens in Telegram.
   The backend's `/api/protect/*` routes still exist and no page calls them —
