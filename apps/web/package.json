@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack -p 3000",
-    "build": "next build",
+    "build": "sh scripts/build-web.sh",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

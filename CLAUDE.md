@@ -369,11 +369,9 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 - EVERY TELEGRAM USER IS SOMEBODY: `/start` registers an identity
   (`tg:<telegram user id>`, `apps/bot/src/identity.ts`, persisted in
   `telegram_identities`) for anyone, and NEVER hands out the acting slot
-  first-come. Until the proof-based linking step exists, the one acting link
-  is claimed from `/start` only by `TELEGRAM_OWNER_ID`; unset means nobody can
-  link, and the reply says linking is a separate step. The linked tier is
-  otherwise unchanged: one linked chat, the account the trading socket signs
-  for, alerts with the buttons to act.
+  first-come. `/start` links only `TELEGRAM_OWNER_ID` to the environment
+  account; everyone else links through `/link`, the proof-based page below.
+  A linked chat gets the account's alerts with the buttons to act.
 - `pnpm watch:demo` runs a stranger through /start, /watch, /watching, a live
   loop pass, a crafted tap and /unwatch against the real index and venue, with
   only Telegram's wire faked.
@@ -409,11 +407,35 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   two real sessions through fake sockets — action isolation, alert isolation,
   independent in-flight locks, the cap, teardown, the mismatch. `pnpm
   registry:live` runs the environment account through the registry on testnet.
-- NOT BUILT YET (Tier 2 proper): proof-based `/link` (Dynamic wallet signature
-  or pasted API key on one HTTPS page), encrypted key storage with an
-  environment key and a documented rotation story, and `/unlink`. Until then
-  the only occupant is the environment account, linked from `/start` by
-  `TELEGRAM_OWNER_ID`.
+- LINKING IS PROOF-BASED, AND THE TOKEN IS TRANSPORT, NOT PROOF. `/link`
+  mints a one-time five-minute code whose URL opens the web page `/link`
+  (`PUBLIC_WEB_URL`); redeeming it gives the page a 30-minute cookie session
+  for that Telegram identity and LINKS NOTHING. The proof is one of two
+  things collected on that page: a Dynamic wallet signature, verified
+  server-side and mapped to an account by the Exchange contract, or a Perpl
+  API key pasted there, used once to sign in and learn its account. A wallet
+  that owns the environment account links at once; a wallet that owns any
+  other account proves ownership and still needs a key for it, and a key for
+  a different account than the wallet proved is refused.
+  (`apps/backend/src/server/link/{service,routes,crypto,stores}.ts`.)
+- THE API KEY NEVER COMES BACK OUT. It is entered on the HTTPS page only
+  (the form disables itself on plain HTTP off localhost), never asked for or
+  accepted in Telegram, never echoed by any route, never logged, and sealed
+  at rest with AES-256-GCM under `PERPGUARD_KEY_ENCRYPTION_KEY`
+  (`account_keys`). `routes.test.ts` and `service.test.ts` pin "not in any
+  reply, log or notice" on success, refusal and server error alike.
+- ROTATION = RE-LINK. A rotated environment key makes every sealed key
+  unreadable (`KeyRotatedError`); links survive, the sessions do not reopen
+  at boot, `needsRelink` marks the user and every command and tap tells them
+  to `/link` again. Nothing is re-encrypted and nothing is ever kept in the
+  clear.
+- `/unlink` (bot or page) removes the link, DELETES the key and closes the
+  session at once; the environment account's session is never closed by an
+  unlink. The web app has exactly ONE route with a session and ONE provider:
+  Dynamic lives in `apps/web/src/app/link/layout.tsx`, the root layout knows
+  nothing of it, and every other page is public and read-only. The Dynamic id
+  is inlined at BUILD time, so `apps/web/scripts/build-web.sh` lifts
+  `NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID` from the shared `.env`.
 
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk
@@ -471,7 +493,7 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 Day 6 (Oct 1): the web app is the six public, read-only sections above,
 served by the analytics API behind a stale-while-revalidate cache; the
 Telegram bot has the public watch tier beside the linked tier and the
-backend runs one session per linked account behind `AccountRegistry`
-(environment account 710 as the only occupant so far); all four
+backend runs one session per linked account behind `AccountRegistry`,
+with proof-based `/link` (wallet or sealed API key) feeding it; all four
 processes run under systemd (`deploy/systemd/`); full mainnet history is
 backfilling into schema `perpguard_full`. Actions live in the Telegram bot.
