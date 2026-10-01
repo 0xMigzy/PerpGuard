@@ -73,7 +73,7 @@ test('raising capacity is all a second user needs: the shape does not change', (
   const links = new InMemoryLinkStore({ capacity: 2 });
   assert.equal(links.link(OWNER_LINK).ok, true);
   assert.equal(
-    links.link({ userId: 'trader-2', telegramUserId: STRANGER_ID, chatId: 9, linkedAtMs: 1 }).ok,
+    links.link({ userId: 'trader-2', accountId: 711, telegramUserId: STRANGER_ID, chatId: 9, linkedAtMs: 1 }).ok,
     true,
   );
   assert.equal(links.list().length, 2);

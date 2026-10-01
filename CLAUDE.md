@@ -378,6 +378,43 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   loop pass, a crafted tap and /unwatch against the real index and venue, with
   only Telegram's wire faked.
 
+## Account sessions: one of everything PER LINKED ACCOUNT
+- `AccountRegistry` (`apps/backend/src/sessions/registry.ts`) owns an
+  `AccountSession` per account id: its own venue with its own credentials and
+  socket, position source, risk loop (stamps `accountId` on every
+  assessment), alert engine (history and alert keys by account AND market,
+  recipients = the chats linked to that account), executor (own in-flight
+  registry; REFUSES `wrong-account` before a lease when a command names
+  another account), balance and bot view. Shared and safe to share: the
+  market feed, market list and risk configs, the action and alert logs (every
+  row carries the account), the Telegram transport.
+- THE SOCKET MUST SIGN IN AS THE ACCOUNT THE SESSION WAS OPENED FOR, or the
+  session reports a mismatch and the registry tears it down. The environment
+  key's session is keyed by `PERPL_ACCOUNT_ID`, which is therefore required.
+- `MAX_ACCOUNT_SESSIONS` (default 20) is a REFUSAL at the cap with a sentence,
+  never a slowdown for everyone. The bound is attention, not memory: a session
+  is a socket, a position set and a loop ticking every second; 20 keeps every
+  tick trivial on this box and the venue's per-host limits far away.
+- `/unlink` must tear the session down immediately: `registry.close()`
+  unreferences first (no request routed from then on finds it), then stops the
+  loop, drains the engine, closes the socket. `/health` reports every session
+  under `components.sessions`, each with connected / retrying / blind.
+- THE BOT HOLDS NO VIEW, EXECUTOR OR BALANCE. Every handler resolves the
+  requesting chat's link (`LinkRecord.accountId`) and the registry's session
+  for it AT REQUEST TIME (`resolveAccount` in `apps/bot/src/bot.ts`), and the
+  confirm tap re-resolves again before sending; an action whose
+  `accountId` is not the chat's linked account is discarded. Nothing is cached
+  from link time.
+- The cross-account proof is `apps/backend/src/sessions/registry.test.ts`:
+  two real sessions through fake sockets — action isolation, alert isolation,
+  independent in-flight locks, the cap, teardown, the mismatch. `pnpm
+  registry:live` runs the environment account through the registry on testnet.
+- NOT BUILT YET (Tier 2 proper): proof-based `/link` (Dynamic wallet signature
+  or pasted API key on one HTTPS page), encrypted key storage with an
+  environment key and a documented rotation story, and `/unlink`. Until then
+  the only occupant is the environment account, linked from `/start` by
+  `TELEGRAM_OWNER_ID`.
+
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk
   engine, bot and web use the `Venue` interface, never Perpl directly.
@@ -433,6 +470,8 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 ## Current phase
 Day 6 (Oct 1): the web app is the six public, read-only sections above,
 served by the analytics API behind a stale-while-revalidate cache; the
-Telegram bot has the public watch tier beside the linked tier; all four
+Telegram bot has the public watch tier beside the linked tier and the
+backend runs one session per linked account behind `AccountRegistry`
+(environment account 710 as the only occupant so far); all four
 processes run under systemd (`deploy/systemd/`); full mainnet history is
 backfilling into schema `perpguard_full`. Actions live in the Telegram bot.

@@ -22,8 +22,8 @@ export interface SqlClient {
 const OPEN = `
 insert into action_log (
   idempotency_key, user_id, kind, market_id, symbol, position_id, network,
-  watched_field, requested, before_value, opened_at
-) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10::numeric, $11)
+  watched_field, requested, before_value, opened_at, account_id
+) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10::numeric, $11, $12)
 `;
 
 const SETTLE = `
@@ -68,6 +68,7 @@ export class PostgresActionLog implements ActionLog {
       num(row.requested),
       num(row.before),
       iso(row.openedAtMs),
+      row.accountId ?? null,
     ]);
   }
 

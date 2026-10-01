@@ -52,8 +52,12 @@ export const OWNER_CHAT = 5150;
 export const STRANGER_ID = 6060;
 export const USER_ID = 'trader-1';
 
+/** The environment key's account in every bot test: the one the owner links to. */
+export const OWNER_ACCOUNT = 710;
+
 export const OWNER_LINK: LinkRecord = {
   userId: USER_ID,
+  accountId: OWNER_ACCOUNT,
   telegramUserId: OWNER_ID,
   chatId: OWNER_CHAT,
   linkedAtMs: 1_000_000,

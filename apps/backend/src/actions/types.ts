@@ -50,6 +50,14 @@ interface CommandBase {
    */
   readonly idempotencyKey: string;
   readonly userId: string;
+  /**
+   * The account the position belongs to, as the CALLER asserts it. The
+   * executor serving one account refuses a command naming another: that is
+   * the second line of the isolation rule, behind the bot's request-time
+   * link check, and it means a routing slip is a refusal rather than an
+   * action on somebody else's position.
+   */
+  readonly accountId?: number;
   /** MARKET IDENTITY IS THE MARKET ID (CLAUDE.md). The symbol is for reading. */
   readonly marketId: number;
   readonly symbol: string;
@@ -135,6 +143,8 @@ export interface ReportedStatus {
 
 /** Why an action was never sent. */
 export type RefusalCode =
+  /** The command names an account this executor does not serve. */
+  | 'wrong-account'
   /** Another action on this position has not settled. Refused, never queued. */
   | 'already-in-flight'
   /** No `positionId`, so there is nothing to address the action to. */
@@ -303,6 +313,8 @@ export interface PriceGateSource {
 export interface ActionLogRow {
   readonly idempotencyKey: string;
   readonly userId: string;
+  /** The account acted on. Absent only for rows written before accounts existed. */
+  readonly accountId?: number;
   readonly kind: ActionKind;
   readonly marketId: number;
   readonly symbol: string;

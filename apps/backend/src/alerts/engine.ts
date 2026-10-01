@@ -191,11 +191,11 @@ export class AlertEngine {
         send: false,
         message: undefined,
         suppressedReason: `no market config for market ${assessment.marketId}`,
-        history: this.#history.get(historyKey(assessment.marketId, assessment.watch?.accountId)) ?? emptyHistory(assessment.marketId),
+        history: this.#history.get(historyKey(assessment.marketId, scopeOf(assessment))) ?? emptyHistory(assessment.marketId),
       };
     }
 
-    const key = historyKey(assessment.marketId, assessment.watch?.accountId);
+    const key = historyKey(assessment.marketId, scopeOf(assessment));
     const decision = decide(
       change,
       { alerts: this.#alerts, market },
@@ -244,13 +244,14 @@ export class AlertEngine {
    */
   async #deliver(message: AlertMessage, market: MarketRiskConfig, recipient: AlertRecipient): Promise<void> {
     const createdAtMs = this.#now();
-    // The owner's key is unchanged. A watched alert names its account, and a
-    // watcher's copy its chat, so each copy's attempt sequence is its own row.
+    // An alert names its account, and each recipient's copy its own attempt
+    // sequence, so two accounts on one market, or two chats on one account,
+    // never share a row. (A pre-account owner alert keeps the old key shape.)
+    const accountId = message.watch?.accountId ?? message.accountId;
     const alertKey =
-      message.watch === undefined
+      accountId === undefined
         ? `${market.marketId}:${message.state}:${message.atMs}`
-        : `${message.watch.accountId}:${market.marketId}:${message.state}:${message.atMs}:${recipient.userId}`;
-    const accountId = message.watch?.accountId;
+        : `${accountId}:${market.marketId}:${message.state}:${message.atMs}:${recipient.userId}`;
     let attempts = 0;
     let lastError: string | undefined;
 
@@ -350,7 +351,12 @@ export class AlertEngine {
   }
 }
 
-/** The owner's positions by market; a watched account's by account and market. */
+/** By account and market whenever an account is known; by market alone only for pre-account assessments. */
 function historyKey(marketId: number, accountId: number | undefined): string {
   return accountId === undefined ? String(marketId) : `${accountId}:${marketId}`;
+}
+
+/** The account an assessment is scoped to: a linked session's own, or a watched one's. */
+function scopeOf(assessment: { readonly accountId?: number; readonly watch?: { readonly accountId: number } }): number | undefined {
+  return assessment.accountId ?? assessment.watch?.accountId;
 }

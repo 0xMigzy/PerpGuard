@@ -57,9 +57,7 @@ import {
   PendingAmountStore,
   RateLimiter,
   TelegramAlertTransport,
-  VenueActionExecutor,
   createBot,
-  freeBalanceFrom,
   loadBotConfig,
   InMemoryIdentityStore,
   type IdentityStore,
@@ -80,7 +78,7 @@ import { RiskLoop } from './risk/loop.ts';
 import type { RiskAssessment } from './risk/types.ts';
 import { AlertEngine } from './alerts/engine.ts';
 import { InMemoryAlertLog, PostgresAlertLog, type AlertHistoryReader } from './alerts/log.pg.ts';
-import type { AlertLog } from './alerts/types.ts';
+import type { AlertLog, AlertTransport } from './alerts/types.ts';
 import { AlertActivity } from './server/alertActivity.ts';
 import { DeferredPositionSource } from './server/deferredPositionSource.ts';
 import { buildHealth, type HealthReport } from './server/health.ts';
@@ -93,7 +91,7 @@ import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
 import { DynamicVerifier } from './server/protect/dynamic.ts';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
-import { TradingSession } from './server/tradingSession.ts';
+import { AccountRegistry, DEFAULT_MAX_SESSIONS } from './sessions/registry.ts';
 import { WatchLoop } from './watch/loop.ts';
 import { createWatchResolver } from './watch/resolve.ts';
 import { PostgresWatchStore } from './watch/store.pg.ts';
@@ -116,6 +114,8 @@ const intFromEnv = (name: string, fallback: number): number => {
 const READINESS_TIMEOUT_MS = intFromEnv('READINESS_TIMEOUT_MS', 20_000);
 const SHUTDOWN_TIMEOUT_MS = intFromEnv('SHUTDOWN_TIMEOUT_MS', 10_000);
 const EVALUATE_INTERVAL_MS = intFromEnv('EVALUATE_INTERVAL_MS', 1_000);
+/** How many linked accounts may have a live session at once. See AccountRegistry for the reasoning. */
+const MAX_ACCOUNT_SESSIONS = intFromEnv('MAX_ACCOUNT_SESSIONS', DEFAULT_MAX_SESSIONS);
 /** How often every watched account is re-read from the index and re-assessed. */
 const WATCH_INTERVAL_MS = intFromEnv('WATCH_INTERVAL_MS', 30_000);
 const INDEXER_POLL_MS = intFromEnv('INDEXER_POLL_MS', 60_000);
@@ -169,12 +169,10 @@ const userId = botConfig?.userId ?? process.env['PERPGUARD_USER_ID']?.trim() ?? 
 
 // ── 3. the venue, the market feed ───────────────────────────────────────────
 
-const venue = new PerplVenue(network, {
-  ...(credentials === undefined
-    ? {}
-    : { credentials: { apiKey: credentials.apiKey, secret: credentials.secret } }),
-  logger: { log, warn },
-});
+// THE SHARED VENUE HOLDS NO CREDENTIALS. It serves the market list, the risk
+// configs and the market-data feed, which are facts about the venue; every
+// account's socket lives in that account's own venue inside its session.
+const venue = new PerplVenue(network, { logger: { log, warn } });
 
 const markets: readonly VenueMarket[] = await venue.getMarkets();
 const riskConfigs: ReadonlyMap<number, MarketRiskConfig> = await venue.getRiskConfigs();
@@ -192,55 +190,12 @@ const unsubscribePrices = await venue.subscribePrices(
 );
 log(`market data subscribed: ${venue.feedStatus().state}`);
 
-// ── 4. positions, behind a source that exists before the socket does ────────
-
-const trading = new TradingSession({
-  venue,
-  network,
-  apiKey: credentials?.apiKey,
-  logger: { info: log, warn },
-});
-
-const positionSource = new DeferredPositionSource({
-  reason: () => {
-    const status = trading.status();
-    return (
-      status.reason ??
-      `the trading session is ${status.state}, so we have not been told what is open`
-    );
-  },
-});
-
-// Rebuilt on EVERY sign-in, not just the first: a reconnect brings a new
-// socket, and a source still reading the dead one would hold a frozen set
-// forever while the venue happily served the live one to actions.
-let attachedSource: PerplPositionSource | undefined;
-trading.onSignedIn(async (socket) => {
-  const collateral = await venue.getCollateralToken();
-  const source = new PerplPositionSource({
-    socket,
-    network: network.name,
-    markets: new Map(markets.map((m) => [m.marketId, m])),
-    collateralDecimals: collateral.decimals,
-    onSkippedMarket: (marketId) =>
-      warn(`skipping a position on market ${marketId}: the context does not list it`),
-  });
-  attachedSource?.stop();
-  attachedSource = source;
-  source.start();
-  positionSource.attach(source);
-  log(`position source attached (collateral ${collateral.symbol}, ${collateral.decimals} dp)`);
-});
-
-// ── 5. the risk loop ────────────────────────────────────────────────────────
-
-const loop = new RiskLoop({
-  network: network.name,
-  feed,
-  positions: positionSource,
-  feedStatus: () => venue.feedStatus(),
-  configs: riskConfigs,
-});
+// ── 4 & 5. positions and the risk loop: PER ACCOUNT, in the registry ────────
+//
+// What used to be one trading session, one position source and one risk loop
+// is now a session per linked account, built in `sessions/session.ts` and
+// owned by the registry below. The environment key's account is the first
+// occupant, opened at boot; linking opens more.
 
 // ── 6. alerts: log, transport, engine ───────────────────────────────────────
 
@@ -391,39 +346,68 @@ if (alertDb !== undefined) {
   }
 }
 
-const actionsExecutor = new ActionsExecutor({
-  venue,
-  positions: new LoopPositionReader({
-    source: positionSource,
-    configs: riskConfigs,
-    onAmbiguous: (marketId, count) =>
-      warn(
-        `${count} positions on market ${marketId}: refusing to reconcile an action against ` +
-          `either, because nothing says which one it went to`,
-      ),
-    onUnscalable: (marketId) =>
-      warn(`no market config for ${marketId}: cannot read its margin as exact integers`),
-  }),
-  // The gate the feed already encodes: refused when the FEED is not connected,
-  // never because a price is merely old.
-  prices: { canAct: (marketId) => feed.canAct(marketId, venue.feedStatus()) },
-  log: actionLog,
-  logger: { info: log, warn },
-  // The web page shows the steps as they happen; the bot's actions are ignored
-  // by the tracker because it never started them.
-  onProgress: (progress) => actionProgress.record(progress),
+const activity = new AlertActivity({
+  inner: innerLog,
+  durable: alertDb !== undefined,
+  ...(durableReason === undefined ? {} : { durableReason }),
+  transportConfigured: botConfig !== undefined,
+  ...(botConfig === undefined
+    ? {
+        transportReason:
+          botConfigReason ??
+          'no Telegram transport is wired, so any warning this process produces goes nowhere',
+      }
+    : {}),
 });
 
-const executor = new VenueActionExecutor({
-  runner: actionsExecutor,
-  availability: (symbol) => venue.getActionAvailability(symbol),
+// ── the account registry: one session per linked account ───────────────────
+//
+// The Telegram transport is built after the bot, and the bot after the
+// registry (it routes to sessions), so the registry is handed a transport
+// that forwards to whichever one exists by the time an alert is sent.
+let transport: TelegramAlertTransport | undefined;
+const forwardingTransport: AlertTransport = {
+  send: (recipient, message) =>
+    transport === undefined
+      ? Promise.resolve({ ok: false, reason: 'no Telegram transport is configured, so this alert has nowhere to go', retryable: false })
+      : transport.send(recipient, message),
+};
+
+const registry = new AccountRegistry({
+  maxSessions: MAX_ACCOUNT_SESSIONS,
+  deps: {
+    network,
+    markets,
+    riskConfigs,
+    feed,
+    feedStatus: () => venue.feedStatus(),
+    actionLog,
+    alertLog: activity,
+    transport: forwardingTransport,
+    // Whoever is linked to the account RIGHT NOW, with actions. Asked per
+    // alert, so a link made after boot is honoured and an unlink is immediate.
+    recipients: (accountId) => links.byAccountId(accountId).map((link) => ({ userId: link.userId, rights: 'act' as const })),
+    venueFactory: (sessionCredentials) => new PerplVenue(network, { credentials: sessionCredentials, logger: { log, warn } }),
+    evaluateIntervalMs: EVALUATE_INTERVAL_MS,
+    logger: { info: log, warn },
+    // The web page shows the steps as they happen; the bot's actions are
+    // ignored by the tracker because it never started them.
+    onProgress: (progress) => actionProgress.record(progress),
+  },
 });
 
-// A FLOOR on spendable AUSD, read off the account snapshot, and undefined before
-// sign-in — which the bot renders as "I could not check your free balance" rather
-// than as a balance of nothing. It is never used to refuse an amount: see
-// `freeBalanceFloorCNS` on the trading socket for why `b - lb` is a floor.
-const balance = freeBalanceFrom(() => venue.freeBalanceFloorCNS());
+// The environment key's account: the registry's first occupant. PERPL_ACCOUNT_ID
+// names it, and the session tears itself down if the key signs in as anything
+// else — a key for a different account than claimed is an isolation failure.
+const envAccountId = credentials?.accountId;
+if (credentials !== undefined && envAccountId === undefined) {
+  warn('PERPL_API_KEY is set but PERPL_ACCOUNT_ID is not: the environment session needs to know which account it is for, so it is not opened. The process stays up and reports DEGRADED.');
+}
+if (credentials !== undefined && envAccountId !== undefined) {
+  const opened = registry.open(envAccountId, { apiKey: credentials.apiKey, secret: credentials.secret });
+  if (!opened.ok) warn(`environment session for account ${envAccountId} not opened: ${opened.reason}`);
+}
+const envSession = envAccountId === undefined ? undefined : registry.get(envAccountId);
 
 const bot =
   botConfig === undefined
@@ -432,17 +416,10 @@ const bot =
         config: botConfig,
         links,
         store: pendingActions,
-        executor,
-        view: {
-          network: loop.network,
-          snapshot: () => loop.snapshot(),
-          feedStatus: () => venue.feedStatus(),
-          positionsStatus: () => loop.positionsStatus(),
-          projectAddMargin: (marketId, amountCNS) => loop.projectAddMargin(marketId, amountCNS),
-        } satisfies RiskView,
+        sessions: registry,
+        ...(envAccountId === undefined ? {} : { ownerAccountId: envAccountId }),
         configs: riskConfigs,
         amounts: pendingAmounts,
-        balance,
         identities,
         watch: {
           store: watchStore,
@@ -452,7 +429,7 @@ const bot =
         },
       });
 
-const transport =
+transport =
   bot === undefined || botConfig === undefined
     ? undefined
     : new TelegramAlertTransport({
@@ -460,43 +437,12 @@ const transport =
         token: botConfig.token,
         links,
         store: pendingActions,
-        executor,
+        // Availability is asked per account's venue by the bot; the transport
+        // only needs it to decide whether buttons are live, and the shared
+        // venue answers that from the same context.
+        executor: { availability: (symbol) => venue.getActionAvailability(symbol), execute: async () => ({ kind: 'refused', detail: 'the transport never executes' }) },
         logger: { warn },
       });
-
-const activity = new AlertActivity({
-  inner: innerLog,
-  durable: alertDb !== undefined,
-  ...(durableReason === undefined ? {} : { durableReason }),
-  transportConfigured: transport !== undefined,
-  ...(transport === undefined
-    ? {
-        transportReason:
-          botConfigReason ??
-          'no Telegram transport is wired, so any warning this process produces goes nowhere',
-      }
-    : {}),
-});
-
-const engine = new AlertEngine({
-  source: loop,
-  configs: riskConfigs,
-  // A transport that refuses honestly beats one that silently succeeds: the
-  // engine records the row and logs at error level, so an alert with nowhere to
-  // go is visible rather than lost.
-  transport: transport ?? {
-    async send() {
-      return {
-        ok: false,
-        reason: 'no Telegram transport is configured, so this alert has nowhere to go',
-        retryable: false,
-      };
-    },
-  },
-  log: activity,
-  userId,
-  logger: { error: warn, warn, info: log },
-});
 
 // ── 6b. the watch tier's alerts: the same engine, a recipient list per change ──
 //
@@ -509,12 +455,7 @@ async function startWatchAlerts(): Promise<void> {
   watchEngine = new AlertEngine({
     source: watchLoop,
     configs,
-    transport:
-      transport ?? {
-        async send() {
-          return { ok: false, reason: 'no Telegram transport is configured, so this alert has nowhere to go', retryable: false };
-        },
-      },
+    transport: forwardingTransport,
     log: activity,
     // Every chat following this account, each as a WATCH recipient: words, no
     // keyboard. The decision was already made per position above this line.
@@ -655,48 +596,59 @@ const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 60_000);
 
 // ── 8. the health report, buildable before anything is ready ────────────────
 
-let assessing = false;
 let botUsername: string | undefined;
 
-const health = (): HealthReport =>
-  buildHealth({
+const health = (): HealthReport => {
+  const primary = envSession?.status();
+  return buildHealth({
     network: network.name,
     startedAtMs,
     nowMs: Date.now(),
     feed: venue.feedStatus(),
-    positions: positionSource.status(),
-    assessments: loop.snapshot(),
-    trading: trading.status(),
+    positions: primary?.positions ?? {
+      state: 'awaiting-snapshot',
+      reason: envAccountId === undefined ? 'no environment account session is configured' : `the session for account ${envAccountId} is not running`,
+      lastUpdateMs: undefined,
+      ageMs: undefined,
+    },
+    assessments: envSession?.loop.snapshot() ?? [],
+    trading: primary?.trading ?? { state: 'not-configured', reason: 'no Perpl API credentials with a PERPL_ACCOUNT_ID were supplied, so there is no environment account to watch', attempt: 0 },
     alerts: activity.status(),
     indexer: indexerMonitor?.health(),
-    assessing,
+    assessing: primary?.assessing ?? false,
+    sessions: registry.statuses(),
   });
+};
 
 const app = createHealthApp({
   health,
-  protect: {
+  // The Protect API is bound to the ENVIRONMENT account's session. No page
+  // calls it any more (the web is public and read-only), but the routes stay
+  // for the bot-code flow; without an environment session there is nothing
+  // for them to serve, so they are not mounted.
+  ...(envSession === undefined || envAccountId === undefined ? {} : { protect: {
     userId,
     view: {
-      network: loop.network,
-      snapshot: () => loop.snapshot(),
+      network: envSession.loop.network,
+      snapshot: () => envSession.loop.snapshot(),
       feedStatus: () => venue.feedStatus(),
-      positionsStatus: () => loop.positionsStatus(),
-      projectAddMargin: (marketId, amountCNS) => loop.projectAddMargin(marketId, amountCNS),
-      sightedBook: () => loop.sightedBook(),
-      positions: () => positionSource.snapshot(),
-      thresholds: () => loop.thresholds,
+      positionsStatus: () => envSession.loop.positionsStatus(),
+      projectAddMargin: (marketId, amountCNS) => envSession.loop.projectAddMargin(marketId, amountCNS),
+      sightedBook: () => envSession.loop.sightedBook(),
+      positions: () => envSession.positionSource.snapshot(),
+      thresholds: () => envSession.loop.thresholds,
     },
     configs: riskConfigs,
     sessions: webSessions,
     linkCodes: webLinkCodes,
     pending: webPending,
     progress: actionProgress,
-    freeBalance: () => balance.freeBalance(),
-    availability: (symbol) => venue.getActionAvailability(symbol),
-    inFlightOn: (marketId) => actionsExecutor.inFlightOn(marketId),
-    runner: actionsExecutor,
-    accountId: () => trading.status().accountId,
-    forwardingAllowed: () => trading.status().forwardingAllowed,
+    freeBalance: () => envSession.balance.freeBalance(),
+    availability: (symbol) => envSession.venue.getActionAvailability(symbol),
+    inFlightOn: (marketId) => envSession.executor.inFlightOn(marketId),
+    runner: envSession.executor,
+    accountId: () => envSession.trading.status().accountId,
+    forwardingAllowed: () => envSession.trading.status().forwardingAllowed,
     // The Alerts page: history from the same log the engine writes, delivery
     // counts from the same decorator /health reads, cooldowns from the engine.
     // Chat ids stay in the link store; only "linked since" leaves it.
@@ -705,7 +657,7 @@ const app = createHealthApp({
       status: () => activity.status(),
       linkedAtMs: (id) => links.byUserId(id)?.linkedAtMs,
       botUsername: () => botUsername,
-      historyFor: (marketId) => engine.historyFor(marketId),
+      historyFor: (marketId) => envSession.engine.historyFor(marketId, envAccountId),
     },
     devLinkMint,
     demoEnabled,
@@ -723,7 +675,7 @@ const app = createHealthApp({
       return { trading, analytics };
     },
     logger: { info: log, warn },
-  },
+  } }),
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
@@ -781,17 +733,14 @@ const shutdown = new ShutdownSequence({
       : warn(`shutdown: ${step.name} FAILED after ${step.ms}ms: ${step.error}`),
 });
 
-let evaluateTimer: ReturnType<typeof setInterval> | undefined;
 let indexerTimer: ReturnType<typeof setInterval> | undefined;
 let warmTimer: ReturnType<typeof setInterval> | undefined;
 
 shutdown
   // Stop producing work first. Everything below is then draining a queue that
   // cannot grow, rather than racing one that still can.
-  .add('stop the risk loop', () => {
-    loop.stop();
+  .add('stop the watch loop and timers', () => {
     watchLoop?.stop();
-    if (evaluateTimer !== undefined) clearInterval(evaluateTimer);
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
     if (warmTimer !== undefined) clearInterval(warmTimer);
   })
@@ -800,13 +749,12 @@ shutdown
   })
   // Before the sockets close, and before the process exits. A half-sent DANGER
   // alert on restart is worse than a late one.
-  .add('drain alert deliveries', async () => {
-    engine.stop();
+  .add('drain watch alert deliveries', async () => {
     watchEngine?.stop();
-    await engine.drain();
     await watchEngine?.drain();
   })
-  .add('close the trading socket', () => trading.stop())
+  // Each session stops its loop, drains its alerts and closes its socket.
+  .add('close account sessions', () => registry.closeAll())
   .add('close the market data feed', () => {
     unsubscribePrices();
     venue.disconnect();
@@ -855,9 +803,7 @@ try {
   process.exit(1);
 }
 
-// ── 11. connect the account, then open the gate ─────────────────────────────
-
-trading.start();
+// ── 11. the sessions are already connecting; open the gate ──────────────────
 
 // ── the analytics cache: warm before the first visitor, keep warm after ─────
 //
@@ -916,7 +862,7 @@ if (indexerMonitor !== undefined) {
  */
 const readiness = await waitUntilReady({
   isReady: () =>
-    positionSource.status().state === 'live' && venue.feedStatus().state === 'connected',
+    (envSession === undefined || envSession.positionSource.status().state === 'live') && venue.feedStatus().state === 'connected',
   timeoutMs: READINESS_TIMEOUT_MS,
 });
 
@@ -927,24 +873,14 @@ if (readiness.ready) {
   // is silent either way, and the health endpoint is what says why.
   warn(
     `still not ready after ${readiness.waitedMs}ms (positions: ` +
-      `${positionSource.status().state}, feed: ${venue.feedStatus().state}). ` +
+      `${envSession?.positionSource.status().state ?? 'no session'}, feed: ${venue.feedStatus().state}). ` +
       `Starting anyway and reporting DEGRADED; nothing will be assessed until ` +
       `both are up.`,
   );
 }
 
-loop.start();
-engine.start();
-assessing = true;
 void startWatchAlerts().catch((error: unknown) => warn(`watch tier did not start: ${error instanceof Error ? error.message : String(error)}`));
 
-// The loop re-evaluates on position updates only, and a price that moves a
-// position into DANGER arrives on the feed, not on the account socket.
-evaluateTimer = setInterval(() => {
-  if (shutdown.started) return;
-  loop.evaluate();
-}, EVALUATE_INTERVAL_MS);
-evaluateTimer.unref();
 
 if (bot !== undefined) {
   // Long polling. `start` does not resolve until the bot stops, so it is not

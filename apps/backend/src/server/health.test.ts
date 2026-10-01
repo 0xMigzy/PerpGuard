@@ -28,7 +28,7 @@ function degradedBecause(input: HealthInput, component: string, pattern: RegExp)
   const report = buildHealth(input);
   assert.equal(report.status, 'DEGRADED');
   assert.equal(
-    report.components[component as keyof typeof report.components].state,
+    report.components[component as keyof typeof report.components]?.state,
     'degraded',
     `${component} should be degraded`,
   );

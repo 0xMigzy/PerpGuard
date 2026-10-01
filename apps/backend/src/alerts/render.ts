@@ -279,6 +279,7 @@ function topUpBlock(
     const { label, amountCNS } = optionLine(option, market, config);
     lines.push(label);
     actions.push({
+      ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }),
       type: 'add-margin',
       intent,
       marketId: assessment.marketId,
@@ -459,6 +460,7 @@ export function buildMessage(
 ): AlertMessage {
   const rendered = renderAlert(assessment, kind, context);
   return {
+    ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }),
     ...(assessment.watch === undefined ? {} : { watch: assessment.watch }),
     kind,
     state: assessment.state,

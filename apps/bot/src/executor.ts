@@ -86,6 +86,7 @@ function toCommand(request: ExecuteRequest): ActionCommand | undefined {
     kind: 'add-margin',
     idempotencyKey: request.idempotencyKey,
     userId: request.userId,
+    ...(request.accountId === undefined ? {} : { accountId: request.accountId }),
     marketId: action.marketId,
     symbol: action.symbol,
     positionId: action.positionId,
@@ -188,6 +189,8 @@ function refusedText(outcome: Extract<ActionOutcome, { kind: 'refused' }>): stri
     case 'not-implemented':
       return `Not sent: ${outcome.detail}`;
     case 'not-recorded':
+      return `Not sent: ${outcome.detail}`;
+    case 'wrong-account':
       return `Not sent: ${outcome.detail}`;
     case 'invalid-command':
       return `Not sent: ${outcome.detail}`;

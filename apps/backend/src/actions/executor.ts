@@ -62,6 +62,11 @@ const silent: Logger = { info: () => {}, warn: () => {} };
 
 export interface ActionsExecutorOptions {
   readonly venue: ActingVenue;
+  /**
+   * The ONE account this executor acts for. A command naming another is
+   * refused before a lease is taken: see `wrong-account`.
+   */
+  readonly accountId?: number;
   readonly positions: PositionReader;
   readonly prices: PriceGateSource;
   readonly log: ActionLog;
@@ -109,6 +114,7 @@ interface Observation {
 
 export class ActionsExecutor {
   readonly #venue: ActingVenue;
+  readonly #accountId: number | undefined;
   readonly #positions: PositionReader;
   readonly #prices: PriceGateSource;
   readonly #log: ActionLog;
@@ -122,6 +128,7 @@ export class ActionsExecutor {
 
   constructor(options: ActionsExecutorOptions) {
     this.#venue = options.venue;
+    this.#accountId = options.accountId;
     this.#positions = options.positions;
     this.#prices = options.prices;
     this.#log = options.log;
@@ -132,6 +139,11 @@ export class ActionsExecutor {
     this.#logger = options.logger ?? silent;
     this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
     this.#onProgress = options.onProgress;
+  }
+
+  /** The account this executor acts for, when it was told one. */
+  get accountId(): number | undefined {
+    return this.#accountId;
   }
 
   /** Whether an action on this market is already in flight. For a UI to grey out. */
@@ -163,6 +175,17 @@ export class ActionsExecutor {
    * line.
    */
   #preflightSync(command: ActionCommand): ActionOutcome | undefined {
+    // ISOLATION, FIRST. This executor serves one account; a command that
+    // names another one is a routing error upstream, and the only safe answer
+    // is to do nothing and say which account it was for.
+    if (this.#accountId !== undefined && command.accountId !== undefined && command.accountId !== this.#accountId) {
+      return this.#refuse(
+        command,
+        'wrong-account',
+        `this session acts for account ${this.#accountId}, and the command is for account ${command.accountId}. ` +
+          `Nothing was sent; nothing on either account was touched.`,
+      );
+    }
     if (command.positionId === undefined) {
       return this.#refuse(
         command,
@@ -268,6 +291,7 @@ export class ActionsExecutor {
       await this.#log.open({
         idempotencyKey: command.idempotencyKey,
         userId: command.userId,
+        ...(this.#accountId === undefined ? {} : { accountId: this.#accountId }),
         kind: command.kind,
         marketId: command.marketId,
         symbol: command.symbol,

@@ -3,86 +3,86 @@
   "chainId": 10143,
   "transcript": [
     {
-      "atMs": 3449,
+      "atMs": 3990,
       "kind": "before",
-      "positionId": 4383210536961,
-      "marginCNS": "55631",
+      "positionId": 4404183105537,
+      "marginCNS": "55701",
       "sizeLNS": "1",
       "state": "DANGER",
-      "liqBufferPct": 0.02667304601425015,
-      "liquidationPricePNS": "809663",
-      "markPricePNS": "831851",
-      "amountCNS": "11086"
+      "liqBufferPct": 0.026668215357424255,
+      "liquidationPricePNS": "812843",
+      "markPricePNS": "835114",
+      "amountCNS": "11133"
     },
     {
-      "atMs": 6478,
+      "atMs": 6908,
       "kind": "after",
       "outcome": "applied",
       "reportedStatus": "rejected",
       "reportedReason": "st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send",
       "reconciliation": {
         "verdict": "applied",
-        "before": "55631",
-        "after": "66717",
-        "delta": "11086",
-        "requested": "11086",
-        "detail": "margin is now 66717 (was 55631): 11086 micros applied, 11086 requested — LANDED"
+        "before": "55701",
+        "after": "66834",
+        "delta": "11133",
+        "requested": "11133",
+        "detail": "margin is now 66834 (was 55701): 11133 micros applied, 11133 requested — LANDED"
       },
-      "detail": "add-margin on BTC LANDED: margin is now 66717 (was 55631): 11086 micros applied, 11086 requested — LANDED. The venue reported it as rejected — rejected (st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send) — which for this order type is the normal report for a top-up that worked. The position is the evidence; nothing was re-sent.",
+      "detail": "add-margin on BTC LANDED: margin is now 66834 (was 55701): 11133 micros applied, 11133 requested — LANDED. The venue reported it as rejected — rejected (st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send) — which for this order type is the normal report for a top-up that worked. The position is the evidence; nothing was re-sent.",
       "t6OutcomeFrames": 1,
-      "marginAfterAusd": 0.066717,
+      "marginAfterAusd": 0.066834,
       "state": "DANGER",
-      "liqBufferPct": 0.039999951914465454
+      "liqBufferPct": 0.039999329432867846
     }
   ],
   "orderFrames": [
     {
-      "atMs": 1753,
+      "atMs": 1908,
       "mt": 23,
       "sid": 30,
-      "sn": 66882480,
+      "sn": 67202495,
       "at": {
-        "b": 66882480,
-        "t": 1790744421000
+        "b": 67202495,
+        "t": 1790841155000
       },
       "d": []
     },
     {
-      "atMs": 3197,
+      "atMs": 3739,
       "mt": 24,
       "sid": 30,
-      "sn": 66882485,
+      "sn": 67202501,
       "at": {
-        "b": 66882485,
-        "t": 1790744423000
+        "b": 67202501,
+        "t": 1790841157000
       },
       "d": [
         {
           "at": {
-            "b": 66882485,
-            "t": 1790744423000,
+            "b": 67202501,
+            "t": 1790841157000,
             "tx": 1,
-            "txid": "06862eff943f707a545c7c2721b5528fe351268b260adfd4029712e805b6dfc3",
+            "txid": "d7ef3d4304d332091ec13ba70026eb4d81f753761377f08ad8162724d6718591",
             "l": 4
           },
           "c": {
-            "b": 66882485,
-            "t": 1790744423000,
+            "b": 67202501,
+            "t": 1790841157000,
             "tx": 1
           },
-          "rq": 33,
+          "rq": 43,
           "mkt": 16,
           "acc": 710,
-          "oid": 4383210536960,
+          "oid": 4404183105536,
           "scid": 0,
           "st": 4,
           "sr": 43,
           "t": 1,
           "r": true,
           "os": 1,
-          "fp": 832014,
+          "fp": 835139,
           "fs": 1,
-          "f": "288",
+          "f": "289",
           "bfa": "0",
           "fl": 4,
           "mm": 10,
@@ -92,32 +92,32 @@
       ]
     },
     {
-      "atMs": 6475,
+      "atMs": 6906,
       "mt": 24,
       "sid": 30,
-      "sn": 66882496,
+      "sn": 67202512,
       "at": {
-        "b": 66882496,
-        "t": 1790744426000
+        "b": 67202512,
+        "t": 1790841160000
       },
       "d": [
         {
           "at": {
-            "b": 66882496,
-            "t": 1790744426000,
+            "b": 67202512,
+            "t": 1790841160000,
             "tx": 1,
-            "txid": "e2fc3bf58bbc062b5e17c71e755766036f95d59db5010ad89b14a5e3372f9a64",
+            "txid": "99219ffc4abbdacb294636b100002606a7b4e24895c9687ec3d7c5cb766d3a8c",
             "l": 1
           },
           "c": {
-            "b": 66882496,
-            "t": 1790744426000,
+            "b": 67202512,
+            "t": 1790841160000,
             "tx": 1
           },
-          "rq": 34,
+          "rq": 44,
           "mkt": 16,
           "acc": 710,
-          "oid": 4383211257856,
+          "oid": 4404183826432,
           "scid": 0,
           "st": 7,
           "sr": 32,
@@ -127,50 +127,6 @@
           "fp": 0,
           "fs": 0,
           "f": "0",
-          "bfa": "0",
-          "fl": 4,
-          "mm": 10,
-          "lv": 0,
-          "mnp": 1000
-        }
-      ]
-    },
-    {
-      "atMs": 7493,
-      "mt": 24,
-      "sid": 30,
-      "sn": 66882499,
-      "at": {
-        "b": 66882499,
-        "t": 1790744427000
-      },
-      "d": [
-        {
-          "at": {
-            "b": 66882499,
-            "t": 1790744427000,
-            "tx": 1,
-            "txid": "cf717953bfb1fcffa4c9a1ab5e36a9e1ac0af393cdd2251bc39f9ffef3a0f137",
-            "l": 4
-          },
-          "c": {
-            "b": 66882499,
-            "t": 1790744427000,
-            "tx": 1
-          },
-          "rq": 35,
-          "mkt": 16,
-          "acc": 710,
-          "oid": 4383211454464,
-          "scid": 0,
-          "st": 4,
-          "sr": 43,
-          "t": 3,
-          "r": true,
-          "os": 1,
-          "fp": 831814,
-          "fs": 1,
-          "f": "287",
           "bfa": "0",
           "fl": 4,
           "mm": 10,

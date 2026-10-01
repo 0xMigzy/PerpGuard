@@ -103,6 +103,22 @@ export interface HealthInput {
    * said OK would be saying so about a loop that has not run.
    */
   readonly assessing: boolean;
+  /**
+   * Every linked account's session, when the process runs a registry. The
+   * `trading`/`positions`/`assessing` fields above describe the primary
+   * (environment) account; this lists all of them, each with its own verdict,
+   * so one account's socket dropping is visible as THAT account's problem.
+   */
+  readonly sessions?: readonly SessionHealthInput[];
+}
+
+export interface SessionHealthInput {
+  readonly accountId: number;
+  readonly trading: TradingSessionStatus;
+  readonly positions: PositionSourceStatus;
+  readonly assessing: boolean;
+  readonly tracked: number;
+  readonly mismatch?: string;
 }
 
 export interface HealthReport {
@@ -121,7 +137,43 @@ export interface HealthReport {
     readonly alerts: ComponentReport;
     readonly indexer: ComponentReport;
     readonly risk: ComponentReport;
+    /** Present when the process runs account sessions. */
+    readonly sessions?: ComponentReport;
   };
+}
+
+/**
+ * One line per linked account: connected, retrying, or blind, and why.
+ *
+ * Degraded when ANY session is, naming it: the account whose socket dropped is
+ * the one its owner needs to hear about, and a roll-up that averaged it into
+ * "mostly fine" would hide exactly that.
+ */
+function sessionsComponent(sessions: readonly SessionHealthInput[]): ComponentReport {
+  const accounts: Record<string, unknown> = {};
+  const problems: string[] = [];
+  for (const s of sessions) {
+    const trading = tradingComponent(s.trading);
+    const positions = positionsComponent(s.positions);
+    const state = s.mismatch !== undefined || trading.state === 'degraded' || positions.state === 'degraded' || !s.assessing ? 'degraded' : 'ok';
+    const connected = s.trading.state === 'signed-in';
+    const blind = s.positions.state !== 'live';
+    accounts[String(s.accountId)] = {
+      state,
+      connected,
+      retrying: s.trading.state === 'retrying',
+      blind,
+      tracked: s.tracked,
+      ...(trading.detail === undefined ? {} : { trading: trading.detail }),
+      ...(positions.detail === undefined ? {} : { positions: positions.detail }),
+      ...(s.mismatch === undefined ? {} : { mismatch: s.mismatch }),
+    };
+    if (state === 'degraded') {
+      problems.push(`account ${s.accountId}: ${s.mismatch ?? trading.detail ?? positions.detail ?? (s.assessing ? 'degraded' : 'not yet assessing')}`);
+    }
+  }
+  const base = { count: sessions.length, accounts };
+  return problems.length === 0 ? { state: 'ok', ...base } : { state: 'degraded', ...base, detail: problems.join('; ') };
 }
 
 function feedComponent(feed: FeedHealth): ComponentReport {
@@ -309,6 +361,7 @@ export function buildHealth(input: HealthInput): HealthReport {
     alerts: alertsComponent(input.alerts),
     indexer: indexerComponent(input.indexer),
     risk: riskComponent(input),
+    ...(input.sessions === undefined ? {} : { sessions: sessionsComponent(input.sessions) }),
   };
 
   const reasons: string[] = [];

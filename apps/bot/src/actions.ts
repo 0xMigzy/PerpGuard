@@ -73,6 +73,8 @@ export interface ExecuteRequest {
   readonly idempotencyKey: string;
   /** The app user whose position this is. */
   readonly userId: string;
+  /** The account the requesting chat is linked to, resolved at request time. */
+  readonly accountId?: number;
   /** The action exactly as it was rendered, amount included. Never re-derived. */
   readonly action: AlertAction;
 }

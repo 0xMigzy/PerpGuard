@@ -199,6 +199,13 @@ export interface WatchedScope {
  * so that nothing downstream recomputes anything.
  */
 export interface RiskAssessment {
+  /**
+   * The account this position belongs to, for a LINKED account's own session.
+   * Every alert key, alert history entry and action command carries it, so
+   * two accounts on one market never share a cooldown or a lock. Absent only
+   * in tests built before accounts existed; the server always sets it.
+   */
+  readonly accountId?: number;
   /** Present only for a watched account. Absent means the linked owner's own position. */
   readonly watch?: WatchedScope;
   readonly marketId: number;

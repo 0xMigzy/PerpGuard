@@ -101,6 +101,12 @@ export type AlertActionIntent = 'clear-danger' | 'to-safe' | 'custom';
  * See the rounding rule in CLAUDE.md.
  */
 export interface AlertAction {
+  /**
+   * The account the position belongs to. Carried so the bot can check, at
+   * the moment of the tap, that the tapping chat is linked to THIS account
+   * and refuse otherwise — the request-time rule, not a link-time one.
+   */
+  readonly accountId?: number;
   readonly type: AlertActionType;
   readonly intent: AlertActionIntent;
   readonly marketId: number;
@@ -114,6 +120,8 @@ export interface AlertAction {
 }
 
 export interface AlertMessage {
+  /** The linked account this is about, when it is a session's own position. */
+  readonly accountId?: number;
   /** Present when this is about a WATCHED account. See `WatchedScope`. */
   readonly watch?: WatchedScope;
   readonly kind: AlertKind;

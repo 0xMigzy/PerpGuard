@@ -20,12 +20,14 @@ import { PendingAmountStore } from './custom.ts';
 import { CUSTOM_BUTTON_LABEL } from './format.ts';
 import type { IndexerHealth } from '@perpguard/shared';
 import { InMemoryWatchStore, RateLimiter, TIERS_TEXT, type ResolvedWatchTarget, type WatchResolver, type WatchTarget } from './watch.ts';
+import { StaticSessionRouter } from './sessions.ts';
 import {
   CONFIGS,
   FakeBalance,
   FakeExecutor,
   FakeTelegram,
   FakeView,
+  OWNER_ACCOUNT,
   OWNER_CHAT,
   OWNER_ID,
   STRANGER_ID,
@@ -90,9 +92,8 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     links,
     store,
     amounts,
-    balance,
-    executor,
-    view,
+    sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance }]),
+    ownerAccountId: OWNER_ACCOUNT,
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
@@ -221,8 +222,9 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
   assert.deepEqual(texts(h.telegram), [REFUSAL_TEXT, REFUSAL_TEXT]);
 
   await h.bot.handleUpdate(messageUpdate('/start'));
-  assert.match(texts(h.telegram).at(-1)!, /^Linked\./);
+  assert.match(texts(h.telegram).at(-1)!, /^Linked to account 710\./);
   assert.equal(h.links.byTelegramUserId(OWNER_ID)?.chatId, OWNER_CHAT);
+  assert.equal(h.links.byTelegramUserId(OWNER_ID)?.accountId, OWNER_ACCOUNT);
 
   // And now the same commands work.
   await h.bot.handleUpdate(messageUpdate('/status'));
@@ -1041,7 +1043,7 @@ test('/start states both tiers to a stranger and to the owner, and nothing point
   const fresh = harness({ links: new InMemoryLinkStore({ capacity: 1, ownerTelegramUserId: OWNER_ID }), owner: OWNER_ID });
   await fresh.bot.handleUpdate(messageUpdate('/start', { from: OWNER_ID, chat: OWNER_CHAT }));
   const linked = texts(fresh.telegram).at(-1)!;
-  assert.match(linked, /^Linked\. I will send your alerts here, with the buttons to act\./);
+  assert.match(linked, /^Linked to account 710\. I will send its alerts here, with the buttons to act\./);
   assert.ok(linked.includes(TIERS_TEXT));
   assert.doesNotMatch(HELP_TEXT, /\/web|Protect page/);
   assert.match(HELP_TEXT, /\/watch <0x address or account id>/);

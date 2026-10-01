@@ -20,7 +20,8 @@
     "actions:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-action-run.ts",
     "close:probe": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-close.ts",
     "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts",
-    "watch:demo": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-e2e-demo.ts"
+    "watch:demo": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-e2e-demo.ts",
+    "registry:live": "node --env-file-if-exists=.env apps/backend/src/scripts/registry-live-run.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",

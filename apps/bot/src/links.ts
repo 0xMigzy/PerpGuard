@@ -26,6 +26,13 @@
 export interface LinkRecord {
   /** The app-level user, as the alerts engine addresses them. */
   readonly userId: string;
+  /**
+   * THE PERPL ACCOUNT THIS LINK IS FOR. Every action request re-checks, at the
+   * moment of the request, that the requesting chat's link names the account
+   * owning the position; nothing is cached from link time. One account per
+   * linked user, by design — a second account is a later feature.
+   */
+  readonly accountId: number;
   /** The Telegram user permitted to command this bot. */
   readonly telegramUserId: number;
   /**
@@ -58,6 +65,8 @@ export interface LinkStore {
   byTelegramUserId(telegramUserId: number): LinkRecord | undefined;
   /** The delivery lookup. */
   byUserId(userId: string): LinkRecord | undefined;
+  /** Every link to one account: who an alert about it fans out to with actions. */
+  byAccountId(accountId: number): readonly LinkRecord[];
   /** Every link. For `/status` and for a future admin view. */
   list(): readonly LinkRecord[];
   link(record: LinkRecord): LinkResult;
@@ -106,6 +115,10 @@ export class InMemoryLinkStore implements LinkStore {
 
   list(): readonly LinkRecord[] {
     return [...this.#byTelegram.values()];
+  }
+
+  byAccountId(accountId: number): readonly LinkRecord[] {
+    return [...this.#byTelegram.values()].filter((record) => record.accountId === accountId);
   }
 
   /**

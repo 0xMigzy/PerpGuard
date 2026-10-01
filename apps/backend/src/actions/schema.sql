@@ -96,3 +96,6 @@ create index if not exists action_log_market_opened_idx
 create index if not exists action_log_needs_attention_idx
   on action_log (opened_at desc)
   where settled_at is null or outcome = 'unknown';
+
+-- The account acted on. Added after accounts became plural; old rows keep null.
+alter table action_log add column if not exists account_id bigint;

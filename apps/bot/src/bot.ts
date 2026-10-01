@@ -32,7 +32,8 @@ import {
 } from './actions.ts';
 import { authorise } from './auth.ts';
 import { InMemoryIdentityStore, type IdentityStore } from './identity.ts';
-import { UnknownFreeBalance, type FreeBalanceView } from './balance.ts';
+import type { LinkRecord } from './links.ts';
+import type { AccountView, SessionRouter } from './sessions.ts';
 import { decodeCallback, encodeCallback } from './callback.ts';
 import type { BotConfig } from './config.ts';
 import { CONFIRM_BUTTON_LABEL, RETRY_BUTTON_LABEL, renderConfirmation } from './confirm.ts';
@@ -45,7 +46,7 @@ import {
   validateCustomAmount,
 } from './custom.ts';
 import { buildTelegramMessage } from './format.ts';
-import { HELP_TEXT } from './help.ts';
+import { HELP_TEXT, REFUSAL_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
 import { positionEntries, positionsHeader } from './positions.ts';
 import { renderStatus } from './status.ts';
@@ -66,8 +67,17 @@ export interface BotDeps {
   readonly config: BotConfig;
   readonly links: LinkStore;
   readonly store: PendingActionStore;
-  readonly executor: ActionExecutor;
-  readonly view: RiskView;
+  /**
+   * The live sessions, BY ACCOUNT. Every handler that reads positions or acts
+   * resolves the requesting chat's link and then this, at request time; the
+   * bot holds no view, executor or balance of its own any more.
+   */
+  readonly sessions: SessionRouter;
+  /**
+   * The account the configured owner's /start links to: the environment
+   * key's account. Undefined means /start cannot link anyone, and says so.
+   */
+  readonly ownerAccountId?: number;
   /** Market scaling, so `/positions` renders every price at its own precision. */
   readonly configs: MarketConfigs;
   /**
@@ -75,14 +85,6 @@ export interface BotDeps {
    * expiry as the action tokens.
    */
   readonly amounts?: PendingAmountStore;
-  /**
-   * Where the free-balance floor comes from.
-   *
-   * Defaults to "unknown", which is a real answer and the honest one for a bot
-   * with no trading session behind it. It never blocks the custom-amount flow —
-   * the amount is warned about, not refused. See `balance.ts`.
-   */
-  readonly balance?: FreeBalanceView;
   readonly alerts?: AlertConfig;
   /**
    * Who the bot has met. Every /start registers the sender here, whether or
@@ -138,13 +140,29 @@ export function createBot(deps: BotDeps): Bot {
   const alerts = deps.alerts ?? DEFAULT_ALERT_CONFIG;
   const now = deps.now ?? Date.now;
   const amounts = deps.amounts ?? new PendingAmountStore({ now });
-  const balance = deps.balance ?? new UnknownFreeBalance();
   const bot = new Bot(deps.config.token, {
     ...(deps.botInfo === undefined ? {} : { botInfo: deps.botInfo }),
   });
 
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
   const identities = deps.identities ?? new InMemoryIdentityStore();
+
+  /**
+   * THE REQUEST-TIME RULE. The requesting chat's link, and the live session for
+   * the account that link names, looked up NOW — never remembered from the
+   * message that carried the button, never from link time. A chat unlinked a
+   * second ago is refused; an account whose session stopped is told so.
+   */
+  const resolveAccount = (telegramUserId: number | undefined): Resolved | { readonly refusal: string } => {
+    if (telegramUserId === undefined) return { refusal: REFUSAL_TEXT };
+    const link = deps.links.byTelegramUserId(telegramUserId);
+    if (link === undefined) return { refusal: REFUSAL_TEXT };
+    const account = deps.sessions.forAccount(link.accountId);
+    if (account === undefined) {
+      return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try /status in a moment.` };
+    }
+    return { link, account };
+  };
 
   // ── the gate ──────────────────────────────────────────────────────────────
   // Before every handler. The PUBLIC commands are let through to handlers that
@@ -212,10 +230,10 @@ export function createBot(deps: BotDeps): Bot {
     // owner claims it from /start; everyone else is told how the two tiers work
     // and that linking their own account is a separate, proof-based step.
     const owner = deps.config.ownerTelegramUserId;
-    if (owner !== undefined && owner === telegramUserId) {
-      const result = deps.links.link({ userId: deps.config.userId, telegramUserId, chatId, linkedAtMs: now() });
+    if (owner !== undefined && owner === telegramUserId && deps.ownerAccountId !== undefined) {
+      const result = deps.links.link({ userId: deps.config.userId, accountId: deps.ownerAccountId, telegramUserId, chatId, linkedAtMs: now() });
       if (result.ok) {
-        await ctx.reply(`Linked. I will send your alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
+        await ctx.reply(`Linked to account ${deps.ownerAccountId}. I will send its alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
         return;
       }
     }
@@ -309,14 +327,21 @@ export function createBot(deps: BotDeps): Bot {
 
   // ── /status ───────────────────────────────────────────────────────────────
   bot.command('status', async (ctx) => {
+    const resolved = resolveAccount(ctx.from?.id);
+    if ('refusal' in resolved) {
+      await ctx.reply(resolved.refusal);
+      return;
+    }
+    const { view } = resolved.account;
     await ctx.reply(
-      renderStatus({
-        network: deps.view.network,
-        feed: deps.view.feedStatus(),
-        positions: deps.view.positionsStatus(),
-        assessments: deps.view.snapshot(),
-        nowMs: now(),
-      }),
+      `Account ${resolved.account.accountId}.\n` +
+        renderStatus({
+          network: view.network,
+          feed: view.feedStatus(),
+          positions: view.positionsStatus(),
+          assessments: view.snapshot(),
+          nowMs: now(),
+        }),
     );
   });
 
@@ -324,9 +349,15 @@ export function createBot(deps: BotDeps): Bot {
   bot.command('positions', async (ctx) => {
     const telegramUserId = ctx.from?.id;
     if (telegramUserId === undefined) return;
+    const resolved = resolveAccount(telegramUserId);
+    if ('refusal' in resolved) {
+      await ctx.reply(resolved.refusal);
+      return;
+    }
+    const { account, link } = resolved;
 
-    const assessments = deps.view.snapshot();
-    const positions = deps.view.positionsStatus();
+    const assessments = account.view.snapshot();
+    const positions = account.view.positionsStatus();
     await ctx.reply(positionsHeader(assessments, positions));
 
     for (const entry of positionEntries(assessments, deps.configs, alerts)) {
@@ -334,12 +365,12 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.reply(entry.reason);
         continue;
       }
-      const availability = await availabilityFor(deps, entry.message.symbol, entry.message.actions);
+      const availability = await availabilityFor(account, entry.message.symbol, entry.message.actions);
       const { text, keyboard } = buildTelegramMessage({
         message: entry.message,
         availability,
         store: deps.store,
-        userId: deps.config.userId,
+        userId: link.userId,
         telegramUserId,
       });
       await ctx.reply(text, {
@@ -370,7 +401,13 @@ export function createBot(deps: BotDeps): Bot {
     if (telegramUserId === undefined) return;
     const pending = amounts.get(telegramUserId);
     if (pending === undefined) return;
-    await handleTypedAmount(ctx, deps, { amounts, balance, alerts }, pending, ctx.message.text);
+    const resolved = resolveAccount(telegramUserId);
+    if ('refusal' in resolved) {
+      amounts.delete(telegramUserId);
+      await ctx.reply(resolved.refusal);
+      return;
+    }
+    await handleTypedAmount(ctx, deps, { amounts, alerts, account: resolved.account }, pending, ctx.message.text);
   });
 
   // ── button taps ───────────────────────────────────────────────────────────
@@ -418,7 +455,22 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
 
-    const availability = await availabilityFor(deps, action.symbol, [action]);
+    // The tapping chat's link and session, now. A tap on a button for an
+    // account this chat is not linked to is refused here, before anything
+    // that could act is even looked up.
+    const resolved = resolveAccount(ctx.from.id);
+    if ('refusal' in resolved) {
+      await answer(ctx, resolved.refusal);
+      return;
+    }
+    if (action.accountId !== undefined && action.accountId !== resolved.link.accountId) {
+      deps.store.delete(payload.token);
+      await answer(ctx, `That button is for account ${action.accountId}; this chat is linked to account ${resolved.link.accountId}. Discarded.`);
+      return;
+    }
+    const { account } = resolved;
+
+    const availability = await availabilityFor(account, action.symbol, [action]);
     if (availability === undefined || !availability.actionable) {
       await answer(ctx, unavailableText(availability));
       return;
@@ -437,7 +489,7 @@ export function createBot(deps: BotDeps): Bot {
     if (payload.kind === 'custom') {
       // Nothing is stored yet but the question. The amount arrives as a message.
       await answer(ctx, 'Reply with an amount in AUSD.', false);
-      await openAmountPrompt(ctx, deps, { amounts, balance, alerts }, pending, action);
+      await openAmountPrompt(ctx, deps, { amounts, alerts, account }, pending, action);
       return;
     }
 
@@ -459,17 +511,24 @@ export function createBot(deps: BotDeps): Bot {
     }
 
     // payload.kind === 'confirm'
-    await runConfirmed(ctx, deps, pending, action);
+    await runConfirmed(ctx, deps, pending, action, resolved);
   });
 
   return bot;
 }
 
-/** What the custom-amount flow needs beyond {@link BotDeps}, resolved once. */
+/** The requesting chat's link and the live session it names. */
+interface Resolved {
+  readonly link: LinkRecord;
+  readonly account: AccountView;
+}
+
+/** What the custom-amount flow needs beyond {@link BotDeps}, resolved once per request. */
 interface CustomDeps {
   readonly amounts: PendingAmountStore;
-  readonly balance: FreeBalanceView;
   readonly alerts: AlertConfig;
+  /** The requesting chat's session: its view and its free-balance floor. */
+  readonly account: AccountView;
 }
 
 /**
@@ -496,7 +555,7 @@ async function openAmountPrompt(
     return;
   }
 
-  const projected = deps.view.projectAddMargin(action.marketId, 0n);
+  const projected = custom.account.view.projectAddMargin(action.marketId, 0n);
   if (!projected.ok) {
     await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
     return;
@@ -516,7 +575,7 @@ async function openAmountPrompt(
       symbol: now.symbol,
       side: now.side,
       market,
-      freeBalance: custom.balance.freeBalance(),
+      freeBalance: custom.account.balance.freeBalance(),
       bufferPct: now.resultingBufferPct,
       liquidationPricePNS: now.resultingLiquidationPricePNS,
       markPricePNS: now.markPricePNS,
@@ -556,7 +615,7 @@ async function handleTypedAmount(
 
   // Re-projected at reply time, not trusted from the prompt: the feed may have
   // dropped, or the position closed, in the seconds since the question was asked.
-  const current = deps.view.projectAddMargin(pending.marketId, 0n);
+  const current = custom.account.view.projectAddMargin(pending.marketId, 0n);
   if (!current.ok) {
     close();
     await ctx.reply(`${current.reason}. Run /positions when I can see it again.`);
@@ -565,7 +624,7 @@ async function handleTypedAmount(
 
   const verdict = validateCustomAmount(text, {
     market,
-    freeBalance: custom.balance.freeBalance(),
+    freeBalance: custom.account.balance.freeBalance(),
     notionalCNS: current.projection.notionalCNS,
   });
   if (!verdict.ok) {
@@ -574,7 +633,7 @@ async function handleTypedAmount(
     return;
   }
 
-  const projected = deps.view.projectAddMargin(pending.marketId, verdict.amountCNS);
+  const projected = custom.account.view.projectAddMargin(pending.marketId, verdict.amountCNS);
   if (!projected.ok) {
     close();
     await ctx.reply(`${projected.reason}. Run /positions when I can see it again.`);
@@ -591,7 +650,7 @@ async function handleTypedAmount(
   // Asked of the ACTING venue, and asked HERE rather than only on the confirm
   // tap: a confirmation screen for a market that cannot be acted on is an offer
   // PerpGuard cannot honour.
-  const availability = await availabilityFor(deps, action.symbol, [action]);
+  const availability = await availabilityFor(custom.account, action.symbol, [action]);
   if (availability === undefined || !availability.actionable) {
     close();
     await ctx.reply(unavailableText(availability));
@@ -621,13 +680,13 @@ async function handleTypedAmount(
 
 /** Ask the ACTING venue, and treat a thrown answer as "we do not know". */
 async function availabilityFor(
-  deps: BotDeps,
+  account: AccountView,
   symbol: string,
   actions: readonly AlertAction[],
 ): Promise<ActionAvailability | undefined> {
   if (actions.length === 0) return undefined;
   try {
-    return await deps.executor.availability(symbol);
+    return await account.executor.availability(symbol);
   } catch {
     return undefined;
   }
@@ -653,9 +712,27 @@ async function runConfirmed(
   deps: BotDeps,
   pending: PendingAction,
   action: AlertAction,
+  resolved: Resolved,
 ): Promise<void> {
   deps.store.delete(pending.token);
   await ctx.answerCallbackQuery();
+
+  // RE-CHECKED AT THE MOMENT OF THE REQUEST, not carried from the tap that
+  // opened the confirmation: the link may have gone, or point elsewhere, since.
+  const fresh = deps.links.byTelegramUserId(ctx.from?.id ?? -1);
+  if (fresh === undefined || fresh.accountId !== resolved.link.accountId) {
+    await ctx.reply('This chat is no longer linked to the account that action is for. Nothing was sent.');
+    return;
+  }
+  if (action.accountId !== undefined && action.accountId !== fresh.accountId) {
+    await ctx.reply(`That action is for account ${action.accountId}; this chat is linked to account ${fresh.accountId}. Nothing was sent.`);
+    return;
+  }
+  const account = deps.sessions.forAccount(fresh.accountId);
+  if (account === undefined) {
+    await ctx.reply(`Your linked account #${fresh.accountId} has no running session right now. Nothing was sent.`);
+    return;
+  }
 
   // THE MARKER CAN NEVER EXECUTE. The "Custom amount" button parks an action with
   // `amountCNS` 0 — it is a handle on a position, not a top-up — and a confirm
@@ -671,9 +748,10 @@ async function runConfirmed(
   }
 
   const idempotencyKey = `${pending.userId}:${action.marketId}:${action.intent}:${pending.token}`;
-  const outcome = await deps.executor.execute({
+  const outcome = await account.executor.execute({
     idempotencyKey,
     userId: pending.userId,
+    accountId: fresh.accountId,
     action,
   });
 

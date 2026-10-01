@@ -124,6 +124,11 @@ export interface RiskLoopOptions {
   readonly feedStatus: () => FeedHealth;
   readonly configs: MarketConfigs;
   readonly thresholds?: Partial<RiskThresholds>;
+  /**
+   * The account whose positions this loop assesses, stamped on every
+   * assessment. One loop per account; the registry owns the mapping.
+   */
+  readonly accountId?: number;
   /** Injected so dwell time is testable without waiting for it. */
   readonly now?: () => number;
 }
@@ -156,6 +161,7 @@ export class RiskLoop {
   readonly #feedStatus: () => FeedHealth;
   readonly #configs: MarketConfigs;
   readonly #thresholds: RiskThresholds;
+  readonly #accountId: number | undefined;
   readonly #now: () => number;
 
   readonly #tracked = new Map<number, Tracked>();
@@ -181,7 +187,13 @@ export class RiskLoop {
     this.#feedStatus = options.feedStatus;
     this.#configs = options.configs;
     this.#thresholds = { ...DEFAULT_THRESHOLDS, ...options.thresholds };
+    this.#accountId = options.accountId;
     this.#now = options.now ?? Date.now;
+  }
+
+  /** The account this loop assesses, when it was told one. */
+  get accountId(): number | undefined {
+    return this.#accountId;
   }
 
   get thresholds(): RiskThresholds {
@@ -432,6 +444,7 @@ export class RiskLoop {
 
     const base = existing?.assessment;
     const assessment: RiskAssessment = {
+      ...(this.#accountId === undefined ? {} : { accountId: this.#accountId }),
       marketId: position.marketId,
       symbol: position.symbol,
       // From the last assessment, not guessed. Undefined means we never saw it.
@@ -523,6 +536,7 @@ export class RiskLoop {
     });
 
     const assessment: RiskAssessment = {
+      ...(this.#accountId === undefined ? {} : { accountId: this.#accountId }),
       marketId: position.marketId,
       symbol: position.symbol,
       side: position.side,
