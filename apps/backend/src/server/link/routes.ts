@@ -28,6 +28,8 @@ export const LINK_SESSION_TTL_MS = 30 * 60_000;
 export interface LinkSession {
   readonly token: string;
   readonly identity: TelegramIdentity;
+  /** How the person appears in Telegram, carried from the code. Display only. */
+  readonly telegramName: string | undefined;
   /** The account a wallet proof established, waiting for a key. */
   provenAccountId: number | undefined;
   readonly expiresAtMs: number;
@@ -46,9 +48,9 @@ export class LinkSessionStore {
     this.#nextToken = options.nextToken ?? (() => randomBytes(32).toString('hex'));
   }
 
-  create(identity: TelegramIdentity): LinkSession {
+  create(identity: TelegramIdentity, telegramName?: string): LinkSession {
     this.#sweep();
-    const session: LinkSession = { token: this.#nextToken(), identity, provenAccountId: undefined, expiresAtMs: this.#now() + this.#ttlMs };
+    const session: LinkSession = { token: this.#nextToken(), identity, telegramName, provenAccountId: undefined, expiresAtMs: this.#now() + this.#ttlMs };
     this.#sessions.set(session.token, session);
     return session;
   }
@@ -80,15 +82,19 @@ export interface LinkRouteOptions {
   readonly now?: () => number;
 }
 
-/** What `/me` serves: everything the page needs, and nothing secret. */
+/**
+ * What `/me` serves: what the page needs to say, and nothing else. No internal
+ * user id and nothing about which account PerpGuard itself runs: a person
+ * linking needs to know which Telegram account this is and which network,
+ * and that is all.
+ */
 export interface LinkMe {
-  readonly identity: { readonly userId: string; readonly telegramUserId: number };
+  readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
   readonly dynamicConfigured: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: NetworkName;
-  readonly envAccountId: number | null;
 }
 
 const isSecure = (request: FastifyRequest): boolean => {
@@ -107,13 +113,12 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
   const { service } = options;
 
   const me = (session: LinkSession): LinkMe => ({
-    identity: { userId: session.identity.userId, telegramUserId: session.identity.telegramUserId },
+    telegram: { name: session.telegramName ?? null },
     link: service.status(session.identity.userId) ?? null,
     provenAccountId: session.provenAccountId ?? null,
     dynamicConfigured: options.dynamic !== undefined,
     keyStorageConfigured: options.keyStorageConfigured,
     network: options.network,
-    envAccountId: options.envAccountId ?? null,
   });
 
   app.post<{ Body: { code?: unknown } }>(`${prefix}/session`, async (request, reply) => {
@@ -123,7 +128,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       // Flat, whatever the cause: a wrong, used and expired code read the same.
       return reply.code(401).send({ error: 'That link did not open a session. Send /link to the bot again for a fresh one; each works once, for five minutes.' });
     }
-    const session = sessions.create(identity);
+    const session = sessions.create(identity, identity.telegramName);
     reply.header('set-cookie', cookie(session.token, isSecure(request), (session.expiresAtMs - now()) / 1000));
     return me(session);
   });
@@ -147,13 +152,14 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
 
     scope.post<{ Body: { dynamicToken?: unknown } }>(`${prefix}/wallet`, async (request, reply) => {
       const session = sessionOf(request);
-      if (options.dynamic === undefined) return reply.code(503).send({ error: 'Wallet sign-in is not configured on this deployment.' });
+      if (options.dynamic === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
       const token = typeof request.body?.dynamicToken === 'string' ? request.body.dynamicToken : '';
       let identity: DynamicIdentity;
       try {
         identity = await options.dynamic.verify(token);
       } catch (error) {
-        return reply.code(401).send({ error: `That sign-in could not be verified: ${error instanceof Error ? error.message : String(error)}` });
+        request.log?.info?.(`link: wallet sign-in not verified: ${error instanceof Error ? error.message : String(error)}`);
+        return reply.code(401).send({ error: 'That wallet sign-in couldn\'t be confirmed. Sign in again.' });
       }
       const proof = await service.proveWallet(session.identity, identity.wallets);
       if (proof.kind === 'proven-needs-key') session.provenAccountId = proof.accountId;
@@ -173,7 +179,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
         return { proof, me: me(session) };
       } catch {
         // No detail: an unexpected error must not echo anything that was posted.
-        return reply.code(500).send({ error: 'Linking failed on the server. Nothing you pasted has been stored or shown anywhere; try again or tell the operator.' });
+        return reply.code(500).send({ error: 'Something went wrong on our side. Nothing you pasted was stored or shown anywhere. Try again.' });
       }
     });
 

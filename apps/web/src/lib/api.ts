@@ -149,13 +149,12 @@ export interface LinkStatus {
 }
 
 export interface LinkMe {
-  readonly identity: { readonly userId: string; readonly telegramUserId: number };
+  readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
   readonly dynamicConfigured: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: string;
-  readonly envAccountId: number | null;
 }
 
 export type WalletProof =

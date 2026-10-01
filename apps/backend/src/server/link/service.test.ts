@@ -10,7 +10,7 @@ import { ApiSecret, type AccountLookup } from '@perpguard/shared';
 import { InMemoryIdentityStore, InMemoryLinkStore, type TelegramIdentity } from '@perpguard/bot';
 import { LinkCodeStore } from '../protect/session.ts';
 import { KeyVault } from './crypto.ts';
-import { LinkService } from './service.ts';
+import { LinkService, RELINK_REASON } from './service.ts';
 import { InMemoryKeyStore } from './stores.ts';
 
 const KEY_A = '1'.repeat(64);
@@ -136,7 +136,7 @@ test('a key for a different account than the wallet proved is refused, and so ar
   const r = rig();
   const mismatch = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, 900);
   assert.equal(mismatch.kind, 'refused');
-  assert.match(mismatch.kind === 'refused' ? mismatch.reason : '', /wallet proved account 900, but this key signs for account 711/);
+  assert.match(mismatch.kind === 'refused' ? mismatch.reason : '', /That key is for account #711, but your wallet owns account #900\. Paste a key for account #900\./);
   assert.deepEqual(r.opened, [], 'nothing opened');
   const badSecret = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: 'not-hex-at-all' }, undefined);
   assert.equal(badSecret.kind, 'refused');
@@ -149,7 +149,8 @@ test('the cap passes through as a refusal with the registry’s sentence, and no
   const r = rig({ maxSessions: 1 });
   const proof = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   assert.equal(proof.kind, 'refused');
-  assert.match(proof.kind === 'refused' ? proof.reason : '', /limit on this host/);
+  assert.match(proof.kind === 'refused' ? proof.reason : '', /^PerpGuard can't connect another account right now\. Try again later\.$/);
+  assert.ok(r.logs.some((l) => /limit on this host/.test(l)), 'the operator detail is in the log');
   assert.equal(r.keys.get(r.identity.userId), undefined);
   assert.equal(r.links.byTelegramUserId(4242), undefined);
 });
@@ -158,7 +159,8 @@ test('without a vault the key path refuses and says why; wallet proof still work
   const r = rig({ vault: undefined });
   const proof = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   assert.equal(proof.kind, 'refused');
-  assert.match(proof.kind === 'refused' ? proof.reason : '', /PERPGUARD_KEY_ENCRYPTION_KEY/);
+  assert.match(proof.kind === 'refused' ? proof.reason : '', /^Connecting with an API key isn't available right now\./);
+  assert.ok(!(proof.kind === 'refused' && /PERPGUARD|deployment|operator/.test(proof.reason)), 'no internals in what the person reads');
   assert.equal((await r.service.proveWallet(r.identity, [OWNER_WALLET])).kind, 'linked');
 });
 
@@ -193,7 +195,7 @@ test('at boot, sealed keys reopen their sessions; a key sealed under a rotated e
   const rotated = rig({ keys: new InMemoryKeyStore([{ userId: 'tg:4242', accountId: 711, blob: sealedUnderA, storedAtMs: 1 }]), vault: new KeyVault('2'.repeat(64)) });
   await rotated.service.reopenAll();
   assert.deepEqual(rotated.opened, [], 'nothing reopened');
-  assert.match(rotated.service.needsRelink('tg:4242') ?? '', /environment key was rotated/);
+  assert.equal(rotated.service.needsRelink('tg:4242'), RELINK_REASON, 'the person gets what to do, not key ids');
   assert.ok(rotated.logs.some((l) => /not reopened: the environment key was rotated/.test(l)));
   // A fresh proof clears it and overwrites the blob.
   await rotated.service.proveKey(rotated.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);

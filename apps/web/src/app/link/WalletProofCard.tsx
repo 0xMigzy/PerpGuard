@@ -20,7 +20,7 @@ export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (pro
   const prove = async () => {
     const token = getAuthToken();
     if (token === undefined) {
-      onProblem('Dynamic has no session token yet; sign in with the wallet first.');
+      onProblem('Sign in with your wallet first.');
       return;
     }
     if (sent.current === token) return;
@@ -52,7 +52,7 @@ export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (pro
             {primaryWallet.address.slice(0, 6)}…{primaryWallet.address.slice(-4)}
           </span>
           <button type="button" className="btn" disabled={busy} onClick={() => void prove()}>
-            {busy ? 'Checking the Exchange…' : 'Prove with this wallet'}
+            {busy ? 'Looking up your account…' : 'Use this wallet'}
           </button>
         </>
       )}

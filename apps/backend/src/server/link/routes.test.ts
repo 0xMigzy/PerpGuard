@@ -73,11 +73,14 @@ const cookieOf = (setCookie: string | string[] | undefined): string => {
 
 test('a code opens a cookie session that says who is here and that nothing is linked; a bad, used or empty code is a flat 401', async () => {
   const r = rig();
-  const { code } = r.service.mint('tg:4242');
+  const { code } = r.service.mint('tg:4242', '@maxwell');
   const opened = await r.app.inject({ method: 'POST', url: '/api/link/session', payload: { code } });
   assert.equal(opened.statusCode, 200);
   const body = opened.json();
-  assert.equal(body.identity.userId, 'tg:4242');
+  assert.deepEqual(body.telegram, { name: '@maxwell' }, 'says which Telegram account, by the name the person knows');
+  assert.equal(body.network, 'testnet');
+  assert.ok(!('identity' in body) && !('envAccountId' in body), 'no internal id, nothing about which account PerpGuard runs');
+  assert.ok(!opened.body.includes('tg:4242') && !opened.body.includes('710'), opened.body);
   assert.equal(body.link, null, 'the token alone links nothing');
   assert.equal(body.provenAccountId, null);
   assert.equal(body.dynamicConfigured, false);
@@ -143,7 +146,7 @@ test('a server error in the key path answers with a fixed sentence and nothing p
   const res = await r.app.inject({ method: 'POST', url: '/api/link/key', headers: { cookie: cookieOf(opened.headers['set-cookie']) }, payload: { apiKey: API_KEY, secret: SECRET_HEX } });
   assert.equal(res.statusCode, 500);
   assert.ok(!res.body.includes(API_KEY) && !res.body.includes('exploded'));
-  assert.match(res.json().error, /Nothing you pasted has been stored or shown anywhere/);
+  assert.match(res.json().error, /Nothing you pasted was stored or shown anywhere/);
 });
 
 test('the wallet path verifies the Dynamic token server-side; a rejected token is a 401; the owner of the env account links at once', async () => {

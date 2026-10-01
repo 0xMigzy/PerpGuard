@@ -42,6 +42,8 @@ export interface LinkCode {
   readonly code: string;
   readonly userId: string;
   readonly expiresAtMs: number;
+  /** How the person appears in Telegram (@name or first name), for the page to say who it is linking. */
+  readonly telegramName?: string;
 }
 
 export class LinkCodeStore {
@@ -56,11 +58,11 @@ export class LinkCodeStore {
     this.#nextCode = options.nextCode ?? randomCode;
   }
 
-  mint(userId: string): LinkCode {
+  mint(userId: string, telegramName?: string): LinkCode {
     this.#sweep();
     let code = this.#nextCode();
     while (this.#codes.has(normaliseCode(code))) code = this.#nextCode();
-    const minted: LinkCode = { code, userId, expiresAtMs: this.#now() + this.#ttlMs };
+    const minted: LinkCode = { code, userId, expiresAtMs: this.#now() + this.#ttlMs, ...(telegramName === undefined ? {} : { telegramName }) };
     this.#codes.set(normaliseCode(code), minted);
     return minted;
   }

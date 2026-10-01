@@ -515,9 +515,9 @@ const bot =
         amounts: pendingAmounts,
         identities,
         link: {
-          mint: (id) => {
+          mint: (id, name) => {
             if (linkServiceImpl === undefined) throw new Error('linking is not wired yet');
-            return linkServiceImpl.mint(id);
+            return linkServiceImpl.mint(id, name);
           },
           unlink: (id) => (linkServiceImpl === undefined ? Promise.resolve({ ok: false, text: 'Linking is not available right now.' }) : linkServiceImpl.unlink(id)),
           needsRelink: (id) => linkServiceImpl?.needsRelink(id),
@@ -576,6 +576,7 @@ const linkService = new LinkService({
   secretFromHex: (hex) => ApiSecret.fromHex(hex),
   envAccountId,
   webUrl: PUBLIC_WEB_URL,
+  network: network.name,
   ...(bot === undefined ? {} : { notify: async (chatId, text) => { await bot.api.sendMessage(chatId, text); } }),
   logger: { info: log, warn },
 });

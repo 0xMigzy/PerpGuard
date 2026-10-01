@@ -61,6 +61,8 @@ export interface LinkServiceDeps {
   readonly envAccountId: number | undefined;
   /** Where the linking page lives, e.g. https://perpguard.example. */
   readonly webUrl: string;
+  /** The trading network's name, for a sentence a person reads ("testnet"). */
+  readonly network?: string;
   /** Tells the chat what happened, when a bot is wired. Never carries a key. */
   readonly notify?: (chatId: number, text: string) => Promise<void>;
   readonly logger: { info(message: string): void; warn(message: string): void };
@@ -71,6 +73,9 @@ export type WalletProof =
   | { readonly kind: 'linked'; readonly accountId: number }
   | { readonly kind: 'proven-needs-key'; readonly accountId: number; readonly reason: string }
   | { readonly kind: 'refused'; readonly reason: string };
+
+/** What a person is told when their saved key can no longer be used. */
+export const RELINK_REASON = 'your saved API key can no longer be read, so PerpGuard has stopped acting on the account';
 
 export type KeyProof =
   | { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined }
@@ -96,17 +101,19 @@ export class LinkService {
   }
 
   /** `/link`: a one-time code and the page that redeems it. */
-  mint(userId: string): { readonly code: string; readonly url: string; readonly expiresAtMs: number } {
-    const minted = this.#deps.codes.mint(userId);
+  mint(userId: string, telegramName?: string): { readonly code: string; readonly url: string; readonly expiresAtMs: number } {
+    const minted = this.#deps.codes.mint(userId, telegramName);
     const url = `${this.#deps.webUrl.replace(/\/$/, '')}/link?code=${encodeURIComponent(minted.code)}`;
     return { code: minted.code, url, expiresAtMs: minted.expiresAtMs };
   }
 
   /** The identity a code was minted for, once. Undefined for a wrong, used or expired code. */
-  redeem(code: string): TelegramIdentity | undefined {
+  redeem(code: string): (TelegramIdentity & { readonly telegramName?: string }) | undefined {
     const found = this.#deps.codes.redeem(code);
     if (found === undefined) return undefined;
-    return this.#deps.identities.byUserId(found.userId);
+    const identity = this.#deps.identities.byUserId(found.userId);
+    if (identity === undefined) return undefined;
+    return found.telegramName === undefined ? identity : { ...identity, telegramName: found.telegramName };
   }
 
   status(userId: string): LinkStatus | undefined {
@@ -128,7 +135,7 @@ export class LinkService {
    * running; otherwise proves and asks for a key.
    */
   async proveWallet(identity: TelegramIdentity, wallets: readonly string[]): Promise<WalletProof> {
-    if (wallets.length === 0) return { kind: 'refused', reason: 'the sign-in carried no wallet, so there is nothing to look up. Connect a wallet that owns the Perpl account.' };
+    if (wallets.length === 0) return { kind: 'refused', reason: 'That sign-in had no wallet attached. Sign in with the wallet that owns your Perpl account.' };
     const reasons: string[] = [];
     for (const wallet of wallets) {
       const lookup = await this.#deps.lookupAccount(wallet.toLowerCase());
@@ -148,11 +155,12 @@ export class LinkService {
         kind: 'proven-needs-key',
         accountId,
         reason:
-          `Your wallet owns Perpl account ${accountId}. That proves ownership, but PerpGuard can only act on an account it can sign for: ` +
-          `paste an API key for account ${accountId} below and the link completes.`,
+          `Your wallet owns Perpl account #${accountId}. To use the buttons, PerpGuard also needs an API key for it: paste one below to finish connecting.`,
       };
     }
-    return { kind: 'refused', reason: `none of the signed-in wallets owns a Perpl account on this network. ${reasons.join(' ')}` };
+    // The per-wallet detail is for the log; the person needs one sentence.
+    this.#deps.logger.info(`link: ${identity.userId} wallet proof found no account: ${reasons.join(' ')}`);
+    return { kind: 'refused', reason: `That wallet doesn't own a Perpl account on ${this.#deps.network ?? 'this network'}. Sign in with the wallet you opened your Perpl account with.` };
   }
 
   /**
@@ -163,33 +171,38 @@ export class LinkService {
   async proveKey(identity: TelegramIdentity, credentials: SealedCredentials, provenAccountId: number | undefined): Promise<KeyProof> {
     const vault = this.#deps.vault;
     if (vault === undefined) {
-      return { kind: 'refused', reason: 'this deployment has no PERPGUARD_KEY_ENCRYPTION_KEY, so it cannot store an API key. Ask the operator to set one, or link by wallet to an account PerpGuard already runs.' };
+      return { kind: 'refused', reason: 'Connecting with an API key isn\'t available right now. Sign in with your wallet instead.' };
     }
     let secret: import('@perpguard/shared').ApiSecret;
     try {
       secret = this.#deps.secretFromHex(credentials.secretHex);
     } catch {
       // Deliberately without the input: nothing a user pastes here is ever repeated.
-      return { kind: 'refused', reason: 'the secret is not a 32-byte hex string. Paste the API key secret exactly as Perpl showed it.' };
+      return { kind: 'refused', reason: 'That secret doesn\'t look right: it should be 64 letters and numbers. Paste it exactly as Perpl showed it.' };
     }
-    if (credentials.apiKey.trim().length < 16) return { kind: 'refused', reason: 'the API key looks too short. Paste the key exactly as Perpl showed it.' };
+    if (credentials.apiKey.trim().length < 16) return { kind: 'refused', reason: 'That API key looks too short. Paste it exactly as Perpl showed it.' };
 
     let probe: Probe;
     try {
       probe = await this.#deps.probe({ apiKey: credentials.apiKey.trim(), secretHex: credentials.secretHex });
     } catch (error) {
-      return { kind: 'refused', reason: `Perpl did not accept that key: ${error instanceof Error ? error.message : String(error)}` };
+      // The venue's own error is for the log (it never contains the key); the person gets what to do.
+      this.#deps.logger.info(`link: ${identity.userId} key probe refused by Perpl: ${error instanceof Error ? error.message : String(error)}`);
+      return { kind: 'refused', reason: 'Perpl didn\'t accept that key. Check you copied both the key and its secret, and that the key hasn\'t been revoked.' };
     }
     if (probe.accountId === undefined) {
-      return { kind: 'refused', reason: 'that key signed in, but Perpl reported no account for it. A key only works once its account exists on chain.' };
+      return { kind: 'refused', reason: 'That key works, but no Perpl account is attached to it yet. Open your account on Perpl first.' };
     }
     const accountId = probe.accountId;
     if (provenAccountId !== undefined && provenAccountId !== accountId) {
-      return { kind: 'refused', reason: `your wallet proved account ${provenAccountId}, but this key signs for account ${accountId}. Paste a key for account ${provenAccountId}.` };
+      return { kind: 'refused', reason: `That key is for account #${accountId}, but your wallet owns account #${provenAccountId}. Paste a key for account #${provenAccountId}.` };
     }
 
     const opened = this.#deps.registry.open(accountId, { apiKey: credentials.apiKey.trim(), secret });
-    if (!opened.ok) return { kind: 'refused', reason: opened.reason };
+    if (!opened.ok) {
+      this.#deps.logger.warn(`link: could not open a session for account ${accountId}: ${opened.reason}`);
+      return { kind: 'refused', reason: 'PerpGuard can\'t connect another account right now. Try again later.' };
+    }
 
     // SEALED, then stored; the plaintext goes nowhere else from here.
     this.#deps.keys.put({ userId: identity.userId, accountId, blob: vault.seal({ apiKey: credentials.apiKey.trim(), secretHex: credentials.secretHex }), storedAtMs: this.#now() });
@@ -204,7 +217,7 @@ export class LinkService {
     await this.#notify(
       identity.chatId,
       `Linked to Perpl account ${accountId} with an API key. Alerts here now carry the buttons to act.` +
-        (probe.forwardingAllowed === false ? ' NOTE: this account has order forwarding OFF, so every action would be refused until its owner wallet calls allowOrderForwarding(true).' : ''),
+        (probe.forwardingAllowed === false ? ' One thing first: this account doesn\'t allow trading by API key yet, so the buttons won\'t send. Turn on order forwarding in Perpl with the wallet that owns it.' : ''),
     );
     return { kind: 'linked', accountId, forwardingAllowed: probe.forwardingAllowed };
   }
@@ -240,7 +253,8 @@ export class LinkService {
     const vault = this.#deps.vault;
     for (const stored of this.#deps.keys.list()) {
       if (vault === undefined) {
-        this.#needsRelink.set(stored.userId, 'PERPGUARD_KEY_ENCRYPTION_KEY is not set, so the stored API key cannot be opened; re-link to continue');
+        this.#needsRelink.set(stored.userId, RELINK_REASON);
+        this.#deps.logger.warn(`link: account ${stored.accountId} for ${stored.userId} not reopened: PERPGUARD_KEY_ENCRYPTION_KEY is not set`);
         continue;
       }
       try {
@@ -252,7 +266,8 @@ export class LinkService {
           error instanceof KeyRotatedError
             ? `the environment key was rotated (stored key sealed with ${error.sealedWith}, current ${error.current}); re-link to continue`
             : `the stored API key could not be opened (${error instanceof Error ? error.message : String(error)}); re-link to continue`;
-        this.#needsRelink.set(stored.userId, reason);
+        // The person is told what to do; the cause, key ids and all, is for the log.
+        this.#needsRelink.set(stored.userId, RELINK_REASON);
         this.#deps.logger.warn(`link: account ${stored.accountId} for ${stored.userId} not reopened: ${reason}`);
       }
     }
@@ -269,7 +284,7 @@ export class LinkService {
     if (existing !== undefined && existing.accountId === accountId) return { ok: true };
     const result = this.#deps.links.link({ userId: identity.userId, accountId, telegramUserId: identity.telegramUserId, chatId: identity.chatId, linkedAtMs: this.#now() });
     if (result.ok) return { ok: true };
-    return { ok: false, reason: result.refusal === 'at-capacity' ? 'PerpGuard has no room for another linked account right now.' : `the link was refused (${result.refusal}).` };
+    return { ok: false, reason: result.refusal === 'at-capacity' ? 'PerpGuard can\'t connect another account right now. Try again later.' : 'PerpGuard couldn\'t save the connection. Try again in a moment.' };
   }
 
   async #notify(chatId: number, text: string): Promise<void> {

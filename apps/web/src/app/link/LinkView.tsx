@@ -55,8 +55,8 @@ export function LinkView() {
   if (phase.kind === 'opening') {
     return (
       <>
-        <PageHeader title="Link your account" subtitle="Prove you own a Perpl account so the bot can act on it from your chat." />
-        <div className="card max-w-[640px] px-[22px] py-5 text-[13px] text-muted">Opening your linking session…</div>
+        <PageHeader title="Connect your account" subtitle="Show that a Perpl account is yours, so the bot can act on it from your Telegram chat." />
+        <div className="card max-w-[640px] px-[22px] py-5 text-[13px] text-muted">Opening…</div>
       </>
     );
   }
@@ -64,12 +64,12 @@ export function LinkView() {
   if (phase.kind === 'no-session') {
     return (
       <>
-        <PageHeader title="Link your account" subtitle="Prove you own a Perpl account so the bot can act on it from your chat." />
+        <PageHeader title="Connect your account" subtitle="Show that a Perpl account is yours, so the bot can act on it from your Telegram chat." />
         <div className="card max-w-[640px] px-[22px] py-5">
-          <div className="eyebrow">No session</div>
+          <div className="eyebrow">This link has ended</div>
           <p className="mt-2 text-[13px] text-muted">{phase.reason}</p>
           <p className="mt-2 text-[13px] text-muted">
-            Send <b className="num font-semibold text-text">/link</b> to the PerpGuard bot in Telegram and open the link it replies with.
+            In the PerpGuard bot on Telegram, tap <b className="font-semibold text-text">Connect my account</b> (or send <b className="num font-semibold text-text">/link</b>) and open the new link it gives you.
           </p>
         </div>
       </>
@@ -78,26 +78,24 @@ export function LinkView() {
 
   const { me } = phase;
   const linked = me.link;
-  const sessionLine = (s: NonNullable<LinkMe['link']>['session']): string => {
-    if (s === undefined) return 'no session is running for it';
-    if (s.mismatch !== undefined) return s.mismatch;
-    return `session ${s.trading.state}${s.trading.forwardingAllowed === false ? ', order forwarding OFF on the account' : ''}; positions ${s.positions.state}`;
+  // Plain words for the connection's state; the internals stay out of it.
+  const stateLine = (l: NonNullable<LinkMe['link']>): string => {
+    if (l.needsRelink !== undefined) return 'Your saved API key can no longer be used, so the buttons are off. Paste it again below to reconnect.';
+    const s = l.session;
+    if (s === undefined || s.mismatch !== undefined || s.trading.state !== 'signed-in') return "PerpGuard can't reach this account right now. It will keep trying; alerts resume when it can.";
+    if (s.trading.forwardingAllowed === false) return "This account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it.";
+    return 'PerpGuard is watching it now. Alerts in your Telegram chat come with buttons to act.';
   };
 
   return (
     <>
       <PageHeader
-        title="Link your account"
-        subtitle="Prove you own a Perpl account so the bot can act on it from your chat. This page proves ownership and nothing else: it never shows a position and never sends an action."
+        title="Connect your account"
+        subtitle="Show that a Perpl account is yours, so the bot can act on it from your Telegram chat. This page only checks that; it never shows positions or sends trades."
       />
 
-      <div className="mb-4 text-[12.5px] text-muted">
-        Linking session for Telegram user <span className="num">{me.identity.userId}</span> on <span className="num">{me.network}</span>.{' '}
-        {me.envAccountId !== null && (
-          <>
-            This PerpGuard runs account <span className="num">{me.envAccountId}</span> itself; a wallet that owns it links at once.
-          </>
-        )}
+      <div className="mb-4 text-[13px] text-muted">
+        Connecting {me.telegram.name === null ? 'your Telegram account' : <><b className="font-semibold text-text">{me.telegram.name}</b> on Telegram</>}, on Perpl <b className="font-semibold text-text">{me.network}</b>.
       </div>
 
       {notice !== undefined && (
@@ -108,13 +106,12 @@ export function LinkView() {
 
       {linked !== null && (
         <div className="card mb-4 max-w-[640px] px-[22px] py-5">
-          <div className="eyebrow">Linked</div>
+          <div className="eyebrow">Connected</div>
           <h2 className="m-0 mt-1 text-[18px] font-bold tracking-[-0.02em]">
-            Account {linked.accountId}, proved by {linked.proof === 'wallet' ? 'wallet signature' : 'API key'}
+            Perpl account #{linked.accountId}
           </h2>
-          <p className="mt-2 text-[13px] text-muted">
-            {linked.needsRelink !== undefined ? `Needs re-linking: ${linked.needsRelink}` : sessionLine(linked.session)}. Alerts in your chat carry the buttons to act; every tap is re-checked against this link at the moment you tap.
-          </p>
+          <p className="mt-1 mb-0 text-[12.5px] text-muted">Confirmed with {linked.proof === 'wallet' ? 'your wallet' : 'an API key'}.</p>
+          <p className="mt-2 text-[13px] text-muted">{stateLine(linked)}</p>
           <button
             type="button"
             className="btn danger mt-3"
@@ -130,25 +127,25 @@ export function LinkView() {
               })();
             }}
           >
-            Unlink now
+            Disconnect
           </button>
-          <p className="mt-2 text-[12px] text-muted">Immediate: the link is removed, any stored key is deleted, and the session is closed.</p>
+          <p className="mt-2 text-[12px] text-muted">Takes effect at once, and deletes any API key you gave PerpGuard.</p>
         </div>
       )}
 
       {me.provenAccountId !== null && linked === null && (
         <div role="status" className="mb-4 rounded-[10px] border border-watch/40 bg-watch/10 px-4 py-3 text-[13px]">
-          <b className="text-watch">Your wallet owns account {me.provenAccountId}.</b>{' '}
-          <span className="text-muted">That proves ownership. To act on it PerpGuard needs an API key for that account: paste one below and the link completes.</span>
+          <b className="text-watch">Your wallet owns Perpl account #{me.provenAccountId}.</b>{' '}
+          <span className="text-muted">To use the buttons, PerpGuard also needs an API key for it. Paste one below to finish.</span>
         </div>
       )}
 
       <div className="grid max-w-[1000px] grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card px-[22px] py-5">
           <div className="eyebrow">Option 1</div>
-          <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Sign with the wallet that owns the account</h2>
+          <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Sign in with the wallet that owns the account</h2>
           <p className="mt-2 mb-3 text-[13px] text-muted">
-            A signature proves which wallet you hold, and the Exchange contract says which account that wallet owns. No funds move, no approval is granted, nothing is spent.
+            Signing in shows which wallet you hold; PerpGuard then looks up the Perpl account it owns. No funds move and nothing is approved or spent.
           </p>
           {DYNAMIC_ENVIRONMENT_ID !== undefined && me.dynamicConfigured ? (
             <WalletProofCard
@@ -156,7 +153,7 @@ export function LinkView() {
                 setPhase({ kind: 'ready', me: next });
                 setNotice(
                   proof.kind === 'linked'
-                    ? { tone: 'ok', text: `Linked to account ${proof.accountId}. Your chat now gets alerts with the buttons to act.` }
+                    ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}. Alerts in your Telegram chat now come with buttons to act.` }
                     : proof.kind === 'proven-needs-key'
                       ? { tone: 'warn', text: proof.reason }
                       : { tone: 'bad', text: proof.reason },
@@ -165,21 +162,21 @@ export function LinkView() {
               onProblem={(text) => setNotice({ tone: 'bad', text })}
             />
           ) : (
-            <div className="rounded-[9px] border border-dashed border-border2 px-3 py-2 text-[12.5px] text-muted">Wallet sign-in is not configured on this deployment.</div>
+            <div className="rounded-[9px] border border-dashed border-border2 px-3 py-2 text-[12.5px] text-muted">Wallet sign-in isn&rsquo;t available right now. Use an API key instead.</div>
           )}
         </div>
 
         <KeyProofCard me={me} onProof={(proof, next) => {
           setPhase({ kind: 'ready', me: next });
-          setNotice(proof.kind === 'linked' ? { tone: 'ok', text: `Linked to account ${proof.accountId} with an API key.${proof.forwardingAllowed === false ? ' Note: order forwarding is OFF on this account, so actions will be refused until its owner wallet enables it.' : ''}` } : { tone: 'bad', text: proof.reason });
+          setNotice(proof.kind === 'linked' ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}.${proof.forwardingAllowed === false ? " One thing first: this account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it." : ' Alerts in your Telegram chat now come with buttons to act.'}` } : { tone: 'bad', text: proof.reason });
         }} onProblem={(text) => setNotice({ tone: 'bad', text })} />
       </div>
 
       <p className="mt-4 text-[12px] text-muted">
         <button type="button" className="text-accent-hi" onClick={() => void link.signOut().then(() => refresh())}>
-          Close this linking session
+          Close this page
         </button>{' '}
-        — it closes on its own after thirty minutes. Closing it does not unlink anything.
+        when you&rsquo;re done. It also closes by itself after 30 minutes. Your connection stays either way.
       </p>
     </>
   );
@@ -214,10 +211,10 @@ function KeyProofCard({ me, onProof, onProblem }: { readonly me: LinkMe; readonl
       <div className="eyebrow">Option 2</div>
       <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Paste an API key for the account</h2>
       <p className="mt-2 text-[13px] text-muted">
-        <b className="font-semibold text-text">A Perpl API key cannot withdraw or transfer funds.</b> It can place and cancel orders and add margin, which is what the buttons do. It is entered here and nowhere else — never in Telegram — and PerpGuard signs in with it once to learn which account it is for, stores it encrypted, and never shows it again.
+        <b className="font-semibold text-text">A Perpl API key cannot withdraw or transfer funds.</b> It can add margin, reduce and close positions, which is what the buttons do. Enter it here and nowhere else, never in Telegram. PerpGuard stores it encrypted and never shows it again.
       </p>
-      {!me.keyStorageConfigured && <p className="mt-2 text-[12.5px] text-danger">This deployment has no key-encryption key configured, so it cannot store an API key. Link by wallet instead.</p>}
-      {insecure && <p className="mt-2 text-[12.5px] text-danger">This page is not on HTTPS, so the key form is off: a key must only travel over an encrypted connection.</p>}
+      {!me.keyStorageConfigured && <p className="mt-2 text-[12.5px] text-danger">Connecting with an API key isn&rsquo;t available right now. Sign in with your wallet instead.</p>}
+      {insecure && <p className="mt-2 text-[12.5px] text-danger">This page isn&rsquo;t on a secure (HTTPS) connection, so the key form is switched off. A key should only ever travel encrypted.</p>}
       <form
         className="mt-3 flex flex-col gap-2"
         onSubmit={(e) => {
@@ -228,11 +225,11 @@ function KeyProofCard({ me, onProof, onProblem }: { readonly me: LinkMe; readonl
         <input className="input" placeholder="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled={disabled} />
         <input className="input" type="password" placeholder="API key secret (hex)" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} disabled={disabled} />
         <button type="submit" className="btn primary" disabled={disabled || apiKey.trim() === '' || secret.trim() === ''}>
-          {busy ? 'Signing in once…' : 'Link with this key'}
+          {busy ? 'Checking the key…' : 'Connect with this key'}
         </button>
       </form>
       <p className="mt-2 text-[12px] text-muted">
-        Stored encrypted at rest under a key held only on the server. If that server key is ever rotated, every stored API key becomes unreadable and you will be asked to link again; nothing is ever re-encrypted or kept in the clear.
+        Disconnect at any time and the key is deleted.
       </p>
     </div>
   );

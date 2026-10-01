@@ -121,7 +121,8 @@ export interface BotDeps {
    * down. Absent means the bot says linking is not available here.
    */
   readonly link?: {
-    mint(userId: string): { readonly url: string; readonly expiresAtMs: number };
+    /** `telegramName` lets the page say which Telegram account it is linking. */
+    mint(userId: string, telegramName?: string): { readonly url: string; readonly expiresAtMs: number };
     unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }>;
     /** Why a linked account cannot be served right now (a rotated key, say). */
     needsRelink?(userId: string): string | undefined;
@@ -190,6 +191,13 @@ export function keyboardFor(screen: Screen): InlineKeyboard {
       row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : 'data' in b ? InlineKeyboard.text(b.text, b.data) : InlineKeyboard.text(b.text, encodeNav(b.route, { fresh: b.fresh === true })))),
     ),
   );
+}
+
+/** How the person appears in Telegram: @username, else their first name. */
+function telegramNameOf(ctx: Context): string | undefined {
+  const from = ctx.from;
+  if (from === undefined) return undefined;
+  return from.username !== undefined ? `@${from.username}` : from.first_name || undefined;
 }
 
 function commandOf(text: string | undefined): string | undefined {
@@ -469,7 +477,7 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
     const { identity } = identities.register(telegramUserId, chatId, now());
-    const minted = deps.link.mint(identity.userId);
+    const minted = deps.link.mint(identity.userId, telegramNameOf(ctx));
     const minutes = Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000));
     await ctx.reply(
       `Open this to link your Perpl account to this chat:\n${minted.url}\n\n` +
@@ -655,7 +663,7 @@ export function createBot(deps: BotDeps): Bot {
         }
         await ctx.answerCallbackQuery();
         const { identity } = identities.register(telegramUserId, chatId, now());
-        const minted = deps.link.mint(identity.userId);
+        const minted = deps.link.mint(identity.userId, telegramNameOf(ctx));
         await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
         return;
       }
