@@ -1,0 +1,28 @@
+# A SECOND indexer, same database, its OWN schema: full mainnet history from
+# the Exchange's first block. The live schema is never touched. When this one
+# reaches the head, point the backend at `perpguard_full` and retire the other.
+#   cp deploy/systemd/perpguard-backfill.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now perpguard-backfill
+[Unit]
+Description=PerpGuard full-history Perpl indexer (Envio, mainnet, schema perpguard_full)
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PerpGuard/apps/indexer
+EnvironmentFile=/root/PerpGuard/apps/indexer/.env
+# Per-unit overrides, loaded second so they win over the shared file.
+EnvironmentFile=/root/PerpGuard/deploy/systemd/backfill.env
+ExecStart=/root/PerpGuard/apps/indexer/scripts/run-indexer.sh
+KillSignal=SIGTERM
+TimeoutStopSec=90
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/perpguard/backfill.log
+StandardError=append:/var/log/perpguard/backfill.log
+
+[Install]
+WantedBy=multi-user.target

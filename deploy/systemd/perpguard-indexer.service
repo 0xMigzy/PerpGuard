@@ -1,0 +1,28 @@
+# The LIVE mainnet indexer: schema `public`, which the backend's analytics read.
+#   cp deploy/systemd/perpguard-indexer.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now perpguard-indexer
+[Unit]
+Description=PerpGuard live Perpl indexer (Envio, mainnet, schema public)
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PerpGuard/apps/indexer
+EnvironmentFile=/root/PerpGuard/apps/indexer/.env
+# Per-unit overrides, loaded second so they win over the shared file.
+EnvironmentFile=/root/PerpGuard/deploy/systemd/indexer.env
+ExecStart=/root/PerpGuard/apps/indexer/scripts/run-indexer.sh
+# Envio flushes pending writes on SIGTERM; give it time rather than SIGKILL it.
+KillSignal=SIGTERM
+TimeoutStopSec=90
+# Always back, never give up: a crash, an OOM kill, a reboot.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/perpguard/indexer.log
+StandardError=append:/var/log/perpguard/indexer.log
+
+[Install]
+WantedBy=multi-user.target
