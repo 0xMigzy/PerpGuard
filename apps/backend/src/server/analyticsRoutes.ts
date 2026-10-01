@@ -14,11 +14,20 @@
  * served with `stale: true` and the health block attached, and the machine-readable
  * gate stays where machines already look: `GET /health`, which does return 503.
  *
- * NOTHING IS CACHED HERE. `GET /health` rebuilds its report per request for the
- * same reason, and a cached analytics response is a snapshot of how things were
- * presented as how they are. The one exception is TVL, cached inside `TvlProbe`
- * with a short TTL because it costs an RPC round trip — and it carries its own
- * `asOfMs` so the age is visible rather than implied.
+ * INDEXED ANSWERS ARE CACHED, STALE-WHILE-REVALIDATE, AND SAY HOW OLD THEY ARE.
+ * A 30-day protocol window is five aggregate scans over millions of fill rows,
+ * run twice for the previous-period comparison: 3.6s alone, 5s with a page's
+ * other calls queued behind it, measured. Nothing in it changes faster than a
+ * block and a page polls every 30s, so each response serves the last computed
+ * answer immediately and refreshes it behind the reader once it is past its
+ * TTL. `computedAtMs`, `ageMs` and `revalidating` travel in the envelope, so a
+ * page can say "computed 40s ago" instead of presenting a snapshot as the
+ * present — the same honesty the `stale` flag already carries for the indexer.
+ * The indexer-health verdict itself is cached for two seconds for the same
+ * reason: it was a chain RPC per request, and queued behind the scans.
+ *
+ * Chain reads keep their own short caches and their own `asOfMs`: TVL inside
+ * `TvlProbe`, open interest in the venue context, the risk snapshot in its source.
  */
 import type { FastifyInstance } from 'fastify';
 import {
@@ -37,9 +46,19 @@ import {
   type WalletLookup,
   type WalletMatch,
 } from '@perpguard/shared';
+import { SwrCache } from './responseCache.ts';
 
 export interface AnalyticsRouteOptions {
   readonly analytics: Analytics;
+  /**
+   * The stale-while-revalidate cache for indexed answers. Supplied by the
+   * process so it can warm the default views at boot and keep them warm; a
+   * fresh one is made when absent, which is what the tests get.
+   */
+  readonly cache?: SwrCache;
+  /** How long an indexed answer is served without a refresh behind it. */
+  readonly cacheTtlMs?: number;
+  readonly now?: () => number;
   /**
    * The open-interest LEVEL, from the analytics network's venue.
    *
@@ -98,7 +117,76 @@ interface Envelope<T> {
   readonly stale: boolean;
   /** Present when stale. Safe to render directly. */
   readonly staleReason?: string;
+  /** When `data` was COMPUTED. Equal to `generatedAtMs` for an uncached answer. */
+  readonly computedAtMs: number;
+  /** How old `data` was when served. 0 for an uncached answer. */
+  readonly ageMs: number;
+  /** True when `data` is past its TTL and a refresh is running behind this response. */
+  readonly revalidating: boolean;
   readonly generatedAtMs: number;
+}
+
+/** Twenty seconds: shorter than the page's 30s poll, so a poll usually finds a fresh answer. */
+const DEFAULT_CACHE_TTL_MS = 20_000;
+/** The health verdict: one small query plus a chain RPC, and every response wants it. */
+const HEALTH_TTL_MS = 2_000;
+
+/**
+ * The cache keys and loaders for every indexed answer, in ONE place, so the
+ * route that serves a key and the boot-time warm that precomputes it cannot
+ * drift apart on how the key is spelled.
+ */
+export function analyticsLoaders(analytics: Analytics) {
+  const entry = <T>(key: string, load: () => Promise<T>) => ({ key, load });
+  return {
+    metrics: (t: Timeframe) => entry(`metrics:${t}`, () => analytics.protocolMetrics(t)),
+    series: (t: Timeframe) => entry(`series:${t}`, () => analytics.dailySeries(t)),
+    seriesByMarket: (t: Timeframe) => entry(`series-markets:${t}`, () => analytics.dailySeriesByMarket(t)),
+    markets: (t: Timeframe) => entry(`markets:${t}`, () => analytics.marketBreakdown(t)),
+    funding: (t: Timeframe) => entry(`funding:${t}`, () => analytics.funding(t)),
+    liquidations: (t: Timeframe, limit: number | undefined, offset: number | undefined) =>
+      entry(`liquidations:${t}:${limit ?? ''}:${offset ?? ''}`, () =>
+        analytics.liquidations(t, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
+      ),
+    liquidationSummary: (t: Timeframe) => entry(`liquidation-summary:${t}`, () => analytics.liquidationSummary(t)),
+    traders: (t: Timeframe, sort: TraderSortKey | undefined, direction: SortDirection | undefined, limit: number | undefined, offset: number | undefined) =>
+      entry(`traders:${t}:${sort ?? ''}:${direction ?? ''}:${limit ?? ''}:${offset ?? ''}`, () =>
+        analytics.traders(t, {
+          ...(sort === undefined ? {} : { sort }),
+          ...(direction === undefined ? {} : { direction }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(offset === undefined ? {} : { offset }),
+        }),
+      ),
+    profile: (accountId: number) => entry(`account:${accountId}`, () => analytics.walletByAccountId(accountId)),
+    roundTrips: (accountId: number, limit: number | undefined, offset: number | undefined) =>
+      entry(`round-trips:${accountId}:${limit ?? ''}:${offset ?? ''}`, () =>
+        analytics.roundTrips(accountId, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
+      ),
+    traderDays: (accountId: number, t: Timeframe) => entry(`trader-days:${accountId}:${t}`, () => analytics.traderDays(accountId, t)),
+    walletSearch: (q: string) => entry(`wallet-search:${q.toLowerCase()}`, () => analytics.walletSearch(q, SEARCH_LIMIT)),
+  };
+}
+
+/**
+ * The answers every first visit asks for, warmed at boot and kept warm: the
+ * six sections on their default 30-day window, plus the all-time series the
+ * charts draw. Anything else is warmed by its first reader and stays warm
+ * while it keeps being read.
+ */
+export function defaultWarmEntries(analytics: Analytics): ReadonlyArray<{ readonly key: string; readonly load: () => Promise<unknown> }> {
+  const l = analyticsLoaders(analytics);
+  return [
+    l.metrics('30d'),
+    l.series('30d'),
+    l.series('all'),
+    l.seriesByMarket('30d'),
+    l.seriesByMarket('all'),
+    l.markets('30d'),
+    l.liquidationSummary('30d'),
+    l.liquidations('30d', 50, 0),
+    l.traders('30d', 'netPnl', 'desc', 50, 0),
+  ];
 }
 
 /** An `0x`-prefixed 20-byte address. Case-insensitive, per CLAUDE.md. */
@@ -137,16 +225,25 @@ export function registerAnalyticsRoutes(
 ): FastifyInstance {
   const { analytics } = options;
   const prefix = options.prefix ?? '/api/analytics';
+  const now = options.now ?? Date.now;
+  const cache = options.cache ?? new SwrCache({ now });
+  const ttlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+  const loaders = analyticsLoaders(analytics);
 
   /**
    * Wraps a payload with the health verdict.
    *
-   * Health is read on EVERY request rather than once at startup. An indexer that
-   * halts after the process booted is exactly the case this exists for, and a
-   * cached verdict would report the halt as healthy for as long as the cache lived.
+   * Health is read on every request, through a TWO-SECOND cache: an indexer that
+   * halts after the process booted is exactly the case this exists for, and two
+   * seconds is far inside the halt threshold, while a verdict per request was a
+   * chain RPC per request, queued behind the scans it was meant to qualify.
    */
-  async function envelope<T>(data: T): Promise<Envelope<T>> {
-    const health = await analytics.health();
+  async function envelope<T>(
+    data: T,
+    computed: { readonly cachedAtMs: number; readonly ageMs: number; readonly revalidating: boolean } | undefined = undefined,
+  ): Promise<Envelope<T>> {
+    const health = (await cache.get('health', HEALTH_TTL_MS, () => analytics.health())).value;
+    const generatedAtMs = now();
     return {
       data,
       health,
@@ -159,8 +256,17 @@ export function registerAnalyticsRoutes(
               `the indexer is ${health.state} and ${health.blocksBehind} block(s) behind, so ` +
                 `these figures must not be shown as current`,
           }),
-      generatedAtMs: Date.now(),
+      computedAtMs: computed?.cachedAtMs ?? generatedAtMs,
+      ageMs: computed?.ageMs ?? 0,
+      revalidating: computed?.revalidating ?? false,
+      generatedAtMs,
     };
+  }
+
+  /** An indexed answer: served from the cache, refreshed behind the reader past its TTL. */
+  async function served<T>(entry: { readonly key: string; readonly load: () => Promise<T> }): Promise<Envelope<T>> {
+    const hit = await cache.get(entry.key, ttlMs, entry.load);
+    return envelope(hit.value, hit);
   }
 
   /**
@@ -200,7 +306,7 @@ export function registerAnalyticsRoutes(
   scope.get(`${prefix}/metrics`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.protocolMetrics(timeframe));
+    return served(loaders.metrics(timeframe));
   });
 
   /**
@@ -216,13 +322,13 @@ export function registerAnalyticsRoutes(
   scope.get(`${prefix}/series`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.dailySeries(timeframe));
+    return served(loaders.series(timeframe));
   });
 
   scope.get(`${prefix}/series/markets`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.dailySeriesByMarket(timeframe));
+    return served(loaders.seriesByMarket(timeframe));
   });
 
   /**
@@ -254,13 +360,13 @@ export function registerAnalyticsRoutes(
   scope.get(`${prefix}/markets`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.marketBreakdown(timeframe));
+    return served(loaders.markets(timeframe));
   });
 
   scope.get(`${prefix}/funding`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.funding(timeframe));
+    return served(loaders.funding(timeframe));
   });
 
   /** Forced exits in the window, newest first. Paged like round trips; the reader clamps. */
@@ -271,11 +377,12 @@ export function registerAnalyticsRoutes(
       if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
       const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
       const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
-      return envelope(
-        await analytics.liquidations(timeframe, {
-          ...(limit === undefined || !Number.isFinite(limit) ? {} : { limit }),
-          ...(offset === undefined || !Number.isFinite(offset) ? {} : { offset }),
-        }),
+      return served(
+        loaders.liquidations(
+          timeframe,
+          limit === undefined || !Number.isFinite(limit) ? undefined : limit,
+          offset === undefined || !Number.isFinite(offset) ? undefined : offset,
+        ),
       );
     },
   );
@@ -350,8 +457,9 @@ export function registerAnalyticsRoutes(
     if (!ADDRESS_PREFIX.test(q)) {
       return reply.code(400).send({ error: `${JSON.stringify(q)} is not a 0x-prefixed hex prefix of 3 to 39 characters` });
     }
-    const matches: readonly WalletMatch[] = await analytics.walletSearch(q, SEARCH_LIMIT);
-    return envelope({ query: q, matches, limit: SEARCH_LIMIT });
+    const hit = await cache.get(loaders.walletSearch(q).key, ttlMs, loaders.walletSearch(q).load);
+    const matches: readonly WalletMatch[] = hit.value;
+    return envelope({ query: q, matches, limit: SEARCH_LIMIT }, hit);
   });
 
   /** A wallet by account id — the handle that works when the owner is unrecorded. */
@@ -364,13 +472,13 @@ export function registerAnalyticsRoutes(
           .code(400)
           .send({ error: `${JSON.stringify(request.params.accountId)} is not an account id` });
       }
-      const profile = await analytics.walletByAccountId(accountId);
-      if (profile === undefined) {
+      const hit = await cache.get(loaders.profile(accountId).key, ttlMs, loaders.profile(accountId).load);
+      if (hit.value === undefined) {
         // A 404 IS right here, unlike for an address: an account id either exists
         // in the index or it does not, and there is no third reading.
         return reply.code(404).send({ error: `no account ${accountId} in the index` });
       }
-      return envelope(profile);
+      return envelope(hit.value, hit);
     },
   );
 
@@ -410,11 +518,12 @@ export function registerAnalyticsRoutes(
       // an absurd limit is answered rather than refused.
       const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
       const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
-      return envelope(
-        await analytics.roundTrips(accountId, {
-          ...(limit === undefined || !Number.isFinite(limit) ? {} : { limit }),
-          ...(offset === undefined || !Number.isFinite(offset) ? {} : { offset }),
-        }),
+      return served(
+        loaders.roundTrips(
+          accountId,
+          limit === undefined || !Number.isFinite(limit) ? undefined : limit,
+          offset === undefined || !Number.isFinite(offset) ? undefined : offset,
+        ),
       );
     },
   );
@@ -438,13 +547,14 @@ export function registerAnalyticsRoutes(
       }
       const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
       const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
-      return envelope(
-        await analytics.traders(timeframe, {
-          ...(sort === undefined ? {} : { sort: sort as TraderSortKey }),
-          ...(direction === undefined ? {} : { direction: direction as SortDirection }),
-          ...(limit === undefined || !Number.isFinite(limit) ? {} : { limit }),
-          ...(offset === undefined || !Number.isFinite(offset) ? {} : { offset }),
-        }),
+      return served(
+        loaders.traders(
+          timeframe,
+          sort === undefined ? undefined : (sort as TraderSortKey),
+          direction === undefined ? undefined : (direction as SortDirection),
+          limit === undefined || !Number.isFinite(limit) ? undefined : limit,
+          offset === undefined || !Number.isFinite(offset) ? undefined : offset,
+        ),
       );
     },
   );
@@ -457,14 +567,14 @@ export function registerAnalyticsRoutes(
     }
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.traderDays(accountId, timeframe));
+    return served(loaders.traderDays(accountId, timeframe));
   });
 
   /** The finding banded by size and by spare balance. */
   scope.get(`${prefix}/liquidations/summary`, async (request, reply) => {
     const timeframe = timeframeOf(request.query);
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
-    return envelope(await analytics.liquidationSummary(timeframe));
+    return served(loaders.liquidationSummary(timeframe));
   });
 
   /**

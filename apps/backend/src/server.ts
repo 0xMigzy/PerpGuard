@@ -79,6 +79,8 @@ import { buildHealth, type HealthReport } from './server/health.ts';
 import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { RiskSnapshotSource } from './server/riskSnapshot.ts';
+import { defaultWarmEntries } from './server/analyticsRoutes.ts';
+import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
 import { DynamicVerifier } from './server/protect/dynamic.ts';
@@ -454,7 +456,10 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   // log: a dead single client never recovers, and an indexer database that is
   // down is a degraded reading rather than a reason not to start. The probe
   // already turns any failure into a verdict.
-  indexerDb = new Pool({ connectionString: indexerUrl, max: 2 });
+  // SIX, not two. A page fires seven calls at once and each of the heavy ones
+  // fans out into five parallel scans; with two connections every cheap call
+  // queued behind the scans and a 20ms health read measured four seconds.
+  indexerDb = new Pool({ connectionString: indexerUrl, max: 6 });
   indexerDb.on('error', (error) => {
     warn(`idle indexer Postgres connection dropped: ${error.message}. The pool will reconnect.`);
   });
@@ -506,13 +511,39 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     // An INDEPENDENT chain head, so a halted indexer cannot report itself synced.
     // The same helper the lag monitor uses, so the two cannot disagree about the
     // head and then disagree about whether the indexer is healthy.
-    chainHead: () => fetchChainHead(analyticsNetwork.rpcUrl),
+    chainHead: () => cachedChainHead(analyticsNetwork.rpcUrl),
     tvlProbe,
   });
   log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
 } else {
   log('INDEXER_DATABASE_URL is not set; indexer lag and the analytics API are both off');
 }
+
+/**
+ * The chain head, at most once per two seconds.
+ *
+ * Every analytics envelope wants the head to judge the indexer against, and a
+ * page asks for seven envelopes at once; seven RPC round trips for one block
+ * number is what the floor on every response was made of.
+ */
+let chainHeadMemo: { readonly atMs: number; readonly value: Promise<number | undefined> } | undefined;
+function cachedChainHead(rpcUrl: string): Promise<number | undefined> {
+  const atMs = Date.now();
+  if (chainHeadMemo !== undefined && atMs - chainHeadMemo.atMs < 2_000) return chainHeadMemo.value;
+  chainHeadMemo = { atMs, value: fetchChainHead(rpcUrl) };
+  return chainHeadMemo.value;
+}
+
+/**
+ * The analytics answer cache, owned here so it can be warmed before the first
+ * visitor and kept warm: the default views are recomputed every KEEP_WARM_MS
+ * along with whatever else has been read lately, one at a time so the scans
+ * never pile up on the two cores the indexer is also using.
+ */
+const analyticsCache = new SwrCache({
+  onRefreshError: (key, error) => warn(`analytics cache: refresh of ${key} failed, serving the previous answer: ${error instanceof Error ? error.message : String(error)}`),
+});
+const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 60_000);
 
 // ── 8. the health report, buildable before anything is ready ────────────────
 
@@ -588,7 +619,7 @@ const app = createHealthApp({
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
-  ...(analyticsReader === undefined ? {} : { analytics: analyticsReader }),
+  ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache }),
   // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same
   // `getAccountByAddr` read Protect sign-in uses, so an address the index never
   // saw an AccountCreated for still resolves.
@@ -644,6 +675,7 @@ const shutdown = new ShutdownSequence({
 
 let evaluateTimer: ReturnType<typeof setInterval> | undefined;
 let indexerTimer: ReturnType<typeof setInterval> | undefined;
+let warmTimer: ReturnType<typeof setInterval> | undefined;
 
 shutdown
   // Stop producing work first. Everything below is then draining a queue that
@@ -652,6 +684,7 @@ shutdown
     loop.stop();
     if (evaluateTimer !== undefined) clearInterval(evaluateTimer);
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
+    if (warmTimer !== undefined) clearInterval(warmTimer);
   })
   .add('stop the bot', async () => {
     await bot?.stop();
@@ -714,6 +747,49 @@ try {
 // ── 11. connect the account, then open the gate ─────────────────────────────
 
 trading.start();
+
+// ── the analytics cache: warm before the first visitor, keep warm after ─────
+//
+// SEQUENTIAL, and never overlapping: one warm cycle at a time, one entry at a
+// time. The scans behind these answers are what saturated the box when a page
+// asked for them all at once, and a warmer that did the same would be the same
+// problem on a timer. The hot set is whatever was read in the last ten minutes,
+// so a profile someone is watching stays warm and one nobody opened does not
+// cost anything.
+if (analyticsReader !== undefined) {
+  const reader = analyticsReader;
+  const defaults = defaultWarmEntries(reader);
+  const loaderFor = new Map(defaults.map((entry) => [entry.key, entry.load]));
+  let warming = false;
+  const warmCycle = async (): Promise<void> => {
+    if (warming || shutdown.started) return;
+    warming = true;
+    const startedAt = Date.now();
+    let warmed = 0;
+    try {
+      const hot = new Set([...defaults.map((e) => e.key), ...analyticsCache.recentlyRead(10 * 60_000)]);
+      for (const key of hot) {
+        if (shutdown.started) break;
+        const load = loaderFor.get(key);
+        // Only the defaults have a loader here; everything else is kept warm by
+        // its readers through stale-while-revalidate on the route.
+        if (load === undefined) continue;
+        try {
+          await analyticsCache.warm(key, load);
+          warmed += 1;
+        } catch (error) {
+          warn(`analytics warm: ${key} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } finally {
+      warming = false;
+    }
+    if (warmed > 0) log(`analytics cache: ${warmed} answer(s) warm in ${Date.now() - startedAt}ms`);
+  };
+  void warmCycle();
+  warmTimer = setInterval(() => void warmCycle(), KEEP_WARM_MS);
+  warmTimer.unref();
+}
 
 if (indexerMonitor !== undefined) {
   await indexerMonitor.poll();

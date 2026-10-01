@@ -39,6 +39,8 @@ export interface HealthServerOptions {
   readonly lookupAccountOnChain?: AnalyticsRouteOptions['lookupAccountOnChain'];
   /** The protocol-wide risk snapshot. See the routes. */
   readonly riskSnapshot?: AnalyticsRouteOptions['riskSnapshot'];
+  /** The stale-while-revalidate cache for indexed answers, owned by the process so it can warm it. */
+  readonly analyticsCache?: AnalyticsRouteOptions['cache'];
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
   readonly protect?: ProtectRouteOptions;
 }
@@ -59,6 +61,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       ...(options.assessPositions === undefined ? {} : { assessPositions: options.assessPositions }),
       ...(options.lookupAccountOnChain === undefined ? {} : { lookupAccountOnChain: options.lookupAccountOnChain }),
       ...(options.riskSnapshot === undefined ? {} : { riskSnapshot: options.riskSnapshot }),
+      ...(options.analyticsCache === undefined ? {} : { cache: options.analyticsCache }),
     });
   }
 

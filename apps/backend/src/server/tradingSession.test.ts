@@ -212,7 +212,7 @@ test('a socket that drops after sign-in is replaced: retrying meanwhile, then si
   let opened = 0;
   // The backoff sleep is held open by the test, so the retrying state can be
   // observed before the reconnect goes through.
-  let release: (() => void) | undefined;
+  const releases: Array<() => void> = [];
   const session = new TradingSession({
     venue: venueThat(async () => sockets[opened++]),
     network,
@@ -221,7 +221,7 @@ test('a socket that drops after sign-in is replaced: retrying meanwhile, then si
     backoffMs: [1_000],
     sleep: () =>
       new Promise<void>((resolve) => {
-        release = resolve;
+        releases.push(resolve);
       }),
   });
   const handed: PerplTradingSocket[] = [];
@@ -231,7 +231,7 @@ test('a socket that drops after sign-in is replaced: retrying meanwhile, then si
   await settle();
   assert.equal(session.status().state, 'signed-in');
   assert.equal(handed.length, 1);
-  assert.equal(release, undefined, 'a successful sign-in never sleeps');
+  assert.equal(releases.length, 0, 'a successful sign-in never sleeps');
 
   sockets[0]!.drop('socket closed with 1006');
   await settle();
@@ -241,7 +241,7 @@ test('a socket that drops after sign-in is replaced: retrying meanwhile, then si
   assert.match(logger.warnings[0]!, /1006/);
   assert.equal(handed.length, 1, 'nothing new is handed over during the backoff');
 
-  release?.();
+  releases.shift()?.();
   await settle();
   assert.equal(session.status().state, 'signed-in');
   assert.equal(session.signIns, 2);

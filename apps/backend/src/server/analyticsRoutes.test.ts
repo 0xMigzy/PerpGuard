@@ -274,13 +274,48 @@ test('a halted indexer serves its figures FLAGGED, not withheld', async () => {
   assert.equal((payload['health'] as IndexerHealth).state, 'halted');
 });
 
-test('health is re-read on every request, so a halt after boot is not cached', async () => {
-  const { instance, analytics } = app();
+test('health is cached for two seconds and re-read after, so a halt after boot shows within seconds', async () => {
+  let clock = 1_000_000;
+  const { instance, analytics } = app(new FakeAnalytics(), { openInterest: async () => OI, now: () => clock });
   await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });
   analytics.healthValue = HALTED;
-  const second = await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });
-  assert.equal(body(second.payload)['stale'], true);
+  // Inside the two seconds: the cached verdict, and no second read. A page's
+  // seven calls at once were seven chain RPCs for one block number.
+  clock += 1_000;
+  const within = await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });
+  assert.equal(body(within.payload)['stale'], false);
+  assert.equal(analytics.asked.filter((a) => a === 'health').length, 1);
+  // Past them: re-read behind the reader, and the NEXT answer says halted.
+  clock += 1_500;
+  await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });
+  await new Promise((r) => setTimeout(r, 0));
+  const after = await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });
+  assert.equal(body(after.payload)['stale'], true);
   assert.equal(analytics.asked.filter((a) => a === 'health').length, 2);
+});
+
+test('an indexed answer is served from the cache, with its age, and refreshed behind the reader past the TTL', async () => {
+  let clock = 1_000_000;
+  const { instance, analytics } = app(new FakeAnalytics(), { openInterest: async () => OI, now: () => clock, cacheTtlMs: 20_000 });
+  const first = body((await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' })).payload);
+  assert.equal(first['ageMs'], 0);
+  assert.equal(first['revalidating'], false);
+  clock += 5_000;
+  const cached = body((await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' })).payload);
+  assert.equal(cached['ageMs'], 5_000, 'the age is how old the figures are, not when they were served');
+  assert.equal(cached['computedAtMs'], 1_000_000);
+  assert.equal(analytics.asked.filter((a) => a === 'metrics:30d').length, 1, 'no second query inside the TTL');
+  clock += 20_000;
+  const stale = body((await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' })).payload);
+  assert.equal(stale['ageMs'], 25_000, 'served immediately, old');
+  assert.equal(stale['revalidating'], true);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(analytics.asked.filter((a) => a === 'metrics:30d').length, 2, 'one refresh ran behind it');
+  const fresh = body((await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' })).payload);
+  assert.equal(fresh['ageMs'], 0);
+  // A different window is a different answer, never served from the other's cache.
+  await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=7d' });
+  assert.equal(analytics.asked.filter((a) => a === 'metrics:7d').length, 1);
 });
 
 test('a stale envelope has no staleReason when the indexer is fine', async () => {

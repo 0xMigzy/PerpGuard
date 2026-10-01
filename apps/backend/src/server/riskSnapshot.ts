@@ -49,12 +49,27 @@ export class RiskSnapshotSource {
 
   async read(): Promise<RiskSnapshot> {
     const ttl = this.#options.ttlMs ?? DEFAULT_TTL_MS;
-    if (this.#cached !== undefined && this.#now() - this.#cached.atMs < ttl) return this.#cached.snapshot;
+    const cached = this.#cached;
+    if (cached !== undefined && this.#now() - cached.atMs < ttl) return cached.snapshot;
     // One build at a time: two pages polling at once join the same build.
     this.#inFlight ??= this.#build().finally(() => {
       this.#inFlight = undefined;
     });
+    // STALE-WHILE-REVALIDATE. A previous snapshot is served now and the rebuild
+    // runs behind it; the snapshot carries its own block and mark age, so the
+    // page shows how old it is rather than waiting a second for a newer one.
+    // A rebuild that fails is logged by the caller's next read, never thrown at
+    // a reader who was handed a perfectly good snapshot.
+    if (cached !== undefined) {
+      void this.#inFlight.catch(() => undefined);
+      return cached.snapshot;
+    }
     return this.#inFlight;
+  }
+
+  /** Age of the served snapshot, for whoever renders it. Undefined before the first build. */
+  ageMs(): number | undefined {
+    return this.#cached === undefined ? undefined : this.#now() - this.#cached.atMs;
   }
 
   async #build(): Promise<RiskSnapshot> {

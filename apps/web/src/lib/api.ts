@@ -40,6 +40,11 @@ export interface Envelope<T> {
   /** True whenever these numbers must not be presented as current. */
   readonly stale: boolean;
   readonly staleReason?: string;
+  /** When `data` was computed; `ageMs` is how old it was when served. */
+  readonly computedAtMs: number;
+  readonly ageMs: number;
+  /** True when a newer answer is being computed behind this one. */
+  readonly revalidating: boolean;
   readonly generatedAtMs: number;
 }
 
