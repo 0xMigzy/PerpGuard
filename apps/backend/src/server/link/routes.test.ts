@@ -61,7 +61,7 @@ function rig(options: { dynamic?: boolean; probeAccount?: number | undefined } =
     envAccountId: 710,
     keyStorageConfigured: true,
     now: () => 2_000,
-    ...(options.dynamic ? { dynamic: { verify: async (token: string) => (token === 'good-jwt' ? { sub: 'dyn', wallets: [OWNER] } : Promise.reject(new Error('bad signature'))) } } : {}),
+    ...(options.dynamic ? { dynamic: { verify: async (token: string) => (token === 'good-jwt' ? { sub: 'dyn', email: undefined, wallets: [OWNER], expiresAtMs: 9_999_999_999_999 } : Promise.reject(new Error('bad signature'))) } } : {}),
   });
   return { app, service, links, keys, logs, closed, running };
 }
@@ -97,7 +97,7 @@ test('a code opens a cookie session that says who is here and that nothing is li
 test('every proof route needs the cookie', async () => {
   const r = rig({ dynamic: true });
   for (const [method, url] of [['GET', '/api/link/me'], ['POST', '/api/link/wallet'], ['POST', '/api/link/key'], ['POST', '/api/link/unlink']] as const) {
-    const res = await r.app.inject({ method, url, payload: method === 'POST' ? { apiKey: API_KEY, secret: SECRET_HEX, dynamicToken: 'good-jwt' } : undefined });
+    const res = await r.app.inject(method === 'POST' ? { method, url, payload: { apiKey: API_KEY, secret: SECRET_HEX, dynamicToken: 'good-jwt' } } : { method, url });
     assert.equal(res.statusCode, 401, `${method} ${url}`);
     assert.ok(!JSON.stringify(res.json()).includes(API_KEY));
   }

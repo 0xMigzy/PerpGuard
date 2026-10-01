@@ -551,6 +551,13 @@ export interface WalletProfile {
   readonly netPnlAusd: number;
   readonly volumeAusd: number;
   readonly tradeCount: number;
+  /**
+   * The account's FREE balance as indexed: collateral not committed to any
+   * position. Isolated margin never pulls it in to save a position, which is
+   * why the bot's watched-wallet screen sets it beside what a position would
+   * lose. Display value; anything that compares money recovers exact micros.
+   */
+  readonly freeBalanceAusd: number;
 }
 
 export interface OpenPosition {

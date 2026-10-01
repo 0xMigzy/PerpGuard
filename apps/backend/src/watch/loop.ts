@@ -27,6 +27,7 @@
  */
 import {
   fromVenuePosition,
+  marginToReachBuffer,
   positionMetrics,
   priceToPNS,
   type IndexerHealth,
@@ -199,6 +200,7 @@ export class WatchLoop {
         indexerBlock: health.latestProcessedBlock,
         blocksBehind: health.blocksBehind,
         indexerState: health.state,
+        ...(Number.isFinite(profile.freeBalanceAusd) ? { freeBalanceCNS: ausdToCNS(profile.freeBalanceAusd) } : {}),
       };
 
       for (const position of profile.openPositions) {
@@ -266,8 +268,11 @@ export class WatchLoop {
           thresholds: this.#thresholds,
         });
 
+        // Words for the watcher, never a button: what it would take to climb
+        // out of DANGER, by the same function an owner's top-up uses.
+        const toClearDangerCNS = risk.lotLNS === 0n ? 0n : marginToReachBuffer(risk, markPricePNS, this.#thresholds.dangerExitPct, config);
         const assessment: RiskAssessment = {
-          watch: scope,
+          watch: { ...scope, sizeUnits: position.sizeLots, toClearDangerCNS },
           marketId,
           symbol: config.symbol,
           side: position.side,
@@ -384,3 +389,13 @@ const EMPTY_METRICS = {
   isLiquidatable: false,
   marginToSurviveCNS: 0n,
 } as const;
+
+/**
+ * Display AUSD back to exact micros. The index serves money as decimal AUSD;
+ * every value below ~9 billion AUSD round-trips through a double to the exact
+ * micro, so rounding here recovers the integer the index stored rather than
+ * approximating one. Collateral is AUSD, 6 decimals.
+ */
+export function ausdToCNS(ausd: number): bigint {
+  return BigInt(Math.round(ausd * 1_000_000));
+}

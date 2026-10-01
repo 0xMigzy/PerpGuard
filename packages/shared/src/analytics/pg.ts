@@ -420,7 +420,8 @@ select id, "accountId", owner, "firstTradeAt", "lastActiveAt",
        "tradeCount", "roundTrips", wins, losses,
        "bestRoundTripCNS", "worstRoundTripCNS",
        "liquidationCount", "rescuableLiquidationCount",
-       "liquidationsWithSpareBalanceCount", "spareBalanceAtLiquidationCNS"
+       "liquidationsWithSpareBalanceCount", "spareBalanceAtLiquidationCNS",
+       "freeBalanceCNS"::text as free_balance
   from "Trader" where id = $1
 `;
 
@@ -1177,6 +1178,7 @@ export class PostgresAnalytics implements Analytics {
       netPnlAusd: toAusd(trader['netPnlCNS'], decimals),
       volumeAusd: toAusd(trader['volumeCNS'], decimals),
       tradeCount: count(trader['tradeCount']),
+      freeBalanceAusd: toAusd(trader['free_balance'], decimals),
     };
   }
 

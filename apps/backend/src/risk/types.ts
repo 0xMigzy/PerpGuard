@@ -192,6 +192,21 @@ export interface WatchedScope {
   readonly indexerBlock: number | undefined;
   readonly blocksBehind: number | undefined;
   readonly indexerState: string;
+  /**
+   * The account's free balance as indexed, in collateral micros. Undefined
+   * when the index did not say. Shown beside what a position would lose,
+   * because isolated margin never moves it on its own.
+   */
+  readonly freeBalanceCNS?: bigint;
+  /** This position's size in base units, as indexed. */
+  readonly sizeUnits?: number;
+  /**
+   * Margin this position needs to climb back out of DANGER (the danger EXIT
+   * threshold), in micros; 0 when it is already clear. Computed with the same
+   * function as an owner's top-up. A WORD, NEVER A BUTTON: `topUp` stays
+   * undefined on every watched assessment.
+   */
+  readonly toClearDangerCNS?: bigint;
 }
 
 /**

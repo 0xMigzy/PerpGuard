@@ -94,7 +94,7 @@ test('a watched position is classified with the owner’s thresholds, scoped to 
   assert.equal(a.side, 'long');
   assert.equal(a.topUp, undefined, 'a watcher is never offered an action');
   assert.equal(a.positionId, undefined);
-  assert.deepEqual(a.watch, { accountId: 5293, label: '#5293 (0xb785…1765)', indexerBlock: 109_000_000, blocksBehind: 12, indexerState: 'synced' });
+  assert.deepEqual(a.watch, { accountId: 5293, label: '#5293 (0xb785…1765)', indexerBlock: 109_000_000, blocksBehind: 12, indexerState: 'synced', sizeUnits: FIXTURE_BTC.size, toClearDangerCNS: 561_460_000n });
   assert.equal(a.priceIsOld, false);
   assert.equal(a.heldOnStalePrice, false);
   assert.equal(r.changes.length, 1, 'first sight is a change');
@@ -187,4 +187,26 @@ test('unwatching an account drops it; a position that closes is dropped when the
 test('labels name the account and the owner when there is one', () => {
   assert.equal(labelOf(5293, OWNER), '#5293 (0xb785…1765)');
   assert.equal(labelOf(710, ''), '#710');
+});
+
+test('a watched DANGER position carries free balance, size and the climb-out amount as words, never as a top-up', async () => {
+  const r = rig();
+  r.profiles.set(5293, { ...profileOf(5293, [open(FIXTURE_BTC.margin)]), freeBalanceAusd: 2_910.123456 } as WalletProfile);
+  const [a] = await r.loop.evaluate();
+  assert.equal(a!.state, 'DANGER');
+  assert.equal(a!.topUp, undefined, 'still no top-up: a watcher cannot act');
+  assert.equal(a!.watch?.freeBalanceCNS, 2_910_123_456n, 'exact micros recovered from the indexed AUSD');
+  assert.equal(a!.watch?.sizeUnits, FIXTURE_BTC.size);
+  // The owner's own "clear danger" option for this exact position is 562 AUSD (ceiled);
+  // the exact amount sits just under it.
+  const need = a!.watch?.toClearDangerCNS ?? -1n;
+  assert.ok(need > 561_000_000n && need <= 562_000_000n, `toClearDanger ${need}`);
+});
+
+test('a watched position already clear of DANGER needs nothing to climb out', async () => {
+  const r = rig();
+  r.profiles.set(5293, profileOf(5293, [open(SAFE_BTC.margin)]));
+  const [a] = await r.loop.evaluate();
+  assert.equal(a!.watch?.toClearDangerCNS, 0n);
+  assert.equal(a!.watch?.freeBalanceCNS, undefined, 'unknown free balance stays unknown');
 });

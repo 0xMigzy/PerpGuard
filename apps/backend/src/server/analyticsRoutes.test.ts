@@ -557,7 +557,7 @@ test('assessed positions need a venue: 503 without one, the profile\'s rows thro
     ],
     performance: { roundTrips: 0, wins: 0, losses: 0, winRate: undefined, profitFactor: undefined, minRoundTripsForRatios: 10, maxDrawdownAusd: 0, longestWinStreak: 0, longestLossStreak: 0, averageHoldMs: undefined, bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined },
     rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, spareBalanceAusd: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
-    realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0,
+    realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, freeBalanceAusd: 0,
   };
   const given: unknown[] = [];
   const wired = app(analytics, {
@@ -599,7 +599,7 @@ const PROFILE: WalletProfile = {
     bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined,
   },
   rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, spareBalanceAusd: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
-  realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0,
+  realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, freeBalanceAusd: 0,
 };
 
 const chain = (answer: AccountLookup) => async (_address: string): Promise<AccountLookup> => answer;
