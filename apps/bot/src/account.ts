@@ -21,6 +21,7 @@ import { WARN_LEVELS, warnLevelInfo, type WarnLevel } from '@perpguard/backend/r
 import type { FreeBalanceReading } from './balance.ts';
 import type { ExecutionOutcome } from './actions.ts';
 import type { AccountSettings } from './settings.ts';
+import type { KillSwitchReport } from './sessions.ts';
 import type { Button, Screen } from './screens.ts';
 
 const BACK_TO_POSITIONS: Button = { text: '← Back', route: { to: 'positions' } };
@@ -110,7 +111,7 @@ export function positionScreen(input: PositionInput): Screen {
   const blind = blindLine(input.feed, input.positions);
 
   const liq = a.liquidationPricePNS;
-  const lose = a.marginCNS === undefined ? 'the money behind it' : `the ${money(a.marginCNS, 'floor', market.collateralDecimals)} behind it`;
+  const lose = a.marginCNS === undefined ? 'the money behind it' : `the ${held(a.marginCNS, market.collateralDecimals)} behind it`;
   if (!isBlind(a.state)) {
     lines.push(
       liq !== undefined && liq > 0n
@@ -267,7 +268,8 @@ export interface OutcomeInput {
 export function outcomeScreen(input: OutcomeInput): Screen {
   const { action, outcome, market } = input;
   const name = input.assessment === undefined ? esc(action.symbol) : positionName(input.assessment);
-  const nav: Button[] = [{ text: '🛡 My positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }];
+  // FRESH: the outcome is the record of what happened to their money, and it stays.
+  const nav: Button[] = [{ text: '🛡 My positions', route: { to: 'positions' }, fresh: true }, { text: '← Home', route: { to: 'home' }, fresh: true }];
   switch (outcome.kind) {
     case 'applied': {
       const lines: string[] = [];
@@ -354,3 +356,24 @@ export function killAskScreen(accountId: number, assessments: readonly RiskAsses
 
 /** The intents that mean "add margin", for callers that branch on it. */
 export const TOP_UP_INTENTS: ReadonlySet<AlertActionIntent> = new Set(['clear-danger', 'to-safe', 'custom']);
+
+/** The kill switch's report, worded for the person who fired it. */
+export function killReportScreen(report: KillSwitchReport): Screen {
+  const nav: Button[] = [{ text: '🛡 My positions', route: { to: 'positions' }, fresh: true }, { text: '← Home', route: { to: 'home' }, fresh: true }];
+  if (report.refused !== undefined) return { html: `<b>Kill switch not fired.</b> ${esc(report.refused)} Nothing was sent.`, buttons: [nav] };
+  const total = report.closed.length + report.stillOpen.length + report.unresolved.length;
+  const lines: string[] = [];
+  if (total === 0 && report.notPriceable.length === 0) lines.push('<b>Nothing to close:</b> there were no open positions.');
+  else if (report.stillOpen.length === 0 && report.unresolved.length === 0 && report.notPriceable.length === 0) {
+    lines.push(`✓ <b>Closed all ${total} position${total === 1 ? '' : 's'}</b>: ${report.closed.map(esc).join(', ')}.`);
+    lines.push("<i>Each one checked against the position itself, not only the exchange's reply.</i>");
+  } else {
+    lines.push(`⚠️ <b>Closed ${report.closed.length} of ${total + report.notPriceable.length}. You still have exposure.</b>`);
+    for (const name of report.closed) lines.push(`✓ ${esc(name)} — closed`);
+    for (const p of report.stillOpen) lines.push(`• ${esc(p.name)} — still open: ${esc(p.why)}`);
+    for (const p of report.unresolved) lines.push(`? ${esc(p.name)} — not known yet. ${esc(p.nextStep)}`);
+    for (const name of report.notPriceable) lines.push(`• ${esc(name)} — not closed: I cannot price it right now.`);
+    if (report.unresolved.length > 0) lines.push('', '<b>Do not fire the kill switch again to finish:</b> that would re-send closes for positions that may already be closed.');
+  }
+  return { html: lines.join('\n'), buttons: [nav] };
+}

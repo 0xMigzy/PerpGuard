@@ -169,7 +169,7 @@ export function watchedPositionLines(assessment: RiskAssessment, market: MarketR
   } else {
     lines.push('No closing price: there is more behind it than it could lose.');
   }
-  if (assessment.marginCNS !== undefined) lines.push(`They would lose ${money(assessment.marginCNS, 'floor', market.collateralDecimals)}`);
+  if (assessment.marginCNS !== undefined) lines.push(`They would lose ${held(assessment.marginCNS, market.collateralDecimals)}`);
   return lines;
 }
 
@@ -206,7 +206,7 @@ export function renderWatchAlertHtml(assessment: RiskAssessment, kind: AlertKind
     const symbol = esc(assessment.symbol);
     const now = formatPricePNS(assessment.markPricePNS, market);
     const liq = assessment.liquidationPricePNS;
-    const lose = assessment.marginCNS === undefined ? 'the money behind it' : `the ${money(assessment.marginCNS, 'floor', market.collateralDecimals)} behind it`;
+    const lose = assessment.marginCNS === undefined ? 'the money behind it' : `the ${held(assessment.marginCNS, market.collateralDecimals)} behind it`;
     if (liq !== undefined && liq > 0n) {
       const closes = formatPricePNS(liq, market);
       lines.push(

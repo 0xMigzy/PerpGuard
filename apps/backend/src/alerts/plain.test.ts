@@ -101,3 +101,9 @@ test('a balance under one AUSD is "under 1 AUSD", never a floored "0 AUSD"; an e
   assert.match(renderWatchAlertHtml(watched({ freeBalanceCNS: 300_000n }), 'danger', BTC), /They hold <b>under 1 AUSD<\/b> free — not enough/);
   assert.match(renderWatchAlertHtml(watched({ freeBalanceCNS: 0n }), 'danger', BTC), /They hold no free AUSD to move: pulling it out of danger takes <b>562 AUSD<\/b>\./);
 });
+
+test('a position with under one AUSD behind it says "under 1 AUSD", never "lose the 0 AUSD"', () => {
+  const tiny = watched({}, { marginCNS: 268_340n });
+  assert.match(renderWatchAlertHtml(tiny, 'danger', BTC), /they lose the <b>under 1 AUSD<\/b> behind it/);
+  assert.ok(watchedPositionLines(tiny, BTC).includes('They would lose <b>under 1 AUSD</b>'));
+});

@@ -35,6 +35,7 @@ import {
   confirmScreen,
   disconnectAskScreen,
   killAskScreen,
+  killReportScreen,
   outcomeScreen,
   positionScreen,
   positionsScreen,
@@ -47,7 +48,7 @@ import { buildMessage } from '@perpguard/backend/alerts/render';
 import { esc } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { warnLevelByIndex, warnLevelInfo } from '@perpguard/backend/risk/warn';
-import { decodeNav, encodeNav, isPublicRoute, type Route } from './nav.ts';
+import { decodeNav, decodeNavTap, encodeNav, isPublicRoute, type Route } from './nav.ts';
 import { PendingQuestionStore } from './questions.ts';
 import {
   WATCH_PLACEHOLDER,
@@ -186,7 +187,7 @@ function withoutUrlButtons(screen: Screen): Screen {
 export function keyboardFor(screen: Screen): InlineKeyboard {
   return InlineKeyboard.from(
     screen.buttons.map((row) =>
-      row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : 'data' in b ? InlineKeyboard.text(b.text, b.data) : InlineKeyboard.text(b.text, encodeNav(b.route)))),
+      row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : 'data' in b ? InlineKeyboard.text(b.text, b.data) : InlineKeyboard.text(b.text, encodeNav(b.route, { fresh: b.fresh === true })))),
     ),
   );
 }
@@ -220,6 +221,8 @@ export function createBot(deps: BotDeps): Bot {
   const questions = deps.questions ?? new PendingQuestionStore({ now });
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
   const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
+  /** Taps whose screen opens as a new message, leaving the tapped one as it is. */
+  const freshTaps = new WeakSet<Context>();
   /** When each chat was last pointed at the menu for chatter it sent. */
   const hinted = new Map<number, number>();
 
@@ -362,7 +365,7 @@ export function createBot(deps: BotDeps): Bot {
    * (an old or deleted message) falls back to sending it fresh.
    */
   async function showScreen(ctx: Context, screen: Screen): Promise<void> {
-    if (ctx.callbackQuery?.message === undefined) {
+    if (ctx.callbackQuery?.message === undefined || freshTaps.has(ctx)) {
       await sendScreen(ctx, screen);
       return;
     }
@@ -760,8 +763,7 @@ export function createBot(deps: BotDeps): Bot {
         }
         await ctx.answerCallbackQuery();
         await showScreen(ctx, { html: 'Closing every position, closest to its closing price first, and checking each one afterwards. This can take a minute per position. Do not fire it again meanwhile.', buttons: [] });
-        const report = await account.killSwitch(link.userId);
-        await sendScreen(ctx, { html: esc(report), buttons: [[{ text: '🛡 My positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
+        await sendScreen(ctx, killReportScreen(await account.killSwitch(link.userId)));
         return;
       }
       default:
@@ -772,9 +774,10 @@ export function createBot(deps: BotDeps): Bot {
   // ── button taps ───────────────────────────────────────────────────────────
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
-    const route = decodeNav(data);
-    if (route !== undefined) {
-      await handleNav(ctx, route);
+    const tap = decodeNavTap(data);
+    if (tap !== undefined) {
+      if (tap.fresh) freshTaps.add(ctx);
+      await handleNav(ctx, tap.route);
       return;
     }
     const decoded = decodeCallback(data);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeNav, encodeNav, isPublicRoute, type Route } from './nav.ts';
+import { decodeNav, decodeNavTap, encodeNav, isPublicRoute, type Route } from './nav.ts';
 import { decodeCallback } from './callback.ts';
 
 const ALL: Route[] = [
@@ -27,4 +27,14 @@ test('the decoder rejects anything it did not write', () => {
   for (const bad of ['', 'n1', 'n1:', 'n2:h', 'n1:h:1', 'n1:w', 'n1:w:', 'n1:w:-1', 'n1:w:1.5', 'n1:w:1:2', 'n1:zz', 'a1:tok:1:100', 'n1:w:9999999999999']) {
     assert.equal(decodeNav(bad), undefined, bad);
   }
+});
+
+test('a fresh tap decodes to the same route with the flag; the gate\u2019s decoder reads it as that route', () => {
+  for (const route of ALL) {
+    const data = encodeNav(route, { fresh: true });
+    assert.deepEqual(decodeNavTap(data), { route, fresh: true });
+    assert.deepEqual(decodeNav(data), route);
+    assert.deepEqual(decodeNavTap(encodeNav(route)), { route, fresh: false });
+  }
+  for (const bad of ['n1:+', 'n1:h++', 'n1:w+', 'n1:+h']) assert.equal(decodeNavTap(bad), undefined, bad);
 });

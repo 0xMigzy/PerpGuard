@@ -27,7 +27,8 @@ import type { Route } from './nav.ts';
 import type { WatchSubscription } from './watch.ts';
 
 export type Button =
-  | { readonly text: string; readonly route: Route }
+  /** `fresh`: open as a new message rather than editing this one (see `NavTap`). */
+  | { readonly text: string; readonly route: Route; readonly fresh?: boolean }
   | { readonly text: string; readonly url: string }
   /**
    * An ACTION button: pre-encoded `callback.ts` data carrying a pending-action

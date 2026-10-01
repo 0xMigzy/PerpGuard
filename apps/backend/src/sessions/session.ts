@@ -38,7 +38,7 @@ import {
   type Unsubscribe,
   type VenueMarket,
 } from '@perpguard/shared';
-import { freeBalanceFrom, type AccountView, type FreeBalanceView, type RiskView } from '@perpguard/bot';
+import { freeBalanceFrom, type AccountView, type FreeBalanceView, type KillSwitchReport, type RiskView } from '@perpguard/bot';
 import { VenueActionExecutor } from '@perpguard/bot';
 import { ActionsExecutor, LoopPositionReader, type ActionLog } from '../actions/index.ts';
 import { describeKillSwitch, fireKillSwitch } from '../actions/killSwitch.ts';
@@ -249,21 +249,25 @@ export class AccountSession {
    * Refused outright while the position list cannot be trusted: a kill switch
    * fired against a stale list closes the wrong set, or misses one.
    */
-  async killSwitch(userId: string): Promise<string> {
+  async killSwitch(userId: string): Promise<KillSwitchReport> {
     const status = this.positionSource.status();
     if (status.state !== 'live') {
-      return `Kill switch not fired. I cannot see your positions right now (the list is ${status.state}), so I do not know what to close. Nothing was sent.`;
+      return { refused: `I cannot see your positions right now (the list is ${status.state}), so I do not know what to close.`, closed: [], stillOpen: [], unresolved: [], notPriceable: [] };
     }
     const configs = this.#deps.riskConfigs;
     const marks = new Map<number, bigint>();
-    for (const a of this.loop.snapshot()) if (a.markPricePNS > 0n) marks.set(a.marketId, a.markPricePNS);
+    const sides = new Map<number, string>();
+    for (const a of this.loop.snapshot()) {
+      if (a.markPricePNS > 0n) marks.set(a.marketId, a.markPricePNS);
+      if (a.side !== undefined) sides.set(a.marketId, `${a.symbol} ${a.side}`);
+    }
     const positions: RiskPosition[] = [];
     const positionIds = new Map<number, number>();
-    const unpriceable: string[] = [];
+    const notPriceable: string[] = [];
     for (const p of this.positionSource.snapshot()) {
       const config = configs.get(p.marketId);
       if (config === undefined || !marks.has(p.marketId)) {
-        unpriceable.push(p.symbol);
+        notPriceable.push(`${p.symbol} ${p.side}`);
         continue;
       }
       positions.push(fromVenuePosition(p, config));
@@ -280,10 +284,15 @@ export class AccountSession {
       keyFor: (marketId, order) => `${userId}:kill:${this.accountId}:${run}:${marketId}:${order}`,
       logger: { info: this.#log, warn: this.#warn },
     });
-    const report = describeKillSwitch(result);
-    return unpriceable.length === 0
-      ? report
-      : `${report}\nNOT closed, because I cannot price them right now: ${unpriceable.join(', ')}. You still hold these.`;
+    // The full report, log-shaped, goes to the log; the bot gets the facts.
+    this.#log(describeKillSwitch(result));
+    const name = (line: { marketId: number; symbol: string }): string => sides.get(line.marketId) ?? line.symbol;
+    return {
+      closed: result.closed.map(name),
+      stillOpen: result.stillOpen.map((line) => ({ name: name(line), why: line.outcome.kind === 'refused' ? line.outcome.detail : 'it was sent, and I checked afterwards: the position is still open' })),
+      unresolved: result.unresolved.map((line) => ({ name: name(line), nextStep: line.outcome.kind === 'unknown' ? line.outcome.nextStep : 'Look at this position before doing anything else.' })),
+      notPriceable,
+    };
   }
 
   /** Called when the key turns out to sign for another account. The registry closes the session. */

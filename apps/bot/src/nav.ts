@@ -86,7 +86,23 @@ export function isPublicRoute(route: Route): boolean {
 
 const VERSION = 'n1';
 
-export function encodeNav(route: Route): string {
+/**
+ * A tap that opens its screen as a NEW message instead of editing the one it
+ * sits on. Used on outcome and kill-switch reports: those are the record of
+ * what happened to someone's money, and navigating on from one must not
+ * overwrite it. Encoded as a trailing `+` on the code.
+ */
+export interface NavTap {
+  readonly route: Route;
+  readonly fresh: boolean;
+}
+
+export function encodeNav(route: Route, options: { readonly fresh?: boolean } = {}): string {
+  if (options.fresh === true) {
+    const plain = encodeNav(route);
+    const [v, code, ...rest] = plain.split(':');
+    return [v, `${code}+`, ...rest].join(':');
+  }
   const arg = ARG[route.to];
   const value = arg === undefined ? undefined : (route as unknown as Record<string, number>)[arg];
   if (arg !== undefined && (value === undefined || !Number.isSafeInteger(value) || value < 0)) {
@@ -99,7 +115,19 @@ export function encodeNav(route: Route): string {
 
 /** Read a tap back. Undefined for anything this file did not write. Never throws. */
 export function decodeNav(data: string): Route | undefined {
+  return decodeNavTap(data)?.route;
+}
+
+/** A tap with its `fresh` flag. */
+export function decodeNavTap(data: string): NavTap | undefined {
   const parts = data.split(':');
+  const fresh = parts[1]?.endsWith('+') === true;
+  if (fresh) parts[1] = parts[1]!.slice(0, -1);
+  const route = decodeParts(parts);
+  return route === undefined ? undefined : { route, fresh };
+}
+
+function decodeParts(parts: string[]): Route | undefined {
   if (parts[0] !== VERSION || parts.length < 2 || parts.length > 3) return undefined;
   const name = NAME_BY_CODE.get(parts[1]!);
   if (name === undefined) return undefined;

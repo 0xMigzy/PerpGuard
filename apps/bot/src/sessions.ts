@@ -21,7 +21,22 @@ export interface AccountView {
    * Close every open position on this account, worst first, and say what
    * happened. Absent where no session can fire one (tests, demos).
    */
-  readonly killSwitch?: (userId: string) => Promise<string>;
+  readonly killSwitch?: (userId: string) => Promise<KillSwitchReport>;
+}
+
+/**
+ * What a kill switch did, per position, in terms the bot can word plainly.
+ * `refused` means nothing was sent at all, with the reason.
+ */
+export interface KillSwitchReport {
+  readonly refused?: string;
+  readonly closed: readonly string[];
+  /** Still open: refused or reconciled as not closed, with why. */
+  readonly stillOpen: ReadonlyArray<{ readonly name: string; readonly why: string }>;
+  /** Not known: something may have happened. Never "try again". */
+  readonly unresolved: ReadonlyArray<{ readonly name: string; readonly nextStep: string }>;
+  /** Open, but not closed because they could not be priced. */
+  readonly notPriceable: readonly string[];
 }
 
 export interface SessionRouter {

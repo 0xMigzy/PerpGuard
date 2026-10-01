@@ -22,6 +22,7 @@ import type { IndexerHealth } from '@perpguard/shared';
 import { InMemoryWatchStore, RateLimiter, type ResolvedWatchTarget, type WatchResolver, type WatchTarget } from './watch.ts';
 import { encodeNav, type Route } from './nav.ts';
 import { InMemoryAccountSettingsStore } from './settings.ts';
+import type { KillSwitchReport } from './sessions.ts';
 import { StaticSessionRouter } from './sessions.ts';
 import {
   CONFIGS,
@@ -58,7 +59,7 @@ interface Harness {
   readonly resolver: FakeResolver;
   nowMs: number;
   /** What the owner's session does when its kill switch fires. Undefined: not available. */
-  killSwitch: ((userId: string) => Promise<string>) | undefined;
+  killSwitch: ((userId: string) => Promise<KillSwitchReport>) | undefined;
 }
 
 /** A resolver the test scripts: an address or id -> an account, or a refusal. */
@@ -78,7 +79,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
   const view = new FakeView();
   const balance = new FakeBalance();
   const links = options.links ?? newLinks();
-  const state: { nowMs: number; killSwitch: ((userId: string) => Promise<string>) | undefined } = { nowMs: 1_000_000, killSwitch: undefined };
+  const state: { nowMs: number; killSwitch: ((userId: string) => Promise<KillSwitchReport>) | undefined } = { nowMs: 1_000_000, killSwitch: undefined };
   const store = new PendingActionStore({
     now: () => state.nowMs,
     nextToken: countingTokens(),
@@ -96,7 +97,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     links,
     store,
     amounts,
-    sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance, killSwitch: (userId: string) => (state.killSwitch === undefined ? Promise.resolve('not available') : state.killSwitch(userId)) }]),
+    sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance, killSwitch: (userId: string) => (state.killSwitch === undefined ? Promise.resolve({ refused: 'not available', closed: [], stillOpen: [], unresolved: [], notPriceable: [] }) : state.killSwitch(userId)) }]),
     ownerAccountId: OWNER_ACCOUNT,
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     configs: CONFIGS,
@@ -128,7 +129,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     get killSwitch() {
       return state.killSwitch;
     },
-    set killSwitch(fn: ((userId: string) => Promise<string>) | undefined) {
+    set killSwitch(fn: ((userId: string) => Promise<KillSwitchReport>) | undefined) {
       state.killSwitch = fn;
     },
   };
@@ -1319,7 +1320,7 @@ test('the kill switch needs the nonce it just showed: a crafted or replayed kill
   let fired = 0;
   h.killSwitch = async () => {
     fired += 1;
-    return 'Kill switch complete: all 1 position closed.';
+    return { closed: ['BTC long'], stillOpen: [], unresolved: [], notPriceable: [] };
   };
   await tapNav(h, { to: 'kill-go', nonce: 123_456 });
   assert.match(answers(h.telegram).at(-1)!, /has expired\. Nothing was sent/);
@@ -1330,7 +1331,7 @@ test('the kill switch needs the nonce it just showed: a crafted or replayed kill
   assert.equal(go.text, '⛔ Close all 1');
   await h.bot.handleUpdate(callbackUpdate(go.callback_data));
   assert.equal(fired, 1);
-  assert.match(shown(h.telegram).at(-1)!, /Kill switch complete/);
+  assert.match(shown(h.telegram).at(-1)!, /^✓ <b>Closed all 1 position<\/b>: BTC long\./);
   await h.bot.handleUpdate(callbackUpdate(go.callback_data));
   assert.equal(fired, 1, 'single use');
   // A stranger tapping the same payload is refused at the gate.
@@ -1398,4 +1399,18 @@ test('a URL button Telegram refuses does not lose the screen: it goes out again 
   const sends = h.telegram.of('sendMessage');
   assert.equal(sends.length, 2, 'refused once, then sent');
   assert.match(String(sends[1]!.payload['text']), /Watch any Perpl trader/);
+});
+
+test('navigating on from an outcome opens a new message: the outcome stays in the chat as the record', async () => {
+  const h = harness();
+  h.executor.outcome = { kind: 'applied', detail: 'Done — the margin is in.' };
+  const confirm = await confirmedTopUp(h);
+  await h.bot.handleUpdate(callbackUpdate(confirm));
+  const outcome = lastScreen(h.telegram);
+  assert.match(String(outcome.payload['text']), /^✓ <b>Added 562 AUSD to BTC long<\/b>/);
+  const myPositions = keyboardOf(outcome).find((b) => b.text === '🛡 My positions')!;
+  const edits = h.telegram.of('editMessageText').length;
+  await h.bot.handleUpdate(callbackUpdate(myPositions.callback_data));
+  assert.equal(h.telegram.of('editMessageText').length, edits, 'nothing edited');
+  assert.match(String(h.telegram.last('sendMessage').payload['text']), /^<b>Account #710<\/b>/);
 });
