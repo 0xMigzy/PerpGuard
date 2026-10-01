@@ -133,6 +133,12 @@ export interface AlertMessage {
   readonly title: string;
   /** The body, one line per element. `text` is these joined, title included. */
   readonly lines: readonly string[];
+  /**
+   * The same alert in Telegram HTML, in the bot screens' plain voice. Present
+   * only on a WATCHED assessment's message, where the transport sends it with
+   * parse mode HTML. `text` stays the plain record that `alert_log` keeps.
+   */
+  readonly html?: string;
   readonly text: string;
   readonly actions: readonly AlertAction[];
   readonly atMs: number;

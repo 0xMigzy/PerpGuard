@@ -6,6 +6,7 @@
   "exports": {
     "./alerts": "./src/alerts/types.ts",
     "./alerts/render": "./src/alerts/render.ts",
+    "./alerts/plain": "./src/alerts/plain.ts",
     "./alerts/rules": "./src/alerts/rules.ts",
     "./alerts/engine": "./src/alerts/engine.ts",
     "./risk": "./src/risk/types.ts",

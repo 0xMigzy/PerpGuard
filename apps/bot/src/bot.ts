@@ -18,19 +18,34 @@
  */
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability, IndexerHealth } from '@perpguard/shared';
+import type { ActionAvailability, IndexerHealth, MarketRiskConfig } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
   type AlertConfig,
 } from '@perpguard/backend/alerts';
-import type { MarketConfigs } from '@perpguard/backend/risk';
+import type { MarketConfigs, RiskAssessment } from '@perpguard/backend/risk';
 import {
   type ActionExecutor,
   type PendingAction,
   type PendingActionStore,
 } from './actions.ts';
 import { authorise } from './auth.ts';
+import { decodeNav, encodeNav, isPublicRoute, type Route } from './nav.ts';
+import { PendingQuestionStore } from './questions.ts';
+import {
+  WATCH_PLACEHOLDER,
+  WATCH_PROMPT,
+  connectGoScreen,
+  connectScreen,
+  connectUnavailableScreen,
+  homeScreen,
+  walletScreen,
+  watchAskScreen,
+  watchlistScreen,
+  type AccountFacts,
+  type Screen,
+} from './screens.ts';
 import { InMemoryIdentityStore, type IdentityStore } from './identity.ts';
 import type { LinkRecord } from './links.ts';
 import type { AccountView, SessionRouter } from './sessions.ts';
@@ -54,13 +69,12 @@ import type { RiskView } from './view.ts';
 import {
   DEFAULT_RATE_LIMIT,
   RateLimiter,
-  TIERS_TEXT,
   labelFor,
+  parseWatchArgument,
   parseWatchTarget,
-  renderWatched,
-  renderWatching,
   type WatchResolver,
   type WatchStore,
+  type WatchTarget,
 } from './watch.ts';
 
 export interface BotDeps {
@@ -113,7 +127,19 @@ export interface BotDeps {
     readonly limiter?: RateLimiter;
     /** The indexer verdict the watch loop last ran against, quoted in replies. */
     readonly indexerHealth?: () => IndexerHealth | undefined;
+    /** One watched account's current assessments, for the watched-wallet screen. */
+    readonly assessments?: (accountId: number) => readonly RiskAssessment[];
+    /** What the last pass learned about one account; undefined means not read yet. */
+    readonly facts?: (accountId: number) => AccountFacts | undefined;
+    /** The mainnet market configs the watch loop prices with. */
+    readonly configs?: () => ReadonlyMap<number, MarketRiskConfig> | undefined;
+    /** Run a watch pass now, so a freshly watched account shows at once. Bounded by the bot. */
+    readonly refresh?: () => Promise<unknown>;
   };
+  /** The public web app, for the home screen's "Open PerpGuard" button. */
+  readonly webUrl?: string;
+  /** Open questions; defaults to a fresh store. */
+  readonly questions?: PendingQuestionStore;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -129,7 +155,28 @@ export interface BotDeps {
  * button tap, needs the link. Matched on the first word with any @mention
  * stripped, so `/watch@PerpGuardBot 0x…` in a group is `/watch`.
  */
-const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/unwatch', '/watching', '/link', '/unlink']);
+const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/link', '/unlink']);
+
+/** At most one "I did not catch that" per chat per hour. */
+const HINT_EVERY_MS = 60 * 60_000;
+
+/** How long a fresh watch waits for the index before showing what it has. */
+const REFRESH_WAIT_MS = 8_000;
+
+function isUrlButtonError(error: unknown): boolean {
+  return error instanceof Error && /BUTTON_URL_INVALID|wrong HTTP URL|URL host is empty/i.test(error.message);
+}
+
+function withoutUrlButtons(screen: Screen): Screen {
+  return { ...screen, buttons: screen.buttons.map((row) => row.filter((b) => !('url' in b))).filter((row) => row.length > 0) };
+}
+
+/** A screen's buttons as Telegram's keyboard: routes become nav payloads, URLs stay URLs. */
+export function keyboardFor(screen: Screen): InlineKeyboard {
+  return InlineKeyboard.from(
+    screen.buttons.map((row) => row.map((b) => ('url' in b ? InlineKeyboard.url(b.text, b.url) : InlineKeyboard.text(b.text, encodeNav(b.route))))),
+  );
+}
 
 function commandOf(text: string | undefined): string | undefined {
   const first = text?.trim().split(/\s+/)[0];
@@ -157,6 +204,10 @@ export function createBot(deps: BotDeps): Bot {
 
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
   const identities = deps.identities ?? new InMemoryIdentityStore();
+  const questions = deps.questions ?? new PendingQuestionStore({ now });
+  const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
+  /** When each chat was last pointed at the menu for chatter it sent. */
+  const hinted = new Map<number, number>();
 
   /**
    * THE REQUEST-TIME RULE. The requesting chat's link, and the live session for
@@ -198,6 +249,25 @@ export function createBot(deps: BotDeps): Bot {
       await next();
       return;
     }
+    // A NAVIGATION tap to a PUBLIC route: a screen a watcher may see. Decoded
+    // strictly, by a different decoder from the action buttons, so no action
+    // payload — real or crafted — can pass as one. Everything else a tap can
+    // carry is refused below, exactly as before.
+    const data = ctx.callbackQuery?.data;
+    if (data !== undefined) {
+      const route = decodeNav(data);
+      if (route !== undefined && isPublicRoute(route)) {
+        await next();
+        return;
+      }
+    }
+    // Plain text is an ANSWER or a paste of something to watch; the text
+    // handler decides, and it re-checks the link before anything that reads
+    // an account.
+    if (ctx.callbackQuery === undefined && ctx.message?.text !== undefined && command === undefined) {
+      await next();
+      return;
+    }
 
     // A refusal is still an answer. A tap that goes unanswered leaves the button
     // spinning, which reads as "working on it" — the last impression a refused
@@ -219,6 +289,129 @@ export function createBot(deps: BotDeps): Bot {
     return false;
   }
 
+  // ── screens ───────────────────────────────────────────────────────────────
+
+  /** The chat's link, only if THIS chat is the linked one. A screen never shows another room's account. */
+  const linkHere = (telegramUserId: number | undefined, chatId: number | undefined): LinkRecord | undefined => {
+    const verdict = authorise(deps.links, telegramUserId, chatId);
+    return verdict.ok ? verdict.link : undefined;
+  };
+
+  const watchedAssessments = (accountId: number): readonly RiskAssessment[] => deps.watch?.assessments?.(accountId) ?? [];
+
+  const home = (chatId: number, telegramUserId: number | undefined): Screen => {
+    const link = linkHere(telegramUserId, chatId);
+    const subs = deps.watch?.store.byChat(chatId) ?? [];
+    const own = link === undefined ? [] : (deps.sessions.forAccount(link.accountId)?.view.snapshot() ?? []);
+    return homeScreen({
+      health: deps.watch?.indexerHealth?.(),
+      watching: subs.length,
+      linkedAccountId: link?.accountId,
+      assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
+      webUrl: deps.webUrl,
+    });
+  };
+
+  const watchlist = (chatId: number): Screen => {
+    const watch = deps.watch;
+    if (watch === undefined) return { html: watchUnavailable, buttons: [[{ text: '← Back', route: { to: 'home' } }]] };
+    const rows = watch.store.byChat(chatId).map((sub) => ({ sub, assessments: watchedAssessments(sub.accountId), facts: watch.facts?.(sub.accountId) }));
+    return watchlistScreen(rows, watch.store.maxPerChat);
+  };
+
+  const wallet = (chatId: number, accountId: number, extra: { lead?: string; back?: Route } = {}): Screen =>
+    walletScreen({
+      accountId,
+      sub: deps.watch?.store.byChat(chatId).find((sub) => sub.accountId === accountId),
+      assessments: watchedAssessments(accountId),
+      facts: deps.watch?.facts?.(accountId),
+      configs: deps.watch?.configs?.(),
+      ...extra,
+    });
+
+  async function sendScreen(ctx: Context, screen: Screen): Promise<void> {
+    try {
+      await ctx.reply(screen.html, { parse_mode: 'HTML', reply_markup: keyboardFor(screen), link_preview_options: { is_disabled: true } });
+    } catch (error) {
+      // Telegram refuses the WHOLE message over one URL button it will not
+      // open. The screen still goes out, without that button; any link it
+      // carried is in the text as well.
+      if (!isUrlButtonError(error)) throw error;
+      const bare = withoutUrlButtons(screen);
+      await ctx.reply(bare.html, { parse_mode: 'HTML', reply_markup: keyboardFor(bare), link_preview_options: { is_disabled: true } });
+    }
+  }
+
+  /**
+   * Show a screen in place of the one whose button was tapped, so navigating
+   * does not pile up messages. "Not modified" is success; any other failure
+   * (an old or deleted message) falls back to sending it fresh.
+   */
+  async function showScreen(ctx: Context, screen: Screen): Promise<void> {
+    if (ctx.callbackQuery?.message === undefined) {
+      await sendScreen(ctx, screen);
+      return;
+    }
+    try {
+      await ctx.editMessageText(screen.html, { parse_mode: 'HTML', reply_markup: keyboardFor(screen), link_preview_options: { is_disabled: true } });
+    } catch (error) {
+      if (error instanceof Error && /message is not modified/i.test(error.message)) return;
+      if (isUrlButtonError(error)) {
+        const bare = withoutUrlButtons(screen);
+        await ctx.editMessageText(bare.html, { parse_mode: 'HTML', reply_markup: keyboardFor(bare), link_preview_options: { is_disabled: true } }).catch(() => sendScreen(ctx, bare));
+        return;
+      }
+      await sendScreen(ctx, screen);
+    }
+  }
+
+  /** Ask what to watch, with force_reply, and park the question so the answer is heard. */
+  async function askWatchTarget(ctx: Context, text: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    // One open question per person: a new one replaces a half-typed amount.
+    amounts.delete(telegramUserId);
+    questions.ask(chatId, telegramUserId, { kind: 'watch-target' });
+    await ctx.reply(text, { reply_markup: { force_reply: true, input_field_placeholder: WATCH_PLACEHOLDER } });
+  }
+
+  /**
+   * Resolve and watch, then show the wallet. Shared by `/watch <x>`, an answer
+   * to the question, and a bare paste. Returns false when the target was
+   * refused, so a caller holding an open question can ask again.
+   */
+  async function watchTarget(ctx: Context, target: WatchTarget): Promise<boolean> {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return false;
+    const watch = deps.watch;
+    if (watch === undefined) {
+      await ctx.reply(watchUnavailable);
+      return true;
+    }
+    const resolved = await watch.resolver.resolve(target);
+    if ('error' in resolved) {
+      await ctx.reply(`I cannot watch that: ${resolved.error}`);
+      return false;
+    }
+    const added = watch.store.add({ chatId, accountId: resolved.accountId, label: labelFor(target, resolved), addedAtMs: now() });
+    if (!added.ok) {
+      await sendScreen(ctx, { html: added.text, buttons: [[{ text: '📋 My watchlist', route: { to: 'watchlist' } }]] });
+      return true;
+    }
+    if (!added.already && watch.refresh !== undefined) {
+      // Bounded: a slow index shows "not read yet" rather than a hung chat.
+      await Promise.race([watch.refresh().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, REFRESH_WAIT_MS).unref?.())]);
+    }
+    const how = resolved.resolvedBy === 'chain' ? ' (found through the Exchange contract)' : '';
+    const lead = added.already
+      ? `Already watching <b>#${resolved.accountId}</b>.`
+      : `Now watching <b>#${resolved.accountId}</b>${how}. I will message this chat when a position on it gets close to being closed.`;
+    const screen = wallet(chatId, resolved.accountId, { lead, back: { to: 'home' } });
+    await sendScreen(ctx, { ...screen, buttons: [[{ text: '📋 My watchlist', route: { to: 'watchlist' } }, { text: '← Home', route: { to: 'home' } }]] });
+    return true;
+  }
+
   // ── /start ────────────────────────────────────────────────────────────────
   bot.command('start', async (ctx) => {
     const telegramUserId = ctx.from?.id;
@@ -229,35 +422,23 @@ export function createBot(deps: BotDeps): Bot {
 
     // EVERYONE IS SOMEBODY. The sender gets their own identity on first sight,
     // whatever else happens below; the watch tier is theirs from here.
-    const registered = identities.register(telegramUserId, chatId, now());
+    identities.register(telegramUserId, chatId, now());
 
     const existing = deps.links.byTelegramUserId(telegramUserId);
-    if (existing !== undefined) {
-      await ctx.reply(
-        existing.chatId === chatId
-          ? `Already linked. ${HELP_TEXT}`
-          : 'You are linked, but in a different chat. PerpGuard only answers there.',
-      );
-      return;
+    if (existing !== undefined && existing.chatId !== chatId) {
+      await ctx.reply('You are connected, but in a different chat. Your account is only shown there. You can still watch any account from here.');
     }
 
     // THE ACTING SLOT IS NEVER FIRST-COME ON A PUBLIC BOT. Only the configured
-    // owner claims it from /start; everyone else is told how the two tiers work
-    // and that linking their own account is a separate, proof-based step.
+    // owner claims it from /start; everyone else connects through the
+    // proof-based page.
     const owner = deps.config.ownerTelegramUserId;
-    if (owner !== undefined && owner === telegramUserId && deps.ownerAccountId !== undefined) {
+    if (existing === undefined && owner !== undefined && owner === telegramUserId && deps.ownerAccountId !== undefined) {
       const result = deps.links.link({ userId: deps.config.userId, accountId: deps.ownerAccountId, telegramUserId, chatId, linkedAtMs: now() });
-      if (result.ok) {
-        await ctx.reply(`Linked to account ${deps.ownerAccountId}. I will send its alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
-        return;
-      }
+      if (result.ok) await ctx.reply(`Connected to account #${deps.ownerAccountId}. Its alerts come here, with the buttons to act.`);
     }
 
-    await ctx.reply(
-      `${registered.created ? 'Hello. ' : 'Welcome back. '}You are ${registered.identity.userId} here, and you can watch any account right now.\n\n` +
-        `${TIERS_TEXT}\n\n` +
-        `Linking your own account, to get the buttons, is a separate step that proves you own it; it is not done from this chat.\n\n${HELP_TEXT}`,
-    );
+    await sendScreen(ctx, home(chatId, telegramUserId));
   });
 
   // ── linking: the proof happens on the page, never in this chat ───────────
@@ -301,76 +482,21 @@ export function createBot(deps: BotDeps): Bot {
   // ── the public watch tier ─────────────────────────────────────────────────
   // Anyone, any chat. Rate-limited per chat, capped per chat and bot-wide by
   // the store, resolved through the same index-then-chain lookups the web uses.
-  const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
-
+  // /unwatch and /watching are gone: the watch list and its buttons do both.
   bot.command('watch', async (ctx) => {
-    const chatId = ctx.chat?.id;
-    if (chatId === undefined) return;
     if (!(await withinLimit(ctx))) return;
-    const watch = deps.watch;
-    if (watch === undefined) {
+    if (deps.watch === undefined) {
       await ctx.reply(watchUnavailable);
       return;
     }
     const target = parseWatchTarget(ctx.message?.text ?? '');
     if ('error' in target) {
-      await ctx.reply(target.error);
+      // No argument, or one I cannot read: ASK, and hear the answer.
+      const nothing = (ctx.message?.text ?? '').trim().split(/\s+/).length < 2;
+      await askWatchTarget(ctx, nothing ? WATCH_PROMPT : `${target.error}\n\n${WATCH_PROMPT}`);
       return;
     }
-    const resolved = await watch.resolver.resolve(target);
-    if ('error' in resolved) {
-      await ctx.reply(`I cannot watch that: ${resolved.error}`);
-      return;
-    }
-    const added = watch.store.add({ chatId, accountId: resolved.accountId, label: labelFor(target, resolved), addedAtMs: now() });
-    if (!added.ok) {
-      await ctx.reply(added.text);
-      return;
-    }
-    await ctx.reply(renderWatched(added.subscription, resolved, added.already, watch.indexerHealth?.()));
-  });
-
-  bot.command('unwatch', async (ctx) => {
-    const chatId = ctx.chat?.id;
-    if (chatId === undefined) return;
-    if (!(await withinLimit(ctx))) return;
-    const watch = deps.watch;
-    if (watch === undefined) {
-      await ctx.reply(watchUnavailable);
-      return;
-    }
-    const target = parseWatchTarget(ctx.message?.text ?? '');
-    if ('error' in target) {
-      await ctx.reply(target.error.replace('/watch', '/unwatch').replace('what to watch', 'what to stop watching'));
-      return;
-    }
-    // An account id needs no lookup; an address goes through the resolver so
-    // the same checksummed paste that started a watch can end it.
-    let accountId: number;
-    if (target.kind === 'account') {
-      accountId = target.accountId;
-    } else {
-      const resolved = await watch.resolver.resolve(target);
-      if ('error' in resolved) {
-        await ctx.reply(`I cannot place that address: ${resolved.error}`);
-        return;
-      }
-      accountId = resolved.accountId;
-    }
-    const removed = watch.store.remove(chatId, accountId);
-    await ctx.reply(removed ? `Stopped watching account ${accountId}.` : `This chat was not watching account ${accountId}. /watching lists what it does.`);
-  });
-
-  bot.command('watching', async (ctx) => {
-    const chatId = ctx.chat?.id;
-    if (chatId === undefined) return;
-    if (!(await withinLimit(ctx))) return;
-    const watch = deps.watch;
-    if (watch === undefined) {
-      await ctx.reply(watchUnavailable);
-      return;
-    }
-    await ctx.reply(renderWatching(watch.store.byChat(chatId), watch.indexerHealth?.(), watch.store.maxPerChat));
+    await watchTarget(ctx, target);
   });
 
   // ── /help ─────────────────────────────────────────────────────────────────
@@ -400,6 +526,10 @@ export function createBot(deps: BotDeps): Bot {
 
   // ── /positions ────────────────────────────────────────────────────────────
   bot.command('positions', async (ctx) => {
+    await sendPositions(ctx);
+  });
+
+  async function sendPositions(ctx: Context): Promise<void> {
     const telegramUserId = ctx.from?.id;
     if (telegramUserId === undefined) return;
     const resolved = resolveAccount(telegramUserId);
@@ -431,7 +561,7 @@ export function createBot(deps: BotDeps): Bot {
         link_preview_options: { is_disabled: true },
       });
     }
-  });
+  }
 
   // ── /cancel ───────────────────────────────────────────────────────────────
   // The way out of a prompt, from anywhere. It only ever clears the pending
@@ -445,27 +575,184 @@ export function createBot(deps: BotDeps): Bot {
     await ctx.reply(pending === undefined ? NOTHING_TO_CANCEL_TEXT : CANCELLED_TEXT);
   });
 
-  // ── a typed amount ────────────────────────────────────────────────────────
-  // Registered last, so it sees only text no command claimed. It does nothing at
-  // all unless a prompt is open: a bot that answered every stray message would be
-  // one people mute, and the muted bot is the one whose DANGER alert goes unread.
+  // ── plain text: an answer, a typed amount, or a paste ────────────────────
+  // Registered last, so it sees only text no command claimed. In order:
+  //   1. the answer to a question the bot asked (force_reply, parked);
+  //   2. a typed amount for an open custom-amount prompt — LINKED CHAT ONLY,
+  //      because it reads an account;
+  //   3. an address or account id pasted without asking: watch it;
+  //   4. anything else: one line pointing at the menu.
   bot.on('message:text', async (ctx) => {
     const telegramUserId = ctx.from?.id;
-    if (telegramUserId === undefined) return;
-    const pending = amounts.get(telegramUserId);
-    if (pending === undefined) return;
-    const resolved = resolveAccount(telegramUserId);
-    if ('refusal' in resolved) {
-      amounts.delete(telegramUserId);
-      await ctx.reply(resolved.refusal);
+    const chatId = ctx.chat?.id;
+    if (telegramUserId === undefined || chatId === undefined) return;
+    const text = ctx.message.text;
+    if (commandOf(text) !== undefined) return;
+
+    const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'watch-target') {
+      if (!(await withinLimit(ctx))) return;
+      const target = parseWatchArgument(text);
+      if ('error' in target) {
+        await askWatchTarget(ctx, `${target.error}\n\n${WATCH_PROMPT}`);
+        return;
+      }
+      if (await watchTarget(ctx, target)) {
+        questions.close(chatId, telegramUserId);
+      } else {
+        await askWatchTarget(ctx, 'Send another address or account id.');
+      }
       return;
     }
-    await handleTypedAmount(ctx, deps, { amounts, alerts, account: resolved.account }, pending, ctx.message.text);
+
+    const pending = amounts.get(telegramUserId);
+    if (pending !== undefined) {
+      // The gate let plain text through so answers are heard; an amount reads
+      // an account, so the link AND the room are checked again here.
+      const verdict = authorise(deps.links, telegramUserId, chatId);
+      if (!verdict.ok) {
+        await ctx.reply(verdict.text);
+        return;
+      }
+      const resolved = resolveAccount(telegramUserId);
+      if ('refusal' in resolved) {
+        amounts.delete(telegramUserId);
+        await ctx.reply(resolved.refusal);
+        return;
+      }
+      await handleTypedAmount(ctx, deps, { amounts, alerts, account: resolved.account }, pending, text);
+      return;
+    }
+
+    const pasted = parseWatchArgument(text);
+    if (!('error' in pasted)) {
+      if (pasted.kind === 'account' && !/^#/.test(text.trim())) {
+        // A BARE NUMBER NOBODY ASKED FOR IS AMBIGUOUS: an account id, or an
+        // amount typed after its prompt expired. Offer, do not act.
+        await sendScreen(ctx, {
+          html: `Watch account <b>#${pasted.accountId}</b>?`,
+          buttons: [[{ text: `👁 Watch #${pasted.accountId}`, route: { to: 'watch-id', accountId: pasted.accountId } }, { text: '🏠 Menu', route: { to: 'home' } }]],
+        });
+        return;
+      }
+      if (!(await withinLimit(ctx))) return;
+      await watchTarget(ctx, pasted);
+      return;
+    }
+
+    // Chatter gets ONE pointer an hour, not a reply each: a bot that answers
+    // every stray message is one people mute, and the muted bot is the one
+    // whose DANGER alert goes unread.
+    const last = hinted.get(chatId);
+    if (last !== undefined && now() - last < HINT_EVERY_MS) return;
+    hinted.set(chatId, now());
+    await sendScreen(ctx, {
+      html: 'I did not catch that. Paste an address or an account id to watch it, or open the menu.',
+      buttons: [[{ text: '🏠 Menu', route: { to: 'home' } }]],
+    });
   });
+
+  // ── navigation taps ───────────────────────────────────────────────────────
+  // Public routes reach here from anyone; the gate refused every other route
+  // from a chat that is not the linked one. Account routes still resolve the
+  // link at tap time, like a command.
+  async function handleNav(ctx: Context, route: Route): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    switch (route.to) {
+      case 'home':
+        await ctx.answerCallbackQuery();
+        questions.close(chatId, telegramUserId);
+        await showScreen(ctx, home(chatId, telegramUserId));
+        return;
+      case 'watch-ask':
+        await ctx.answerCallbackQuery();
+        if (deps.watch === undefined) {
+          await showScreen(ctx, { html: watchUnavailable, buttons: [[{ text: '← Back', route: { to: 'home' } }]] });
+          return;
+        }
+        await showScreen(ctx, watchAskScreen());
+        await askWatchTarget(ctx, '↩️ Reply with it here.');
+        return;
+      case 'watch-id': {
+        const verdict = limiter.allow(String(chatId));
+        if (!verdict.ok) {
+          await answer(ctx, `Slow down: try again in ${Math.ceil(verdict.retryInMs / 1000)}s.`);
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        // The offer is answered: its buttons go, so it cannot be tapped twice
+        // or read later as still open.
+        await ctx.editMessageText(`Watch account <b>#${route.accountId}</b>? Yes.`, { parse_mode: 'HTML' }).catch(() => undefined);
+        await watchTarget(ctx, { kind: 'account', accountId: route.accountId });
+        return;
+      }
+      case 'watchlist':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, watchlist(chatId));
+        return;
+      case 'wallet':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, wallet(chatId, route.accountId));
+        return;
+      case 'unwatch': {
+        const removed = deps.watch?.store.remove(chatId, route.accountId) ?? false;
+        await ctx.answerCallbackQuery({ text: removed ? `Stopped watching #${route.accountId}.` : `You were not watching #${route.accountId}.` });
+        const list = watchlist(chatId);
+        await showScreen(ctx, { ...list, html: `${removed ? `Stopped watching <b>#${route.accountId}</b>.` : `You were not watching <b>#${route.accountId}</b>.`}\n\n${list.html}` });
+        return;
+      }
+      case 'connect':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, connectScreen(linkHere(telegramUserId, chatId)?.accountId));
+        return;
+      case 'connect-go': {
+        const linked = linkHere(telegramUserId, chatId);
+        if (linked !== undefined) {
+          await ctx.answerCallbackQuery();
+          await showScreen(ctx, connectScreen(linked.accountId));
+          return;
+        }
+        if (deps.link === undefined) {
+          await ctx.answerCallbackQuery();
+          await showScreen(ctx, connectUnavailableScreen());
+          return;
+        }
+        const verdict = limiter.allow(String(chatId));
+        if (!verdict.ok) {
+          await answer(ctx, `Slow down: try again in ${Math.ceil(verdict.retryInMs / 1000)}s.`);
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        const { identity } = identities.register(telegramUserId, chatId, now());
+        const minted = deps.link.mint(identity.userId);
+        await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
+        return;
+      }
+      case 'positions':
+        await ctx.answerCallbackQuery();
+        await sendPositions(ctx);
+        return;
+      case 'position':
+      case 'settings':
+      case 'warn-ask':
+      case 'warn-set':
+      case 'disconnect-ask':
+      case 'disconnect':
+        await answer(ctx, 'That screen is not built yet.');
+        return;
+    }
+  }
 
   // ── button taps ───────────────────────────────────────────────────────────
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
+    const route = decodeNav(data);
+    if (route !== undefined) {
+      await handleNav(ctx, route);
+      return;
+    }
     const decoded = decodeCallback(data);
     if (!decoded.ok) {
       await answer(ctx, `I can't read that button: ${decoded.reason}. Run /positions for a current one.`);

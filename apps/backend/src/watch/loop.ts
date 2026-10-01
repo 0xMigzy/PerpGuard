@@ -70,6 +70,17 @@ interface Tracked {
   assessment: RiskAssessment;
 }
 
+/** One account as the last pass read it from the index. */
+export interface WatchedAccountFacts {
+  readonly atMs: number;
+  /** False when the index holds nothing for this account at all. */
+  readonly found: boolean;
+  readonly openPositions: number;
+  /** Open positions the loop could not price (no entry price, or a market the venue does not list). */
+  readonly unassessable: number;
+  readonly freeBalanceAusd: number | undefined;
+}
+
 const silent = { info: () => {}, warn: () => {} };
 
 export class WatchLoop {
@@ -85,6 +96,9 @@ export class WatchLoop {
   #running = false;
   #lastRunAtMs: number | undefined;
   #lastHealth: IndexerHealth | undefined;
+  #lastConfigs: ReadonlyMap<number, MarketRiskConfig> | undefined;
+  /** What the last pass found per account, so "no positions" is not "never looked". */
+  readonly #accounts = new Map<number, WatchedAccountFacts>();
 
   constructor(options: WatchLoopOptions) {
     this.#options = options;
@@ -114,6 +128,20 @@ export class WatchLoop {
   /** The indexer verdict the last pass ran against, for the bot to quote. */
   get lastHealth(): IndexerHealth | undefined {
     return this.#lastHealth;
+  }
+
+  /** The venue's market configs the last pass priced with: the SAME network as the marks. */
+  get marketConfigs(): ReadonlyMap<number, MarketRiskConfig> | undefined {
+    return this.#lastConfigs;
+  }
+
+  /**
+   * What the last pass learned about one account. Undefined means no pass has
+   * read it yet — which is not the same as "no open positions", and the bot
+   * says which.
+   */
+  accountFacts(accountId: number): WatchedAccountFacts | undefined {
+    return this.#accounts.get(accountId);
   }
 
   start(intervalMs: number): void {
@@ -157,6 +185,7 @@ export class WatchLoop {
       health = h;
       marks = new Map(m.map((reading) => [reading.marketId, reading]));
       configs = c;
+      this.#lastConfigs = c;
     } catch (error) {
       // Nothing can be assessed. Every tracked position goes blind, with the cause.
       const reason = `the watch loop could not read the index or the venue: ${describe(error)}`;
@@ -192,7 +221,17 @@ export class WatchLoop {
         }
         continue;
       }
-      if (profile === undefined) continue;
+      if (profile === undefined) {
+        this.#accounts.set(accountId, { atMs: nowMs, found: false, openPositions: 0, unassessable: 0, freeBalanceAusd: undefined });
+        continue;
+      }
+      this.#accounts.set(accountId, {
+        atMs: nowMs,
+        found: true,
+        openPositions: profile.openPositions.length,
+        unassessable: profile.openPositions.filter((p) => p.entryPrice === undefined || !configs.has(p.market.marketId)).length,
+        freeBalanceAusd: Number.isFinite(profile.freeBalanceAusd) ? profile.freeBalanceAusd : undefined,
+      });
 
       const scope: WatchedScope = {
         accountId,
@@ -285,6 +324,7 @@ export class WatchLoop {
           markPricePNS,
           topUp: undefined,
           marginToSurviveCNS: metrics.marginToSurviveCNS,
+          marginCNS: risk.depositCNS,
           metrics,
           feed: 'connected',
           positions: health.serveAsCurrent ? 'live' : 'stale',
@@ -305,6 +345,7 @@ export class WatchLoop {
     // A position that has gone is no longer watched — but ONLY when the index
     // can be believed. While it cannot, absence proves nothing.
     const watched = new Set(accountIds);
+    for (const id of [...this.#accounts.keys()]) if (!watched.has(id)) this.#accounts.delete(id);
     for (const [key, tracked] of [...this.#tracked]) {
       if (seen.has(key)) continue;
       const accountId = tracked.assessment.watch?.accountId;

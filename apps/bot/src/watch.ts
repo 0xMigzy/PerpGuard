@@ -19,6 +19,8 @@
  * backend, because a public subscription must survive a restart.
  */
 import type { IndexerHealth } from '@perpguard/shared';
+import type { AlertRecipient } from '@perpguard/backend/alerts';
+import type { RiskChange } from '@perpguard/backend/risk';
 
 export interface WatchSubscription {
   readonly chatId: number;
@@ -53,7 +55,7 @@ export interface InMemoryWatchStoreOptions {
   readonly seed?: readonly WatchSubscription[];
 }
 
-export const DEFAULT_MAX_PER_CHAT = 5;
+export const DEFAULT_MAX_PER_CHAT = 20;
 export const DEFAULT_MAX_ACCOUNTS = 300;
 
 export class InMemoryWatchStore implements WatchStore {
@@ -75,7 +77,7 @@ export class InMemoryWatchStore implements WatchStore {
       return {
         ok: false,
         refusal: 'chat-at-capacity',
-        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. /unwatch one first.`,
+        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from My watchlist first.`,
       };
     }
     // A new DISTINCT account counts against the bot-wide cap; following one
@@ -193,7 +195,17 @@ export type WatchTarget =
  */
 export function parseWatchTarget(text: string): WatchTarget | { readonly error: string } {
   const arg = text.trim().split(/\s+/).slice(1).join(' ').trim();
-  if (arg === '') return { error: 'Tell me what to watch: /watch <0x address> or /watch <account id>.' };
+  if (arg === '') return { error: 'Tell me what to watch: an address or an account id.' };
+  return parseWatchArgument(arg);
+}
+
+/**
+ * The value alone: what someone types in answer to "what should I watch?", or
+ * pastes without being asked. An address in any case, a bare id, or `#id`.
+ */
+export function parseWatchArgument(value: string): WatchTarget | { readonly error: string } {
+  const arg = value.trim();
+  if (arg === '') return { error: 'Tell me what to watch: an address or an account id.' };
   if (/^0x[0-9a-fA-F]{40}$/.test(arg)) return { kind: 'address', address: arg.toLowerCase() };
   const id = arg.replace(/^#/, '');
   if (/^\d{1,12}$/.test(id)) return { kind: 'account', accountId: Number(id) };
@@ -264,3 +276,30 @@ export const TIERS_TEXT =
   'Two ways to use PerpGuard:\n' +
   '  • Watch anything, right now: /watch <0x address or account id>. No wallet, no sign-up. Alerts only, no actions.\n' +
   '  • Link your own account when you want to act: /link, prove you own it on the page, and this chat gets the same alerts with Add-margin buttons.';
+
+// ── who hears a watched account's alert ─────────────────────────────────────
+
+/**
+ * How long a NEW subscription is spared first-sight alerts. Watching an
+ * account shows its wallet screen at once — every position, how close each is
+ * — so the first-sight alerts the next pass produces for it would repeat that
+ * screen as a burst of messages (six of them, the first time this ran against
+ * a live nine-position account). Long enough to cover the bounded refresh and
+ * the next 30-second pass.
+ */
+export const FRESH_SUBSCRIPTION_MS = 2 * 60_000;
+
+/**
+ * The recipients for one watched change. A first sight (`previousState`
+ * undefined) is not sent to a subscription made in the last two minutes: that
+ * chat has just seen it on screen. Every REAL change goes to everyone, and a
+ * first sight still goes to older subscriptions (after a restart, say).
+ */
+export function watchRecipients(store: WatchStore, change: RiskChange, nowMs: number): AlertRecipient[] {
+  const accountId = change.assessment.watch?.accountId;
+  if (accountId === undefined) return [];
+  return store
+    .watchersOf(accountId)
+    .filter((sub) => change.previousState !== undefined || nowMs - sub.addedAtMs >= FRESH_SUBSCRIPTION_MS)
+    .map((sub) => ({ userId: `watch:${sub.chatId}`, rights: 'watch' as const, chatId: sub.chatId }));
+}

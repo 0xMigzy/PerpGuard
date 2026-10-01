@@ -7,7 +7,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { InMemoryWatchStore, RateLimiter, describeWatchFreshness, labelFor, parseWatchTarget, renderWatching } from './watch.ts';
+import { FRESH_SUBSCRIPTION_MS, InMemoryWatchStore, RateLimiter, describeWatchFreshness, labelFor, parseWatchTarget, renderWatching, watchRecipients } from './watch.ts';
+import type { RiskChange } from '@perpguard/backend/risk';
 
 const sub = (chatId: number, accountId: number, addedAtMs = 1_000) => ({ chatId, accountId, label: `#${accountId}`, addedAtMs });
 
@@ -84,4 +85,17 @@ test('/watching says what is followed and how current the index is, never implyi
   assert.match(text, /Not live, and read-only from this chat/);
   assert.match(renderWatching([], undefined, 5), /watches nothing yet/);
   assert.match(describeWatchFreshness(undefined), /could not read how far behind/);
+});
+
+test('a fresh subscription is spared first-sight alerts its screen just showed; real changes and older subscriptions are not', () => {
+  const store = new InMemoryWatchStore();
+  const T = 10_000_000;
+  store.add({ chatId: 1, accountId: 3388, label: '#3388', addedAtMs: T - 10_000 });
+  store.add({ chatId: 2, accountId: 3388, label: '#3388', addedAtMs: T - 60 * 60_000 });
+  const firstSight = { assessment: { watch: { accountId: 3388 } }, previousState: undefined } as unknown as RiskChange;
+  const realChange = { assessment: { watch: { accountId: 3388 } }, previousState: 'WATCH' } as unknown as RiskChange;
+  assert.deepEqual(watchRecipients(store, firstSight, T).map((r) => r.chatId), [2]);
+  assert.deepEqual(watchRecipients(store, realChange, T).map((r) => r.chatId), [1, 2]);
+  assert.deepEqual(watchRecipients(store, firstSight, T + FRESH_SUBSCRIPTION_MS).map((r) => r.chatId), [1, 2]);
+  assert.ok(watchRecipients(store, realChange, T).every((r) => r.rights === 'watch'));
 });

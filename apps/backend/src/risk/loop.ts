@@ -549,6 +549,7 @@ export class RiskLoop {
       markPricePNS,
       topUp: topUpOptions(risk, markPricePNS, config, this.#thresholds),
       marginToSurviveCNS: metrics.marginToSurviveCNS,
+      marginCNS: risk.depositCNS,
       metrics,
       feed: health.state,
       positions: posStatus.state,

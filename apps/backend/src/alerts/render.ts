@@ -30,6 +30,7 @@ import type {
   AlertKind,
   AlertMessage,
 } from './types.ts';
+import { renderWatchAlertHtml } from './plain.ts';
 
 /**
  * Grouped decimal formatting, pinned to en-US.
@@ -479,7 +480,9 @@ export function buildMessage(
   context: RenderContext,
 ): AlertMessage {
   const rendered = renderAlert(assessment, kind, context);
+  const html = assessment.watch !== undefined && context.snapshot !== true ? renderWatchAlertHtml(assessment, kind, context.market) : undefined;
   return {
+    ...(html === undefined ? {} : { html }),
     ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }),
     ...(assessment.watch === undefined ? {} : { watch: assessment.watch }),
     kind,

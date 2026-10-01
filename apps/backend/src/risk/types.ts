@@ -266,6 +266,12 @@ export interface RiskAssessment {
   readonly topUp: TopUpOptions | undefined;
   /** Collateral needed just to stop being liquidatable. */
   readonly marginToSurviveCNS: bigint;
+  /**
+   * The collateral posted to THIS position, as the venue (or the index)
+   * reports it: what the trader put behind it, and what a liquidation takes.
+   * Undefined on a blind assessment that never saw the position.
+   */
+  readonly marginCNS?: bigint;
   readonly metrics: PositionMetrics;
 
   readonly feed: FeedConnectionState;

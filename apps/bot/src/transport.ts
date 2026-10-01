@@ -66,7 +66,12 @@ export class TelegramAlertTransport implements AlertTransport {
         return { ok: false, reason: `watch recipient ${recipient.userId} names no chat, so there is nowhere to deliver this`, retryable: false };
       }
       try {
-        await this.#api.sendMessage(recipient.chatId, message.text, { link_preview_options: { is_disabled: true } });
+        // The plain-voice HTML when the renderer made one; the record text otherwise.
+        await this.#api.sendMessage(
+          recipient.chatId,
+          message.html ?? message.text,
+          message.html === undefined ? { link_preview_options: { is_disabled: true } } : { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+        );
         return { ok: true };
       } catch (error) {
         return classifyTelegramError(error, this.#token);

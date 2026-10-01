@@ -210,3 +210,17 @@ test('a watched position already clear of DANGER needs nothing to climb out', as
   assert.equal(a!.watch?.toClearDangerCNS, 0n);
   assert.equal(a!.watch?.freeBalanceCNS, undefined, 'unknown free balance stays unknown');
 });
+
+test('account facts say "no open positions" apart from "never looked", and drop with the subscription', async () => {
+  const r = rig();
+  r.watched = [5293, 7000];
+  r.profiles.set(7000, { ...profileOf(7000, []), freeBalanceAusd: 12.5 } as WalletProfile);
+  assert.equal(r.loop.accountFacts(7000), undefined, 'before any pass: never looked');
+  await r.loop.evaluate();
+  assert.deepEqual(r.loop.accountFacts(7000), { atMs: T0, found: true, openPositions: 0, unassessable: 0, freeBalanceAusd: 12.5 });
+  assert.equal(r.loop.accountFacts(5293)?.openPositions, 1);
+  assert.equal(r.loop.marketConfigs?.get(BTC.marketId)?.symbol, 'BTC');
+  r.watched = [5293];
+  await r.loop.evaluate();
+  assert.equal(r.loop.accountFacts(7000), undefined);
+});

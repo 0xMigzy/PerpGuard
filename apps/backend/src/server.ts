@@ -51,6 +51,8 @@ import {
   type VenueMarket,
 } from '@perpguard/shared';
 import {
+  BOT_MENU_COMMANDS,
+  watchRecipients,
   DEFAULT_RATE_LIMIT,
   InMemoryLinkStore,
   InMemoryWatchStore,
@@ -465,7 +467,14 @@ const bot =
           resolver: watchResolver,
           limiter: new RateLimiter({ ...DEFAULT_RATE_LIMIT }),
           indexerHealth: () => watchLoop?.lastHealth,
+          assessments: (accountId) => watchLoop?.snapshot(accountId) ?? [],
+          facts: (accountId) => watchLoop?.accountFacts(accountId),
+          configs: () => watchLoop?.marketConfigs,
+          refresh: async () => watchLoop?.evaluate(),
         },
+        // Telegram refuses a URL button it cannot open, so a local-only
+        // address is not offered as one.
+        ...(/^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? {} : { webUrl: PUBLIC_WEB_URL }),
       });
 
 transport =
@@ -526,12 +535,10 @@ async function startWatchAlerts(): Promise<void> {
     transport: forwardingTransport,
     log: activity,
     // Every chat following this account, each as a WATCH recipient: words, no
-    // keyboard. The decision was already made per position above this line.
-    recipients: (change) => {
-      const accountId = change.assessment.watch?.accountId;
-      if (accountId === undefined) return [];
-      return watchStore.watchersOf(accountId).map((sub) => ({ userId: `watch:${sub.chatId}`, rights: 'watch' as const, chatId: sub.chatId }));
-    },
+    // keyboard. The decision was already made per position above this line; a
+    // subscription made in the last two minutes is spared first sights, which
+    // its wallet screen has just shown.
+    recipients: (change) => watchRecipients(watchStore, change, Date.now()),
     logger: { error: warn, warn, info: log },
   });
   watchEngine.start();
@@ -966,6 +973,12 @@ if (bot !== undefined) {
       onStart: (info) => {
         botUsername = info.username;
         log(`telegram bot @${info.username} polling`);
+        // THE MENU TEACHES THE FAST WAY. Only the commands that are quicker
+        // typed than tapped are listed; everything else is a button.
+        void bot.api
+          .setMyCommands(BOT_MENU_COMMANDS)
+          .then(() => log(`telegram command menu set: ${BOT_MENU_COMMANDS.map((c) => `/${c.command}`).join(' ')}`))
+          .catch((error: unknown) => warn(`telegram command menu not set: ${error instanceof Error ? error.message : String(error)}`));
       },
     })
     .catch((error: unknown) => {
