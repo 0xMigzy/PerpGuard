@@ -11,9 +11,35 @@
  *   engine.ts  does the sending and recording     (the only I/O)
  */
 import type { MarketRiskConfig, Unsubscribe } from '@perpguard/shared';
-import type { BlindState, RiskState, Severity } from '../risk/types.ts';
+import type { BlindState, RiskState, Severity, WatchedScope } from '../risk/types.ts';
 
-export type { Unsubscribe };
+export type { Unsubscribe, WatchedScope };
+
+/**
+ * What a recipient may DO with an alert, and the one place that is decided.
+ *
+ *   act    the linked owner: top-up buttons, custom amount, confirmation.
+ *   watch  a public watcher: the same words, NO KEYBOARD AT ALL. A watcher
+ *          sees a position in danger and can do nothing about it, and the bot's
+ *          authorisation gate refuses any action payload from an unlinked chat
+ *          regardless of what a message carried.
+ */
+export type AlertRights = 'act' | 'watch';
+
+/**
+ * Who one copy of an alert goes to.
+ *
+ * The engine decides ONCE per position whether to speak — cooldown, dwell and
+ * escalation are per position, never per recipient — and then fans the message
+ * out to this list, each copy shaped by its rights. `userId` is what the alert
+ * log records; `chatId` is set for watchers, whose address is the chat itself
+ * rather than a linked app user.
+ */
+export interface AlertRecipient {
+  readonly userId: string;
+  readonly rights: AlertRights;
+  readonly chatId?: number;
+}
 
 /**
  * What kind of thing an alert says, which is not the same question as the risk
@@ -88,6 +114,8 @@ export interface AlertAction {
 }
 
 export interface AlertMessage {
+  /** Present when this is about a WATCHED account. See `WatchedScope`. */
+  readonly watch?: WatchedScope;
   readonly kind: AlertKind;
   readonly state: RiskState;
   readonly previousState: RiskState | undefined;
@@ -116,7 +144,7 @@ export interface DeliveryResult {
 }
 
 export interface AlertTransport {
-  send(userId: string, message: AlertMessage): Promise<DeliveryResult>;
+  send(recipient: AlertRecipient, message: AlertMessage): Promise<DeliveryResult>;
 }
 
 /** How an attempt sequence ended. There is no `suppressed`: see {@link AlertLog}. */
@@ -130,6 +158,8 @@ export interface AlertLogEntry {
    * it exists so a human reading the table can tell two alerts apart, and so a
    * re-delivery of the same assessment is recognisable.
    */
+  /** The watched account, when this alert was about one. Absent for the owner's own. */
+  readonly accountId?: number;
   readonly alertKey: string;
   readonly userId: string;
   readonly marketId: number;

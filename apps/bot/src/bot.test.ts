@@ -18,6 +18,8 @@ import { PendingActionStore } from './actions.ts';
 import { CONFIRM_BUTTON_LABEL } from './confirm.ts';
 import { PendingAmountStore } from './custom.ts';
 import { CUSTOM_BUTTON_LABEL } from './format.ts';
+import type { IndexerHealth } from '@perpguard/shared';
+import { InMemoryWatchStore, RateLimiter, TIERS_TEXT, type ResolvedWatchTarget, type WatchResolver, type WatchTarget } from './watch.ts';
 import {
   CONFIGS,
   FakeBalance,
@@ -48,10 +50,23 @@ interface Harness {
   readonly amounts: PendingAmountStore;
   readonly balance: FakeBalance;
   readonly links: InMemoryLinkStore;
+  readonly watchStore: InMemoryWatchStore;
+  readonly resolver: FakeResolver;
   nowMs: number;
 }
 
-function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness {
+/** A resolver the test scripts: an address or id -> an account, or a refusal. */
+class FakeResolver implements WatchResolver {
+  readonly asked: WatchTarget[] = [];
+  answers = new Map<string, ResolvedWatchTarget | { readonly error: string }>();
+  async resolve(target: WatchTarget): Promise<ResolvedWatchTarget | { readonly error: string }> {
+    this.asked.push(target);
+    const key = target.kind === 'address' ? target.address : String(target.accountId);
+    return this.answers.get(key) ?? { error: `nothing is known about ${key}` };
+  }
+}
+
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -65,6 +80,10 @@ function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness 
   // The same clock as the action store, so the two expiries can be tested against
   // one advance of one number — which is also how they are meant to behave.
   const amounts = new PendingAmountStore({ now: () => state.nowMs });
+  const watchStore = new InMemoryWatchStore({ maxPerChat: options.maxPerChat ?? 5 });
+  const resolver = new FakeResolver();
+  const limiter = new RateLimiter({ limit: options.rateLimit ?? 100, windowMs: 60_000, now: () => state.nowMs });
+  const indexer = { state: 'synced', blocksBehind: 7, latestProcessedBlock: 109_000_000, serveAsCurrent: true } as unknown as IndexerHealth;
 
   const built = createBot({
     config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: undefined },
@@ -77,6 +96,7 @@ function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness 
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
+    ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer } }),
   });
   // The bot under test must talk to the fake, not to Telegram.
   telegram.install(built.api);
@@ -90,6 +110,8 @@ function harness(options: { readonly links?: InMemoryLinkStore } = {}): Harness 
     amounts,
     balance,
     links,
+    watchStore,
+    resolver,
     get nowMs() {
       return state.nowMs;
     },
@@ -120,13 +142,14 @@ test('a stranger’s command is flatly refused and no handler runs', async () =>
   const h = harness();
   h.view.assessments = [dangerAssessment()];
 
-  for (const command of ['/positions', '/status', '/help']) {
+  for (const command of ['/positions', '/status', '/cancel', '/help']) {
     await h.bot.handleUpdate(messageUpdate(command, { from: STRANGER_ID, chat: 7_777 }));
   }
 
-  assert.deepEqual(texts(h.telegram), [REFUSAL_TEXT, REFUSAL_TEXT, REFUSAL_TEXT]);
-  // No position data, no status, no help leaked.
-  for (const text of texts(h.telegram)) {
+  // The account commands are refused flat; /help is public and says so.
+  assert.deepEqual(texts(h.telegram), [REFUSAL_TEXT, REFUSAL_TEXT, REFUSAL_TEXT, HELP_TEXT]);
+  // No position data and no status leaked.
+  for (const text of texts(h.telegram).slice(0, 3)) {
     assert.doesNotMatch(text, /BTC/);
     assert.doesNotMatch(text, /liquidation/);
   }
@@ -930,4 +953,121 @@ test('a Send again button is single use, so a double tap cannot send twice', asy
   await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
 
   assert.equal(h.executor.calls.length, sendsAfterFirst, 'the second tap on the same button sends nothing');
+});
+
+// ── the public watch tier ───────────────────────────────────────────────────
+
+const OWNER_ADDRESS = '0xB7854953A71e45D1033B3d619E76d56391291765';
+const STRANGER_CHAT = 7_777;
+const stranger = (text: string) => messageUpdate(text, { from: STRANGER_ID, chat: STRANGER_CHAT });
+
+test('a stranger can /watch a checksummed address: it resolves, is stored, and the reply says how current the data is', async () => {
+  const h = harness();
+  h.resolver.answers.set(OWNER_ADDRESS.toLowerCase(), { accountId: 5293, address: OWNER_ADDRESS.toLowerCase(), resolvedBy: 'chain' });
+  await h.bot.handleUpdate(stranger(`/watch ${OWNER_ADDRESS}`));
+
+  assert.deepEqual(h.resolver.asked, [{ kind: 'address', address: OWNER_ADDRESS.toLowerCase() }], 'lowercased before lookup');
+  const reply = texts(h.telegram).at(-1)!;
+  assert.match(reply, /^Watching 0xb785…1765 — account 5293, resolved by the Exchange contract\./);
+  assert.match(reply, /block 109,000,000, 7 blocks behind the chain/);
+  assert.match(reply, /Not live, and read-only from this chat/);
+  assert.deepEqual(h.watchStore.watchersOf(5293).map((s) => s.chatId), [STRANGER_CHAT]);
+});
+
+test('/watch by account id, /watching, and /unwatch round-trip for an unlinked chat', async () => {
+  const h = harness();
+  h.resolver.answers.set('710', { accountId: 710, address: undefined, resolvedBy: 'index' });
+  await h.bot.handleUpdate(stranger('/watch 710'));
+  assert.match(texts(h.telegram).at(-1)!, /^Watching #710 — account 710, found in the index\./);
+  await h.bot.handleUpdate(stranger('/watch #710'));
+  assert.match(texts(h.telegram).at(-1)!, /^Already watching #710/);
+  await h.bot.handleUpdate(stranger('/watching'));
+  assert.match(texts(h.telegram).at(-1)!, /Watching 1 of 5:\n  #710 — account 710/);
+  await h.bot.handleUpdate(stranger('/unwatch 710'));
+  assert.equal(texts(h.telegram).at(-1), 'Stopped watching account 710.');
+  await h.bot.handleUpdate(stranger('/unwatch 710'));
+  assert.match(texts(h.telegram).at(-1)!, /was not watching account 710/);
+  await h.bot.handleUpdate(stranger('/watching'));
+  assert.match(texts(h.telegram).at(-1)!, /watches nothing yet/);
+});
+
+test('an address nobody can place is refused with the resolver\u2019s reason, and nothing is stored', async () => {
+  const h = harness();
+  await h.bot.handleUpdate(stranger(`/watch ${OWNER_ADDRESS}`));
+  assert.match(texts(h.telegram).at(-1)!, /^I cannot watch that: nothing is known about/);
+  assert.deepEqual(h.watchStore.accountIds(), []);
+  await h.bot.handleUpdate(stranger('/watch'));
+  assert.match(texts(h.telegram).at(-1)!, /Tell me what to watch/);
+});
+
+test('a chat is capped at its number of watched accounts', async () => {
+  const h = harness({ maxPerChat: 2 });
+  for (const id of ['1', '2', '3']) h.resolver.answers.set(id, { accountId: Number(id), address: undefined, resolvedBy: 'index' });
+  await h.bot.handleUpdate(stranger('/watch 1'));
+  await h.bot.handleUpdate(stranger('/watch 2'));
+  await h.bot.handleUpdate(stranger('/watch 3'));
+  assert.match(texts(h.telegram).at(-1)!, /already watches 2 accounts, which is the limit/);
+  assert.deepEqual(h.watchStore.accountIds(), [1, 2]);
+});
+
+test('a chat that sends too many public commands is told to slow down, with a wait', async () => {
+  const h = harness({ rateLimit: 2 });
+  await h.bot.handleUpdate(stranger('/watching'));
+  await h.bot.handleUpdate(stranger('/watching'));
+  await h.bot.handleUpdate(stranger('/watching'));
+  assert.match(texts(h.telegram).at(-1)!, /^Slow down: too many commands from this chat\. Try again in \d+s\./);
+  // Another chat is not affected.
+  await h.bot.handleUpdate(messageUpdate('/watching', { from: 8_888, chat: 8_888 }));
+  assert.match(texts(h.telegram).at(-1)!, /watches nothing yet/);
+});
+
+test('/start from a stranger who cannot link still gets both tiers, and so does the owner', async () => {
+  const h = harness();
+  await h.bot.handleUpdate(stranger('/start'));
+  const refused = texts(h.telegram).at(-1)!;
+  assert.match(refused, /not accepting this chat as a linked account/);
+  assert.ok(refused.includes(TIERS_TEXT), 'the public tier is offered in the same breath');
+  assert.doesNotMatch(refused, /\/web/);
+
+  const fresh = harness({ links: new InMemoryLinkStore({ capacity: 1 }) });
+  await fresh.bot.handleUpdate(messageUpdate('/start', { from: OWNER_ID, chat: OWNER_CHAT }));
+  const linked = texts(fresh.telegram).at(-1)!;
+  assert.match(linked, /^Linked\. I will send your alerts here, with the buttons to act\./);
+  assert.ok(linked.includes(TIERS_TEXT));
+  assert.doesNotMatch(HELP_TEXT, /\/web|Protect page/);
+  assert.match(HELP_TEXT, /\/watch <0x address or account id>/);
+});
+
+test('SERVER-SIDE: an unlinked chat sending a hand-crafted action payload is refused before any handler, and the executor is never called', async () => {
+  // The watcher's alert carries no keyboard, but a keyboard is only a hint:
+  // callback data is a string anyone can send. Build a VALID payload — a real
+  // token the owner's store issued — and send it from a chat that is not linked.
+  const h = harness();
+  h.view.assessments = [dangerAssessment()];
+  await h.bot.handleUpdate(messageUpdate('/positions', { from: OWNER_ID, chat: OWNER_CHAT }));
+  const live = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+  const decoded = decodeCallback(live.callback_data);
+  assert.ok(decoded.ok);
+  const crafted = encodeCallback({ ...decoded.payload, kind: 'confirm' });
+  h.telegram.calls.length = 0;
+
+  await h.bot.handleUpdate(callbackUpdate(crafted, { from: STRANGER_ID, chat: STRANGER_CHAT }));
+
+  assert.deepEqual(answers(h.telegram), [REFUSAL_TEXT], 'answered, with the flat refusal');
+  assert.equal(h.executor.calls.length, 0, 'the executor was never reached');
+  assert.deepEqual(texts(h.telegram), [], 'no confirmation screen, no outcome');
+  assert.notEqual(h.store.get(decoded.payload.token), undefined, 'the owner\u2019s token is untouched');
+  // And the same from a chat that merely watches the account: watching grants nothing.
+  h.resolver.answers.set('5293', { accountId: 5293, address: undefined, resolvedBy: 'index' });
+  await h.bot.handleUpdate(stranger('/watch 5293'));
+  h.telegram.calls.length = 0;
+  await h.bot.handleUpdate(callbackUpdate(crafted, { from: STRANGER_ID, chat: STRANGER_CHAT }));
+  assert.deepEqual(answers(h.telegram), [REFUSAL_TEXT]);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('without a watch tier wired, the public commands say so instead of failing', async () => {
+  const h = harness({ watch: false });
+  await h.bot.handleUpdate(stranger('/watch 710'));
+  assert.match(texts(h.telegram).at(-1)!, /not available on this deployment/);
 });

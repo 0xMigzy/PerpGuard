@@ -175,10 +175,32 @@ export type MarginProjectionResult =
   | { readonly ok: false; readonly reason: string };
 
 /**
+ * The scope of an assessment made for a WATCHED account rather than the
+ * linked owner's.
+ *
+ * A watched account's positions come from the mainnet INDEX, assessed against
+ * the venue's marks — not from the live trading socket — so the honest age of
+ * the position set is the indexer's lag, and every message built from this
+ * says so. Carried on the assessment, not in a side channel, so the renderer,
+ * the engine's history key and the alert log all read the same facts.
+ */
+export interface WatchedScope {
+  readonly accountId: number;
+  /** How the watcher named it: the address they typed, or `#<id>`. */
+  readonly label: string;
+  /** The block the position set was indexed to. Undefined when unknown. */
+  readonly indexerBlock: number | undefined;
+  readonly blocksBehind: number | undefined;
+  readonly indexerState: string;
+}
+
+/**
  * One position's risk, with every number the alerts layer could want attached
  * so that nothing downstream recomputes anything.
  */
 export interface RiskAssessment {
+  /** Present only for a watched account. Absent means the linked owner's own position. */
+  readonly watch?: WatchedScope;
   readonly marketId: number;
   readonly symbol: string;
   /**

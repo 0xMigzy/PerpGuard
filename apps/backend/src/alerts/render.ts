@@ -135,9 +135,31 @@ function headline(state: RiskAssessment['state']): string {
  */
 function title(assessment: RiskAssessment): string {
   const state = headline(assessment.state);
-  return assessment.side === undefined
+  const own = assessment.side === undefined
     ? `${state} · ${assessment.symbol}`
     : `${state} · ${assessment.symbol} ${assessment.side}`;
+  // A watcher may follow several accounts; the first word says which.
+  return assessment.watch === undefined ? own : `Watching ${assessment.watch.label} · ${own}`;
+}
+
+/**
+ * How current a WATCHED account's numbers are, said in the message.
+ *
+ * The positions come from the index, which can be behind the chain, and the
+ * mark from the venue, which can be old on a quiet market. Both ages are
+ * stated, and the line ends by saying what the reader cannot do, because the
+ * absence of buttons must read as a rule rather than as a rendering slip.
+ */
+function watchLine(assessment: RiskAssessment): string {
+  const w = assessment.watch;
+  if (w === undefined) return '';
+  const index =
+    w.indexerBlock === undefined
+      ? `index state ${w.indexerState}`
+      : `positions as indexed at block ${w.indexerBlock.toLocaleString('en-US')}` +
+        (w.blocksBehind === undefined ? '' : `, ${w.blocksBehind.toLocaleString('en-US')} block${w.blocksBehind === 1 ? '' : 's'} behind the chain`) +
+        (w.indexerState === 'synced' ? '' : ` (indexer ${w.indexerState})`);
+  return `Watching only: ${index}; ${describeAge(assessment.priceAgeMs)} from the venue. Not live, and nothing here can be acted on from this chat.`;
 }
 
 /**
@@ -406,7 +428,13 @@ export function renderAlert(
     }
   }
 
-  if (kind !== 'feed-down' && kind !== 'positions-untrusted') {
+  if (assessment.watch !== undefined) {
+    // NO ACTIONS FOR A WATCHER, enforced here as well as in the bot's gate: a
+    // watched assessment never carries top-ups, and even if one did, a watcher
+    // gets the words and not the buttons.
+    actions = [];
+    lines.push(watchLine(assessment));
+  } else if (kind !== 'feed-down' && kind !== 'positions-untrusted') {
     const block = topUpBlock(assessment, market, config);
     lines.push(...block.lines);
     actions = block.actions;
@@ -431,6 +459,7 @@ export function buildMessage(
 ): AlertMessage {
   const rendered = renderAlert(assessment, kind, context);
   return {
+    ...(assessment.watch === undefined ? {} : { watch: assessment.watch }),
     kind,
     state: assessment.state,
     previousState: assessment.previousState,

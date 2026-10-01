@@ -8,10 +8,17 @@
  * NO ACTION IS EXECUTED FROM THIS FILE. A tap opens a confirmation screen, and a
  * confirmation goes to the injected {@link ActionExecutor}, which is stubbed. See
  * `actions.ts` for why a naive send would be worse than no send at all.
+ *
+ * TWO TIERS. The linked owner may do everything. Anyone else may use the PUBLIC
+ * commands — /start, /help, /watch, /unwatch, /watching — and nothing more: in
+ * particular NO BUTTON TAP from an unlinked chat ever reaches a handler, however
+ * its payload was made. The gate decides that before any handler runs, so a
+ * watcher's alert carrying no keyboard is a rendering courtesy on top of a
+ * refusal, not the refusal itself.
  */
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability } from '@perpguard/shared';
+import type { ActionAvailability, IndexerHealth } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
@@ -42,6 +49,17 @@ import type { LinkStore } from './links.ts';
 import { positionEntries, positionsHeader } from './positions.ts';
 import { renderStatus } from './status.ts';
 import type { RiskView } from './view.ts';
+import {
+  DEFAULT_RATE_LIMIT,
+  RateLimiter,
+  TIERS_TEXT,
+  labelFor,
+  parseWatchTarget,
+  renderWatched,
+  renderWatching,
+  type WatchResolver,
+  type WatchStore,
+} from './watch.ts';
 
 export interface BotDeps {
   readonly config: BotConfig;
@@ -66,12 +84,17 @@ export interface BotDeps {
   readonly balance?: FreeBalanceView;
   readonly alerts?: AlertConfig;
   /**
-   * Mints a one-time code that signs the linked person in to the web app's
-   * Protect page. Absent when no web session store is wired, in which case
-   * `/web` says so. The reply goes to the LINKED chat only, which is what makes
-   * the code reach the right person in the right context.
+   * The public watch tier. Absent means `/watch` says it is not available on
+   * this deployment, which is the honest answer for a backend with no index.
    */
-  readonly mintLinkCode?: (userId: string) => { readonly code: string; readonly expiresAtMs: number };
+  readonly watch?: {
+    readonly store: WatchStore;
+    readonly resolver: WatchResolver;
+    /** Per-chat command limit. Defaults to DEFAULT_RATE_LIMIT. */
+    readonly limiter?: RateLimiter;
+    /** The indexer verdict the watch loop last ran against, quoted in replies. */
+    readonly indexerHealth?: () => IndexerHealth | undefined;
+  };
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -80,6 +103,19 @@ export interface BotDeps {
    * leaves it out and lets grammY ask.
    */
   readonly botInfo?: UserFromGetMe;
+}
+
+/**
+ * The commands anyone may send, linked or not. Everything else, and EVERY
+ * button tap, needs the link. Matched on the first word with any @mention
+ * stripped, so `/watch@PerpGuardBot 0x…` in a group is `/watch`.
+ */
+const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/unwatch', '/watching']);
+
+function commandOf(text: string | undefined): string | undefined {
+  const first = text?.trim().split(/\s+/)[0];
+  if (first === undefined || !first.startsWith('/')) return undefined;
+  return first.replace(/@\w+$/, '').toLowerCase();
 }
 
 /** Answering a tap is mandatory — Telegram spins the button forever otherwise. */
@@ -101,10 +137,15 @@ export function createBot(deps: BotDeps): Bot {
     ...(deps.botInfo === undefined ? {} : { botInfo: deps.botInfo }),
   });
 
+  const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
+
   // ── the gate ──────────────────────────────────────────────────────────────
-  // Before every handler. `/start` is the one thing an unlinked chat may send,
-  // and it is let through to a handler that applies the link store's own policy
-  // rather than deciding anything here.
+  // Before every handler. The PUBLIC commands are let through to handlers that
+  // apply their own policy — the link store's for /start, the watch store's caps
+  // and the rate limit for the rest. EVERYTHING ELSE needs the link, and a
+  // button tap from an unlinked chat is refused right here, whatever its
+  // payload says: this is the server-side rule that a watcher cannot act, and
+  // the renderer leaving the keyboard off a watch alert is only its echo.
   bot.use(async (ctx, next) => {
     const verdict = authorise(deps.links, ctx.from?.id, ctx.chat?.id);
     if (verdict.ok) {
@@ -112,9 +153,8 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
 
-    const isStart =
-      verdict.code === 'not-linked' && (ctx.message?.text ?? '').trim().startsWith('/start');
-    if (isStart) {
+    const command = commandOf(ctx.message?.text);
+    if (ctx.callbackQuery === undefined && command !== undefined && PUBLIC_COMMANDS.has(command)) {
       await next();
       return;
     }
@@ -129,11 +169,23 @@ export function createBot(deps: BotDeps): Bot {
     if (ctx.message !== undefined) await ctx.reply(verdict.text);
   });
 
+  /** The per-chat limit on public commands. False means the reply was already sent. */
+  async function withinLimit(ctx: Context): Promise<boolean> {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return false;
+    const verdict = limiter.allow(String(chatId));
+    if (verdict.ok) return true;
+    await ctx.reply(`Slow down: too many commands from this chat. Try again in ${Math.ceil(verdict.retryInMs / 1000)}s.`);
+    return false;
+  }
+
   // ── /start ────────────────────────────────────────────────────────────────
   bot.command('start', async (ctx) => {
     const telegramUserId = ctx.from?.id;
     const chatId = ctx.chat?.id;
     if (telegramUserId === undefined || chatId === undefined) return;
+
+    if (!(await withinLimit(ctx))) return;
 
     const existing = deps.links.byTelegramUserId(telegramUserId);
     if (existing !== undefined) {
@@ -155,35 +207,95 @@ export function createBot(deps: BotDeps): Bot {
     if (!result.ok) {
       // Deliberately the same flat refusal whatever the cause: telling a
       // stranger whether the slot is taken or whether they are the wrong person
-      // is the one useful fact to someone probing a leaked token.
+      // is the one useful fact to someone probing a leaked token. The public
+      // tier is still theirs, and the reply says so.
       await ctx.reply(
-        'PerpGuard is not accepting this chat. It answers one account and nobody else.',
+        `PerpGuard is not accepting this chat as a linked account: it acts for one account and nobody else.\n\n${TIERS_TEXT}`,
       );
       return;
     }
 
-    await ctx.reply(`Linked. I will send your alerts here.\n\n${HELP_TEXT}`);
+    await ctx.reply(`Linked. I will send your alerts here, with the buttons to act.\n\n${TIERS_TEXT}\n\n${HELP_TEXT}`);
+  });
+
+  // ── the public watch tier ─────────────────────────────────────────────────
+  // Anyone, any chat. Rate-limited per chat, capped per chat and bot-wide by
+  // the store, resolved through the same index-then-chain lookups the web uses.
+  const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
+
+  bot.command('watch', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return;
+    if (!(await withinLimit(ctx))) return;
+    const watch = deps.watch;
+    if (watch === undefined) {
+      await ctx.reply(watchUnavailable);
+      return;
+    }
+    const target = parseWatchTarget(ctx.message?.text ?? '');
+    if ('error' in target) {
+      await ctx.reply(target.error);
+      return;
+    }
+    const resolved = await watch.resolver.resolve(target);
+    if ('error' in resolved) {
+      await ctx.reply(`I cannot watch that: ${resolved.error}`);
+      return;
+    }
+    const added = watch.store.add({ chatId, accountId: resolved.accountId, label: labelFor(target, resolved), addedAtMs: now() });
+    if (!added.ok) {
+      await ctx.reply(added.text);
+      return;
+    }
+    await ctx.reply(renderWatched(added.subscription, resolved, added.already, watch.indexerHealth?.()));
+  });
+
+  bot.command('unwatch', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return;
+    if (!(await withinLimit(ctx))) return;
+    const watch = deps.watch;
+    if (watch === undefined) {
+      await ctx.reply(watchUnavailable);
+      return;
+    }
+    const target = parseWatchTarget(ctx.message?.text ?? '');
+    if ('error' in target) {
+      await ctx.reply(target.error.replace('/watch', '/unwatch').replace('what to watch', 'what to stop watching'));
+      return;
+    }
+    // An account id needs no lookup; an address goes through the resolver so
+    // the same checksummed paste that started a watch can end it.
+    let accountId: number;
+    if (target.kind === 'account') {
+      accountId = target.accountId;
+    } else {
+      const resolved = await watch.resolver.resolve(target);
+      if ('error' in resolved) {
+        await ctx.reply(`I cannot place that address: ${resolved.error}`);
+        return;
+      }
+      accountId = resolved.accountId;
+    }
+    const removed = watch.store.remove(chatId, accountId);
+    await ctx.reply(removed ? `Stopped watching account ${accountId}.` : `This chat was not watching account ${accountId}. /watching lists what it does.`);
+  });
+
+  bot.command('watching', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return;
+    if (!(await withinLimit(ctx))) return;
+    const watch = deps.watch;
+    if (watch === undefined) {
+      await ctx.reply(watchUnavailable);
+      return;
+    }
+    await ctx.reply(renderWatching(watch.store.byChat(chatId), watch.indexerHealth?.(), watch.store.maxPerChat));
   });
 
   // ── /help ─────────────────────────────────────────────────────────────────
   bot.command('help', async (ctx) => {
     await ctx.reply(HELP_TEXT);
-  });
-
-  // ── /web ──────────────────────────────────────────────────────────────────
-  // A sign-in code for the web app. Only a linked user in the linked chat gets
-  // here (the gate above), so the code lands with the right person.
-  bot.command('web', async (ctx) => {
-    if (deps.mintLinkCode === undefined) {
-      await ctx.reply('The web app is not wired to this bot, so I cannot issue a sign-in code.');
-      return;
-    }
-    const minted = deps.mintLinkCode(deps.config.userId);
-    const minutes = Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000));
-    await ctx.reply(
-      `Web sign-in code: ${minted.code}\n\nEnter it on the Protect page within ${minutes} minutes. ` +
-        `It works once, and it signs in this account only.`,
-    );
   });
 
   // ── /status ───────────────────────────────────────────────────────────────

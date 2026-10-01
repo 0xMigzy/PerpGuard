@@ -339,6 +339,36 @@ TypeScript everywhere, pnpm workspaces.
 - `packages/shared` — config, types, units, Perpl client, venue adapters
 Postgres. Kimi API for AI. Dynamic SDK for login.
 
+## The Telegram bot: two tiers
+- PUBLIC WATCH TIER: anyone, any chat, no wallet, no link. `/watch <address or
+  account id>`, `/unwatch`, `/watching`. Addresses resolve through the SAME
+  index-then-chain lookup the web search uses (`apps/backend/src/watch/resolve.ts`),
+  so a checksummed address the index never saw still resolves. Watched accounts
+  are MAINNET, read from the index and priced with the venue's marks by
+  `apps/backend/src/watch/loop.ts`, never from the live trading socket; every
+  watched assessment carries `watch: WatchedScope` with the indexer block and
+  lag, the message says it in words, and while the index is not serving
+  current figures the severity is HELD like a stale price.
+- A WATCHER CAN NEVER ACT. Watch alerts carry no keyboard at all, not disabled
+  buttons. That is enforced server-side in the bot's gate (`apps/bot/src/bot.ts`):
+  every button tap from an unlinked chat is refused before any handler runs,
+  whatever its payload, and the test "SERVER-SIDE: an unlinked chat sending a
+  hand-crafted action payload is refused" pins it. The renderer dropping
+  actions for a watched assessment is the echo, not the rule.
+- ONE DECISION PER POSITION, FANNED OUT. `AlertEngine` decides whether to
+  speak from the position's own history (cooldown, dwell, escalation, the
+  stale-price gate), then asks `recipients(change)` and sends one copy per
+  recipient shaped by its rights (`act` = owner with buttons, `watch` = words
+  only). Adding recipients never changes when an alert fires. A watched
+  position's history is keyed by account AND market, so two accounts on one
+  market never share a cooldown.
+- PUBLIC MEANS BOUNDED: per-chat command rate limit, per-chat watch cap and a
+  bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
+  persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
+  does not unsubscribe anyone.
+- The linked tier is unchanged: one linked chat, the account the trading socket
+  signs for, alerts with the buttons to act.
+
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk
   engine, bot and web use the `Venue` interface, never Perpl directly.
@@ -392,6 +422,8 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
 - Commit after each working step.
 
 ## Current phase
-Day 5 (Sep 30): the web app is the six public, read-only sections above,
-served by the analytics API; the Trader and TraderDay tables are read; the
-risk snapshot is live. Actions live in the Telegram bot.
+Day 6 (Oct 1): the web app is the six public, read-only sections above,
+served by the analytics API behind a stale-while-revalidate cache; the
+Telegram bot has the public watch tier beside the linked tier; all four
+processes run under systemd (`deploy/systemd/`); full mainnet history is
+backfilling into schema `perpguard_full`. Actions live in the Telegram bot.

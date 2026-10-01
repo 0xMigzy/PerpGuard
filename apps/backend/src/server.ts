@@ -50,15 +50,21 @@ import {
   type VenueMarket,
 } from '@perpguard/shared';
 import {
+  DEFAULT_RATE_LIMIT,
   InMemoryLinkStore,
+  InMemoryWatchStore,
   PendingActionStore,
   PendingAmountStore,
+  RateLimiter,
   TelegramAlertTransport,
   VenueActionExecutor,
   createBot,
   freeBalanceFrom,
   loadBotConfig,
   type RiskView,
+  type WatchResolver,
+  type WatchStore,
+  type WatchTarget,
 } from '@perpguard/bot';
 import {
   ActionsExecutor,
@@ -86,6 +92,9 @@ import { ActionProgressTracker } from './server/protect/progress.ts';
 import { DynamicVerifier } from './server/protect/dynamic.ts';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { TradingSession } from './server/tradingSession.ts';
+import { WatchLoop } from './watch/loop.ts';
+import { createWatchResolver } from './watch/resolve.ts';
+import { PostgresWatchStore } from './watch/store.pg.ts';
 
 const startedAtMs = Date.now();
 const log = (line: string): void => console.log(`[perpguard] ${line}`);
@@ -104,6 +113,8 @@ const intFromEnv = (name: string, fallback: number): number => {
 const READINESS_TIMEOUT_MS = intFromEnv('READINESS_TIMEOUT_MS', 20_000);
 const SHUTDOWN_TIMEOUT_MS = intFromEnv('SHUTDOWN_TIMEOUT_MS', 10_000);
 const EVALUATE_INTERVAL_MS = intFromEnv('EVALUATE_INTERVAL_MS', 1_000);
+/** How often every watched account is re-read from the index and re-assessed. */
+const WATCH_INTERVAL_MS = intFromEnv('WATCH_INTERVAL_MS', 30_000);
 const INDEXER_POLL_MS = intFromEnv('INDEXER_POLL_MS', 60_000);
 const HEALTH_PORT = intFromEnv('HEALTH_PORT', 8080);
 const HEALTH_HOST = process.env['HEALTH_HOST']?.trim() ?? '0.0.0.0';
@@ -288,6 +299,31 @@ const links = new InMemoryLinkStore({
 const pendingActions = new PendingActionStore();
 const pendingAmounts = new PendingAmountStore();
 
+// ── the public watch tier: who follows which mainnet account ───────────────
+//
+// PERSISTED when there is a database, because a public subscription that
+// vanished on every restart would vanish often now that the process restarts
+// itself. The resolver and the loop need the analytics index, which is wired
+// further down; the bot is built first, so it gets a resolver that forwards to
+// whatever is wired by the time somebody types /watch.
+let watchStore: WatchStore = new InMemoryWatchStore();
+if (alertDb !== undefined) {
+  try {
+    watchStore = await PostgresWatchStore.load({ pool: alertDb, logger: { warn } });
+    log(`watch subscriptions loaded from Postgres: ${watchStore.accountIds().length} account(s) watched`);
+  } catch (error) {
+    warn(`watch subscriptions could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); watching is in memory until the next restart`);
+  }
+}
+let watchResolverImpl: WatchResolver | undefined;
+const watchResolver: WatchResolver = {
+  resolve: (target: WatchTarget) =>
+    watchResolverImpl === undefined
+      ? Promise.resolve({ error: 'this deployment has no mainnet index wired, so there is nothing to watch with' })
+      : watchResolverImpl.resolve(target),
+};
+let watchLoop: WatchLoop | undefined;
+
 // ── the web session: the bot's link, one step later ────────────────────────
 //
 // The Protect page is signed into with a one-time code the bot hands the LINKED
@@ -394,7 +430,12 @@ const bot =
         configs: riskConfigs,
         amounts: pendingAmounts,
         balance,
-        mintLinkCode: (id) => webLinkCodes.mint(id),
+        watch: {
+          store: watchStore,
+          resolver: watchResolver,
+          limiter: new RateLimiter({ ...DEFAULT_RATE_LIMIT }),
+          indexerHealth: () => watchLoop?.lastHealth,
+        },
       });
 
 const transport =
@@ -442,6 +483,38 @@ const engine = new AlertEngine({
   userId,
   logger: { error: warn, warn, info: log },
 });
+
+// ── 6b. the watch tier's alerts: the same engine, a recipient list per change ──
+//
+// Built after the loop exists (section 7 below assigns it), so it is a function
+// of state rather than a second block of wiring: see `startWatchAlerts`.
+let watchEngine: AlertEngine | undefined;
+async function startWatchAlerts(): Promise<void> {
+  if (watchLoop === undefined || analyticsVenue === undefined) return;
+  const configs = await analyticsVenue.getRiskConfigs();
+  watchEngine = new AlertEngine({
+    source: watchLoop,
+    configs,
+    transport:
+      transport ?? {
+        async send() {
+          return { ok: false, reason: 'no Telegram transport is configured, so this alert has nowhere to go', retryable: false };
+        },
+      },
+    log: activity,
+    // Every chat following this account, each as a WATCH recipient: words, no
+    // keyboard. The decision was already made per position above this line.
+    recipients: (change) => {
+      const accountId = change.assessment.watch?.accountId;
+      if (accountId === undefined) return [];
+      return watchStore.watchersOf(accountId).map((sub) => ({ userId: `watch:${sub.chatId}`, rights: 'watch' as const, chatId: sub.chatId }));
+    },
+    logger: { error: warn, warn, info: log },
+  });
+  watchEngine.start();
+  watchLoop.start(WATCH_INTERVAL_MS);
+  log(`watch tier up: ${watchStore.accountIds().length} account(s) watched, re-assessed every ${WATCH_INTERVAL_MS}ms`);
+}
 
 // ── 7. the optional indexer lag probe ───────────────────────────────────────
 
@@ -515,6 +588,27 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     tvlProbe,
   });
   log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
+
+  // ── the watch tier's data: the index for positions, the venue for marks ──
+  //
+  // ONE NETWORK, the analytics one: positions from its index, marks and margin
+  // configs from its venue, ownership from its Exchange contract. The resolver
+  // is the same index-then-chain lookup the web's search uses.
+  const reader = analyticsReader;
+  const watchVenue = analyticsVenue;
+  watchResolverImpl = createWatchResolver({
+    analytics: reader,
+    lookupOnChain: (address) => lookupAccountByAddress(address, { rpcUrl: analyticsNetwork.rpcUrl, exchangeAddress: analyticsNetwork.exchangeAddress }),
+  });
+  watchLoop = new WatchLoop({
+    subscriptions: watchStore,
+    profile: (accountId) => reader.walletByAccountId(accountId),
+    health: () => reader.health(),
+    marks: () => watchVenue.getOpenInterest(),
+    configs: () => watchVenue.getRiskConfigs(),
+    staleMs: appConfig.staleMs,
+    logger: { info: log, warn },
+  });
 } else {
   log('INDEXER_DATABASE_URL is not set; indexer lag and the analytics API are both off');
 }
@@ -682,6 +776,7 @@ shutdown
   // cannot grow, rather than racing one that still can.
   .add('stop the risk loop', () => {
     loop.stop();
+    watchLoop?.stop();
     if (evaluateTimer !== undefined) clearInterval(evaluateTimer);
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
     if (warmTimer !== undefined) clearInterval(warmTimer);
@@ -693,7 +788,9 @@ shutdown
   // alert on restart is worse than a late one.
   .add('drain alert deliveries', async () => {
     engine.stop();
+    watchEngine?.stop();
     await engine.drain();
+    await watchEngine?.drain();
   })
   .add('close the trading socket', () => trading.stop())
   .add('close the market data feed', () => {
@@ -825,6 +922,7 @@ if (readiness.ready) {
 loop.start();
 engine.start();
 assessing = true;
+void startWatchAlerts().catch((error: unknown) => warn(`watch tier did not start: ${error instanceof Error ? error.message : String(error)}`));
 
 // The loop re-evaluates on position updates only, and a price that moves a
 // position into DANGER arrives on the feed, not on the account socket.

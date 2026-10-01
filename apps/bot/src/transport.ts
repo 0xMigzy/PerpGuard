@@ -14,6 +14,7 @@ import type { Api } from 'grammy';
 import type { ActionAvailability } from '@perpguard/shared';
 import type {
   AlertMessage,
+  AlertRecipient,
   AlertTransport,
   DeliveryResult,
 } from '@perpguard/backend/alerts';
@@ -52,7 +53,27 @@ export class TelegramAlertTransport implements AlertTransport {
     this.#logger = options.logger ?? { warn: (message) => console.warn(message) };
   }
 
-  async send(userId: string, message: AlertMessage): Promise<DeliveryResult> {
+  /**
+   * One copy, shaped by the recipient's rights.
+   *
+   * A WATCHER GETS WORDS AND NOTHING ELSE: no keyboard, no pending-action
+   * token minted, so there is nothing a crafted tap could find. The chat is
+   * the recipient itself rather than a linked app user.
+   */
+  async send(recipient: AlertRecipient, message: AlertMessage): Promise<DeliveryResult> {
+    if (recipient.rights === 'watch') {
+      if (recipient.chatId === undefined) {
+        return { ok: false, reason: `watch recipient ${recipient.userId} names no chat, so there is nowhere to deliver this`, retryable: false };
+      }
+      try {
+        await this.#api.sendMessage(recipient.chatId, message.text, { link_preview_options: { is_disabled: true } });
+        return { ok: true };
+      } catch (error) {
+        return classifyTelegramError(error, this.#token);
+      }
+    }
+
+    const userId = recipient.userId;
     const link = this.#links.byUserId(userId);
     if (link === undefined) {
       // Not retryable: three attempts over a few seconds cannot make somebody

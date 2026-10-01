@@ -15,6 +15,13 @@
  * Deliveries are SERIALISED through one promise chain. Two alerts for the same
  * position racing each other could interleave their retries and land out of
  * order, so a DANGER could arrive after the WATCH that preceded it.
+ *
+ * ONE DECISION PER POSITION, FANNED OUT TO MANY RECIPIENTS. Whether to speak —
+ * cooldown, dwell, escalation, the stale-price gate — is decided once, from
+ * the position's own history, exactly as it was when there was one owner. The
+ * recipient list is then asked for, and each recipient gets a copy shaped by
+ * its rights: the owner with actions, a watcher with none. Adding recipients
+ * never changes when an alert fires; it only changes who hears it.
  */
 import type { MarketRiskConfig } from '@perpguard/shared';
 import type { MarketConfigs, RiskChange } from '../risk/types.ts';
@@ -28,6 +35,7 @@ import {
   type AlertLog,
   type AlertLogEntry,
   type AlertMessage,
+  type AlertRecipient,
   type AlertTransport,
   type DeliveryResult,
   type Unsubscribe,
@@ -63,8 +71,17 @@ export interface AlertEngineOptions {
   readonly configs: MarketConfigs;
   readonly transport: AlertTransport;
   readonly log: AlertLog;
-  /** Who to alert. One user for now; the bot will key this per chat. */
-  readonly userId: string;
+  /**
+   * Who to alert for the owner's own positions: one app user, with actions.
+   * Either this or `recipients` is required.
+   */
+  readonly userId?: string;
+  /**
+   * Who to alert for a change, asked PER CHANGE so a subscription added after
+   * boot is honoured. Overrides `userId`. An empty list means the decision was
+   * made and nobody is there to hear it, which is logged, not an error.
+   */
+  readonly recipients?: (change: RiskChange) => readonly AlertRecipient[];
   readonly alerts?: Partial<AlertConfig>;
   /** Injected so tests need no clock. */
   readonly now?: () => number;
@@ -88,7 +105,7 @@ export class AlertEngine {
   readonly #configs: MarketConfigs;
   readonly #transport: AlertTransport;
   readonly #log: AlertLog;
-  readonly #userId: string;
+  readonly #recipients: (change: RiskChange) => readonly AlertRecipient[];
   readonly #alerts: AlertConfig;
   readonly #now: () => number;
   readonly #sleep: (ms: number) => Promise<void>;
@@ -96,7 +113,7 @@ export class AlertEngine {
   readonly #logger: AlertLogger;
 
   /** Per-position alert history. IN MEMORY on purpose — see AlertHistory. */
-  readonly #history = new Map<number, AlertHistory>();
+  readonly #history = new Map<string, AlertHistory>();
   /** Serialises deliveries, and is what `drain()` awaits. */
   #queue: Promise<void> = Promise.resolve();
   #unsubscribe: Unsubscribe | undefined;
@@ -106,7 +123,11 @@ export class AlertEngine {
     this.#configs = options.configs;
     this.#transport = options.transport;
     this.#log = options.log;
-    this.#userId = options.userId;
+    const { userId, recipients } = options;
+    if (recipients === undefined && userId === undefined) {
+      throw new RangeError('AlertEngine needs a userId or a recipients function: an alert with nobody to send it to is a decision made for no one');
+    }
+    this.#recipients = recipients ?? (() => [{ userId: userId as string, rights: 'act' }]);
     this.#alerts = { ...DEFAULT_ALERT_CONFIG, ...options.alerts };
     this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? defaultSleep;
@@ -134,9 +155,13 @@ export class AlertEngine {
     this.#unsubscribe = undefined;
   }
 
-  /** History for one position, for tests and for the UI to show "last alerted". */
-  historyFor(marketId: number): AlertHistory | undefined {
-    return this.#history.get(marketId);
+  /**
+   * History for one position, for tests and for the UI to show "last alerted".
+   * The owner's own positions are keyed by market alone; a watched account's by
+   * account and market, so two accounts on the same market never share a cooldown.
+   */
+  historyFor(marketId: number, accountId?: number): AlertHistory | undefined {
+    return this.#history.get(historyKey(marketId, accountId));
   }
 
   /** Resolves once every queued delivery has finished. */
@@ -166,23 +191,36 @@ export class AlertEngine {
         send: false,
         message: undefined,
         suppressedReason: `no market config for market ${assessment.marketId}`,
-        history: this.#history.get(assessment.marketId) ?? emptyHistory(assessment.marketId),
+        history: this.#history.get(historyKey(assessment.marketId, assessment.watch?.accountId)) ?? emptyHistory(assessment.marketId),
       };
     }
 
+    const key = historyKey(assessment.marketId, assessment.watch?.accountId);
     const decision = decide(
       change,
       { alerts: this.#alerts, market },
-      this.#history.get(assessment.marketId),
+      this.#history.get(key),
       this.#now(),
     );
     // Stored whether or not anything is sent: a suppressed tick still resets
     // latches, and dropping it would silence the next real alert.
-    this.#history.set(assessment.marketId, decision.history);
+    this.#history.set(key, decision.history);
 
     if (decision.send && decision.message !== undefined) {
       const message = decision.message;
-      this.#queue = this.#queue.then(() => this.#deliver(message, market));
+      // The list is read NOW, once per decision, so every copy of this alert
+      // goes to the same set and a subscription change mid-delivery cannot
+      // split it.
+      const recipients = this.#recipients(change);
+      if (recipients.length === 0) {
+        this.#logger.info(
+          `alert for ${assessment.symbol} (${assessment.state}) decided, but nobody is subscribed to hear it`,
+          { marketId: assessment.marketId, state: assessment.state, atMs: assessment.atMs, accountId: assessment.watch?.accountId },
+        );
+      }
+      for (const recipient of recipients) {
+        this.#queue = this.#queue.then(() => this.#deliver(message, market, recipient));
+      }
     } else {
       // The alert_log table is for DELIVERY OUTCOMES only — cooldown suppresses
       // most changes, and a row each would bury the failures that matter. But the
@@ -204,9 +242,15 @@ export class AlertEngine {
    * transport that returns `retryable: false` stops the loop, because three
    * attempts against a blocked chat is three ways of failing the same way.
    */
-  async #deliver(message: AlertMessage, market: MarketRiskConfig): Promise<void> {
+  async #deliver(message: AlertMessage, market: MarketRiskConfig, recipient: AlertRecipient): Promise<void> {
     const createdAtMs = this.#now();
-    const alertKey = `${market.marketId}:${message.state}:${message.atMs}`;
+    // The owner's key is unchanged. A watched alert names its account, and a
+    // watcher's copy its chat, so each copy's attempt sequence is its own row.
+    const alertKey =
+      message.watch === undefined
+        ? `${market.marketId}:${message.state}:${message.atMs}`
+        : `${message.watch.accountId}:${market.marketId}:${message.state}:${message.atMs}:${recipient.userId}`;
+    const accountId = message.watch?.accountId;
     let attempts = 0;
     let lastError: string | undefined;
 
@@ -214,15 +258,16 @@ export class AlertEngine {
       attempts = attempt;
       let result: DeliveryResult;
       try {
-        result = await this.#transport.send(this.#userId, message);
+        result = await this.#transport.send(recipient, message);
       } catch (error) {
         result = { ok: false, reason: describeError(error), retryable: true };
       }
 
       if (result.ok) {
         await this.#record({
+          ...(accountId === undefined ? {} : { accountId }),
           alertKey,
-          userId: this.#userId,
+          userId: recipient.userId,
           marketId: message.marketId,
           symbol: message.symbol,
           kind: message.kind,
@@ -252,8 +297,9 @@ export class AlertEngine {
     }
 
     const entry: AlertLogEntry = {
+      ...(accountId === undefined ? {} : { accountId }),
       alertKey,
-      userId: this.#userId,
+      userId: recipient.userId,
       marketId: message.marketId,
       symbol: message.symbol,
       kind: message.kind,
@@ -302,4 +348,9 @@ export class AlertEngine {
       );
     }
   }
+}
+
+/** The owner's positions by market; a watched account's by account and market. */
+function historyKey(marketId: number, accountId: number | undefined): string {
+  return accountId === undefined ? String(marketId) : `${accountId}:${marketId}`;
 }

@@ -425,3 +425,76 @@ test('the in-memory log records what the engine hands it', async () => {
   assert.equal(log.rows.length, 1);
   assert.equal(log.rows[0]!.outcome, 'delivered');
 });
+
+// ── fan-out: one decision, many recipients ──────────────────────────────────
+
+test('one decision fans out to every recipient with its own rights, and they share the cooldown', async () => {
+  const source = new Source();
+  const transport = new FakeTransport();
+  const log = new RecordingLog();
+  const logger = new RecordingLogger();
+  const engine = new AlertEngine({
+    source,
+    configs: CONFIGS,
+    transport,
+    log,
+    recipients: () => [
+      { userId: 'trader-1', rights: 'act' },
+      { userId: 'watch:111', rights: 'watch', chatId: 111 },
+      { userId: 'watch:222', rights: 'watch', chatId: 222 },
+    ],
+    now: () => T0,
+    sleep: async () => {},
+    logger,
+  });
+  engine.start();
+
+  const change = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK).change;
+  source.emit(change);
+  await engine.drain();
+
+  assert.deepEqual(
+    transport.sent.map((s) => [s.recipient.userId, s.recipient.rights, s.recipient.chatId]),
+    [['trader-1', 'act', undefined], ['watch:111', 'watch', 111], ['watch:222', 'watch', 222]],
+  );
+  assert.equal(new Set(transport.sent.map((s) => s.message)).size, 1, 'the SAME message object: rendered once, shaped by the transport');
+  assert.deepEqual(log.rows.map((r) => r.userId), ['trader-1', 'watch:111', 'watch:222'], 'one row per copy');
+
+  // The decision is per position: a repeat inside the cooldown is suppressed
+  // for everyone, not re-sent to the watchers.
+  source.emit(change);
+  await engine.drain();
+  assert.equal(transport.sent.length, 3);
+  assert.match(logger.infos.at(-1) ?? '', /cooldown left/);
+});
+
+test('a watched position keeps its own history, so two accounts on one market never share a cooldown', async () => {
+  const r = rig();
+  const own = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK).change;
+  const watched: RiskChange = {
+    ...own,
+    assessment: { ...own.assessment, watch: { accountId: 5293, label: '#5293', indexerBlock: 1, blocksBehind: 0, indexerState: 'synced' } },
+  };
+  r.source.emit(own);
+  r.source.emit(watched);
+  await r.engine.drain();
+  assert.equal(r.transport.sent.length, 2, 'both delivered: different positions');
+  assert.ok(r.transport.sent[1]!.message.text.startsWith('Watching #5293 · DANGER · BTC long'));
+  assert.deepEqual(r.transport.sent[1]!.message.actions, [], 'no actions on a watched alert');
+  assert.equal(r.log.rows[1]!.accountId, 5293);
+  assert.match(r.log.rows[1]!.alertKey, /^5293:1:DANGER:/);
+  assert.notEqual(r.engine.historyFor(BTC.marketId), undefined);
+  assert.notEqual(r.engine.historyFor(BTC.marketId, 5293), undefined);
+});
+
+test('a decision with nobody subscribed is logged and sends nothing', async () => {
+  const source = new Source();
+  const transport = new FakeTransport();
+  const logger = new RecordingLogger();
+  const engine = new AlertEngine({ source, configs: CONFIGS, transport, log: new RecordingLog(), recipients: () => [], now: () => T0, sleep: async () => {}, logger });
+  engine.start();
+  source.emit(assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK).change);
+  await engine.drain();
+  assert.equal(transport.sent.length, 0);
+  assert.match(logger.infos.at(-1) ?? '', /nobody is subscribed/);
+});

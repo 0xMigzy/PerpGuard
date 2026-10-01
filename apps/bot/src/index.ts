@@ -15,3 +15,4 @@ export * from './positions.ts';
 export * from './status.ts';
 export * from './transport.ts';
 export * from './view.ts';
+export * from './watch.ts';

@@ -486,3 +486,23 @@ test('a liquidation price at or below zero is said in words on the position line
   assert.match(rendered.text, /no liquidation price left to reach/);
   assert.doesNotMatch(rendered.text, /-19,802/);
 });
+
+test('a WATCHED position renders with its account first, a freshness line, and no actions whatever it carries', () => {
+  const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
+  const watched = {
+    ...change.assessment,
+    watch: { accountId: 5293, label: '#5293 (0xb785…1765)', indexerBlock: 109_000_000, blocksBehind: 42, indexerState: 'lagging' },
+  };
+  const message = buildMessage(watched, 'danger', { alerts: config, market: BTC });
+  assert.equal(message.title, 'Watching #5293 (0xb785…1765) · DANGER · BTC long');
+  assert.deepEqual(message.actions, [], 'the owner’s assessment had two top-ups; a watcher gets none');
+  assert.ok(!message.lines.some((l) => l.startsWith('Top up')), 'and no top-up lines either');
+  const freshness = message.lines.find((l) => l.startsWith('Watching only'))!;
+  assert.match(freshness, /positions as indexed at block 109,000,000, 42 blocks behind the chain \(indexer lagging\)/);
+  assert.match(freshness, /from the venue\. Not live, and nothing here can be acted on from this chat\./);
+  assert.equal(message.watch?.accountId, 5293);
+  // The owner's own message is unchanged by the feature.
+  const own = buildMessage(change.assessment, 'danger', { alerts: config, market: BTC });
+  assert.equal(own.title, 'DANGER · BTC long');
+  assert.equal(own.actions.length, 2);
+});

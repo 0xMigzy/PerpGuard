@@ -29,6 +29,7 @@ import {
   type RiskThresholds,
 } from '../risk/types.ts';
 import type {
+  AlertRecipient,
   AlertLogEntry,
   AlertMessage,
   AlertTransport,
@@ -279,7 +280,7 @@ export function withOverrides(
 
 /** A transport whose result can be programmed per attempt. */
 export class FakeTransport implements AlertTransport {
-  readonly sent: Array<{ readonly userId: string; readonly message: AlertMessage }> = [];
+  readonly sent: Array<{ readonly userId: string; readonly recipient: AlertRecipient; readonly message: AlertMessage }> = [];
   /** Consumed one per attempt. When empty, sends succeed. */
   readonly scripted: DeliveryResult[] = [];
   /** Thrown instead of returning, once per queued error. */
@@ -291,14 +292,14 @@ export class FakeTransport implements AlertTransport {
     return this;
   }
 
-  async send(userId: string, message: AlertMessage): Promise<DeliveryResult> {
+  async send(recipient: AlertRecipient, message: AlertMessage): Promise<DeliveryResult> {
     this.attempts += 1;
     if (this.throwOnAttempt.has(this.attempts)) {
       throw new Error(`transport blew up on attempt ${this.attempts}`);
     }
     const scripted = this.scripted.shift();
     if (scripted !== undefined && !scripted.ok) return scripted;
-    this.sent.push({ userId, message });
+    this.sent.push({ userId: recipient.userId, recipient, message });
     return scripted ?? { ok: true };
   }
 }

@@ -67,7 +67,7 @@ function buttons(telegram: FakeTelegram): Array<{ text: string; callback_data: s
 
 test('a DANGER alert is sent as plain text with a button per top-up option', async () => {
   const h = harness();
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.deepEqual(result, { ok: true });
 
   const call = h.telegram.last('sendMessage');
@@ -93,7 +93,7 @@ test('button labels are the action’s own rendered line, never composed here', 
   // cannot come to disagree about the amount.
   const message = dangerMessage();
   const h = harness();
-  return h.transport.send(USER_ID, message).then(() => {
+  return h.transport.send({ userId: USER_ID, rights: 'act' }, message).then(() => {
     const labels = buttons(h.telegram).map((b) => b.text);
     assert.deepEqual(labels.slice(0, message.actions.length), message.actions.map((a) => a.label));
     // Both computed options, unchanged, then the custom option BELOW them. It is
@@ -109,7 +109,7 @@ test('button labels are the action’s own rendered line, never composed here', 
 test('each button carries the exact amount the text showed', async () => {
   const h = harness();
   const message = dangerMessage();
-  await h.transport.send(USER_ID, message);
+  await h.transport.send({ userId: USER_ID, rights: 'act' }, message);
 
   const decoded = buttons(h.telegram).map((b) => decodeCallback(b.callback_data));
   assert.deepEqual(
@@ -148,7 +148,7 @@ test('an unavailable market still gets its alert, with disabled buttons and the 
     reason: 'BTC is not listed on testnet',
   };
 
-  await h.transport.send(USER_ID, dangerMessage());
+  await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   const text = String(h.telegram.last('sendMessage').payload['text']);
 
   assert.match(text, /Buffer 2\.7% — liquidation 81,770\.1/);
@@ -172,7 +172,7 @@ test('a venue that throws disables the buttons and still delivers the alert', as
   const h = harness();
   h.executor.availabilityError = new Error('venue lookup exploded');
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.deepEqual(result, { ok: true });
   assert.match(
     String(h.telegram.last('sendMessage').payload['text']),
@@ -195,7 +195,7 @@ test('a blind alert carries no keyboard and no availability note', async () => {
   );
 
   const h = harness();
-  await h.transport.send(USER_ID, blind);
+  await h.transport.send({ userId: USER_ID, rights: 'act' }, blind);
   const call = h.telegram.last('sendMessage');
   assert.equal(call.payload['reply_markup'], undefined);
   assert.doesNotMatch(String(call.payload['text']), /Actions are unavailable/);
@@ -207,7 +207,7 @@ test('a blind alert carries no keyboard and no availability note', async () => {
 
 test('an unlinked user is a permanent failure, and nothing is sent', async () => {
   const h = harness(new InMemoryLinkStore({ capacity: 1 }));
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
 
   assert.equal(result.ok, false);
   assert.equal(result.retryable, false);
@@ -219,7 +219,7 @@ test('a 429 is retryable, and reports the wait Telegram asked for', async () => 
   const h = harness();
   h.telegram.reply(FakeTelegram.error(429, 'Too Many Requests: retry after 7', 7));
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.ok, false);
   assert.equal(result.retryable, true);
   assert.match(result.reason ?? '', /Telegram 429/);
@@ -231,7 +231,7 @@ test('a 403 blocked-by-user is NOT retryable', async () => {
   const h = harness();
   h.telegram.reply(FakeTelegram.error(403, 'Forbidden: bot was blocked by the user'));
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.ok, false);
   assert.equal(result.retryable, false);
   assert.match(result.reason ?? '', /bot was blocked by the user/);
@@ -241,7 +241,7 @@ test('a 400 chat-not-found is NOT retryable', async () => {
   const h = harness();
   h.telegram.reply(FakeTelegram.error(400, 'Bad Request: chat not found'));
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.retryable, false);
 });
 
@@ -249,11 +249,11 @@ test('a 5xx and a dropped socket are both retryable', async () => {
   const h = harness();
   h.telegram.reply(FakeTelegram.error(502, 'Bad Gateway'), FakeTelegram.network('socket hang up'));
 
-  const first = await h.transport.send(USER_ID, dangerMessage());
+  const first = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(first.retryable, true);
   assert.match(first.reason ?? '', /Telegram 502/);
 
-  const second = await h.transport.send(USER_ID, dangerMessage());
+  const second = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(second.retryable, true);
   assert.match(second.reason ?? '', /network failure talking to Telegram/);
 });
@@ -262,7 +262,7 @@ test('an error of no recognised class is retryable, and is not mistaken for a se
   const h = harness();
   h.telegram.reply(new Error('something nobody has met before'));
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.ok, false);
   assert.equal(result.retryable, true);
   assert.match(result.reason ?? '', /unexpected send failure/);
@@ -272,7 +272,7 @@ test('an unrecognised error code is retryable, because losing the alert is worse
   const h = harness();
   h.telegram.reply(FakeTelegram.error(418, "I'm a teapot"));
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.retryable, true);
 });
 
@@ -280,9 +280,9 @@ test('a retried send succeeds on the second attempt', async () => {
   const h = harness();
   h.telegram.reply(FakeTelegram.error(429, 'Too Many Requests', 1));
 
-  const first = await h.transport.send(USER_ID, dangerMessage());
+  const first = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(first.ok, false);
-  const second = await h.transport.send(USER_ID, dangerMessage());
+  const second = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.deepEqual(second, { ok: true });
 });
 
@@ -295,8 +295,31 @@ test('the bot token never appears in a failure reason', async () => {
     ),
   );
 
-  const result = await h.transport.send(USER_ID, dangerMessage());
+  const result = await h.transport.send({ userId: USER_ID, rights: 'act' }, dangerMessage());
   assert.equal(result.ok, false);
   assert.ok(!(result.reason ?? '').includes(TEST_TOKEN));
   assert.match(result.reason ?? '', /<redacted>/);
+});
+
+// ── watchers ────────────────────────────────────────────────────────────────
+
+test('a watch recipient gets the words at its chat, NO keyboard, and no token is minted', async () => {
+  const h = harness();
+  const before = h.store.size;
+  const result = await h.transport.send({ userId: 'watch:777', rights: 'watch', chatId: 777 }, dangerMessage());
+  assert.deepEqual(result, { ok: true });
+  const call = h.telegram.last('sendMessage');
+  assert.equal(call.payload['chat_id'], 777);
+  assert.equal(call.payload['reply_markup'], undefined, 'no keyboard at all, not a disabled one');
+  assert.equal(h.store.size, before, 'nothing parked: there is nothing a crafted tap could find');
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('a watch recipient without a chat is a permanent failure, not a retry', async () => {
+  const h = harness();
+  const result = await h.transport.send({ userId: 'watch:nowhere', rights: 'watch' }, dangerMessage());
+  assert.equal(result.ok, false);
+  assert.equal(result.retryable, false);
+  assert.match(result.reason ?? '', /names no chat/);
+  assert.equal(h.telegram.of('sendMessage').length, 0);
 });

@@ -1,11 +1,16 @@
 /** `/help` — one sentence each, and the isolated-margin fact that explains the bot. */
 export const HELP_TEXT = [
-  'PerpGuard watches your Perpl positions and warns you before a liquidation.',
+  'PerpGuard watches Perpl positions and warns before a liquidation.',
   '',
+  'Watch any account — no wallet, no sign-up, no link:',
+  '/watch <0x address or account id> — alert this chat about that account’s positions. Read-only: no buttons.',
+  '/unwatch <address or id> — stop watching one.',
+  '/watching — what this chat follows, and how current the data is.',
+  '',
+  'Your own account, linked, with the buttons to act:',
+  '/start — link this chat to the account I alert and act for.',
   '/positions — every open position with its buffer, liquidation price and what a top-up would buy.',
   '/status — whether I can actually see right now: feed connection, position list, and how old the data is.',
-  '/start — link this chat to the account I alert.',
-  '/web — a one-time code to sign in to the Protect page in the web app.',
   '/cancel — drop a custom amount I am waiting for.',
   '/help — this.',
   '',
@@ -27,7 +32,8 @@ export const HELP_TEXT = [
  * probing a bot whose token has leaked.
  */
 export const REFUSAL_TEXT =
-  'PerpGuard is not linked to you. This bot answers one account and nobody else.';
+  'PerpGuard is not linked to you, so that is off: this bot acts for one account and nobody else. ' +
+  'You can still /watch any account, read-only.';
 
 /** Shown to a linked user who spoke to the bot from somewhere other than their linked chat. */
 export const WRONG_CHAT_TEXT =
