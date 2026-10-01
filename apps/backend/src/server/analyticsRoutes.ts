@@ -35,6 +35,7 @@ import {
   type Timeframe,
   type TraderSortKey,
   type WalletLookup,
+  type WalletMatch,
 } from '@perpguard/shared';
 
 export interface AnalyticsRouteOptions {
@@ -102,6 +103,14 @@ interface Envelope<T> {
 
 /** An `0x`-prefixed 20-byte address. Case-insensitive, per CLAUDE.md. */
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * Part of an address, for the search box: `0x` plus 3 to 39 hex characters.
+ * Three is the floor so a search cannot list the whole owner table; a full
+ * address is `/wallet/:address`'s job, where the chain is asked too.
+ */
+const ADDRESS_PREFIX = /^0x[0-9a-fA-F]{3,39}$/;
+const SEARCH_LIMIT = 20;
 
 function isTimeframe(value: unknown): value is Timeframe {
   return typeof value === 'string' && (TIMEFRAMES as readonly string[]).includes(value);
@@ -328,6 +337,23 @@ export function registerAnalyticsRoutes(
     return { kind: 'found', profile: { ...profile, address: profile.address === '' ? indexed.address : profile.address }, resolvedBy: 'chain' };
   }
 
+  /**
+   * Owners by address prefix, for a search box given part of an address.
+   *
+   * An empty list is an ORDINARY 200, like `not-linked`: only accounts whose
+   * `AccountCreated` the index saw have an owner at all, so most prefixes match
+   * nothing and that is not an error. The hex-only check is also what keeps the
+   * bind free of LIKE wildcards.
+   */
+  scope.get<{ Querystring: { q?: string } }>(`${prefix}/wallet-search`, async (request, reply) => {
+    const q = request.query.q ?? '';
+    if (!ADDRESS_PREFIX.test(q)) {
+      return reply.code(400).send({ error: `${JSON.stringify(q)} is not a 0x-prefixed hex prefix of 3 to 39 characters` });
+    }
+    const matches: readonly WalletMatch[] = await analytics.walletSearch(q, SEARCH_LIMIT);
+    return envelope({ query: q, matches, limit: SEARCH_LIMIT });
+  });
+
   /** A wallet by account id — the handle that works when the owner is unrecorded. */
   scope.get<{ Params: { accountId: string } }>(
     `${prefix}/account/:accountId`,
@@ -475,6 +501,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/liquidations/summary?timeframe=30d`,
       `${prefix}/traders?timeframe=30d&sort=netPnl&direction=desc&limit=50&offset=0`,
       `${prefix}/wallet/:address`,
+      `${prefix}/wallet-search?q=0x1234`,
       `${prefix}/account/:accountId`,
       `${prefix}/account/:accountId/positions`,
       `${prefix}/account/:accountId/round-trips?limit=50&offset=0`,

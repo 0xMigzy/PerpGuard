@@ -76,6 +76,7 @@ import type {
   TraderSortKey,
   TraderWindow,
   WalletLookup,
+  WalletMatch,
   WalletPerformance,
   WalletProfile,
 } from './types.ts';
@@ -401,6 +402,17 @@ select f.market_id as id, m.name,
  * nothing. Addresses are case-insensitive and this layer treats them that way.
  */
 const TRADER_BY_OWNER_SQL = `select id from "Trader" where lower(owner) = $1 limit 1`;
+
+/**
+ * Owners by prefix, for a search box given part of an address. Same
+ * `lower(owner)` rule as above, for the same reason. `$1` is `0x` plus hex and
+ * nothing else, so it carries no LIKE wildcard; the route checks that.
+ */
+const TRADERS_BY_OWNER_PREFIX_SQL = `
+select id, owner from "Trader"
+ where owner is not null and lower(owner) like $1 || '%'
+ order by (id::bigint) limit $2
+`;
 
 const TRADER_SQL = `
 select id, "accountId", owner, "firstTradeAt", "lastActiveAt",
@@ -1081,6 +1093,11 @@ export class PostgresAnalytics implements Analytics {
       return { kind: 'not-linked', address: wanted, reason: `account row for ${wanted} vanished mid-read` };
     }
     return { kind: 'found', profile, resolvedBy: 'index' };
+  }
+
+  async walletSearch(prefix: string, limit: number): Promise<readonly WalletMatch[]> {
+    const rows = await this.#rows(TRADERS_BY_OWNER_PREFIX_SQL, [prefix.trim().toLowerCase(), limit]);
+    return rows.map((row) => ({ address: String(row['owner']), accountId: count(row['id']) }));
   }
 
   async walletByAccountId(accountId: number): Promise<WalletProfile | undefined> {

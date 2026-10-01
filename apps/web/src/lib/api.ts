@@ -29,6 +29,7 @@ import type {
   TraderSortKey,
   TvlReading,
   WalletLookup,
+  WalletMatch,
   WalletProfile,
 } from '@perpguard/shared';
 
@@ -46,6 +47,13 @@ export interface OpenInterestPayload {
   readonly markets: readonly MarketOpenInterest[];
   readonly totalNotional: number;
   readonly asOfMs: number | undefined;
+}
+
+export interface WalletSearchPayload {
+  readonly query: string;
+  readonly matches: readonly WalletMatch[];
+  /** The most the backend will list, so the page can say "the first N". */
+  readonly limit: number;
 }
 
 export class ApiError extends Error {
@@ -109,6 +117,8 @@ export const api = {
     getJson<Envelope<readonly LiquidationRecord[]>>(`${A}/liquidations?timeframe=${t}&limit=${limit}&offset=${offset}`),
   /** By address, any case. `not-linked` is an ordinary 200 answer, not an error. */
   wallet: (address: string) => getJson<Envelope<WalletLookup>>(`${A}/wallet/${encodeURIComponent(address)}`),
+  /** By address prefix, `0x` plus 3 to 39 hex characters. No match is an ordinary empty list. */
+  walletSearch: (prefix: string) => getJson<Envelope<WalletSearchPayload>>(`${A}/wallet-search?q=${encodeURIComponent(prefix)}`),
   /** By account id. A missing account is a 404, which surfaces as an ApiError with status 404. */
   account: (accountId: number) => getJson<Envelope<WalletProfile>>(`${A}/account/${accountId}`),
   accountPositions: (accountId: number) => getJson<Envelope<AssessedPositions>>(`${A}/account/${accountId}/positions`),

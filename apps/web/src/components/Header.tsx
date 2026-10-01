@@ -17,7 +17,10 @@ export function Header() {
               Perp<span className="text-accent-hi">Guard</span>
             </b>
           </Link>
-          <Search />
+          {/* Suspense: the search carries the timeframe from the URL, like the tabs. */}
+          <Suspense fallback={<div className="flex-1" aria-hidden="true" />}>
+            <Search />
+          </Suspense>
           <IndexerChip />
         </div>
         {/* Suspense: the tabs read the URL's search params to carry the timeframe across sections. */}

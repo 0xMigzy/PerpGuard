@@ -502,6 +502,18 @@ export type WalletLookup =
       readonly accountId?: number;
     };
 
+/**
+ * One owner whose recorded address starts with a searched prefix.
+ *
+ * Only accounts whose `AccountCreated` the index saw have an owner at all, so a
+ * prefix search sees the same 12% of mainnet accounts the full-address lookup
+ * does. The address is served as stored, which on mainnet is EIP-55 mixed case.
+ */
+export interface WalletMatch {
+  readonly address: string;
+  readonly accountId: number;
+}
+
 export interface WalletProfile {
   /** Lowercased. Empty when the account was found by id and has no owner. */
   readonly address: string;
@@ -832,6 +844,13 @@ export interface Analytics {
 
   /** The same profile for an account id, which always resolves if it exists. */
   walletByAccountId(accountId: number): Promise<WalletProfile | undefined>;
+
+  /**
+   * Every recorded owner whose address starts with `prefix`, compared
+   * case-insensitively, ordered by account id, at most `limit` of them.
+   * `prefix` must already be `0x` plus hex; the caller validates.
+   */
+  walletSearch(prefix: string, limit: number): Promise<readonly WalletMatch[]>;
 
   /**
    * Completed round trips for one account, most recent first.

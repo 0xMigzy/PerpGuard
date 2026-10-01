@@ -402,6 +402,23 @@ test('an address matches case-insensitively, because owners are stored checksumm
   assert.equal(byOwner.values[0], '0xb7854953a71e45d1033b3d619e76d56391291765');
 });
 
+test('a prefix search lowercases the bind, compares lower(owner), and serves the address as stored', async () => {
+  const sql = new FakeSql().on(/lower\(owner\) like/, [
+    { id: '2118', owner: '0xB7854953A71e45D1033B3d619E76d56391291765' },
+    { id: '2500', owner: '0xB78A0000000000000000000000000000000000AA' },
+  ]);
+
+  const matches = await reader(sql).walletSearch('0xB78', 20);
+
+  assert.deepEqual(matches, [
+    { address: '0xB7854953A71e45D1033B3d619E76d56391291765', accountId: 2118 },
+    { address: '0xB78A0000000000000000000000000000000000AA', accountId: 2500 },
+  ]);
+  const call = sql.calls.find((c) => /lower\(owner\) like/.test(c.sql))!;
+  assert.deepEqual(call.values, ['0xb78', 20]);
+  assert.match(call.sql, /owner is not null/);
+});
+
 test('round trips are capped in SQL, because one account has 207,681 of them', async () => {
   const sql = new FakeSql();
   const analytics = reader(sql);

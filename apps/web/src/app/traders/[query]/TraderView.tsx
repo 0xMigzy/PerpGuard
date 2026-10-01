@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import type { AssessedPosition, RoundTrip, WalletProfile } from '@perpguard/shared';
 import { ApiError, api } from '@/lib/api.ts';
 import {
@@ -23,7 +24,7 @@ import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.
 import { COLORS } from '@/lib/theme.ts';
 import { PERIOD_LABEL } from '@/lib/timeframe.ts';
 import { usePoll } from '@/lib/usePoll.ts';
-import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf } from '@/lib/traders.ts';
+import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf, type TraderQuery } from '@/lib/traders.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
@@ -36,6 +37,80 @@ const POLL_MS = 30_000;
 
 export function TraderView({ query }: { readonly query: string }) {
   const parsed = useMemo(() => parseTraderQuery(query), [query]);
+  if (parsed.kind === 'prefix') return <PrefixSearch query={query} prefix={parsed.prefix} />;
+  return <TraderProfile query={query} parsed={parsed} />;
+}
+
+/**
+ * Part of an address. One match opens that trader directly, replacing this
+ * URL so Back does not return to the search; several are listed to choose
+ * from; none is the designed not-linked outcome, with the same explanation
+ * the full-address lookup gives, because the cause is the same.
+ */
+function PrefixSearch({ query, prefix }: { readonly query: string; readonly prefix: string }) {
+  const router = useRouter();
+  const search = usePoll(() => api.walletSearch(prefix), POLL_MS, `search:${prefix}`);
+  const matches = search.data?.data.matches;
+  const only = matches !== undefined && matches.length === 1 ? matches[0] : undefined;
+  useEffect(() => {
+    if (only !== undefined) router.replace(`/traders/${encodeURIComponent(only.address)}`);
+  }, [only, router]);
+  const header = <PageHeader title="Trader" thin={query} subtitle="Every recorded owner whose address starts with what you typed." />;
+  if (search.error !== undefined && matches === undefined) {
+    return (
+      <>
+        {header}
+        <ErrorNote error={search.error} what="The address search" />
+      </>
+    );
+  }
+  if (matches === undefined || only !== undefined) {
+    return (
+      <>
+        {header}
+        <Skeleton className="h-[64px]" />
+      </>
+    );
+  }
+  if (matches.length === 0) {
+    return (
+      <>
+        {header}
+        <StaleMarker envelope={search.data} />
+        <Outcome title={`No recorded owner starts with ${prefix}.`}>
+          Only the AccountCreated event ties a wallet to an account id, and most accounts were created before the indexer&apos;s start
+          block, so their owner is not recorded. This does NOT mean the address has no history. Paste the full address to ask the Exchange
+          contract as well, or look the trader up by account id. <Link href="/traders">Back to the traders list.</Link>
+        </Outcome>
+      </>
+    );
+  }
+  const capped = matches.length >= search.data!.data.limit;
+  return (
+    <>
+      {header}
+      <StaleMarker envelope={search.data} />
+      <section className="rounded-[12px] border border-border2 bg-card px-[18px] py-4 text-[13px]">
+        <b className="text-text">
+          {capped ? `The first ${formatCount(matches.length)} recorded owners` : `${formatCount(matches.length)} recorded owners`} start with {prefix}.
+        </b>{' '}
+        <span className="text-muted">{capped ? 'Type more of the address to narrow it.' : 'Pick one.'}</span>
+        <ul className="mt-3 flex flex-col gap-2">
+          {matches.map((m) => (
+            <li key={m.accountId}>
+              <Link href={`/traders/${encodeURIComponent(m.address)}`} className="num">
+                {m.address}
+              </Link>
+              <span className="text-muted"> · account {m.accountId}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </>
+  );
+}
+
+function TraderProfile({ query, parsed }: { readonly query: string; readonly parsed: Exclude<TraderQuery, { kind: 'prefix' }> }) {
   const t = useTimeframe();
   const period = PERIOD_LABEL[t];
 

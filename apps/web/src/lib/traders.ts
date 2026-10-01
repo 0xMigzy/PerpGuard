@@ -7,21 +7,37 @@ import type { RoundTrip, TraderDayPoint, TraderSortKey } from '@perpguard/shared
 export type TraderQuery =
   | { readonly kind: 'address'; readonly address: string }
   | { readonly kind: 'account'; readonly accountId: number }
+  /** Part of an address: `0x` plus 3 to 39 hex characters, as typed. */
+  | { readonly kind: 'prefix'; readonly prefix: string }
   | { readonly kind: 'invalid'; readonly reason: string };
+
+/** The fewest hex characters a partial address may have. Mirrors the backend's floor. */
+export const MIN_PREFIX_HEX = 3;
 
 /**
  * Addresses are accepted IN ANY CASE (CLAUDE.md): a block explorer hands the
  * user a checksummed one and the backend compares case-insensitively. A bare
  * run of digits is an account id, which is the handle that works when the
- * owner was never recorded. Anything else is refused with a reason rather
- * than sent as a lookup that could only come back empty.
+ * owner was never recorded. Part of an address — with or without its `0x` —
+ * is a prefix search over recorded owners. Anything else is refused with a
+ * reason rather than sent as a lookup that could only come back empty.
  */
 export function parseTraderQuery(raw: string): TraderQuery {
   const q = raw.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(q)) return { kind: 'address', address: q };
   if (/^\d{1,12}$/.test(q)) return { kind: 'account', accountId: Number(q) };
-  if (/^0x/i.test(q)) return { kind: 'invalid', reason: 'an address is 0x followed by 40 hex characters' };
-  return { kind: 'invalid', reason: 'enter a 0x address or a numeric account id' };
+  // Hex with at least one letter cannot be an account id. With a 0x it is a
+  // prefix as typed; without one, it is the same prefix with its 0x restored.
+  const hex = /^(0x)?([0-9a-fA-F]+)$/i.exec(q);
+  if (hex !== null) {
+    const body = hex[2]!;
+    if (body.length === 40 && hex[1] === undefined) return { kind: 'address', address: `0x${body}` };
+    if (body.length >= MIN_PREFIX_HEX && body.length < 40) return { kind: 'prefix', prefix: `0x${body}` };
+    if (body.length < MIN_PREFIX_HEX) return { kind: 'invalid', reason: `a partial address needs at least ${MIN_PREFIX_HEX} hex characters after 0x` };
+    return { kind: 'invalid', reason: 'an address is 0x followed by 40 hex characters' };
+  }
+  if (/^0x/i.test(q)) return { kind: 'invalid', reason: 'an address is 0x followed by hex characters only' };
+  return { kind: 'invalid', reason: 'enter a 0x address, part of one, or a numeric account id' };
 }
 
 /**

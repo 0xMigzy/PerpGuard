@@ -13,11 +13,23 @@ test('a checksummed address is accepted as an address, in the case it was given'
 
 test('digits are an account id; anything else is refused with a reason', () => {
   assert.deepEqual(parseTraderQuery('4734'), { kind: 'account', accountId: 4734 });
-  const short = parseTraderQuery('0x1234');
-  assert.equal(short.kind, 'invalid');
-  assert.match((short as { reason: string }).reason, /40 hex/);
   assert.equal(parseTraderQuery('vitalik.eth').kind, 'invalid');
+  assert.equal(parseTraderQuery('0xzz1234').kind, 'invalid');
   assert.equal(parseTraderQuery('').kind, 'invalid');
+});
+
+test('part of an address is a prefix search, with its 0x restored if it was left off', () => {
+  assert.deepEqual(parseTraderQuery('0x5982eE63'), { kind: 'prefix', prefix: '0x5982eE63' });
+  assert.deepEqual(parseTraderQuery('5982eE63'), { kind: 'prefix', prefix: '0x5982eE63' });
+  assert.deepEqual(parseTraderQuery('0x1234'), { kind: 'prefix', prefix: '0x1234' }, 'the floor is three hex characters');
+  // 41 hex characters is not an address and not a prefix of one.
+  assert.equal(parseTraderQuery('0x' + 'a'.repeat(41)).kind, 'invalid');
+  // Too short to search without listing every recorded owner.
+  const short = parseTraderQuery('0xab');
+  assert.equal(short.kind, 'invalid');
+  assert.match((short as { reason: string }).reason, /at least 3 hex/);
+  // A bare 40-hex string is a full address, 0x restored.
+  assert.deepEqual(parseTraderQuery('83107A83F5fA8c419F131aa970eb975Bd0225D4D'), { kind: 'address', address: '0x83107A83F5fA8c419F131aa970eb975Bd0225D4D' });
 });
 
 test('the PnL curve runs oldest first from zero over the trips given', () => {

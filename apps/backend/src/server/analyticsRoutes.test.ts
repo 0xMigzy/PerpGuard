@@ -30,6 +30,7 @@ import type {
   TraderList,
   TvlReading,
   WalletLookup,
+  WalletMatch,
   WalletProfile,
 } from '@perpguard/shared';
 import Fastify from 'fastify';
@@ -69,6 +70,7 @@ class FakeAnalytics implements Analytics {
     reason: 'no account in the index is linked to that address.',
   };
   profileValue: WalletProfile | undefined;
+  searchValue: readonly WalletMatch[] = [];
   readonly asked: string[] = [];
 
   async health(): Promise<IndexerHealth> {
@@ -151,6 +153,11 @@ class FakeAnalytics implements Analytics {
   async wallet(address: string): Promise<WalletLookup> {
     this.asked.push(`wallet:${address}`);
     return this.walletValue;
+  }
+
+  async walletSearch(prefix: string, limit: number): Promise<readonly WalletMatch[]> {
+    this.asked.push(`search:${prefix}:${limit}`);
+    return this.searchValue;
   }
 
   async walletByAccountId(accountId: number): Promise<WalletProfile | undefined> {
@@ -364,6 +371,35 @@ test('a malformed address IS a 400, because that is a client mistake', async () 
     assert.equal(response.statusCode, 400, bad);
   }
   assert.equal(analytics.asked.some((a) => a.startsWith('wallet:')), false);
+});
+
+// ── the prefix search ───────────────────────────────────────────────────────
+
+test('a partial address lists its matches, and no match is an ordinary 200', async () => {
+  const { instance, analytics } = app();
+  analytics.searchValue = [{ address: '0xB7854953A71e45D1033B3d619E76d56391291765', accountId: 2118 }];
+  const hit = await instance.inject({ method: 'GET', url: '/api/analytics/wallet-search?q=0xB785' });
+  assert.equal(hit.statusCode, 200);
+  const data = body(hit.payload)['data'] as { query: string; matches: WalletMatch[]; limit: number };
+  assert.equal(data.matches.length, 1);
+  assert.equal(data.matches[0]!.accountId, 2118);
+  assert.ok(analytics.asked.includes('search:0xB785:20'), 'the prefix is passed through as typed; the reader lowercases');
+
+  analytics.searchValue = [];
+  const miss = await instance.inject({ method: 'GET', url: '/api/analytics/wallet-search?q=0xdead' });
+  assert.equal(miss.statusCode, 200, 'nothing matched is an answer, not an error');
+  assert.deepEqual((body(miss.payload)['data'] as { matches: unknown[] }).matches, []);
+});
+
+test('a prefix under 3 hex characters, a non-hex one, or a full address is a 400 on the search route', async () => {
+  // Too short would list the whole owner table; a full address belongs to
+  // /wallet/:address, where the Exchange contract is consulted as well.
+  const { instance, analytics } = app();
+  for (const bad of ['0x1', '0x12', '0xzz1', '12345', '0x' + 'a'.repeat(40), '0xab%']) {
+    const response = await instance.inject({ method: 'GET', url: `/api/analytics/wallet-search?q=${encodeURIComponent(bad)}` });
+    assert.equal(response.statusCode, 400, bad);
+  }
+  assert.equal(analytics.asked.some((a) => a.startsWith('search:')), false);
 });
 
 // ── accounts ────────────────────────────────────────────────────────────────
