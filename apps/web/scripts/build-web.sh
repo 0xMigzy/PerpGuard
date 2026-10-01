@@ -10,4 +10,11 @@ if [ -z "${NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID:-}" ] && [ -f ../../.env ]; then
   NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID="$(sed -n 's/^NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID=//p' ../../.env | tail -n 1 | tr -d '"'"'"' \r')"
   export NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
 fi
-exec /usr/bin/node "$(readlink -f node_modules/next)/dist/bin/next" build
+# ALWAYS A CLEAN BUILD. Twice a build that reused .next or the incremental
+# type-check cache (tsconfig.tsbuildinfo) passed while a clean one failed: a
+# React version mismatch, then an invalid export from the /link layout. Both
+# would have broken a deploy. So the output dir and the type cache go first,
+# every time, here and in CI.
+DIST="${NEXT_DIST_DIR:-.next}"
+rm -rf "$DIST" tsconfig.tsbuildinfo
+exec node "$(readlink -f node_modules/next)/dist/bin/next" build

@@ -20,8 +20,8 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # The whole job is ~30s of work; this is only a hang guard.
-    timeout-minutes: 10
+    # Tests ~30s, the clean web build ~3 min; this is only a hang guard.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -52,6 +52,14 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm test
+
+      # A CLEAN production build of the web app: nothing reused. A fresh runner
+      # has no .next and no tsconfig.tsbuildinfo, and build-web.sh deletes both
+      # anyway, so this is the build a deploy runs. `typecheck` alone does not
+      # catch what failed twice: Next's own checks (a layout's allowed exports)
+      # and a React / react-dom version mismatch only surface in `next build`.
+      - name: Web build (clean)
+        run: pnpm --filter @perpguard/web build
 
       # The indexer's acceptance checks read a Postgres database that a real
       # indexer run has populated against mainnet. CI has neither, and a bare
