@@ -298,6 +298,7 @@ test('the breakdown resolves symbols by market id and surfaces an unlisted marke
   assert.equal(breakdown[1]!.market.symbol, undefined);
   assert.equal(breakdown[1]!.market.indexerName, 'TAO');
   assert.equal(breakdown[1]!.longShareOfPositions, undefined, 'no positions, no skew');
+  assert.equal(breakdown[1]!.longShareOfMargin, undefined, 'no margin, no skew: never a 50% default');
 });
 
 // ── health ──────────────────────────────────────────────────────────────────
@@ -765,7 +766,7 @@ test('every open position is read with its owner, scaled by its market, unknown 
 test('per-market fees are maker PLUS taker from day buckets, with the same label as the protocol figure', async () => {
   // One definition, both places (CLAUDE.md). The maker half stays exact under its own name.
   const sql = new FakeSql().on(/from "Market" m/, [
-    { id: 1, name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5, markPricePNS: '800000', lastFundingRatePct100k: '4', oi_delta: '0', open_positions: '2', volume: '1000000000', maker_fees: '300000', trades: '10', fees: '1000000', fee_days: '7', fee_from_day: new Date('2026-09-24T00:00:00Z'), liquidations: '0', rescuable: '0', longs: '1', shorts: '1', long_lots: '100000', short_lots: '50000' },
+    { id: 1, name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5, markPricePNS: '800000', lastFundingRatePct100k: '4', oi_delta: '0', open_positions: '2', volume: '1000000000', maker_fees: '300000', trades: '10', fees: '1000000', fee_days: '7', fee_from_day: new Date('2026-09-24T00:00:00Z'), liquidations: '0', rescuable: '0', longs: '1', shorts: '1', long_margin: '1000000000', short_margin: '3000000000' },
   ]);
   const [btc] = await reader(sql).marketBreakdown('7d');
   const query = sql.touching('Market')[0]!;
@@ -774,10 +775,10 @@ test('per-market fees are maker PLUS taker from day buckets, with the same label
   assert.equal(btc!.fees.totalAusd, 1);
   assert.equal(btc!.fees.label, 'the 7 UTC days from 2026-09-24 (today so far)');
   assert.equal(btc!.makerFeesAusd, 0.3);
-  // Skew by notional at the indexed mark: 1 BTC long, 0.5 BTC short at 80,000.
-  assert.equal(btc!.longNotionalAusd, 80_000);
-  assert.equal(btc!.shortNotionalAusd, 40_000);
-  assert.ok(Math.abs(btc!.longShareOfNotional! - 2 / 3) < 1e-12);
+  // Skew by margin at risk: 1,000 AUSD posted long, 3,000 short.
+  assert.equal(btc!.longMarginAusd, 1_000);
+  assert.equal(btc!.shortMarginAusd, 3_000);
+  assert.equal(btc!.longShareOfMargin, 0.25);
 });
 
 test('the current window\u2019s fees include today\u2019s bucket however much time passes mid-read (the 1 Oct race)', async () => {

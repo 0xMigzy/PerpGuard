@@ -63,7 +63,7 @@ export function MarketsView() {
     { key: 'volumeAusd', label: 'Volume', sub: period, title: 'Traded notional in the window, counted once per match.' },
     { key: 'openInterestNotional', label: 'Open interest', sub: 'level now', title: 'The level, from the venue: size × mark. Not an indexed figure.' },
     { key: 'fundingPct', label: 'Funding', sub: 'last rate', title: 'The last funding rate applied, in percent, to six places because real values are that small.' },
-    { key: 'longShareOfNotional', label: 'Skew', sub: 'long share', title: 'Long share of open notional at the indexed mark. Over 70% on one side with funding paying that side is crowded.' },
+    { key: 'longShareOfMargin', label: 'Skew', sub: 'long share of margin', title: 'Long share of the isolated margin open positions have at risk. Over 70% on one side with funding paying that side is crowded. Never by notional: on an order book every long lot has a matching short, so that is always 50/50.' },
     { key: 'risk', label: 'Risk', sub: 'composite', title: 'Crowded when one side dominates and pays funding; otherwise the tier of a composite of volatility, liquidations, crowding and funding. Click a row to see the parts.' },
   ];
 
@@ -151,7 +151,7 @@ export function MarketsView() {
           <path d="M12 8v5M12 16.5v.01" />
         </svg>
         <div>
-          <b className="font-semibold">Crowded long</b> means one side holds more than {formatPct(CROWDED_SHARE, 0)} of open notional while funding is positive — the side paying to stay
+          <b className="font-semibold">Crowded long</b> means one side holds more than {formatPct(CROWDED_SHARE, 0)} of open margin while funding is positive — the side paying to stay
           in, with the most to lose from a move against it. It is a risk signal, not a trade signal. Otherwise the tag is the tier of a composite score; click a row to see its parts.
         </div>
       </div>
@@ -164,7 +164,7 @@ export function MarketsView() {
             ({table.excluded.map((m) => `${m.marketId} · ${m.indexerName}`).join(', ')}) {table.excluded.length === 1 ? 'is' : 'are'} excluded.{' '}
           </>
         )}
-        Volume is indexed over the {period} window; price and open interest are the venue&rsquo;s level{oiAge === undefined ? '' : ` as of ${oiAge} ago`}. Skew is size × indexed mark per side.
+        Volume is indexed over the {period} window; price and open interest are the venue&rsquo;s level{oiAge === undefined ? '' : ` as of ${oiAge} ago`}. Skew is isolated margin per side, not notional: every long lot has a matching short lot, so notional is 50/50 on every market by construction.
         {feesLabel !== undefined && ` Fees in a row's detail are maker + taker over ${feesLabel}, the same definition as the Overview tile.`}
       </div>
     </>
@@ -177,7 +177,7 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
   // The symbol stays pinned while the table scrolls sideways on a phone; it paints
   // its own background so the cells sliding under it never show through.
   const pinned = expanded ? 'bg-card2' : 'bg-card group-hover:bg-card2';
-  const share = row.longShareOfNotional;
+  const share = row.longShareOfMargin;
   const barColor = share === undefined ? COLORS.muted : share > CROWDED_SHARE ? COLORS.watch : 1 - share > CROWDED_SHARE ? COLORS.danger : COLORS.safe;
   return (
     <tr className={`group cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${expanded ? 'bg-card2' : ''}`} onClick={onToggle} aria-expanded={expanded}>
@@ -193,16 +193,21 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
         {row.openInterestNotional === undefined ? <span className="text-muted">no reading</span> : formatCompact(row.openInterestNotional)}
       </td>
       <td className={`${cell} ${fundingClass}`}>{row.fundingPct === undefined ? <span className="text-muted2">no event</span> : formatFundingPct(row.fundingPct)}</td>
-      <td className={cell} title={share === undefined ? 'no open notional' : `long ${formatCompact(row.longNotionalAusd ?? 0)} · short ${formatCompact(row.shortNotionalAusd ?? 0)} · ${formatCount(row.longPositions)}L / ${formatCount(row.shortPositions)}S positions`}>
+      <td className={cell} title={share === undefined ? 'no open margin' : `margin long ${formatAusdExact(row.longMarginAusd)} · short ${formatAusdExact(row.shortMarginAusd)} AUSD`}>
         {share === undefined ? (
           <span className="text-muted">no positions</span>
         ) : (
-          <span className="inline-flex items-center justify-end gap-2">
-            {formatPct(share)}
-            <span className="inline-block h-[5px] w-[52px] overflow-hidden rounded-full bg-border2" aria-hidden="true">
-              <i className="block h-full" style={{ width: `${share * 100}%`, background: barColor }} />
+          <>
+            <span className="inline-flex items-center justify-end gap-2">
+              {formatPct(share)}
+              <span className="inline-block h-[5px] w-[52px] overflow-hidden rounded-full bg-border2" aria-hidden="true">
+                <i className="block h-full" style={{ width: `${share * 100}%`, background: barColor }} />
+              </span>
             </span>
-          </span>
+            <span className="block text-[11px] text-muted2">
+              {formatCount(row.longPositions)} long / {formatCount(row.shortPositions)} short positions
+            </span>
+          </>
         )}
       </td>
       <td className={cell} title={row.tag.detail}>

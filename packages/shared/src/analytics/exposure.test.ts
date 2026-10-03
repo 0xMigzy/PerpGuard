@@ -50,7 +50,8 @@ test('a 10x long is exposed at −10% and not at −5%; the mirror short at +10%
   });
   assert.equal(snapshot.counted.priced, 2);
   assert.equal(snapshot.totals.notionalAusd, 160_000);
-  assert.equal(snapshot.totals.longNotionalAusd, 80_000);
+  assert.equal(snapshot.totals.longMarginAusd, 8_000, 'per side by margin, not notional');
+  assert.equal(snapshot.totals.shortMarginAusd, 8_000);
 
   const at = (move: number) => snapshot.ladder[rungIndex(move)]!;
   assert.equal(at(-0.05).positions, 0, 'a 5% fall liquidates neither');

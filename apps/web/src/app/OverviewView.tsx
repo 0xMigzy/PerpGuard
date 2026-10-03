@@ -23,19 +23,29 @@ import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx
 
 const POLL_MS = 30_000;
 
-/** Long and short notional across every listed market, at the indexed mark. */
-function skewOf(markets: readonly MarketBreakdown[] | undefined): { readonly long: number; readonly short: number; readonly markets: number } | undefined {
+/**
+ * Long and short isolated margin across every listed market, with the headcount.
+ * Margin, never notional: every long lot has a matching short lot, so notional
+ * per side is equal by construction and its skew is always 50/50.
+ */
+function skewOf(
+  markets: readonly MarketBreakdown[] | undefined,
+): { readonly long: number; readonly short: number; readonly longs: number; readonly shorts: number; readonly markets: number } | undefined {
   if (markets === undefined) return undefined;
   let long = 0;
   let short = 0;
+  let longs = 0;
+  let shorts = 0;
   let counted = 0;
   for (const m of markets) {
-    if (m.market.symbol === undefined || m.longNotionalAusd === undefined || m.shortNotionalAusd === undefined) continue;
-    long += m.longNotionalAusd;
-    short += m.shortNotionalAusd;
+    if (m.market.symbol === undefined) continue;
+    long += m.longMarginAusd;
+    short += m.shortMarginAusd;
+    longs += m.longPositions;
+    shorts += m.shortPositions;
     counted += 1;
   }
-  return { long, short, markets: counted };
+  return { long, short, longs, shorts, markets: counted };
 }
 
 /**
@@ -161,7 +171,7 @@ export function OverviewView() {
           <div className="card px-[18px] py-4">
             <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
               <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Long / short skew</h2>
-              <span className="text-[12.5px] text-muted">by open position notional · now</span>
+              <span className="text-[12.5px] text-muted">by isolated margin at risk · now</span>
             </div>
             <ErrorNote error={markets.error} what="The market breakdown" />
             {skew === undefined ? (
@@ -172,7 +182,7 @@ export function OverviewView() {
               <SkewBar
                 longAusd={skew.long}
                 shortAusd={skew.short}
-                note={`size × indexed mark, across ${formatCount(skew.markets)} markets and ${formatCount(openPositions ?? 0)} open positions`}
+                note={`${formatCount(skew.longs)} long / ${formatCount(skew.shorts)} short positions, across ${formatCount(skew.markets)} markets. Margin, not notional: every long lot has a matching short, so notional is always 50/50.`}
               />
             )}
           </div>

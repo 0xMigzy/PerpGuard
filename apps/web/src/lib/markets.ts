@@ -149,7 +149,17 @@ export function riskScore(inputs: RiskInputs): RiskScore {
 
 // ── the risk tag ────────────────────────────────────────────────────────────
 
-/** One side holding more than this of a market's open notional is crowded. */
+/**
+ * One side holding more than this of a market's open MARGIN is crowded.
+ *
+ * Re-derived for margin on 3 Oct 2026, not carried over from the notional share
+ * it used to read (which was 50/50 by construction and so never fired). Over
+ * 1,077 market-day ends (11 markets with ten or more open positions, 24 Feb –
+ * 2 Oct 2026) margin share centres on 43.6% long — shorts post more margin per
+ * position — and its 95th percentile is 70.4%. With funding paying the crowded
+ * side, 70% tags 6.1% of market-days (65% would tag 9.7%, 75% 3.3%): the tail,
+ * which is what "crowded" should mean. docs/methodology.md has the query.
+ */
 export const CROWDED_SHARE = 0.7;
 
 export interface RiskTag {
@@ -162,7 +172,7 @@ export interface RiskTag {
 /**
  * The one-word verdict a row shows.
  *
- * CROWDED means one side holds more than 70% of open notional AND funding is
+ * CROWDED means one side holds more than 70% of open margin AND funding is
  * paying that side to stay in — positive with a long crowd, negative with a
  * short crowd. That is the side with the most to lose from a move against it,
  * and it is a risk signal, not a trade signal. Otherwise the tag is the
@@ -171,10 +181,10 @@ export interface RiskTag {
 export function riskTag(score: RiskScore, longShare: number | undefined, fundingPct: number | undefined): RiskTag {
   if (longShare !== undefined && fundingPct !== undefined) {
     if (longShare > CROWDED_SHARE && fundingPct > 0) {
-      return { label: 'Crowded long', tone: 'danger', detail: `${pct(longShare, 0)} of open notional is long and funding is positive: longs pay to stay in` };
+      return { label: 'Crowded long', tone: 'danger', detail: `${pct(longShare, 0)} of open margin is long and funding is positive: longs pay to stay in` };
     }
     if (1 - longShare > CROWDED_SHARE && fundingPct < 0) {
-      return { label: 'Crowded short', tone: 'danger', detail: `${pct(1 - longShare, 0)} of open notional is short and funding is negative: shorts pay to stay in` };
+      return { label: 'Crowded short', tone: 'danger', detail: `${pct(1 - longShare, 0)} of open margin is short and funding is negative: shorts pay to stay in` };
     }
   }
   const detail = `composite ${score.score} of 100`;
@@ -209,10 +219,14 @@ export interface MarketRow {
   readonly longPositions: number;
   readonly shortPositions: number;
   readonly longShare: number | undefined;
-  /** By open notional at the indexed mark: the skew a reader wants. Falls back to nothing, never to the headcount. */
-  readonly longNotionalAusd: number | undefined;
-  readonly shortNotionalAusd: number | undefined;
-  readonly longShareOfNotional: number | undefined;
+  /**
+   * By isolated margin at risk: the skew a reader wants. Never by notional, which
+   * is 50/50 by construction on an order book. Falls back to nothing, never to
+   * the headcount.
+   */
+  readonly longMarginAusd: number;
+  readonly shortMarginAusd: number;
+  readonly longShareOfMargin: number | undefined;
   readonly fundingPct: number | undefined;
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
@@ -288,14 +302,14 @@ export function buildMarketTable(
       longPositions: m.longPositions,
       shortPositions: m.shortPositions,
       longShare: m.longShareOfPositions,
-      longNotionalAusd: m.longNotionalAusd,
-      shortNotionalAusd: m.shortNotionalAusd,
-      longShareOfNotional: m.longShareOfNotional,
+      longMarginAusd: m.longMarginAusd,
+      shortMarginAusd: m.shortMarginAusd,
+      longShareOfMargin: m.longShareOfMargin,
       fundingPct: m.lastFundingRatePct,
       liquidationCount: m.liquidationCount,
       rescuableLiquidationCount: m.rescuableLiquidationCount,
       risk,
-      tag: riskTag(risk, m.longShareOfNotional, m.lastFundingRatePct),
+      tag: riskTag(risk, m.longShareOfMargin, m.lastFundingRatePct),
     });
   }
   return { rows, excluded };
@@ -311,7 +325,7 @@ export type SortKey =
   | 'tradeCount'
   | 'openInterestNotional'
   | 'longShare'
-  | 'longShareOfNotional'
+  | 'longShareOfMargin'
   | 'fundingPct'
   | 'liquidationCount'
   | 'risk';

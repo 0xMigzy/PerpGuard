@@ -310,8 +310,8 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
        coalesce(l.rescuable, 0)::text as rescuable,
        coalesce(p.longs, 0)::text     as longs,
        coalesce(p.shorts, 0)::text    as shorts,
-       coalesce(p.long_lots, 0)::text  as long_lots,
-       coalesce(p.short_lots, 0)::text as short_lots
+       coalesce(p.long_margin, 0)::text  as long_margin,
+       coalesce(p.short_margin, 0)::text as short_margin
   from "Market" m
   left join (
     select market_id,
@@ -343,8 +343,8 @@ select m.id, m.name, m."priceDecimals", m."lotDecimals",
     select market_id,
            count(*) filter (where side = 'LONG')  as longs,
            count(*) filter (where side = 'SHORT') as shorts,
-           sum("lotLNS") filter (where side = 'LONG')  as long_lots,
-           sum("lotLNS") filter (where side = 'SHORT') as short_lots
+           sum("depositCNS") filter (where side = 'LONG')  as long_margin,
+           sum("depositCNS") filter (where side = 'SHORT') as short_margin
       from "Position" where status = 'OPEN'
      group by market_id
   ) p on p.market_id = m.id
@@ -1070,9 +1070,10 @@ export class PostgresAnalytics implements Analytics {
       const longs = count(row['longs']);
       const shorts = count(row['shorts']);
       const markPrice = toPrice(row['markPricePNS'], priceDecimals);
-      // Size × indexed mark, per side. A hole only when there is no mark.
-      const longNotionalAusd = markPrice === undefined ? undefined : toLots(row['long_lots'], lotDecimals) * markPrice;
-      const shortNotionalAusd = markPrice === undefined ? undefined : toLots(row['short_lots'], lotDecimals) * markPrice;
+      // Isolated margin per side: what each side has at risk. NOT size × mark —
+      // on an order book that is identically 50/50, see `longShareOfMargin`.
+      const longMarginAusd = toAusd(row['long_margin'], decimals);
+      const shortMarginAusd = toAusd(row['short_margin'], decimals);
       return {
         market: toMarketRef(row['id'], row['name'], this.#resolve),
         volumeAusd: toAusd(row['volume'], decimals),
@@ -1083,10 +1084,9 @@ export class PostgresAnalytics implements Analytics {
         longPositions: longs,
         shortPositions: shorts,
         longShareOfPositions: share(longs, longs + shorts),
-        longNotionalAusd,
-        shortNotionalAusd,
-        longShareOfNotional:
-          longNotionalAusd === undefined || shortNotionalAusd === undefined ? undefined : share(longNotionalAusd, longNotionalAusd + shortNotionalAusd),
+        longMarginAusd,
+        shortMarginAusd,
+        longShareOfMargin: share(longMarginAusd, longMarginAusd + shortMarginAusd),
         openInterestDeltaLots: toLots(row['oi_delta'], lotDecimals),
         liquidationCount: count(row['liquidations']),
         rescuableLiquidationCount: count(row['rescuable']),

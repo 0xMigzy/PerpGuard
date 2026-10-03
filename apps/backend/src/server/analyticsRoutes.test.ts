@@ -701,7 +701,7 @@ test('risk is a 503 without a venue, and the snapshot in the envelope with one',
   const snapshot = {
     asOf: { indexerBlock: 109_000_000, marksAtMs: 1, insuranceAtMs: 1, generatedAtMs: 2 },
     moves: [], counted: { positions: 0, priced: 0, unpriced: 0, unpricedReasons: {}, markets: 0 },
-    totals: { notionalAusd: 0, longNotionalAusd: 0, shortNotionalAusd: 0, marginAusd: 0, unrealisedPnlAusd: 0 },
+    totals: { notionalAusd: 0, longMarginAusd: 0, shortMarginAusd: 0, marginAusd: 0, unrealisedPnlAusd: 0 },
     insurance: { totalAusd: undefined, marketsWithReading: 0, marketsWithout: 0 },
     ladder: [], atRisk: {}, weakestCover: undefined, markets: [], positions: [], statements: ['static'],
   } satisfies RiskSnapshot;

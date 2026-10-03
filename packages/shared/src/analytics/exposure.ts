@@ -100,8 +100,9 @@ export interface MarketExposure {
   readonly longs: number;
   readonly shorts: number;
   readonly notionalAusd: number;
-  readonly longNotionalAusd: number;
-  readonly shortNotionalAusd: number;
+  /** Isolated margin per side. Not notional per side: that is equal by construction. */
+  readonly longMarginAusd: number;
+  readonly shortMarginAusd: number;
   readonly marginAusd: number;
   /** Share of this market's notional held by its five largest positions. */
   readonly topFiveShare: number | undefined;
@@ -133,8 +134,9 @@ export interface RiskSnapshot {
   };
   readonly totals: {
     readonly notionalAusd: number;
-    readonly longNotionalAusd: number;
-    readonly shortNotionalAusd: number;
+    /** Isolated margin per side. Not notional per side: that is equal by construction. */
+    readonly longMarginAusd: number;
+    readonly shortMarginAusd: number;
     readonly marginAusd: number;
     readonly unrealisedPnlAusd: number;
   };
@@ -187,8 +189,9 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     readonly exposed: ExposedPosition[];
     longs: number;
     shorts: number;
-    longNotionalAusd: number;
-    shortNotionalAusd: number;
+    notionalAusd: number;
+    longMarginAusd: number;
+    shortMarginAusd: number;
     marginAusd: number;
     unrealisedPnlAusd: number;
   }
@@ -225,8 +228,9 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
         exposed: [],
         longs: 0,
         shorts: 0,
-        longNotionalAusd: 0,
-        shortNotionalAusd: 0,
+        notionalAusd: 0,
+        longMarginAusd: 0,
+        shortMarginAusd: 0,
         marginAusd: 0,
         unrealisedPnlAusd: 0,
       };
@@ -251,12 +255,13 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     const now = positionMetrics(risk, markPNS, config);
     const notionalAusd = ausd(now.notionalCNS);
 
+    acc.notionalAusd += notionalAusd;
     if (position.side === 'long') {
       acc.longs += 1;
-      acc.longNotionalAusd += notionalAusd;
+      acc.longMarginAusd += position.marginAusd;
     } else {
       acc.shorts += 1;
-      acc.shortNotionalAusd += notionalAusd;
+      acc.shortMarginAusd += position.marginAusd;
     }
     acc.marginAusd += position.marginAusd;
     acc.unrealisedPnlAusd += ausd(now.unrealisedPnlCNS);
@@ -310,10 +315,10 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
 
   const markets: MarketExposure[] = marketOrder.map((id) => {
     const acc = byMarket.get(id)!;
-    const notionalAusd = acc.longNotionalAusd + acc.shortNotionalAusd;
+    const notionalAusd = acc.notionalAusd;
     totalNotional += notionalAusd;
-    totalLong += acc.longNotionalAusd;
-    totalShort += acc.shortNotionalAusd;
+    totalLong += acc.longMarginAusd;
+    totalShort += acc.shortMarginAusd;
     totalMargin += acc.marginAusd;
     totalUpnl += acc.unrealisedPnlAusd;
     marksAt.push(acc.mark.atMs);
@@ -355,8 +360,8 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       longs: acc.longs,
       shorts: acc.shorts,
       notionalAusd,
-      longNotionalAusd: acc.longNotionalAusd,
-      shortNotionalAusd: acc.shortNotionalAusd,
+      longMarginAusd: acc.longMarginAusd,
+      shortMarginAusd: acc.shortMarginAusd,
       marginAusd: acc.marginAusd,
       topFiveShare: notionalAusd > 0 ? topFive / notionalAusd : undefined,
       insuranceAusd,
@@ -396,8 +401,8 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     },
     totals: {
       notionalAusd: totalNotional,
-      longNotionalAusd: totalLong,
-      shortNotionalAusd: totalShort,
+      longMarginAusd: totalLong,
+      shortMarginAusd: totalShort,
       marginAusd: totalMargin,
       unrealisedPnlAusd: totalUpnl,
     },

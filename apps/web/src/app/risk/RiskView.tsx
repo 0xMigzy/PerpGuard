@@ -70,7 +70,7 @@ export function RiskView() {
                   <div>{s.counted.unpriced === 0 ? 'every indexed position is priced' : `${formatCount(s.counted.unpriced)} of ${formatCount(s.counted.positions)} could not be priced`}</div>
                 </>
               }
-              sparklineNote={`long ${formatCompact(s.totals.longNotionalAusd)} · short ${formatCompact(s.totals.shortNotionalAusd)} · margin ${formatCompact(s.totals.marginAusd)}`}
+              sparklineNote={`margin ${formatCompact(s.totals.marginAusd)}: long ${formatCompact(s.totals.longMarginAusd)} · short ${formatCompact(s.totals.shortMarginAusd)}`}
             />
             <StatTile
               label="At risk, 5% move"
@@ -375,7 +375,7 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                   return (
                     <tr key={m.market.marketId} className={`cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${active ? 'bg-card2' : ''}`} onClick={() => onSelect(m.market.marketId)} title="Show this market in the stress test">
                       <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${active ? 'bg-card2' : 'bg-card'}`}>{marketLabel(m)}</td>
-                      <td className={cell} title={`long ${formatCompact(m.longNotionalAusd)} · short ${formatCompact(m.shortNotionalAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}>{formatCompact(m.notionalAusd)}</td>
+                      <td className={cell} title={`${formatCount(m.longs)} long / ${formatCount(m.shorts)} short positions · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}>{formatCompact(m.notionalAusd)}</td>
                       <td className={cell}>
                         {formatCount(m.positions)}
                         <span className="block text-[11px] text-muted2">{formatCount(m.longs)}L · {formatCount(m.shorts)}S</span>

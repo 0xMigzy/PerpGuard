@@ -11,9 +11,9 @@ const breakdown = (over: Partial<MarketBreakdown> & { readonly marketId: number;
   tradeCount: 0,
   fees: { totalAusd: 0, fromMs: 0, toMs: 0, days: 0, label: 'no complete UTC day of fees is indexed yet' },
   makerFeesAusd: 0,
-  longNotionalAusd: undefined,
-  shortNotionalAusd: undefined,
-  longShareOfNotional: undefined,
+  longMarginAusd: 0,
+  shortMarginAusd: 0,
+  longShareOfMargin: undefined,
   openPositions: 0,
   longPositions: 0,
   shortPositions: 0,
@@ -74,6 +74,16 @@ test('liquidations with no open positions left still count, never divide by zero
   const r = riskScore({ dailyRanges: [], liquidationCount: 2, openPositions: 0, longShare: undefined, fundingPct: undefined });
   assert.equal(r.components.find((c) => c.key === 'liquidations')!.value, 1);
   assert.match(r.components.find((c) => c.key === 'liquidations')!.detail, /no open positions left/);
+});
+
+test('the row\u2019s tag reads MARGIN share: a balanced headcount with 80% of margin long and longs paying is crowded', () => {
+  const rows = [
+    breakdown({ marketId: 1, symbol: 'BTC', openPositions: 10, longPositions: 5, shortPositions: 5, longShareOfPositions: 0.5, longMarginAusd: 8_000, shortMarginAusd: 2_000, longShareOfMargin: 0.8, lastFundingRatePct: 0.00001 }),
+  ];
+  const [btc] = buildMarketTable(rows, [], [], 8).rows;
+  assert.equal(btc!.longShareOfMargin, 0.8);
+  assert.equal(btc!.tag.label, 'Crowded long');
+  assert.match(btc!.tag.detail, /80% of open margin is long/);
 });
 
 test('rows join on the MARKET ID, take the venue mark when there is one, and exclude an unlisted market by name', () => {
@@ -143,7 +153,7 @@ test('the tag says crowded only when one side holds over 70% AND funding pays th
   assert.equal(riskTag(calm, 0.8, -0.00001).label, 'Normal', 'longs are being paid, not paying');
   assert.equal(riskTag(calm, 0.2, -0.00001).label, 'Crowded short');
   assert.equal(riskTag(calm, 0.7, 0.00001).label, 'Normal', 'exactly 70% is not over it');
-  assert.equal(riskTag(calm, undefined, 0.00001).label, 'Normal', 'no notional, no crowd');
+  assert.equal(riskTag(calm, undefined, 0.00001).label, 'Normal', 'no margin, no crowd');
   const hot = riskScore({ dailyRanges: [0.2], liquidationCount: 10, openPositions: 10, longShare: 0.5, fundingPct: 0.001 });
   assert.equal(riskTag(hot, 0.5, 0.001).label, 'High');
   assert.equal(riskTag(hot, 0.5, 0.001).tone, 'danger');

@@ -422,17 +422,20 @@ export interface MarketBreakdown {
    */
   readonly longShareOfPositions: number | undefined;
   /**
-   * Open position size by side, valued at the INDEXED mark, in collateral.
+   * Isolated margin posted by each side's open positions, in collateral: what
+   * each side has AT RISK.
    *
-   * The skew a reader wants is by exposure, not by headcount: one 10 BTC long
-   * against nine 0.01 BTC shorts is a long-crowded market. Size is known for
-   * every open position (`lotKnown`), so unlike an entry-price notional this
-   * has no hole. Undefined only when the market has no indexed mark.
+   * NOT NOTIONAL. On an order book every long lot has a matching short lot, so
+   * open size per side is equal by construction and size × mark is 50/50 on
+   * every market, always — a skew that cannot vary. Margin can: a side running
+   * higher leverage posts less of it for the same size. Mainnet block
+   * 110,176,799 (fixtures/open-positions-mainnet.json): BTC 887,454 lots long
+   * and 887,454 short across 153 long and 112 short positions; margin 49.4% long.
    */
-  readonly longNotionalAusd: number | undefined;
-  readonly shortNotionalAusd: number | undefined;
-  /** `long / (long + short)` by notional, or undefined when there is none. */
-  readonly longShareOfNotional: number | undefined;
+  readonly longMarginAusd: number;
+  readonly shortMarginAusd: number;
+  /** `long / (long + short)` by margin, or undefined when there is none. */
+  readonly longShareOfMargin: number | undefined;
   /**
    * Open interest change since the indexer's START BLOCK, in this market's lots.
    *
