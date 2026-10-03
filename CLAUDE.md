@@ -271,6 +271,18 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   covers. A figure that cannot honour the section's timeframe says which
   window it used instead (fees: UTC days; trader windows: TraderDay buckets;
   open interest and TVL: levels, now).
+- SKEW IS MARGIN AT RISK OR HEADCOUNT, NEVER NOTIONAL. On an order-book perp
+  notional skew is IDENTICALLY 50/50 BY CONSTRUCTION: every long lot was
+  matched against a short lot, so open size per side is equal on every market
+  and size × mark is equal whatever the mark. The site showed exactly 50.0% on
+  every market until 3 Oct 2026, and it read as a default, not a finding.
+  Proof, mainnet block 110,176,799 (`fixtures/open-positions-mainnet.json`):
+  BTC 887,454 lots long and 887,454 short, across 153 long and 112 short
+  positions. Skew is `longShareOfMargin` (isolated margin per side, which
+  varies because the sides run different leverage) with the headcount beside
+  it; `skew.test.ts` asserts the equality and keeps a notional share out of
+  the served type. The crowding threshold (70% of margin, funding paying that
+  side) was re-derived for margin; see `docs/methodology.md`.
 - ORDER BY THE NUMERIC COLUMN, NEVER A `::text` OUTPUT ALIAS. Money columns
   are selected as text so node-pg cannot round them, and Postgres resolves a
   bare name in ORDER BY against the output list first — `order by net_pnl`
