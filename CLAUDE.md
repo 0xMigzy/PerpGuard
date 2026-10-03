@@ -67,12 +67,22 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   to venue data joins on the market id and takes the canonical ticker from the
   context, the way `toVenueMarket` already does. Matching on a name silently
   drops that market.
-- A MARKET BEING LISTED ON CHAIN DOES NOT MAKE IT VISIBLE IN THE API. The
-  indexer sees 10 markets listed on mainnet; `GET /v1/pub/context` returns 9.
-  Market 80 (TAO) is listed on chain, has real scaling and zero open positions,
-  and the API does not mention it. Anything user-facing — symbols, prices,
-  action availability — follows the CONTEXT, not the chain. The chain is the
-  history; the context is what a trader can see and touch today.
+- A MARKET BEING LISTED ON CHAIN DOES NOT MAKE IT VISIBLE IN THE API. On
+  3 Oct 2026 the chain lists 17 markets on mainnet and `GET /v1/pub/context`
+  returns 11 (BTC, MON, ETH, SOL, HYPE, ZEC, LIT, VVV, PUMP, NEAR 100, UNI 110
+  — UNI was listed on chain on 30 Sep and is open). The six the context omits:
+  ARB 120, AAVE 130, MORPHO 140 and ENA 150 (listed 30 Sep, paused, never
+  traded), TAO 80 (listed 20 Aug, not paused, never traded) and SOL v1 30
+  (retired: 127,499 trades, replaced by SOL_v2 31). Anything user-facing —
+  symbols, prices, action availability — follows the CONTEXT, not the chain.
+  The chain is the history; the context is what a trader can see and touch
+  today.
+  - THE ONE PLACE THE CHAIN SHOWS THROUGH is the Markets page's "Not yet
+    trading" group (`upcomingMarkets` in `apps/web/src/lib/markets.ts`): listed
+    on chain, absent from the context, NEVER TRADED. It shows the contract's own
+    parameters under the contract's own symbol, no venue figures, and no
+    opening date. A market the context omits that HAS traded is retired and is
+    not shown anywhere on the page. The rule reads the data; no id is named.
 - Trading requests are signed locally with an Ed25519 API key and sent through
   Perpl's forwarder.
 - `mt: 3` with `code: 0` means ACCEPTED FOR FORWARDING ONLY. It is not posted
@@ -323,6 +333,21 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   page states that the shock is static and that all-markets assumes every
   market moves together, the worst case rather than the likely one, and that
   book depth is not shown because the indexer has no order book.
+- FUNDING ON THE MARKETS PAGE IS RATES, NEVER AN AUSD TOTAL. "Funding rates
+  over time" is a small multiple per market on one shared scale: every rate
+  applied at 24H and 7D, the labelled mean per event by UTC day at 30D and All
+  (1,000 sign-flipping steps draw four to a pixel). "Historical funding" is the
+  sum of every rate applied in the window, exact, positive = longs paid shorts
+  (Perpl docs). An AUSD total across traders needs each side's open interest at
+  every funding event, which the index does not keep; it is said on the page,
+  not estimated.
+- TOKEN ICONS ARE VENDORED, LICENSED AND IDENTIFIED. `apps/web/public/tokens/`
+  holds only Cryptocurrency Icons (CC0) and Trust Wallet assets (MIT), pinned,
+  each checked against its source's own name, symbol and website;
+  `SOURCES.md` there is the record and a test keeps every mapped file in it.
+  Never a logo from an exchange site or a project page. A ticker that names
+  more than one token (LIT) or has no entry (TAO) gets the initials circle.
+  Icons are decorative: `aria-hidden`, the name is the text beside them.
 - NOT BUILT, ON PURPOSE: order book depth, intraday candles, open-interest
   history as a level (the indexer holds only deltas). Single-market drill-down
   is a later pass.

@@ -15,6 +15,8 @@ import type {
   Analytics,
   DailyPoint,
   FundingStats,
+  MarketFundingSeries,
+  MarketListing,
   HistoryCurve,
   IndexedOpenPosition,
   IndexerHealth,
@@ -148,6 +150,16 @@ class FakeAnalytics implements Analytics {
     return { eventCount: 0, meanRatePct: undefined, markets: [] };
   }
 
+  async fundingSeries(timeframe: Timeframe): Promise<readonly MarketFundingSeries[]> {
+    this.asked.push(`funding-series:${timeframe}`);
+    return [];
+  }
+
+  async marketListings(): Promise<readonly MarketListing[]> {
+    this.asked.push('market-listings');
+    return [];
+  }
+
   async liquidations(
     timeframe: Timeframe,
     options: { limit?: number; offset?: number } = {},
@@ -251,6 +263,8 @@ test('every route carries the indexer health and a stale flag', async () => {
     '/api/analytics/open-interest',
     '/api/analytics/markets',
     '/api/analytics/funding',
+    '/api/analytics/funding/series',
+    '/api/analytics/markets/listings',
     '/api/analytics/wallet/0x00000000000000000000000000000000000000ab',
   ]) {
     const response = await instance.inject({ method: 'GET', url });
@@ -342,6 +356,18 @@ test('every valid timeframe is passed through unchanged', async () => {
     assert.equal(response.statusCode, 200);
     assert.ok(analytics.asked.includes(`metrics:${timeframe}`));
   }
+});
+
+test('the funding series takes the window it is given; the listings take none', async () => {
+  const { instance, analytics } = app();
+  const series = await instance.inject({ method: 'GET', url: '/api/analytics/funding/series?timeframe=7d' });
+  assert.equal(series.statusCode, 200);
+  assert.ok(analytics.asked.includes('funding-series:7d'));
+  const bad = await instance.inject({ method: 'GET', url: '/api/analytics/funding/series?timeframe=1h' });
+  assert.equal(bad.statusCode, 400, 'never a silent default');
+  const listings = await instance.inject({ method: 'GET', url: '/api/analytics/markets/listings' });
+  assert.equal(listings.statusCode, 200);
+  assert.ok(analytics.asked.includes('market-listings'));
 });
 
 test('an unknown timeframe is a 400, never silently 24h', async () => {

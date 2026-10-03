@@ -3,7 +3,8 @@
 import { Fragment, useMemo, useState } from 'react';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusdExact, formatCompact, formatCount, formatFundingPct, formatPct, formatPriceAsServed } from '@/lib/format.ts';
-import { CROWDED_SHARE, buildMarketTable, defaultDirection, markWindow, sortRows, type MarketRow, type RiskScore, type RiskTag, type SortDirection, type SortKey } from '@/lib/markets.ts';
+import { CROWDED_SHARE, buildMarketTable, defaultDirection, markWindow, sortRows, upcomingMarkets, type MarketRow, type RiskScore, type RiskTag, type SortDirection, type SortKey } from '@/lib/markets.ts';
+import { fundingPanels } from '@/lib/funding.ts';
 import { periodLabel } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { COLORS } from '@/lib/theme.ts';
@@ -13,6 +14,10 @@ import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
+import { MarketName } from '@/components/TokenIcon.tsx';
+import { CumulativeFundingBars } from '@/components/charts/CumulativeFundingBars.tsx';
+import { FundingRatesChart } from '@/components/charts/FundingRatesChart.tsx';
+import { UpcomingMarkets } from './UpcomingMarkets.tsx';
 
 const POLL_MS = 30_000;
 
@@ -38,6 +43,8 @@ export function MarketsView() {
   const markets = usePoll(() => api.markets(t), POLL_MS, `markets:${t}`);
   const oi = usePoll(api.openInterest, POLL_MS, 'oi');
   const series = usePoll(() => api.seriesByMarket(mw.fetch), POLL_MS, `series-markets:${mw.fetch}`);
+  const listings = usePoll(api.listings, POLL_MS, 'market-listings');
+  const funding = usePoll(() => api.fundingSeries(t), POLL_MS, `funding-series:${t}`);
 
   const [sortKey, setSortKey] = useState<SortKey>('volumeAusd');
   const [direction, setDirection] = useState<SortDirection>('desc');
@@ -48,6 +55,8 @@ export function MarketsView() {
     [markets.data, oi.data, series.data, mw.showDays],
   );
   const rows = useMemo(() => (table === undefined ? undefined : sortRows(table.rows, sortKey, direction)), [table, sortKey, direction]);
+  const upcoming = useMemo(() => (listings.data === undefined ? undefined : upcomingMarkets(listings.data.data)), [listings.data]);
+  const panels = useMemo(() => (funding.data === undefined ? undefined : fundingPanels(funding.data.data)), [funding.data]);
 
   const sortBy = (key: SortKey) => {
     if (key === sortKey) setDirection(direction === 'asc' ? 'desc' : 'asc');
@@ -62,8 +71,8 @@ export function MarketsView() {
     { key: 'markPrice', label: 'Price', sub: 'mark now', title: 'The venue’s mark now; the indexed one when the venue has no reading.' },
     { key: 'volumeAusd', label: 'Volume', sub: period, title: 'Traded notional in the window, counted once per match.' },
     { key: 'openInterestNotional', label: 'Open interest', sub: 'level now', title: 'The level, from the venue: size × mark. Not an indexed figure.' },
-    { key: 'fundingPct', label: 'Funding', sub: 'last rate', title: 'The last funding rate applied, in percent, to six places because real values are that small.' },
-    { key: 'longShareOfMargin', label: 'Skew', sub: 'long share of margin', title: 'Long share of the isolated margin open positions have at risk. Over 70% on one side with funding paying that side is crowded. Never by notional: on an order book every long lot has a matching short, so that is always 50/50.' },
+    { key: 'fundingPct', label: 'Funding', sub: 'last rate, 6 dp', title: 'The last funding rate applied, in percent, to six decimal places: real rates are that small, and four places would round them to zero. Positive means longs pay shorts.' },
+    { key: 'longShareOfMargin', label: 'Exposure', sub: 'which side has more money at stake', title: 'The isolated margin open longs and shorts have posted, as a share each. Over 70% on one side, with funding paying that side, is crowded. Not notional: on an order book every long lot has a matching short, so notional is always 50/50.' },
     { key: 'risk', label: 'Risk', sub: 'composite', title: 'Crowded when one side dominates and pays funding; otherwise the tier of a composite of volatility, liquidations, crowding and funding. Click a row to see the parts.' },
   ];
 
@@ -74,13 +83,8 @@ export function MarketsView() {
     <>
       <PageHeader
         title="Markets"
-        subtitle="Every market the venue lists. Funding is shown at six decimal places, because four rounds real values to zero."
-        right={
-          <>
-            {rows !== undefined && <span className="chip">{formatCount(rows.length)} markets</span>}
-            <TimeframePills />
-          </>
-        }
+        subtitle="Live Perpl market data, including prices, OI & funding."
+        right={<TimeframePills />}
       />
 
       <StaleMarker envelope={markets.data} />
@@ -137,7 +141,7 @@ export function MarketsView() {
               <tr>
                 <td colSpan={columns.length} className="px-[10px] py-8 text-center text-muted">
                   <div className="text-[14px] font-semibold text-text">No listed market has indexed activity in {period}.</div>
-                  <div className="mt-1 text-[12.5px]">Widen the window. A market the venue does not list is excluded and named below.</div>
+                  <div className="mt-1 text-[12.5px]">Widen the window.</div>
                 </td>
               </tr>
             )}
@@ -158,15 +162,56 @@ export function MarketsView() {
 
       <div className="mt-3 text-[11.5px] text-muted2">
         Symbols resolve from the venue context by market id.{' '}
-        {table !== undefined && table.excluded.length > 0 && (
-          <>
-            {table.excluded.length === 1 ? 'One market' : `${table.excluded.length} markets`} indexed on chain but not listed by the venue{' '}
-            ({table.excluded.map((m) => `${m.marketId} · ${m.indexerName}`).join(', ')}) {table.excluded.length === 1 ? 'is' : 'are'} excluded.{' '}
-          </>
-        )}
-        Volume is indexed over the {period} window; price and open interest are the venue&rsquo;s level{oiAge === undefined ? '' : ` as of ${oiAge} ago`}. Skew is isolated margin per side, not notional: every long lot has a matching short lot, so notional is 50/50 on every market by construction.
+        Volume is indexed over the {period} window; price and open interest are the venue&rsquo;s level{oiAge === undefined ? '' : ` as of ${oiAge} ago`}. Exposure is the isolated margin each side has posted, not notional: every long lot has a matching short lot, so notional is 50/50 on every market by construction.
         {feesLabel !== undefined && ` Fees in a row's detail are maker + taker over ${feesLabel}, the same definition as the Overview tile.`}
       </div>
+
+      <ErrorNote error={listings.error} what="Markets listed on chain" />
+      <UpcomingMarkets markets={upcoming} />
+
+      <ErrorNote error={funding.error} what="Funding history" />
+      <section className="card mt-4 px-[18px] py-4">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-[10px]">
+          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Funding rates over time</h2>
+          <span className="text-[12.5px] text-muted">
+            {panels?.resolution === 'utc-day' ? `mean rate per event, by UTC day · ${period}` : `every rate applied · ${period}`}
+          </span>
+        </div>
+        {panels === undefined ? (
+          <Skeleton className="h-[240px] w-full" />
+        ) : panels.markets.length === 0 ? (
+          <div className="py-6 text-center text-[12.5px] text-muted">No funding event was settled in {period}.</div>
+        ) : (
+          <>
+            <FundingRatesChart panels={panels} />
+            <div className="mt-2 text-[11.5px] text-muted2">
+              In percent, to six decimal places, on one shared scale. Funding settles about hourly and a rate holds until the next settlement, so every-rate lines are
+              steps. Positive: longs pay shorts.
+              {panels.resolution === 'utc-day' && ' Over 30D and All each point is the mean rate per event within a UTC day, because every settlement would draw several to a pixel; a day’s mean is not a rate that was applied. 24H and 7D draw every rate.'}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="card mt-4 px-[18px] py-4">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-[10px]">
+          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Historical funding</h2>
+          <span className="text-[12.5px] text-muted">sum of every rate applied · {period}</span>
+        </div>
+        {panels === undefined ? (
+          <Skeleton className="h-[240px] w-full" />
+        ) : panels.markets.length === 0 ? (
+          <div className="py-6 text-center text-[12.5px] text-muted">No funding event was settled in {period}.</div>
+        ) : (
+          <>
+            <CumulativeFundingBars panels={panels} />
+            <div className="mt-2 text-[11.5px] text-muted2">
+              What a position held through the whole window paid (longs paid) or received, as a percentage of its value at each settlement. Not an AUSD total across
+              traders: that needs each side&rsquo;s open interest at every funding event, which the index does not keep, so it is not estimated here.
+            </div>
+          </>
+        )}
+      </section>
     </>
   );
 }
@@ -181,7 +226,9 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
   const barColor = share === undefined ? COLORS.muted : share > CROWDED_SHARE ? COLORS.watch : 1 - share > CROWDED_SHARE ? COLORS.danger : COLORS.safe;
   return (
     <tr className={`group cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${expanded ? 'bg-card2' : ''}`} onClick={onToggle} aria-expanded={expanded}>
-      <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${pinned}`}>{row.symbol}</td>
+      <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${pinned}`}>
+        <MarketName symbol={row.symbol} />
+      </td>
       <td className={cell} title={row.markPrice === undefined ? 'no mark known' : row.change === undefined ? undefined : `${formatPct(row.change, 2)} over ${row.low === undefined || row.high === undefined ? 'the window' : `${formatPriceAsServed(row.low)} – ${formatPriceAsServed(row.high)}`}`}>
         {row.markPrice === undefined ? '—' : formatPriceAsServed(row.markPrice)}
       </td>
@@ -193,13 +240,20 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
         {row.openInterestNotional === undefined ? <span className="text-muted">no reading</span> : formatCompact(row.openInterestNotional)}
       </td>
       <td className={`${cell} ${fundingClass}`}>{row.fundingPct === undefined ? <span className="text-muted2">no event</span> : formatFundingPct(row.fundingPct)}</td>
-      <td className={cell} title={share === undefined ? 'no open margin' : `margin long ${formatAusdExact(row.longMarginAusd)} · short ${formatAusdExact(row.shortMarginAusd)} AUSD`}>
+      <td
+        className={cell}
+        title={
+          share === undefined
+            ? 'no open margin'
+            : `${formatPct(share, 0)} long · ${formatPct(1 - share, 0)} short\nmargin long ${formatAusdExact(row.longMarginAusd)} AUSD · short ${formatAusdExact(row.shortMarginAusd)} AUSD`
+        }
+      >
         {share === undefined ? (
           <span className="text-muted">no positions</span>
         ) : (
           <>
             <span className="inline-flex items-center justify-end gap-2">
-              {formatPct(share)}
+              {share >= 0.5 ? `${formatPct(share, 0)} long` : `${formatPct(1 - share, 0)} short`}
               <span className="inline-block h-[5px] w-[52px] overflow-hidden rounded-full bg-border2" aria-hidden="true">
                 <i className="block h-full" style={{ width: `${share * 100}%`, background: barColor }} />
               </span>

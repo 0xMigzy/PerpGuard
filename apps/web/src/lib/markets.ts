@@ -14,7 +14,7 @@
  * and it is served with its components so a reader can see exactly why. An input
  * the API does not have contributes zero and says so.
  */
-import type { MarketBreakdown, MarketDailyPoint, MarketDailySeries, MarketOpenInterest, MarketRef, Timeframe } from '@perpguard/shared';
+import type { MarketBreakdown, MarketDailyPoint, MarketDailySeries, MarketListing, MarketOpenInterest, Timeframe } from '@perpguard/shared';
 
 /**
  * Which day buckets the mark-derived columns (change, low–high, volatility)
@@ -235,9 +235,12 @@ export interface MarketRow {
 }
 
 export interface MarketTable {
+  /**
+   * The markets the venue's context lists. A market it does not list is not a
+   * row: if it has never traded it is UPCOMING (see `upcomingMarkets`); if it has
+   * traded it is RETIRED (SOL v1, market 30) and is not shown at all.
+   */
   readonly rows: readonly MarketRow[];
-  /** Indexed markets the venue does not list. Named, so the note can say which. */
-  readonly excluded: readonly MarketRef[];
 }
 
 /** The last N points, or all of them. */
@@ -253,14 +256,10 @@ export function buildMarketTable(
 ): MarketTable {
   const oiById = new Map((openInterest ?? []).map((m) => [m.marketId, m]));
   const seriesById = new Map((series ?? []).map((s) => [s.market.marketId, s]));
-  const excluded: MarketRef[] = [];
   const rows: MarketRow[] = [];
 
   for (const m of breakdown) {
-    if (m.market.symbol === undefined) {
-      excluded.push(m.market);
-      continue;
-    }
+    if (m.market.symbol === undefined) continue;
     const oi = oiById.get(m.market.marketId);
     const points = shown(seriesById.get(m.market.marketId)?.points ?? [], showDays);
     const markPrice = oi?.markPrice ?? m.markPrice ?? points.at(-1)?.markClose;
@@ -312,7 +311,7 @@ export function buildMarketTable(
       tag: riskTag(risk, m.longShareOfMargin, m.lastFundingRatePct),
     });
   }
-  return { rows, excluded };
+  return { rows };
 }
 
 // ── sorting ─────────────────────────────────────────────────────────────────
@@ -364,4 +363,22 @@ export function sortRows(rows: readonly MarketRow[], key: SortKey, direction: So
     const cmp = typeof va === 'string' && typeof vb === 'string' ? va.localeCompare(vb) : Number(va) - Number(vb);
     return cmp === 0 ? a.marketId - b.marketId : cmp * sign;
   });
+}
+
+// ── markets not yet trading ─────────────────────────────────────────────────
+
+/**
+ * Listed on chain, absent from the venue's context, and NEVER TRADED: the
+ * markets that are coming. The rule reads the data rather than naming ids, so a
+ * new listing appears here on its own and leaves when the venue opens it.
+ *
+ * A market the context omits that HAS traded is retired (SOL v1) and is left out
+ * entirely. "Coming" is the venue's call, not ours: a market that has sat listed
+ * and untraded for weeks (TAO) is shown with its listing date, and the page does
+ * not claim to know when it opens.
+ */
+export function upcomingMarkets(listings: readonly MarketListing[]): readonly MarketListing[] {
+  return listings
+    .filter((m) => m.market.symbol === undefined && m.tradesAllTime === 0)
+    .sort((a, b) => a.market.marketId - b.market.marketId);
 }

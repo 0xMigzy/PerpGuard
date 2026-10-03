@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { MarketBreakdown, MarketDailySeries, MarketOpenInterest } from '@perpguard/shared';
-import { RISK_WEIGHT, buildMarketTable, markWindow, riskScore, riskTag, sortRows } from './markets.ts';
+import type { MarketBreakdown, MarketDailySeries, MarketListing, MarketOpenInterest } from '@perpguard/shared';
+import { RISK_WEIGHT, buildMarketTable, markWindow, riskScore, riskTag, sortRows, upcomingMarkets } from './markets.ts';
 
 const day = (n: number) => Date.parse('2026-09-01T00:00:00Z') + n * 86_400_000;
 
@@ -99,7 +99,7 @@ test('rows join on the MARKET ID, take the venue mark when there is one, and exc
     { market: { marketId: 31, symbol: 'SOL', indexerName: 'SOL_v2' }, points: [point(0, 100, 130, 90, 110), point(1, 110, 125, 105, 118)] },
   ];
   const table = buildMarketTable(rows, oi, series, 8);
-  assert.deepEqual(table.excluded.map((m) => m.marketId), [80]);
+  assert.equal(table.rows.some((r) => r.marketId === 80), false, 'a market the venue does not list is never a row');
   assert.deepEqual(table.rows.map((r) => r.symbol), ['SOL', 'BTC'], 'input order kept; the page sorts');
   const sol = table.rows[0]!;
   assert.equal(sol.markPrice, 120, 'the venue level wins over the indexed mark');
@@ -157,4 +157,28 @@ test('the tag says crowded only when one side holds over 70% AND funding pays th
   const hot = riskScore({ dailyRanges: [0.2], liquidationCount: 10, openPositions: 10, longShare: 0.5, fundingPct: 0.001 });
   assert.equal(riskTag(hot, 0.5, 0.001).label, 'High');
   assert.equal(riskTag(hot, 0.5, 0.001).tone, 'danger');
+});
+
+const listing = (marketId: number, symbol: string | undefined, chainSymbol: string, tradesAllTime: number): MarketListing => ({
+  market: { marketId, symbol, indexerName: chainSymbol },
+  chainSymbol,
+  paused: true,
+  maxLeverage: 3,
+  maintenanceMarginRatio: 0.1,
+  maxOpenInterestSize: 1,
+  markPrice: 1,
+  markAtMs: 0,
+  listedAtMs: 0,
+  tradesAllTime,
+});
+
+test('upcoming: on chain, not in the context, never traded. Retired and live markets are not', () => {
+  const upcoming = upcomingMarkets([
+    listing(150, undefined, 'ENA', 0),
+    listing(1, 'BTC', 'BTC', 22_000_000),
+    listing(30, undefined, 'SOL', 127_499),
+    listing(80, undefined, 'TAO', 0),
+    listing(120, undefined, 'ARB', 0),
+  ]);
+  assert.deepEqual(upcoming.map((m) => m.chainSymbol), ['TAO', 'ARB', 'ENA'], 'by market id; SOL v1 is retired, BTC is live');
 });

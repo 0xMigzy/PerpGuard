@@ -145,6 +145,8 @@ export function analyticsLoaders(analytics: Analytics) {
     seriesByMarket: (t: Timeframe) => entry(`series-markets:${t}`, () => analytics.dailySeriesByMarket(t)),
     markets: (t: Timeframe) => entry(`markets:${t}`, () => analytics.marketBreakdown(t)),
     funding: (t: Timeframe) => entry(`funding:${t}`, () => analytics.funding(t)),
+    fundingSeries: (t: Timeframe) => entry(`funding-series:${t}`, () => analytics.fundingSeries(t)),
+    listings: () => entry('market-listings', () => analytics.marketListings()),
     liquidations: (t: Timeframe, limit: number | undefined, offset: number | undefined) =>
       entry(`liquidations:${t}:${limit ?? ''}:${offset ?? ''}`, () =>
         analytics.liquidations(t, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
@@ -188,6 +190,8 @@ export function defaultWarmEntries(analytics: Analytics): ReadonlyArray<{ readon
     l.seriesByMarket('30d'),
     l.seriesByMarket('all'),
     l.markets('30d'),
+    l.fundingSeries('30d'),
+    l.listings(),
     l.liquidationSummary('30d'),
     l.liquidations('30d', 50, 0),
     l.traders('30d', 'netPnl', 'desc', 50, 0),
@@ -375,6 +379,16 @@ export function registerAnalyticsRoutes(
     if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
     return served(loaders.funding(timeframe));
   });
+
+  /** Every funding rate applied in the window, per market, with their sum. */
+  scope.get(`${prefix}/funding/series`, async (request, reply) => {
+    const timeframe = timeframeOf(request.query);
+    if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+    return served(loaders.fundingSeries(timeframe));
+  });
+
+  /** Every market the chain lists, with its contract parameters. Not windowed. */
+  scope.get(`${prefix}/markets/listings`, async () => served(loaders.listings()));
 
   /** Forced exits in the window, newest first. Paged like round trips; the reader clamps. */
   scope.get<{ Querystring: { timeframe?: string; limit?: string; offset?: string } }>(

@@ -19,6 +19,8 @@ import type {
   LiquidationSummary,
   MarketBreakdown,
   MarketDailySeries,
+  MarketFundingSeries,
+  MarketListing,
   MarketOpenInterest,
   ProtocolMetrics,
   RiskSnapshot,
@@ -191,6 +193,10 @@ export const api = {
     getJson<Envelope<readonly MarketDailySeries[]>>(`${A}/series/markets?timeframe=${t}`),
   openInterest: () => getJson<Envelope<OpenInterestPayload>>(`${A}/open-interest`),
   markets: (t: Timeframe) => getJson<Envelope<readonly MarketBreakdown[]>>(`${A}/markets?timeframe=${t}`),
+  /** Every market the chain lists, with its contract parameters. Not windowed. */
+  listings: () => getJson<Envelope<readonly MarketListing[]>>(`${A}/markets/listings`),
+  /** Every funding rate applied in the window, per market, with their sum. */
+  fundingSeries: (t: Timeframe) => getJson<Envelope<readonly MarketFundingSeries[]>>(`${A}/funding/series?timeframe=${t}`),
   liquidations: (t: Timeframe, limit: number, offset = 0) =>
     getJson<Envelope<readonly LiquidationRecord[]>>(`${A}/liquidations?timeframe=${t}&limit=${limit}&offset=${offset}`),
   /** By address, any case. `not-linked` is an ordinary 200 answer, not an error. */

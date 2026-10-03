@@ -48,6 +48,7 @@ import {
   type SymbolResolver,
 } from './map.ts';
 import type { TvlReading } from './tvl.ts';
+import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
 import type {
   Analytics,
   CollateralFlowStats,
@@ -62,6 +63,8 @@ import type {
   MarketBreakdown,
   MarketDailyPoint,
   MarketDailySeries,
+  MarketFundingSeries,
+  MarketListing,
   MarketPnl,
   MarketRef,
   OpenPosition,
@@ -386,6 +389,39 @@ select f.market_id as id, m.name,
   from "FundingEvent" f join "Market" m on m.id = f.market_id
  where ($1::timestamptz is null or f.timestamp >= $1::timestamptz)
  group by f.market_id, m.name order by (f.market_id::bigint)
+`;
+
+/**
+ * Every funding rate applied in a window, per market. One row per EVENT, or per
+ * UTC DAY when $2 says so: the window too long to draw every event. The day row
+ * carries the mean (for the line) AND the exact sum and count (for the total), so
+ * the cumulative figure is over every event whichever resolution is drawn.
+ */
+const FUNDING_SERIES_SQL = `
+select f.market_id as id, m.name,
+       case when $2::boolean then date_trunc('day', f.timestamp) else f.timestamp end as at,
+       avg(f."actualRatePct100k")::text as rate,
+       sum(f."actualRatePct100k")::text as rate_sum,
+       count(*)::text                   as events
+  from "FundingEvent" f join "Market" m on m.id = f.market_id
+ where ($1::timestamptz is null or f.timestamp >= $1::timestamptz)
+ group by f.market_id, m.name, 3
+ order by (f.market_id::bigint), 3
+`;
+
+/** Every market the chain lists, with the contract's parameters for it. */
+const MARKET_LISTINGS_SQL = `
+select m.id, m.name, m.symbol, m.paused, m."priceDecimals", m."lotDecimals",
+       m."initMarginFracHdths"::text  as init_margin,
+       m."maintMarginFracHdths"::text as maint_margin,
+       m."maxOpenInterestLNS"::text   as max_oi,
+       m."markPricePNS"::text         as mark,
+       m."markUpdatedAt"              as mark_at,
+       m."firstSeenAt"                as listed_at,
+       m."tradeCount"::text           as trades
+  from "Market" m
+ where m.listed
+ order by (m.id::bigint)
 `;
 
 /**
@@ -1120,6 +1156,59 @@ export class PostgresAnalytics implements Analytics {
       meanRatePct: eventCount === 0 ? undefined : weighted / eventCount,
       markets,
     };
+  }
+
+  async fundingSeries(timeframe: Timeframe): Promise<readonly MarketFundingSeries[]> {
+    const { sinceMs } = windowFor(timeframe, this.#now());
+    // Every event up to 7 days (~230 a market). Beyond that a day per point: at
+    // 30 days the ~1,000 steps, flipping sign settlement to settlement, draw four
+    // to a pixel and read as a solid block. The sum is over every event either way.
+    const byDay = timeframe === '30d' || timeframe === 'all';
+    const rows = await this.#rows(FUNDING_SERIES_SQL, [iso(sinceMs), byDay]);
+
+    const out: Array<{ market: MarketRef; points: { atMs: number; ratePct: number }[]; sum100k: bigint; events: number }> = [];
+    for (const row of rows) {
+      const marketId = count(row['id']);
+      let current = out.at(-1);
+      if (current === undefined || current.market.marketId !== marketId) {
+        current = { market: toMarketRef(row['id'], row['name'], this.#resolve), points: [], sum100k: 0n, events: 0 };
+        out.push(current);
+      }
+      current.points.push({ atMs: requireMs(row['at']), ratePct: Number(row['rate']) / 100_000 });
+      current.sum100k += bigintOrZero(row['rate_sum']);
+      current.events += count(row['events']);
+    }
+    return out.map((m) => ({
+      market: m.market,
+      resolution: byDay ? 'utc-day' : 'event',
+      points: m.points,
+      eventCount: m.events,
+      // Summed as integers, divided once: no float drift over thousands of events.
+      cumulativeRatePct: Number(m.sum100k) / 100_000,
+      firstAtMs: m.points[0]?.atMs,
+      lastAtMs: m.points.at(-1)?.atMs,
+    }));
+  }
+
+  async marketListings(): Promise<readonly MarketListing[]> {
+    const rows = await this.#rows(MARKET_LISTINGS_SQL, []);
+    return rows.map((row) => {
+      const priceDecimals = count(row['priceDecimals']);
+      const init = Number(row['init_margin']);
+      const maint = Number(row['maint_margin']);
+      return {
+        market: toMarketRef(row['id'], row['name'], this.#resolve),
+        chainSymbol: String(row['symbol']),
+        paused: row['paused'] === true,
+        maxLeverage: init > 0 ? maxLeverageFromConfig(init) : undefined,
+        maintenanceMarginRatio: maint > 0 ? maintenanceMarginRatioFromConfig(maint) : undefined,
+        maxOpenInterestSize: toLots(row['max_oi'], count(row['lotDecimals'])),
+        markPrice: toPrice(row['mark'], priceDecimals),
+        markAtMs: toMs(row['mark_at']),
+        listedAtMs: requireMs(row['listed_at']),
+        tradesAllTime: count(row['trades']),
+      };
+    });
   }
 
   async wallet(address: string): Promise<WalletLookup> {

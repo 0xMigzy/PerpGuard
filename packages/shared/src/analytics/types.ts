@@ -322,6 +322,59 @@ export interface MarketFundingStats {
 }
 
 /**
+ * One market's funding over a window: every rate applied, and their sum.
+ *
+ * Per Perpl's docs a POSITIVE rate means longs pay shorts, and a position pays
+ * price × rate × lots at each funding event (~hourly). So `cumulativeRatePct` —
+ * the plain sum of the rates applied — is exactly which side has been paying and
+ * by how much per unit of price. It is NOT an AUSD total across traders: that
+ * needs each side's open interest at every event, which the index does not keep
+ * (funding is settled into a position when it changes size, not per event).
+ */
+export interface MarketFundingSeries {
+  readonly market: MarketRef;
+  /**
+   * `event`: one point per funding event, the rate as applied. `utc-day`: the
+   * MEAN rate per event within each UTC day, used for 30D and All, where every
+   * event would draw several to a pixel; the sum is still over every event.
+   */
+  readonly resolution: 'event' | 'utc-day';
+  readonly points: readonly { readonly atMs: number; readonly ratePct: number }[];
+  readonly eventCount: number;
+  /** Sum of every rate applied in the window, in percent. Positive: longs paid. */
+  readonly cumulativeRatePct: number;
+  readonly firstAtMs: number | undefined;
+  readonly lastAtMs: number | undefined;
+}
+
+/**
+ * A market as the CHAIN lists it, whether or not the venue's context shows it.
+ *
+ * The context decides what a trader can see and touch today; this is how the
+ * page learns about the markets that are listed on chain but not open yet, with
+ * whatever parameters the contract already holds for them.
+ */
+export interface MarketListing {
+  readonly market: MarketRef;
+  /** The contract's own symbol: the only name a market the venue does not list has. */
+  readonly chainSymbol: string;
+  readonly paused: boolean;
+  /** From the initial margin fraction, as the venue's context encodes it: 1500 -> 15x. */
+  readonly maxLeverage: number | undefined;
+  /** From the maintenance margin fraction: 2500 -> 4%. */
+  readonly maintenanceMarginRatio: number | undefined;
+  /** In the market's own size units. */
+  readonly maxOpenInterestSize: number;
+  /** The contract's last mark, and when it moved. */
+  readonly markPrice: number | undefined;
+  readonly markAtMs: number | undefined;
+  /** The first event the index saw for this market: its listing. */
+  readonly listedAtMs: number;
+  /** Fills since the index began. Zero for a market that has never traded. */
+  readonly tradesAllTime: number;
+}
+
+/**
  * The protocol's whole history, by UTC month: the growth curve. Independent
  * of any timeframe — it always runs from the index's first event to now —
  * and it carries that first event, so a page can name the window "All"
@@ -858,11 +911,17 @@ export interface Analytics {
    */
   dailySeriesByMarket(timeframe: Timeframe): Promise<readonly MarketDailySeries[]>;
 
-  /** Per-market figures over one window, with the long/short skew. */
+  /** Per-market figures over one window, with the long/short skew by margin. */
   marketBreakdown(timeframe: Timeframe): Promise<readonly MarketBreakdown[]>;
 
   /** Funding over one window. */
   funding(timeframe: Timeframe): Promise<FundingStats>;
+
+  /** Every funding rate applied in one window, per market, with their sum. */
+  fundingSeries(timeframe: Timeframe): Promise<readonly MarketFundingSeries[]>;
+
+  /** Every market the CHAIN lists, with its contract parameters. Not windowed. */
+  marketListings(): Promise<readonly MarketListing[]>;
 
   /**
    * Forced exits in one window, most recent first.

@@ -796,3 +796,54 @@ test('the current window\u2019s fees include today\u2019s bucket however much ti
   assert.notEqual(fees[1]!.values[1], null, 'the previous window ends at a day boundary');
   assert.match(metrics.fees.label, /today so far|no complete UTC day/, 'labelled as the current window');
 });
+
+test('the funding series sums every rate as integers and says which resolution it drew', async () => {
+  // Positive is longs paying (Perpl docs). 4 + 4 − 1 hundred-thousandths of a percent.
+  const sql = new FakeSql().on(/from "FundingEvent" f join "Market" m/, [
+    { id: '1', name: 'BTC Perp', at: new Date('2026-10-01T00:00:00Z'), rate: '4', rate_sum: '4', events: '1' },
+    { id: '1', name: 'BTC Perp', at: new Date('2026-10-01T00:43:00Z'), rate: '4', rate_sum: '4', events: '1' },
+    { id: '1', name: 'BTC Perp', at: new Date('2026-10-01T01:26:00Z'), rate: '-1', rate_sum: '-1', events: '1' },
+    { id: '31', name: 'SOL_v2', at: new Date('2026-10-01T00:00:00Z'), rate: '-2', rate_sum: '-2', events: '1' },
+  ]);
+  const series = await reader(sql).fundingSeries('7d');
+  assert.equal(series.length, 2);
+  assert.equal(series[0]!.resolution, 'event');
+  assert.equal(series[0]!.eventCount, 3);
+  assert.equal(series[0]!.cumulativeRatePct, 0.00007);
+  assert.deepEqual(series[0]!.points.map((p) => p.ratePct), [0.00004, 0.00004, -0.00001]);
+  assert.equal(series[1]!.market.symbol, 'SOL', 'resolved by id, not by the chain name');
+  assert.equal(sql.touching('FundingEvent')[0]!.values[1], false, 'every event up to 7 days');
+});
+
+test('over 30D and All the line is a daily mean, but the sum is still over every event', async () => {
+  const sql = new FakeSql().on(/from "FundingEvent" f join "Market" m/, [
+    { id: '1', name: 'BTC Perp', at: new Date('2026-09-30T00:00:00Z'), rate: '2.5', rate_sum: '85', events: '34' },
+    { id: '1', name: 'BTC Perp', at: new Date('2026-10-01T00:00:00Z'), rate: '-1', rate_sum: '-33', events: '33' },
+  ]);
+  const [btc] = await reader(sql).fundingSeries('all');
+  assert.equal(btc!.resolution, 'utc-day');
+  assert.equal(btc!.eventCount, 67);
+  assert.equal(btc!.cumulativeRatePct, 0.00052, '(85 − 33) / 100,000: the events, not the daily means');
+  assert.equal(sql.touching('FundingEvent')[0]!.values[1], true);
+  await reader(sql).fundingSeries('30d');
+  assert.equal(sql.touching('FundingEvent')[1]!.values[1], true, '30D too: 1,000 steps would read as a block');
+});
+
+test('a listing reads the contract parameters in the context’s units, and keeps the chain symbol', async () => {
+  const sql = new FakeSql().on(/where m.listed/, [
+    { id: '120', name: 'ARB', symbol: 'ARB', paused: true, priceDecimals: 5, lotDecimals: 1, init_margin: '300', maint_margin: '1000', max_oi: '250000000', mark: '20233', mark_at: new Date('2026-10-03T12:00:00Z'), listed_at: new Date('2026-09-30T10:55:39Z'), trades: '0' },
+    { id: '1', name: 'BTC Perp', symbol: 'BTC', paused: false, priceDecimals: 1, lotDecimals: 5, init_margin: '1500', maint_margin: '2500', max_oi: '30000000', mark: '848050', mark_at: null, listed_at: new Date('2026-02-11T23:02:32Z'), trades: '22394371' },
+  ]);
+  const [arb, btc] = await reader(sql).marketListings();
+  assert.equal(arb!.market.symbol, undefined, 'the venue does not list it, so it has no ticker');
+  assert.equal(arb!.chainSymbol, 'ARB');
+  assert.equal(arb!.paused, true);
+  assert.equal(arb!.maxLeverage, 3);
+  assert.equal(arb!.maintenanceMarginRatio, 0.1);
+  assert.equal(arb!.maxOpenInterestSize, 25_000_000);
+  assert.equal(arb!.markPrice, 0.20233);
+  assert.equal(arb!.tradesAllTime, 0);
+  assert.equal(btc!.maxLeverage, 15, 'the ground-truth position is 15x at BTC’s maximum');
+  assert.equal(btc!.maintenanceMarginRatio, 0.04);
+  assert.equal(btc!.markAtMs, undefined);
+});
