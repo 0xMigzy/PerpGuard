@@ -1,0 +1,2433 @@
+{
+ "_note": "Written by apps/indexer/src/scripts/verify-logs.ts. Re-run with `pnpm verify:logs`.",
+ "ranAt": "2026-10-03T13:28:56.444Z",
+ "chainId": 143,
+ "exchangeProxy": "0x34B6552d57a35a1D042CcAe1951BD1C370112a6F",
+ "rpcHost": "palpable-dawn-seed.monad-mainnet.quiknode.pro",
+ "indexHead": 110191918,
+ "deployBlock": 54773010,
+ "sample": {
+  "ranges": 14,
+  "blocksPerRange": 1000,
+  "blocksCovered": 14000,
+  "blocksIndexed": 55418909,
+  "shareOfIndexedBlocks": 0.0002526213570895089,
+  "logsCompared": 473635
+ },
+ "verdict": "every compared log matched",
+ "totals": {
+  "Position": {
+   "chainLogs": 1226,
+   "indexRows": 1226,
+   "matched": 1226,
+   "missing": 0,
+   "extra": 0
+  },
+  "Trade": {
+   "chainLogs": 4401,
+   "indexRows": 4401,
+   "matched": 4401,
+   "missing": 0,
+   "extra": 0
+  },
+  "Liquidation": {
+   "chainLogs": 0,
+   "indexRows": 0,
+   "matched": 0,
+   "missing": 0,
+   "extra": 0
+  },
+  "CollateralFlow": {
+   "chainLogs": 6,
+   "indexRows": 6,
+   "matched": 6,
+   "missing": 0,
+   "extra": 0
+  },
+  "MarginAction": {
+   "chainLogs": 7,
+   "indexRows": 7,
+   "matched": 7,
+   "missing": 0,
+   "extra": 0,
+   "skippedByDesign": 0
+  },
+  "FundingEvent": {
+   "chainLogs": 15,
+   "indexRows": 15,
+   "matched": 15,
+   "missing": 0,
+   "extra": 0
+  }
+ },
+ "undecodable": 0,
+ "notComparedPerLog": {
+  "Upgraded": 1,
+  "OwnershipTransferred": 1,
+  "ExchangeInitialized": 1,
+  "Initialized": 1,
+  "LinkDatastreamConfigured": 1,
+  "WhitelistingEnabledChanged": 1,
+  "ContractAdded": 2,
+  "AdministratorUpdated": 4,
+  "PositionAdministratorUpdated": 2,
+  "PriceAdministratorUpdated": 2,
+  "MaxOpenInterestUpdated": 2,
+  "ContractLinkFeedUpdated": 2,
+  "OwnershipTransferStarted": 1,
+  "OrderRequest": 94921,
+  "OrderChanged": 96471,
+  "AmountExceedsAvailableBalance": 3930,
+  "OrderBatchCompleted": 61414,
+  "PositionIncreased": 148,
+  "TakerOrderFilled": 1272,
+  "OrderCancelled": 26774,
+  "OrderPlaced": 29489,
+  "MarkUpdated": 2919,
+  "PositionClosed": 1071,
+  "LinkPriceUpdated": 798,
+  "ReportAgeExceedsLastUpdate": 777,
+  "UpdateOracleFailed": 777,
+  "ClearingExpiredOrder": 61,
+  "PositionDecreased": 2250,
+  "MakerOrderSettlementFailed": 68,
+  "ClearingRemainingOrderLockBeyondBalance": 2,
+  "OrderDoesNotExist": 1674,
+  "InvalidExpiryBlock": 3,
+  "OrderDescIdTooLow": 3992,
+  "WithdrawRateLimitReset": 1,
+  "ProtocolBalanceWithdraw": 1,
+  "ExceedsLastExecutionBlock": 1183,
+  "CrossesBook": 998,
+  "WhitelistAddress": 42,
+  "FundingSumAlreadySet": 15,
+  "TriggerOrderRequest": 52,
+  "WrongAccountForOrder": 565,
+  "TriggerOrderExecution": 1,
+  "TriggerDescIdTooLow": 1,
+  "ContractNotOperational": 394,
+  "PositionIncreasedV2": 2169,
+  "ImmediateOrCancelExecuted": 26489,
+  "CantChangeCloseOrder": 378,
+  "OrderSizeExceedsAvailableSize": 1174,
+  "ClearingSelfMatchingOrder": 30,
+  "InsuficientFundsForRecycleFee": 59,
+  "MaxMatchesReached": 33,
+  "CloseOrderExceedsPosition": 1226,
+  "OrderPostFailed": 16,
+  "ClearingInvalidCloseOrder": 1,
+  "OrderRequestV2": 103129,
+  "TakerOrderFilledV2": 1191
+ },
+ "ranges": [
+  {
+   "from": 54773010,
+   "to": 54774009,
+   "fromTime": "2026-02-11T23:02:27.000Z",
+   "toTime": "2026-02-11T23:09:05.000Z",
+   "logs": 21,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "Upgraded": 1,
+    "OwnershipTransferred": 1,
+    "ExchangeInitialized": 1,
+    "Initialized": 1,
+    "LinkDatastreamConfigured": 1,
+    "WhitelistingEnabledChanged": 1,
+    "ContractAdded": 2,
+    "AdministratorUpdated": 4,
+    "PositionAdministratorUpdated": 2,
+    "PriceAdministratorUpdated": 2,
+    "MaxOpenInterestUpdated": 2,
+    "ContractLinkFeedUpdated": 2,
+    "OwnershipTransferStarted": 1
+   }
+  },
+  {
+   "from": 59035926,
+   "to": 59036925,
+   "fromTime": "2026-03-03T17:31:39.000Z",
+   "toTime": "2026-03-03T17:38:19.000Z",
+   "logs": 6266,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 21,
+     "indexRows": 21,
+     "matched": 21,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 39,
+     "indexRows": 39,
+     "matched": 39,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 1,
+     "indexRows": 1,
+     "matched": 1,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 2724,
+    "OrderChanged": 796,
+    "AmountExceedsAvailableBalance": 1565,
+    "OrderBatchCompleted": 558,
+    "PositionIncreased": 33,
+    "TakerOrderFilled": 39,
+    "OrderCancelled": 156,
+    "OrderPlaced": 163,
+    "MarkUpdated": 66,
+    "PositionClosed": 19,
+    "LinkPriceUpdated": 24,
+    "ReportAgeExceedsLastUpdate": 21,
+    "UpdateOracleFailed": 21,
+    "ClearingExpiredOrder": 3,
+    "PositionDecreased": 5,
+    "MakerOrderSettlementFailed": 6,
+    "ClearingRemainingOrderLockBeyondBalance": 1,
+    "OrderDoesNotExist": 5
+   }
+  },
+  {
+   "from": 63298842,
+   "to": 63299841,
+   "fromTime": "2026-03-23T10:58:04.000Z",
+   "toTime": "2026-03-23T11:04:49.000Z",
+   "logs": 9866,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 18,
+     "indexRows": 18,
+     "matched": 18,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 40,
+     "indexRows": 40,
+     "matched": 40,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 4377,
+    "OrderChanged": 3339,
+    "OrderBatchCompleted": 845,
+    "ClearingExpiredOrder": 10,
+    "PositionDecreased": 21,
+    "PositionClosed": 20,
+    "TakerOrderFilled": 40,
+    "OrderCancelled": 269,
+    "OrderPlaced": 281,
+    "AmountExceedsAvailableBalance": 185,
+    "PositionIncreased": 21,
+    "MarkUpdated": 56,
+    "LinkPriceUpdated": 26,
+    "ReportAgeExceedsLastUpdate": 26,
+    "UpdateOracleFailed": 26,
+    "InvalidExpiryBlock": 3,
+    "OrderDescIdTooLow": 250,
+    "OrderDoesNotExist": 8,
+    "ClearingRemainingOrderLockBeyondBalance": 1,
+    "WithdrawRateLimitReset": 1,
+    "ProtocolBalanceWithdraw": 1,
+    "ExceedsLastExecutionBlock": 2
+   }
+  },
+  {
+   "from": 67561758,
+   "to": 67562757,
+   "fromTime": "2026-04-12T05:00:35.000Z",
+   "toTime": "2026-04-12T05:07:15.000Z",
+   "logs": 20446,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 18,
+     "indexRows": 18,
+     "matched": 18,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 36,
+     "indexRows": 36,
+     "matched": 36,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 9164,
+    "OrderCancelled": 2197,
+    "OrderPlaced": 2199,
+    "OrderChanged": 2616,
+    "AmountExceedsAvailableBalance": 2069,
+    "OrderBatchCompleted": 1713,
+    "LinkPriceUpdated": 49,
+    "ReportAgeExceedsLastUpdate": 49,
+    "UpdateOracleFailed": 49,
+    "PositionIncreased": 22,
+    "TakerOrderFilled": 35,
+    "ClearingExpiredOrder": 7,
+    "PositionDecreased": 14,
+    "MarkUpdated": 142,
+    "ExceedsLastExecutionBlock": 41,
+    "CrossesBook": 4,
+    "PositionClosed": 17,
+    "OrderDoesNotExist": 2,
+    "WhitelistAddress": 2,
+    "OrderDescIdTooLow": 1
+   }
+  },
+  {
+   "from": 71824674,
+   "to": 71825673,
+   "fromTime": "2026-05-01T23:08:47.000Z",
+   "toTime": "2026-05-01T23:15:27.000Z",
+   "logs": 4706,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 14,
+     "indexRows": 14,
+     "matched": 14,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 29,
+     "indexRows": 29,
+     "matched": 29,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 5,
+     "indexRows": 5,
+     "matched": 5,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 1833,
+    "OrderChanged": 1654,
+    "OrderBatchCompleted": 675,
+    "MarkUpdated": 132,
+    "LinkPriceUpdated": 46,
+    "ReportAgeExceedsLastUpdate": 42,
+    "UpdateOracleFailed": 42,
+    "OrderCancelled": 67,
+    "OrderPlaced": 75,
+    "PositionDecreased": 12,
+    "TakerOrderFilled": 29,
+    "ClearingExpiredOrder": 5,
+    "CrossesBook": 3,
+    "PositionClosed": 15,
+    "PositionIncreased": 17,
+    "AmountExceedsAvailableBalance": 1,
+    "FundingSumAlreadySet": 5,
+    "WhitelistAddress": 1,
+    "TriggerOrderRequest": 2,
+    "OrderDescIdTooLow": 2
+   }
+  },
+  {
+   "from": 76087590,
+   "to": 76088589,
+   "fromTime": "2026-05-21T17:13:41.000Z",
+   "toTime": "2026-05-21T17:20:22.000Z",
+   "logs": 18650,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 35,
+     "indexRows": 35,
+     "matched": 35,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 89,
+     "indexRows": 89,
+     "matched": 89,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 7137,
+    "ClearingExpiredOrder": 11,
+    "OrderPlaced": 778,
+    "OrderCancelled": 741,
+    "OrderBatchCompleted": 3524,
+    "OrderDescIdTooLow": 711,
+    "OrderChanged": 4749,
+    "PositionDecreased": 35,
+    "TakerOrderFilled": 67,
+    "OrderDoesNotExist": 9,
+    "WrongAccountForOrder": 1,
+    "MarkUpdated": 336,
+    "PositionIncreased": 55,
+    "WhitelistAddress": 39,
+    "CrossesBook": 40,
+    "LinkPriceUpdated": 73,
+    "ReportAgeExceedsLastUpdate": 73,
+    "UpdateOracleFailed": 73,
+    "PositionClosed": 31,
+    "AmountExceedsAvailableBalance": 17,
+    "ExceedsLastExecutionBlock": 19,
+    "TriggerOrderExecution": 1,
+    "TriggerDescIdTooLow": 1,
+    "TriggerOrderRequest": 5
+   }
+  },
+  {
+   "from": 80350506,
+   "to": 80351505,
+   "fromTime": "2026-06-10T11:05:29.000Z",
+   "toTime": "2026-06-10T11:12:08.000Z",
+   "logs": 23519,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 12,
+     "indexRows": 12,
+     "matched": 12,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 24,
+     "indexRows": 24,
+     "matched": 24,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "MarkUpdated": 388,
+    "OrderRequest": 9378,
+    "OrderChanged": 7276,
+    "OrderBatchCompleted": 4069,
+    "ContractNotOperational": 394,
+    "CrossesBook": 63,
+    "OrderDescIdTooLow": 348,
+    "OrderPlaced": 586,
+    "LinkPriceUpdated": 79,
+    "ReportAgeExceedsLastUpdate": 75,
+    "UpdateOracleFailed": 75,
+    "OrderCancelled": 577,
+    "OrderDoesNotExist": 12,
+    "ExceedsLastExecutionBlock": 93,
+    "PositionDecreased": 12,
+    "TakerOrderFilled": 24,
+    "AmountExceedsAvailableBalance": 5,
+    "PositionIncreasedV2": 12,
+    "PositionClosed": 12,
+    "ClearingExpiredOrder": 5
+   }
+  },
+  {
+   "from": 84613422,
+   "to": 84614421,
+   "fromTime": "2026-06-30T05:02:21.000Z",
+   "toTime": "2026-06-30T05:09:00.000Z",
+   "logs": 18938,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 76,
+     "indexRows": 76,
+     "matched": 76,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 162,
+     "indexRows": 162,
+     "matched": 162,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 7742,
+    "OrderChanged": 5226,
+    "OrderBatchCompleted": 2754,
+    "CrossesBook": 288,
+    "LinkPriceUpdated": 42,
+    "ReportAgeExceedsLastUpdate": 40,
+    "UpdateOracleFailed": 40,
+    "OrderDoesNotExist": 213,
+    "OrderPlaced": 722,
+    "ImmediateOrCancelExecuted": 297,
+    "PositionIncreasedV2": 105,
+    "TakerOrderFilled": 151,
+    "PositionClosed": 76,
+    "PositionDecreased": 56,
+    "CantChangeCloseOrder": 8,
+    "OrderCancelled": 703,
+    "MarkUpdated": 98,
+    "ExceedsLastExecutionBlock": 12,
+    "OrderDescIdTooLow": 69,
+    "OrderSizeExceedsAvailableSize": 28,
+    "WrongAccountForOrder": 20,
+    "ClearingExpiredOrder": 1,
+    "TriggerOrderRequest": 8,
+    "ClearingSelfMatchingOrder": 1
+   }
+  },
+  {
+   "from": 88876338,
+   "to": 88877337,
+   "fromTime": "2026-07-19T23:38:57.000Z",
+   "toTime": "2026-07-19T23:45:34.000Z",
+   "logs": 71374,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 300,
+     "indexRows": 300,
+     "matched": 300,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 1453,
+     "indexRows": 1453,
+     "matched": 1453,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 1,
+     "indexRows": 1,
+     "matched": 1,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 30106,
+    "ExceedsLastExecutionBlock": 62,
+    "OrderPlaced": 6750,
+    "OrderBatchCompleted": 7217,
+    "OrderSizeExceedsAvailableSize": 683,
+    "OrderCancelled": 5777,
+    "OrderChanged": 11495,
+    "ImmediateOrCancelExecuted": 2619,
+    "MarkUpdated": 154,
+    "OrderDescIdTooLow": 1446,
+    "OrderDoesNotExist": 154,
+    "CantChangeCloseOrder": 136,
+    "PositionDecreased": 784,
+    "TakerOrderFilled": 596,
+    "PositionIncreasedV2": 725,
+    "PositionClosed": 240,
+    "InsuficientFundsForRecycleFee": 59,
+    "LinkPriceUpdated": 55,
+    "ReportAgeExceedsLastUpdate": 53,
+    "UpdateOracleFailed": 53,
+    "WrongAccountForOrder": 68,
+    "CrossesBook": 224,
+    "MakerOrderSettlementFailed": 61,
+    "MaxMatchesReached": 4,
+    "ClearingExpiredOrder": 6,
+    "CloseOrderExceedsPosition": 7,
+    "TriggerOrderRequest": 9,
+    "OrderPostFailed": 14,
+    "AmountExceedsAvailableBalance": 62,
+    "ClearingInvalidCloseOrder": 1
+   }
+  },
+  {
+   "from": 93139254,
+   "to": 93140253,
+   "fromTime": "2026-08-04T19:03:47.000Z",
+   "toTime": "2026-08-04T19:08:48.000Z",
+   "logs": 51738,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 198,
+     "indexRows": 198,
+     "matched": 198,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 756,
+     "indexRows": 756,
+     "matched": 756,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 5,
+     "indexRows": 5,
+     "matched": 5,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 4,
+     "indexRows": 4,
+     "matched": 4,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequest": 22460,
+    "OrderChanged": 8429,
+    "OrderBatchCompleted": 5286,
+    "OrderCancelled": 4444,
+    "LinkPriceUpdated": 37,
+    "ReportAgeExceedsLastUpdate": 37,
+    "UpdateOracleFailed": 37,
+    "ImmediateOrCancelExecuted": 1853,
+    "OrderPlaced": 4934,
+    "OrderDescIdTooLow": 482,
+    "MarkUpdated": 85,
+    "OrderSizeExceedsAvailableSize": 424,
+    "CantChangeCloseOrder": 49,
+    "OrderDoesNotExist": 282,
+    "CloseOrderExceedsPosition": 571,
+    "PositionIncreasedV2": 386,
+    "TakerOrderFilled": 291,
+    "PositionDecreased": 297,
+    "CrossesBook": 125,
+    "ExceedsLastExecutionBlock": 11,
+    "PositionClosed": 166,
+    "TriggerOrderRequest": 11,
+    "WrongAccountForOrder": 71,
+    "AmountExceedsAvailableBalance": 1,
+    "ClearingSelfMatchingOrder": 3,
+    "OrderPostFailed": 1,
+    "ClearingExpiredOrder": 2
+   }
+  },
+  {
+   "from": 97402170,
+   "to": 97403169,
+   "fromTime": "2026-08-19T17:41:02.000Z",
+   "toTime": "2026-08-19T17:46:03.000Z",
+   "logs": 44272,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 215,
+     "indexRows": 215,
+     "matched": 215,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 611,
+     "indexRows": 611,
+     "matched": 611,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 2,
+     "indexRows": 2,
+     "matched": 2,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequestV2": 18453,
+    "OrderChanged": 10251,
+    "OrderBatchCompleted": 5446,
+    "OrderPlaced": 2842,
+    "OrderCancelled": 2500,
+    "WrongAccountForOrder": 78,
+    "CantChangeCloseOrder": 185,
+    "OrderDescIdTooLow": 192,
+    "CrossesBook": 125,
+    "ExceedsLastExecutionBlock": 87,
+    "ImmediateOrCancelExecuted": 1460,
+    "PositionIncreasedV2": 322,
+    "TakerOrderFilledV2": 361,
+    "PositionClosed": 192,
+    "AmountExceedsAvailableBalance": 20,
+    "PositionDecreased": 243,
+    "OrderDoesNotExist": 188,
+    "ClearingSelfMatchingOrder": 16,
+    "CloseOrderExceedsPosition": 181,
+    "MarkUpdated": 133,
+    "LinkPriceUpdated": 47,
+    "ReportAgeExceedsLastUpdate": 43,
+    "UpdateOracleFailed": 43,
+    "MaxMatchesReached": 8,
+    "TriggerOrderRequest": 14,
+    "ClearingExpiredOrder": 9,
+    "OrderPostFailed": 1,
+    "OrderSizeExceedsAvailableSize": 4
+   }
+  },
+  {
+   "from": 101665086,
+   "to": 101666085,
+   "fromTime": "2026-09-03T16:42:44.000Z",
+   "toTime": "2026-09-03T16:47:45.000Z",
+   "logs": 75811,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 164,
+     "indexRows": 164,
+     "matched": 164,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 501,
+     "indexRows": 501,
+     "matched": 501,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequestV2": 32089,
+    "OrderPlaced": 3467,
+    "OrderBatchCompleted": 9544,
+    "OrderChanged": 16955,
+    "ImmediateOrCancelExecuted": 6886,
+    "CloseOrderExceedsPosition": 289,
+    "OrderCancelled": 3098,
+    "OrderDescIdTooLow": 259,
+    "WrongAccountForOrder": 104,
+    "LinkPriceUpdated": 94,
+    "MarkUpdated": 423,
+    "ReportAgeExceedsLastUpdate": 94,
+    "UpdateOracleFailed": 94,
+    "PositionClosed": 140,
+    "PositionDecreased": 224,
+    "TakerOrderFilledV2": 309,
+    "PositionIncreasedV2": 282,
+    "MaxMatchesReached": 9,
+    "OrderDoesNotExist": 482,
+    "ExceedsLastExecutionBlock": 233,
+    "CrossesBook": 67,
+    "ClearingExpiredOrder": 2,
+    "AmountExceedsAvailableBalance": 2
+   }
+  },
+  {
+   "from": 105928002,
+   "to": 105929001,
+   "fromTime": "2026-09-18T15:34:32.000Z",
+   "toTime": "2026-09-18T15:39:33.000Z",
+   "logs": 75714,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 77,
+     "indexRows": 77,
+     "matched": 77,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 427,
+     "indexRows": 427,
+     "matched": 427,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 10,
+     "indexRows": 10,
+     "matched": 10,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequestV2": 30888,
+    "OrderChanged": 14924,
+    "ImmediateOrCancelExecuted": 7240,
+    "OrderBatchCompleted": 11685,
+    "WrongAccountForOrder": 199,
+    "OrderPlaced": 3836,
+    "OrderCancelled": 3517,
+    "OrderDoesNotExist": 178,
+    "PositionDecreased": 426,
+    "MaxMatchesReached": 10,
+    "TakerOrderFilledV2": 356,
+    "MarkUpdated": 542,
+    "OrderDescIdTooLow": 87,
+    "PositionIncreasedV2": 207,
+    "ExceedsLastExecutionBlock": 459,
+    "LinkPriceUpdated": 114,
+    "ReportAgeExceedsLastUpdate": 112,
+    "UpdateOracleFailed": 112,
+    "CrossesBook": 37,
+    "PositionClosed": 73,
+    "CloseOrderExceedsPosition": 178,
+    "ClearingSelfMatchingOrder": 9,
+    "TriggerOrderRequest": 1,
+    "FundingSumAlreadySet": 10
+   }
+  },
+  {
+   "from": 110190919,
+   "to": 110191918,
+   "fromTime": "2026-10-03T13:22:04.000Z",
+   "toTime": "2026-10-03T13:27:06.000Z",
+   "logs": 52314,
+   "undecodable": 0,
+   "entities": {
+    "Position": {
+     "chainLogs": 78,
+     "indexRows": 78,
+     "matched": 78,
+     "missing": [],
+     "extra": []
+    },
+    "Trade": {
+     "chainLogs": 234,
+     "indexRows": 234,
+     "matched": 234,
+     "missing": [],
+     "extra": []
+    },
+    "Liquidation": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "CollateralFlow": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    },
+    "MarginAction": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": [],
+     "skippedByDesign": 0
+    },
+    "FundingEvent": {
+     "chainLogs": 0,
+     "indexRows": 0,
+     "matched": 0,
+     "missing": [],
+     "extra": []
+    }
+   },
+   "notComparedPerLog": {
+    "OrderRequestV2": 21699,
+    "OrderChanged": 8761,
+    "OrderBatchCompleted": 8098,
+    "ImmediateOrCancelExecuted": 6134,
+    "OrderPlaced": 2856,
+    "OrderCancelled": 2728,
+    "OrderDescIdTooLow": 145,
+    "MarkUpdated": 364,
+    "LinkPriceUpdated": 112,
+    "ReportAgeExceedsLastUpdate": 112,
+    "UpdateOracleFailed": 112,
+    "OrderSizeExceedsAvailableSize": 35,
+    "PositionIncreasedV2": 130,
+    "TakerOrderFilledV2": 165,
+    "OrderDoesNotExist": 141,
+    "ExceedsLastExecutionBlock": 164,
+    "PositionDecreased": 121,
+    "PositionClosed": 70,
+    "WrongAccountForOrder": 24,
+    "CrossesBook": 22,
+    "TriggerOrderRequest": 2,
+    "MaxMatchesReached": 2,
+    "MakerOrderSettlementFailed": 1,
+    "AmountExceedsAvailableBalance": 3,
+    "ClearingSelfMatchingOrder": 1
+   }
+  }
+ ],
+ "targeted": {
+  "_note": "Ranges centred on liquidations spread evenly through the index's own list. Chosen from the index, so they cannot reveal a liquidation it missed elsewhere; within each range every log is compared both ways.",
+  "liquidationsInIndex": 3494,
+  "ranges": 14,
+  "logsCompared": 930958,
+  "totals": {
+   "Position": {
+    "chainLogs": 3391,
+    "indexRows": 3391,
+    "matched": 3391,
+    "missing": 0,
+    "extra": 0
+   },
+   "Trade": {
+    "chainLogs": 12547,
+    "indexRows": 12547,
+    "matched": 12547,
+    "missing": 0,
+    "extra": 0
+   },
+   "Liquidation": {
+    "chainLogs": 98,
+    "indexRows": 98,
+    "matched": 98,
+    "missing": 0,
+    "extra": 0
+   },
+   "CollateralFlow": {
+    "chainLogs": 16,
+    "indexRows": 16,
+    "matched": 16,
+    "missing": 0,
+    "extra": 0
+   },
+   "MarginAction": {
+    "chainLogs": 21,
+    "indexRows": 21,
+    "matched": 21,
+    "missing": 0,
+    "extra": 0,
+    "skippedByDesign": 0
+   },
+   "FundingEvent": {
+    "chainLogs": 10,
+    "indexRows": 10,
+    "matched": 10,
+    "missing": 0,
+    "extra": 0
+   }
+  },
+  "detail": [
+   {
+    "from": 55493430,
+    "to": 55494429,
+    "fromTime": "2026-02-15T07:15:02.000Z",
+    "toTime": "2026-02-15T07:21:41.000Z",
+    "logs": 380,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "LinkPriceUpdated": 25,
+     "ReportAgeExceedsLastUpdate": 25,
+     "UpdateOracleFailed": 25,
+     "OrderRequest": 71,
+     "OrderChanged": 48,
+     "OrderBatchCompleted": 43,
+     "MarkUpdated": 50,
+     "RecycleFeeToAccount": 8,
+     "OrderCancelled": 8,
+     "ExceedsLastExecutionBlock": 6,
+     "OrderPlaced": 8,
+     "FundingEventSetTooEarly": 58,
+     "PositionDecreased": 1,
+     "TakerOrderFilled": 1,
+     "PositionDoesNotExist": 1
+    }
+   },
+   {
+    "from": 72289351,
+    "to": 72290350,
+    "fromTime": "2026-05-04T02:49:42.000Z",
+    "toTime": "2026-05-04T02:56:29.000Z",
+    "logs": 19184,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 15,
+      "indexRows": 15,
+      "matched": 15,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 32,
+      "indexRows": 32,
+      "matched": 32,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 8426,
+     "OrderCancelled": 1936,
+     "OrderPlaced": 1943,
+     "OrderChanged": 4391,
+     "OrderBatchCompleted": 1868,
+     "MarkUpdated": 195,
+     "OrderDescIdTooLow": 70,
+     "WhitelistAddress": 1,
+     "LinkPriceUpdated": 58,
+     "ReportAgeExceedsLastUpdate": 54,
+     "UpdateOracleFailed": 54,
+     "PositionDecreased": 8,
+     "TakerOrderFilled": 30,
+     "AmountExceedsAvailableBalance": 39,
+     "PositionClosed": 15,
+     "PositionIncreased": 23,
+     "ClearingExpiredOrder": 7,
+     "ExceedsLastExecutionBlock": 5,
+     "CrossesBook": 6,
+     "OrderDoesNotExist": 4,
+     "PositionDoesNotExist": 1,
+     "ChangeExpiredOrderNeedsNewExpiry": 2
+    }
+   },
+   {
+    "from": 78975144,
+    "to": 78976143,
+    "fromTime": "2026-06-04T01:59:44.000Z",
+    "toTime": "2026-06-04T02:06:25.000Z",
+    "logs": 24890,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 25,
+      "indexRows": 25,
+      "matched": 25,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 69,
+      "indexRows": 69,
+      "matched": 69,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 19,
+      "indexRows": 19,
+      "matched": 19,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 3,
+      "indexRows": 3,
+      "matched": 3,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 9537,
+     "OrderChanged": 7032,
+     "OrderBatchCompleted": 3580,
+     "OrderCancelled": 850,
+     "OrderDescIdTooLow": 438,
+     "OrderPlaced": 855,
+     "MarkUpdated": 1161,
+     "LinkPriceUpdated": 273,
+     "ReportAgeExceedsLastUpdate": 273,
+     "UpdateOracleFailed": 273,
+     "PositionIncreasedV2": 30,
+     "TakerOrderFilled": 67,
+     "PositionDecreased": 41,
+     "PositionClosed": 21,
+     "WhitelistAddress": 21,
+     "ExceedsLastExecutionBlock": 128,
+     "AmountExceedsAvailableBalance": 38,
+     "OrderDoesNotExist": 21,
+     "MakerOrderSettlementFailed": 3,
+     "PositionDoesNotExist": 18,
+     "CrossesBook": 33,
+     "OrderCancelledByLiquidator": 3,
+     "ImmediateOrCancelExecuted": 70,
+     "CloseOrderExceedsPosition": 5,
+     "TriggerOrderRequest": 2
+    }
+   },
+   {
+    "from": 83428074,
+    "to": 83429073,
+    "fromTime": "2026-06-24T17:18:55.000Z",
+    "toTime": "2026-06-24T17:25:36.000Z",
+    "logs": 54793,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 73,
+      "indexRows": 73,
+      "matched": 73,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 214,
+      "indexRows": 214,
+      "matched": 214,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 12,
+      "indexRows": 12,
+      "matched": 12,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 22422,
+     "OrderCancelled": 1078,
+     "OrderPlaced": 1137,
+     "OrderBatchCompleted": 8297,
+     "OrderChanged": 18294,
+     "ImmediateOrCancelExecuted": 1382,
+     "MarkUpdated": 606,
+     "LinkPriceUpdated": 132,
+     "ReportAgeExceedsLastUpdate": 132,
+     "UpdateOracleFailed": 132,
+     "OrderSizeExceedsAvailableSize": 17,
+     "OrderDescIdTooLow": 160,
+     "PositionDecreased": 115,
+     "PositionClosed": 87,
+     "TakerOrderFilled": 174,
+     "CrossesBook": 52,
+     "OrderDoesNotExist": 33,
+     "PositionIncreasedV2": 101,
+     "PositionDoesNotExist": 12,
+     "TriggerOrderExecution": 16,
+     "ExceedsLastExecutionBlock": 62,
+     "WrongAccountForOrder": 7,
+     "MakerOrderSettlementFailed": 5,
+     "CloseOrderExceedsPosition": 19,
+     "AmountExceedsAvailableBalance": 2,
+     "TriggerOrderRequest": 14,
+     "CloseOrderPositionMismatch": 1,
+     "OrderCancelledByLiquidator": 1,
+     "TriggerDescIdTooLow": 1
+    }
+   },
+   {
+    "from": 87130592,
+    "to": 87131591,
+    "fromTime": "2026-07-11T20:59:57.000Z",
+    "toTime": "2026-07-11T21:06:37.000Z",
+    "logs": 71237,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 164,
+      "indexRows": 164,
+      "matched": 164,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1272,
+      "indexRows": 1272,
+      "matched": 1272,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 4,
+      "indexRows": 4,
+      "matched": 4,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 30756,
+     "OrderCancelled": 7531,
+     "OrderPlaced": 8672,
+     "OrderChanged": 8790,
+     "ImmediateOrCancelExecuted": 2036,
+     "OrderBatchCompleted": 6291,
+     "CantChangeCloseOrder": 398,
+     "OrderDoesNotExist": 97,
+     "OrderDescIdTooLow": 2554,
+     "CloseOrderExceedsPosition": 19,
+     "CrossesBook": 104,
+     "MarkUpdated": 186,
+     "PositionIncreasedV2": 765,
+     "TakerOrderFilled": 314,
+     "WithdrawRateLimitReset": 1,
+     "CancelExistingInvalidCloseOrders": 7,
+     "TriggerOrderRequest": 78,
+     "WrongAccountForOrder": 29,
+     "OrderSizeExceedsAvailableSize": 152,
+     "ExceedsLastExecutionBlock": 20,
+     "PositionDecreased": 544,
+     "LinkPriceUpdated": 59,
+     "ReportAgeExceedsLastUpdate": 59,
+     "UpdateOracleFailed": 59,
+     "PositionClosed": 112,
+     "AmountExceedsAvailableBalance": 20,
+     "MaxMatchesReached": 62,
+     "ClearingSelfMatchingOrder": 13,
+     "MakerOrderSettlementFailed": 48,
+     "ClearingExpiredOrder": 4,
+     "TriggerOrderExecution": 11,
+     "PositionDoesNotExist": 1,
+     "AccountCreated": 1,
+     "OrderForwardingUpdated": 1
+    }
+   },
+   {
+    "from": 88310495,
+    "to": 88311494,
+    "fromTime": "2026-07-17T08:33:30.000Z",
+    "toTime": "2026-07-17T08:40:11.000Z",
+    "logs": 80673,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 507,
+      "indexRows": 507,
+      "matched": 507,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1684,
+      "indexRows": 1684,
+      "matched": 1684,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 4,
+      "indexRows": 4,
+      "matched": 4,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 3,
+      "indexRows": 3,
+      "matched": 3,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 34285,
+     "OrderChanged": 13045,
+     "ImmediateOrCancelExecuted": 2431,
+     "OrderBatchCompleted": 7507,
+     "OrderPlaced": 7720,
+     "OrderDescIdTooLow": 2029,
+     "OrderCancelled": 6679,
+     "PositionClosed": 453,
+     "TakerOrderFilled": 729,
+     "OrderSizeExceedsAvailableSize": 963,
+     "TriggerOrderRequest": 24,
+     "PositionDecreased": 645,
+     "PositionIncreasedV2": 804,
+     "MakerOrderSettlementFailed": 66,
+     "MaxMatchesReached": 11,
+     "MarkUpdated": 158,
+     "OrderDoesNotExist": 299,
+     "WrongAccountForOrder": 200,
+     "CrossesBook": 153,
+     "ExceedsLastExecutionBlock": 67,
+     "CloseOrderExceedsPosition": 31,
+     "LinkPriceUpdated": 53,
+     "ReportAgeExceedsLastUpdate": 53,
+     "UpdateOracleFailed": 53,
+     "CloseOrderPositionMismatch": 3,
+     "ClearingExpiredOrder": 5,
+     "AmountExceedsAvailableBalance": 2,
+     "PositionDoesNotExist": 4,
+     "TriggerOrderExecution": 1,
+     "OrderCancelledByLiquidator": 1,
+     "ClearingSelfMatchingOrder": 1
+    }
+   },
+   {
+    "from": 90598599,
+    "to": 90599598,
+    "fromTime": "2026-07-26T21:57:34.000Z",
+    "toTime": "2026-07-26T22:02:35.000Z",
+    "logs": 75767,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 488,
+      "indexRows": 488,
+      "matched": 488,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1771,
+      "indexRows": 1771,
+      "matched": 1771,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 3,
+      "indexRows": 3,
+      "matched": 3,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequest": 32121,
+     "OrderCancelled": 5720,
+     "OrderPlaced": 6709,
+     "OrderBatchCompleted": 6551,
+     "OrderChanged": 13628,
+     "PositionIncreasedV2": 874,
+     "PositionDecreased": 726,
+     "TakerOrderFilled": 775,
+     "ImmediateOrCancelExecuted": 2966,
+     "OrderSizeExceedsAvailableSize": 467,
+     "OrderDescIdTooLow": 766,
+     "PositionClosed": 454,
+     "CrossesBook": 369,
+     "ClearingExpiredOrder": 14,
+     "WrongAccountForOrder": 130,
+     "OrderDoesNotExist": 203,
+     "ExceedsLastExecutionBlock": 140,
+     "MarkUpdated": 293,
+     "LinkPriceUpdated": 76,
+     "ReportAgeExceedsLastUpdate": 76,
+     "UpdateOracleFailed": 76,
+     "ClearingSelfMatchingOrder": 40,
+     "MakerOrderSettlementFailed": 11,
+     "TriggerOrderRequest": 36,
+     "CloseOrderExceedsPosition": 198,
+     "CantChangeCloseOrder": 5,
+     "PositionDoesNotExist": 3,
+     "TriggerOrderExecution": 22,
+     "TriggerDescIdTooLow": 4,
+     "AmountExceedsAvailableBalance": 45,
+     "OrderPostFailed": 3,
+     "CloseOrderPositionMismatch": 1,
+     "ClearingInvalidCloseOrder": 1
+    }
+   },
+   {
+    "from": 93412005,
+    "to": 93413004,
+    "fromTime": "2026-08-05T17:55:12.000Z",
+    "toTime": "2026-08-05T18:00:14.000Z",
+    "logs": 57254,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 387,
+      "indexRows": 387,
+      "matched": 387,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1125,
+      "indexRows": 1125,
+      "matched": 1125,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 3,
+      "indexRows": 3,
+      "matched": 3,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "MarkUpdated": 114,
+     "OrderRequest": 24407,
+     "OrderCancelled": 4331,
+     "OrderBatchCompleted": 5471,
+     "OrderPlaced": 4786,
+     "OrderChanged": 10338,
+     "PositionDecreased": 379,
+     "PositionClosed": 361,
+     "TakerOrderFilled": 684,
+     "PositionIncreasedV2": 679,
+     "CantChangeCloseOrder": 143,
+     "OrderDoesNotExist": 389,
+     "ImmediateOrCancelExecuted": 1934,
+     "OrderDescIdTooLow": 450,
+     "WrongAccountForOrder": 182,
+     "CloseOrderPositionMismatch": 4,
+     "ClearingSelfMatchingOrder": 57,
+     "LinkPriceUpdated": 39,
+     "ReportAgeExceedsLastUpdate": 39,
+     "UpdateOracleFailed": 39,
+     "CrossesBook": 182,
+     "AmountExceedsAvailableBalance": 150,
+     "ClearingExpiredOrder": 19,
+     "TriggerOrderRequest": 16,
+     "ExceedsLastExecutionBlock": 35,
+     "OrderSizeExceedsAvailableSize": 46,
+     "MaxMatchesReached": 4,
+     "PositionDoesNotExist": 3,
+     "TriggerOrderExecution": 4,
+     "CloseOrderExceedsPosition": 444,
+     "CancelExistingInvalidCloseOrders": 9
+    }
+   },
+   {
+    "from": 97378565,
+    "to": 97379564,
+    "fromTime": "2026-08-19T15:21:57.000Z",
+    "toTime": "2026-08-19T15:27:04.000Z",
+    "logs": 87603,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 483,
+      "indexRows": 483,
+      "matched": 483,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 2016,
+      "indexRows": 2016,
+      "matched": 2016,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 19,
+      "indexRows": 19,
+      "matched": 19,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 4,
+      "indexRows": 4,
+      "matched": 4,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 35775,
+     "CrossesBook": 342,
+     "OrderCancelled": 5602,
+     "OrderBatchCompleted": 9672,
+     "OrderPlaced": 6503,
+     "OrderChanged": 15198,
+     "LinkPriceUpdated": 90,
+     "ReportAgeExceedsLastUpdate": 90,
+     "UpdateOracleFailed": 90,
+     "OrderDescIdTooLow": 524,
+     "PositionIncreasedV2": 1234,
+     "PositionClosed": 381,
+     "TakerOrderFilledV2": 1339,
+     "ExceedsLastExecutionBlock": 870,
+     "ImmediateOrCancelExecuted": 4043,
+     "PositionDecreased": 1238,
+     "CantChangeCloseOrder": 43,
+     "WrongAccountForOrder": 309,
+     "MaxMatchesReached": 16,
+     "MarkUpdated": 424,
+     "CloseOrderExceedsPosition": 687,
+     "OrderDoesNotExist": 391,
+     "ClearingSelfMatchingOrder": 84,
+     "ClearingExpiredOrder": 7,
+     "TriggerOrderRequest": 45,
+     "MakerOrderSettlementFailed": 14,
+     "OrderSizeExceedsAvailableSize": 16,
+     "CloseOrderPositionMismatch": 12,
+     "TriggerOrderExecution": 17,
+     "ClearingInvalidCloseOrder": 2,
+     "OrderCancelledByLiquidator": 1,
+     "PositionDoesNotExist": 15,
+     "TriggerDescIdTooLow": 5,
+     "AmountExceedsAvailableBalance": 1
+    }
+   },
+   {
+    "from": 97846286,
+    "to": 97847285,
+    "fromTime": "2026-08-21T07:12:46.000Z",
+    "toTime": "2026-08-21T07:17:58.000Z",
+    "logs": 80576,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 188,
+      "indexRows": 188,
+      "matched": 188,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 824,
+      "indexRows": 824,
+      "matched": 824,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 7,
+      "indexRows": 7,
+      "matched": 7,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 10,
+      "indexRows": 10,
+      "matched": 10,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 33143,
+     "OrderChanged": 15735,
+     "OrderBatchCompleted": 10278,
+     "OrderCancelled": 4351,
+     "OrderDoesNotExist": 327,
+     "OrderPlaced": 4751,
+     "PositionDecreased": 517,
+     "PositionClosed": 151,
+     "TakerOrderFilledV2": 585,
+     "LinkPriceUpdated": 202,
+     "MarkUpdated": 949,
+     "ReportAgeExceedsLastUpdate": 202,
+     "UpdateOracleFailed": 202,
+     "CrossesBook": 225,
+     "ExceedsLastExecutionBlock": 917,
+     "PositionIncreasedV2": 546,
+     "ImmediateOrCancelExecuted": 5520,
+     "CloseOrderExceedsPosition": 395,
+     "WrongAccountForOrder": 169,
+     "OrderDescIdTooLow": 260,
+     "TriggerOrderRequest": 7,
+     "ClearingExpiredOrder": 8,
+     "MakerOrderSettlementFailed": 6,
+     "FundingSumAlreadySet": 10,
+     "ClearingSelfMatchingOrder": 47,
+     "MaxMatchesReached": 6,
+     "PositionDoesNotExist": 7,
+     "TriggerOrderExecution": 7,
+     "InvalidExpiryBlock": 18,
+     "TriggerDescIdTooLow": 1,
+     "AmountExceedsAvailableBalance": 1
+    }
+   },
+   {
+    "from": 99562943,
+    "to": 99563942,
+    "fromTime": "2026-08-27T08:07:16.000Z",
+    "toTime": "2026-08-27T08:12:20.000Z",
+    "logs": 89372,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 256,
+      "indexRows": 256,
+      "matched": 256,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 913,
+      "indexRows": 913,
+      "matched": 913,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 36805,
+     "OrderChanged": 16696,
+     "OrderBatchCompleted": 11788,
+     "OrderCancelled": 5315,
+     "OrderPlaced": 5769,
+     "PositionClosed": 250,
+     "TakerOrderFilledV2": 670,
+     "ImmediateOrCancelExecuted": 6344,
+     "ExceedsLastExecutionBlock": 608,
+     "LinkPriceUpdated": 149,
+     "ReportAgeExceedsLastUpdate": 149,
+     "UpdateOracleFailed": 149,
+     "ClearingSelfMatchingOrder": 27,
+     "PositionIncreasedV2": 581,
+     "OrderDoesNotExist": 387,
+     "CloseOrderExceedsPosition": 674,
+     "MarkUpdated": 797,
+     "CrossesBook": 69,
+     "PositionDecreased": 495,
+     "WrongAccountForOrder": 192,
+     "OrderDescIdTooLow": 221,
+     "MakerOrderSettlementFailed": 4,
+     "TriggerOrderRequest": 19,
+     "TriggerOrderExecution": 8,
+     "MaxMatchesReached": 9,
+     "OrderSizeExceedsAvailableSize": 22,
+     "PositionDoesNotExist": 1,
+     "CloseOrderPositionMismatch": 1
+    }
+   },
+   {
+    "from": 102377344,
+    "to": 102378343,
+    "fromTime": "2026-09-06T04:44:13.000Z",
+    "toTime": "2026-09-06T04:49:15.000Z",
+    "logs": 70645,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 538,
+      "indexRows": 538,
+      "matched": 538,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 1378,
+      "indexRows": 1378,
+      "matched": 1378,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 15,
+      "indexRows": 15,
+      "matched": 15,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 28258,
+     "OrderChanged": 12562,
+     "ImmediateOrCancelExecuted": 6562,
+     "OrderBatchCompleted": 9450,
+     "OrderPlaced": 3698,
+     "OrderCancelled": 2913,
+     "MarkUpdated": 554,
+     "PositionDecreased": 465,
+     "PositionClosed": 513,
+     "TakerOrderFilledV2": 798,
+     "OrderDescIdTooLow": 489,
+     "WrongAccountForOrder": 246,
+     "ExceedsLastExecutionBlock": 148,
+     "PositionIncreasedV2": 645,
+     "CrossesBook": 189,
+     "LinkPriceUpdated": 137,
+     "ReportAgeExceedsLastUpdate": 135,
+     "UpdateOracleFailed": 135,
+     "OrderDoesNotExist": 355,
+     "CloseOrderExceedsPosition": 338,
+     "ClearingSelfMatchingOrder": 54,
+     "AmountExceedsAvailableBalance": 46,
+     "CloseOrderPositionMismatch": 7,
+     "ClearingExpiredOrder": 5,
+     "TriggerOrderRequest": 6,
+     "OrderSizeExceedsAvailableSize": 4
+    }
+   },
+   {
+    "from": 105604919,
+    "to": 105605918,
+    "fromTime": "2026-09-17T12:26:05.000Z",
+    "toTime": "2026-09-17T12:31:07.000Z",
+    "logs": 88149,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 90,
+      "indexRows": 90,
+      "matched": 90,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 416,
+      "indexRows": 416,
+      "matched": 416,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 2,
+      "indexRows": 2,
+      "matched": 2,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 36729,
+     "OrderChanged": 19341,
+     "ImmediateOrCancelExecuted": 8047,
+     "OrderBatchCompleted": 12658,
+     "OrderCancelled": 3777,
+     "OrderPlaced": 4009,
+     "OrderDescIdTooLow": 126,
+     "PositionDecreased": 320,
+     "TakerOrderFilledV2": 304,
+     "ClearingSelfMatchingOrder": 6,
+     "PositionIncreasedV2": 227,
+     "MaxMatchesReached": 3,
+     "MarkUpdated": 458,
+     "ExceedsLastExecutionBlock": 662,
+     "OrderDoesNotExist": 308,
+     "WrongAccountForOrder": 68,
+     "LinkPriceUpdated": 107,
+     "ReportAgeExceedsLastUpdate": 107,
+     "UpdateOracleFailed": 107,
+     "PositionClosed": 81,
+     "CloseOrderExceedsPosition": 156,
+     "CrossesBook": 26,
+     "TriggerOrderExecution": 1,
+     "ClearingExpiredOrder": 1,
+     "PositionDoesNotExist": 2,
+     "TriggerOrderRequest": 2,
+     "OrderSizeExceedsAvailableSize": 7
+    }
+   },
+   {
+    "from": 109967428,
+    "to": 109968427,
+    "fromTime": "2026-10-02T18:37:42.000Z",
+    "toTime": "2026-10-02T18:42:44.000Z",
+    "logs": 130435,
+    "undecodable": 0,
+    "entities": {
+     "Position": {
+      "chainLogs": 177,
+      "indexRows": 177,
+      "matched": 177,
+      "missing": [],
+      "extra": []
+     },
+     "Trade": {
+      "chainLogs": 832,
+      "indexRows": 832,
+      "matched": 832,
+      "missing": [],
+      "extra": []
+     },
+     "Liquidation": {
+      "chainLogs": 10,
+      "indexRows": 10,
+      "matched": 10,
+      "missing": [],
+      "extra": []
+     },
+     "CollateralFlow": {
+      "chainLogs": 3,
+      "indexRows": 3,
+      "matched": 3,
+      "missing": [],
+      "extra": []
+     },
+     "MarginAction": {
+      "chainLogs": 1,
+      "indexRows": 1,
+      "matched": 1,
+      "missing": [],
+      "extra": [],
+      "skippedByDesign": 0
+     },
+     "FundingEvent": {
+      "chainLogs": 0,
+      "indexRows": 0,
+      "matched": 0,
+      "missing": [],
+      "extra": []
+     }
+    },
+    "notComparedPerLog": {
+     "OrderRequestV2": 52291,
+     "OrderChanged": 20790,
+     "OrderPlaced": 6421,
+     "OrderBatchCompleted": 18676,
+     "ImmediateOrCancelExecuted": 16494,
+     "PositionDoesNotExist": 12,
+     "MarkUpdated": 2807,
+     "OrderCancelled": 5905,
+     "OrderDoesNotExist": 488,
+     "PositionIncreasedV2": 515,
+     "TakerOrderFilledV2": 623,
+     "PositionDecreased": 612,
+     "PositionClosed": 141,
+     "LinkPriceUpdated": 627,
+     "ReportAgeExceedsLastUpdate": 627,
+     "UpdateOracleFailed": 627,
+     "ExceedsLastExecutionBlock": 1355,
+     "WrongAccountForOrder": 172,
+     "OrderDescIdTooLow": 122,
+     "TriggerOrderRequest": 5,
+     "MakerOrderSettlementFailed": 11,
+     "CrossesBook": 32,
+     "MaxMatchesReached": 10,
+     "TriggerOrderExecution": 14,
+     "ClearingSelfMatchingOrder": 18,
+     "OrderPostFailed": 3,
+     "ClearingExpiredOrder": 1,
+     "TriggerDescIdTooLow": 1,
+     "CloseOrderExceedsPosition": 5,
+     "OrderCancelledByLiquidator": 2,
+     "OrderSizeExceedsAvailableSize": 4,
+     "AmountExceedsAvailableBalance": 1
+    }
+   }
+  ]
+ }
+}

@@ -24,17 +24,80 @@ one.
 
 ## Verification of the index against the chain
 
-> **NOT YET WRITTEN: source not located.** This section is meant to list the
-> fourteen block ranges the index was verified over and what matched in each.
-> That record is not in this repository (not in `docs/evidence.md`, the git
-> history, or `apps/indexer/src/scripts/verify.ts`, which checks the index's own
-> counters and not block ranges). It is left empty rather than reconstructed.
+**Re-run it:** `pnpm verify:logs` (`apps/indexer/src/scripts/verify-logs.ts`).
+**Last run:** [`docs/verification/logs-2026-10-03.json`](verification/logs-2026-10-03.json),
+13:28 UTC on 3 Oct 2026, at index block 110,191,918. Verdict: **every compared
+log matched**, with nothing missing and nothing extra.
 
-What *is* checked continuously, by `apps/indexer/src/scripts/verify.ts`:
-`Market`, `Trader` and `Exchange` `openPositionCount` each equal the open
-`Position` rows, every trader's wins plus losses equal their round trips, and
-24-hour volume is compared against the venue's own figure once the index is
-within 100,000 blocks of the head.
+**How it works.** Raw `eth_getLogs` on the Exchange proxy, decoded with the saved
+ABI, is compared with the rows the index wrote for the same blocks, **in both
+directions**. A log the index missed and a row the chain never emitted both
+count as failures. Matching is by the key each row is stored under:
+
+| Chain event | Index row | Matched by |
+|---|---|---|
+| `MakerOrderFilled(V2)` | `Trade` | transaction + log index |
+| `PositionLiquidated`, `PositionDeleveraged(V2)`, `PositionUnwound(V2)`, `PositionUnwoundWithoutPayment(V2)` | `Liquidation` | transaction + log index |
+| `CollateralDeposit`, `CollateralWithdrawal` | `CollateralFlow` | transaction + log index |
+| `IncreasePositionCollateral`, `PositionCollateralDecreased`, the four `CollateralDecrease*` outcomes | `MarginAction` | transaction + log index |
+| `PositionOpened(V2)`, `PositionInverted` | `Position` | market + account + transaction (a position stores its opening transaction, not the log) |
+| `FundingEventCompleted` | `FundingEvent` | market + funding block (the row's own key; it stores no transaction) |
+
+A `MarginAction` row is written only while a position is live. So a margin log
+with no row counts as "skipped by design" only after a check that the index had
+no open position for that market and account at that block; otherwise it is
+missing. Every other event (order traffic, mark updates, oracle reports) is
+counted and listed in the file as **not compared per log**, because the index
+keeps no row per log for it. That is about 99 logs in 100.
+
+**Pass 1: evenly spaced.** 14 ranges of 1,000 blocks (the RPC's limit per
+call), spread evenly from the deployment block to the index head. The positions
+depend only on those two numbers.
+
+| Row | Chain logs | Index rows | Matched | Missing | Extra |
+|---|---:|---:|---:|---:|---:|
+| Position opens | 1,226 | 1,226 | 1,226 | 0 | 0 |
+| Trade (maker fills) | 4,401 | 4,401 | 4,401 | 0 | 0 |
+| Liquidation | 0 | 0 | 0 | 0 | 0 |
+| CollateralFlow | 6 | 6 | 6 | 0 | 0 |
+| MarginAction | 7 | 7 | 7 | 0 | 0 |
+| FundingEvent | 15 | 15 | 15 | 0 | 0 |
+
+**Pass 2: targeted at liquidations.** Evenly spaced blocks almost never contain
+a liquidation (3,494 of them in 55 million blocks), and the liquidation finding
+is the one this product quotes. So 14 more ranges are centred on liquidations
+spread evenly through the index's own list. Because they are chosen **from the
+index**, they cannot reveal a liquidation it missed elsewhere. Within each range,
+every log is still compared both ways.
+
+| Row | Chain logs | Index rows | Matched | Missing | Extra |
+|---|---:|---:|---:|---:|---:|
+| Position opens | 3,391 | 3,391 | 3,391 | 0 | 0 |
+| Trade (maker fills) | 12,547 | 12,547 | 12,547 | 0 | 0 |
+| Liquidation | 98 | 98 | 98 | 0 | 0 |
+| CollateralFlow | 16 | 16 | 16 | 0 | 0 |
+| MarginAction | 21 | 21 | 21 | 0 | 0 |
+| FundingEvent | 10 | 10 | 10 | 0 | 0 |
+
+**The sample, stated honestly.**
+
+- **Coverage.** Pass 1 covers 14,000 of the index's 55,418,909 blocks: 0.025%.
+  It decoded 473,635 logs, none undecodable. Pass 2 covers another 14,000 blocks
+  and 930,958 logs.
+- **What it shows.** On every compared log in those blocks, the index holds
+  exactly what the chain emitted. That includes the V1 events from before the
+  mainnet upgrade, and positions from the deployment block to the head.
+- **What it does not show.** It does not prove the other 99.97% of blocks. The
+  evenly spaced pass found no liquidations at all, so the liquidation evidence is
+  the targeted pass alone: 98 of 3,494, 2.8%, chosen from the index's own list.
+  Funding is thin in both passes (25 events), because settlements are about
+  6,000 blocks apart.
+
+`apps/indexer/src/scripts/verify.ts` is a separate check of the index's internal
+consistency. `Market`, `Trader` and `Exchange` open-position counters must each
+equal the open `Position` rows. Wins plus losses must equal round trips. 24-hour
+volume is compared against the venue's figure once the index is within 100,000
+blocks of the head.
 
 ## Definitions
 
