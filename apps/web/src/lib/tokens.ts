@@ -20,7 +20,7 @@ export const TOKEN_ICONS: Readonly<Record<string, string>> = {
   ENA: '/tokens/ena.png',
   MORPHO: '/tokens/morpho.png',
   PUMP: '/tokens/pump.png',
-  VVV: '/tokens/vvv.png',
+  VVV: '/tokens/vvv-token.png',
 };
 
 export function tokenIcon(symbol: string): string | undefined {

@@ -1,6 +1,6 @@
 # Token icons: sources and licences
 
-Vendored, not fetched at runtime. Each file comes from one of two places:
+Vendored, not fetched at runtime. Each file comes from one of these places:
 
 1. **The project's own brand page**, where it publishes its marks and says how
    they may be used. Preferred: it is the project's current mark, under its
@@ -8,6 +8,9 @@ Vendored, not fetched at runtime. Each file comes from one of two places:
 2. **A permissively licensed icon set** at a pinned version (Cryptocurrency
    Icons, CC0; Trust Wallet assets, MIT), where the set's own metadata (name,
    symbol, website) names the project.
+3. **CoinGecko's API**, by the owner's decision, for a token whose own mark
+   the sources above do not carry (VVV): the coin's `image.large`, the
+   project's own token image as CoinGecko serves it.
 
 Never a logo from an exchange site. Every file was checked against the actual
 project, not the ticker: the identity column says how. Icons are decorative
@@ -30,7 +33,7 @@ provided, never altered beyond what the row says.
 | ena.png | Ethena (ethena.fi) | Trust Wallet assets, `blockchains/ethereum/assets/0x57e114B691Db790C35207b2e685D4A43181e6061/logo.png` | MIT | set metadata; the ENA token contract |
 | morpho.png | Morpho | Trust Wallet assets, `blockchains/ethereum/assets/0x58D97B57BB95320F9a05dC918Aef65434969c2B2/logo.png` | MIT | set metadata; the MORPHO token contract |
 | pump.png | pump.fun (pump.fun) | Trust Wallet assets, `blockchains/solana/assets/pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn/logo.png` | MIT | set metadata; the PUMP mint |
-| vvv.png | Venice (venice.ai) | Trust Wallet assets, `blockchains/base/assets/0xacfE6019Ed1A7Dc6f7B508C02d1b04ec88cC21bf/logo.png` | MIT | set metadata; the VVV token contract |
+| vvv-token.png | Venice Token (VVV) | CoinGecko API, `GET /api/v3/coins/venice-token` → `image.large` (`coin-images.coingecko.com/coins/images/54023/large/VVV_Token_Transparent.png`, 250×250, sha256 `b6644efa…efb0d39f`), fetched 4 Oct 2026, the largest size the API serves | Venice's own token mark, as CoinGecko serves it; a trademark of Venice, used unmodified to identify the token | CoinGecko's record: symbol `vvv`, rank #66 on 4 Oct 2026, and Base contract `0xacfe…21bf`, the same contract the previous file was keyed to. Replaces `vvv.png` (Trust Wallet), which was the Venice AI company logo, a navy mask, not the VVV token's crossed keys |
 
 - **Cryptocurrency Icons** (https://github.com/spothq/cryptocurrency-icons),
   npm package `cryptocurrency-icons@0.18.1`. Public domain dedication:
