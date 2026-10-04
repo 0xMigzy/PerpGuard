@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TraderDayPoint } from '@perpguard/shared';
-import { RANKINGS, bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, rankingFromQuery, searchParam, shareOf, sumDays, unrealisedByAccount, winRateOf } from './traders.ts';
+import { RANKINGS, bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, rankingFromQuery, searchParam, shareOf, sumDays, tradersCsv, unrealisedByAccount, winRateOf } from './traders.ts';
 
 test('a checksummed address is accepted as an address, in the case it was given', () => {
   assert.deepEqual(parseTraderQuery(' 0x83107A83F5fA8c419F131aa970eb975Bd0225D4D '), {
@@ -70,17 +70,15 @@ test('a win rate is withheld under the floor the backend named, never computed o
   assert.deepEqual(pageRange(0, 0, 0), { from: 0, to: 0, total: 0 });
 });
 
-test('the five rankings, in tab order, each tied to the column it orders', () => {
+test('the four rankings, in tab order, each tied to the column it orders', () => {
   assert.deepEqual(RANKINGS.map((r) => [r.key, r.label, r.column]), [
     ['pnl', 'Top PnL', 'netPnl'],
     ['losses', 'Top losses', 'netPnl'],
     ['volume', 'Volume', 'volume'],
     ['liquidated', 'Liquidated', 'liquidations'],
-    ['spare', 'Liquidated with spare', 'liquidations'],
   ]);
   assert.match(RANKINGS[0]!.describe(10), /at least 10 round trips/);
-  assert.match(RANKINGS[4]!.describe(10), /largest free balance/);
-  assert.equal(rankingFromQuery('spare'), 'spare');
+  assert.equal(rankingFromQuery('spare'), 'pnl', 'the retired tab falls back to the default');
   assert.equal(rankingFromQuery('richest'), 'pnl', 'an unknown ?rank= falls back to the default');
   assert.equal(rankingFromQuery(null), 'pnl');
 });
@@ -107,4 +105,17 @@ test('a share is withheld below the floor and never divides by zero', () => {
   assert.equal(shareOf(363, 1048, 10), 363 / 1048);
   assert.equal(shareOf(3, 4, 10), undefined);
   assert.equal(shareOf(0, 0, 0), undefined);
+});
+
+test('the CSV keeps the backend order, leaves unserved fields empty and quotes what needs it', () => {
+  const base = {
+    accountId: 1, address: '0xabc', netPnlAusd: 12.5, volumeAusd: 1000, tradeCount: 4, roundTrips: 12, wins: 9, losses: 3, winRate: 0.75,
+    liquidationCount: 2, rescuableLiquidationCount: 1, marginLostAusd: 5, maxSpareHeldAusd: 40, freeBalanceAusd: 1, openPositionCount: 0, lastActiveAtMs: 0,
+  };
+  const csv = tradersCsv([base, { ...base, accountId: 2, address: '', netPnlAusd: -3, roundTrips: 2, wins: 1, winRate: undefined }], 'Top PnL', 'Sep 4, 2026 – Oct 4, 2026');
+  const lines = csv.trimEnd().split('\r\n');
+  assert.equal(lines[0], 'rank,account_id,address,net_pnl_ausd,volume_ausd,trades,round_trips,wins,win_rate_pct,liquidations,rescuable_liquidations,ranking,window');
+  assert.equal(lines[1], '1,1,0xabc,12.5,1000,4,12,9,75,2,1,Top PnL,"Sep 4, 2026 – Oct 4, 2026"');
+  assert.equal(lines[2], '2,2,,-3,1000,4,2,1,,2,1,Top PnL,"Sep 4, 2026 – Oct 4, 2026"', 'no address and a withheld rate are empty, not zero');
+  assert.equal(lines.length, 3);
 });

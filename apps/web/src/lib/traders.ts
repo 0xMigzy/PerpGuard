@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the Traders section. No I/O, no React, unit tested.
  */
-import type { RoundTrip, TraderDayPoint, TraderRanking, TraderSortKey } from '@perpguard/shared';
+import type { RoundTrip, TraderDayPoint, TraderRanking, TraderRow, TraderSortKey } from '@perpguard/shared';
 
 /** What a search box was given: an address, an account id, or neither. */
 export type TraderQuery =
@@ -154,7 +154,11 @@ export interface RankingInfo {
   readonly empty: (window: string) => string;
 }
 
-/** The five leaderboards, in tab order. The rules themselves live in the backend. */
+/**
+ * The four leaderboards, in tab order. The rules themselves live in the
+ * backend, which still serves a `spare` ranking; the page no longer offers it,
+ * so `?rank=spare` falls back to the default.
+ */
 export const RANKINGS: readonly RankingInfo[] = [
   {
     key: 'pnl',
@@ -183,14 +187,6 @@ export const RANKINGS: readonly RankingInfo[] = [
     column: 'liquidations',
     describe: () => 'Most liquidations in the window, with how many the account could have prevented.',
     empty: (w) => `No account was liquidated ${w}.`,
-  },
-  {
-    key: 'spare',
-    label: 'Liquidated with spare',
-    column: 'liquidations',
-    describe: () =>
-      'Accounts liquidated while holding enough free AUSD to cover the shortfall, ranked by the largest free balance held at one of those liquidations. Isolated margin never reached for it.',
-    empty: (w) => `No account was liquidated ${w} while holding enough free AUSD to survive.`,
   },
 ];
 
@@ -241,4 +237,60 @@ export function unrealisedByAccount(positions: readonly { readonly accountId: nu
 /** "54% of 1,240" as its two parts, or undefined below the floor. */
 export function shareOf(part: number, whole: number, floor: number): number | undefined {
   return whole >= floor && whole > 0 ? part / whole : undefined;
+}
+
+// ── CSV export ──────────────────────────────────────────────────────────────
+
+/** The export's columns, in order. Units are in the header, never in a cell. */
+export const TRADERS_CSV_HEADER = [
+  'rank',
+  'account_id',
+  'address',
+  'net_pnl_ausd',
+  'volume_ausd',
+  'trades',
+  'round_trips',
+  'wins',
+  'win_rate_pct',
+  'liquidations',
+  'rescuable_liquidations',
+  'ranking',
+  'window',
+] as const;
+
+function csvField(value: string | number | undefined): string {
+  if (value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * The rows of one ranking as CSV, in the backend's order. A field the API did
+ * not serve is an EMPTY cell, never a zero: an unrecorded owner has no
+ * address, and a win rate withheld below the floor stays withheld.
+ */
+export function tradersCsv(rows: readonly TraderRow[], ranking: string, window: string): string {
+  const lines = [TRADERS_CSV_HEADER.join(',')];
+  rows.forEach((r, i) => {
+    lines.push(
+      [
+        i + 1,
+        r.accountId,
+        r.address === '' ? undefined : r.address,
+        r.netPnlAusd,
+        r.volumeAusd,
+        r.tradeCount,
+        r.roundTrips,
+        r.wins,
+        r.winRate === undefined ? undefined : Number((r.winRate * 100).toFixed(2)),
+        r.liquidationCount,
+        r.rescuableLiquidationCount,
+        ranking,
+        window,
+      ]
+        .map(csvField)
+        .join(','),
+    );
+  });
+  return `${lines.join('\r\n')}\r\n`;
 }
