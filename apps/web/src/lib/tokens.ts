@@ -9,6 +9,7 @@ export const TOKEN_ICONS: Readonly<Record<string, string>> = {
   BTC: '/tokens/btc.svg',
   ETH: '/tokens/eth.svg',
   SOL: '/tokens/sol.svg',
+  LIT: '/tokens/lit.svg',
   ZEC: '/tokens/zec.svg',
   UNI: '/tokens/uni.svg',
   AAVE: '/tokens/aave.svg',

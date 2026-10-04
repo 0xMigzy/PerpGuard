@@ -16,8 +16,8 @@ test('every mapped icon is a vendored file with a row in SOURCES.md', () => {
 
 test('the lookup ignores case and leaves the unknown to the fallback', () => {
   assert.equal(tokenIcon('btc'), '/tokens/btc.svg');
-  assert.equal(tokenIcon('LIT'), undefined, 'ambiguous ticker: fallback, see SOURCES.md');
-  assert.equal(tokenIcon('TAO'), undefined);
+  assert.equal(tokenIcon('lit'), '/tokens/lit.svg', 'Lighter, identified by price: see SOURCES.md');
+  assert.equal(tokenIcon('TAO'), undefined, 'no first-party brand page: fallback, see SOURCES.md');
 });
 
 test('initials are two letters', () => {
