@@ -76,7 +76,9 @@ import type {
   TraderDayPoint,
   TraderList,
   TraderRow,
+  TraderRanking,
   TraderSortKey,
+  TraderSummary,
   TraderWindow,
   WalletLookup,
   WalletMatch,
@@ -84,7 +86,7 @@ import type {
   WalletProfile,
   HistoryCurve,
 } from './types.ts';
-import { MIN_ROUND_TRIPS_FOR_RATIOS, TRADER_SORT_KEYS } from './types.ts';
+import { MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -605,32 +607,33 @@ select p.market_id as id, m.name,
 `;
 
 /**
- * The Traders list, LIFETIME: straight off `Trader`, sorted and paged in SQL.
+ * The Traders list: ONE builder for the lifetime and windowed forms, sorted,
+ * filtered and paged in SQL.
  *
- * The sort key is looked up in a whitelist and the direction comes from a
- * two-value one; nothing user-supplied reaches the text. `count(*) over ()`
- * gives the paging denominator in the same scan.
+ * The source `w` is `Trader` (lifetime) or `TraderDay` summed per trader
+ * (window, day-aligned: buckets are the unit, and the caller labels it so).
+ * `l` is the trader's liquidations in the same window, for the margin lost
+ * and the LARGEST free balance held at a rescuable one, never a sum, which
+ * would count one account's money once per liquidation.
  *
- * ORDER BY THE NUMERIC COLUMN, NEVER THE OUTPUT ALIAS. The money columns are
- * selected `::text` so node-pg cannot round them, and Postgres resolves a bare
- * name in ORDER BY against the output list first — so `order by net_pnl` would
- * sort "+99" above "+911". The map names the source column for each key, and
- * the test pins it.
+ * Nothing user-supplied reaches the text: the sort column comes from a
+ * whitelist, the direction from a two-value one, the ranking filter from a
+ * fixed map, and the search goes in as bind parameters. `count(*) over ()` is
+ * the paging denominator after the filter.
  *
- * The win rate SORTS WITH THE FLOOR: an account under the floor has no rate and
+ * ORDER BY THE NUMERIC COLUMN, NEVER THE OUTPUT ALIAS. Money is selected
+ * `::text` so node-pg cannot round it, and Postgres resolves a bare name in
+ * ORDER BY against the output list first, so `order by net_pnl` would sort
+ * "+99" above "+911". The map names the source column and the test pins it.
+ *
+ * "A TRADER" HAS TRADED IN THE WINDOW. An account that only moved funds is
+ * not one, on the list or in its count (30 days, 4 Oct 2026: 1,108 traded of
+ * 1,443 with any activity).
+ *
+ * The win rate SORTS WITH THE FLOOR: an account under it has no rate and
  * sorts last in either direction, the same rule the UI applies to an unknown.
  */
-const TRADER_SORT_LIFETIME: Record<TraderSortKey, string> = {
-  netPnl: '"netPnlCNS"',
-  volume: '"volumeCNS"',
-  roundTrips: '"roundTrips"',
-  winRate: 'win_rate',
-  liquidations: '"liquidationCount"',
-  freeBalance: '"freeBalanceCNS"',
-  lastActive: '"lastActiveAt"',
-};
-
-const TRADER_SORT_WINDOW: Record<TraderSortKey, string> = {
+const TRADER_SORT: Record<TraderSortKey, string> = {
   netPnl: 'w.net_pnl',
   volume: 'w.volume',
   roundTrips: 'w.round_trips',
@@ -638,29 +641,25 @@ const TRADER_SORT_WINDOW: Record<TraderSortKey, string> = {
   liquidations: 'w.liquidations',
   freeBalance: 't."freeBalanceCNS"',
   lastActive: 't."lastActiveAt"',
+  spareHeld: 'l.spare_held',
 };
 
-const tradersLifetimeSql = (sort: TraderSortKey, direction: SortDirection): string => `
-select id, owner, "freeBalanceCNS"::text as free_balance, "openPositionCount" as open_positions,
-       "lastActiveAt" as last_active,
-       "netPnlCNS"::text as net_pnl, "volumeCNS"::text as volume, "tradeCount" as trades,
-       "roundTrips" as round_trips, wins, losses,
-       case when "roundTrips" >= ${MIN_ROUND_TRIPS_FOR_RATIOS} then wins::float / "roundTrips" end as win_rate,
-       "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable,
-       count(*) over () as total
-  from "Trader"
- where "tradeCount" > 0
- order by ${TRADER_SORT_LIFETIME[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (id::bigint) asc
- limit $1 offset $2
-`;
+/** Each leaderboard's order and filter. See `TraderRanking`. */
+const TRADER_RANKING: Record<TraderRanking, { readonly sort: TraderSortKey; readonly direction: SortDirection; readonly where: string; readonly floor: boolean }> = {
+  pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true },
+  losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true },
+  volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false },
+  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false },
+  spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false },
+};
 
-/**
- * The Traders list over a WINDOW: `TraderDay` buckets summed per trader, joined
- * to `Trader` for the level columns. A day-aligned bind, because buckets are
- * the unit, and the caller labels it that way.
- */
-const tradersWindowSql = (sort: TraderSortKey, direction: SortDirection): string => `
-with w as (
+const TRADER_SOURCE_LIFETIME = `
+  select id as trader_id, "netPnlCNS" as net_pnl, "volumeCNS" as volume, "tradeCount" as trades,
+         "roundTrips" as round_trips, wins, losses,
+         "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable
+    from "Trader"`;
+
+const TRADER_SOURCE_WINDOW = `
   select trader_id,
          sum("netPnlCNS")       as net_pnl,
          sum("volumeCNS")       as volume,
@@ -672,6 +671,20 @@ with w as (
          sum("rescuableLiquidationCount") as rescuable
     from "TraderDay"
    where day >= $3::timestamptz
+   group by trader_id`;
+
+/**
+ * Binds: $1 limit, $2 offset, $3 window start (null for lifetime), $4 address
+ * prefix (lowercased, or null), $5 account id (or null).
+ */
+const tradersSql = (lifetime: boolean, sort: TraderSortKey, direction: SortDirection, where: string): string => `
+with w as (${lifetime ? TRADER_SOURCE_LIFETIME : TRADER_SOURCE_WINDOW}),
+l as (
+  select trader_id,
+         max("freeBalanceBeforeCNS") filter (where "wasRescuable" = true) as spare_held,
+         sum("marginLostCNS")                                              as margin_lost
+    from "Liquidation"
+   where ($3::timestamptz is null or timestamp >= $3::timestamptz)
    group by trader_id
 )
 select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionCount" as open_positions,
@@ -679,10 +692,37 @@ select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionC
        w.net_pnl::text as net_pnl, w.volume::text as volume, w.trades, w.round_trips, w.wins, w.losses,
        case when w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS} then w.wins::float / w.round_trips end as win_rate,
        w.liquidations, w.rescuable,
+       l.spare_held::text as spare_held, coalesce(l.margin_lost, 0)::text as margin_lost,
+       (select count(*) from w w2 where w2.trades > 0 and w2.round_trips < ${MIN_ROUND_TRIPS_FOR_RATIOS}) as below_floor,
        count(*) over () as total
   from w join "Trader" t on t.id = w.trader_id
- order by ${TRADER_SORT_WINDOW[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (t.id::bigint) asc
+  left join l on l.trader_id = w.trader_id
+ where w.trades > 0
+   and (${where})
+   and ($4::text is null or lower(t.owner) like $4::text || '%')
+   and ($5::text is null or t.id = $5::text)
+ order by ${TRADER_SORT[sort]} ${direction === 'asc' ? 'asc' : 'desc'} nulls last, (t.id::bigint) asc
  limit $1 offset $2
+`;
+
+/**
+ * The Traders cards. Binds: $1 window start (null for lifetime). Same source
+ * as the list, so the counts agree with its total; volume from MARKET buckets,
+ * counted once per match (the rows credit maker and taker both).
+ */
+const traderSummarySql = (lifetime: boolean): string => `
+with w as (${lifetime ? TRADER_SOURCE_LIFETIME.replace('$3', '$1') : TRADER_SOURCE_WINDOW.replace('$3', '$1')}),
+a as (select * from w where trades > 0)
+select count(*)                                                        as traders,
+       count(*) filter (where round_trips > 0)                         as closed,
+       count(*) filter (where round_trips > 0 and net_pnl > 0)         as profitable,
+       (percentile_cont(0.5) within group (order by net_pnl)
+          filter (where round_trips > 0))::text                        as median_pnl,
+       coalesce(sum(liquidations), 0)                                  as liquidations,
+       coalesce(sum(rescuable), 0)                                     as rescuable,
+       (select coalesce(sum("volumeCNS"), 0)::text from "MarketDay"
+         where ($1::timestamptz is null or day >= $1::timestamptz))    as market_volume
+  from a
 `;
 
 /** One trader's days, oldest first. Buckets ARE the unit here. */
@@ -764,6 +804,43 @@ const markOrUndefined = (pns: unknown, priceDecimals: number): number | undefine
  * statistic, never an amount anything sends.
  */
 /** A unitless median off percentile_cont, or undefined when there was nothing to take it over. */
+/** The Traders window: lifetime, or whole UTC days from the window's start, labelled as such. */
+function traderWindow(timeframe: Timeframe, now: number): { readonly window: TraderWindow; readonly start: string | null } {
+  const { sinceMs } = windowFor(timeframe, now);
+  if (sinceMs === undefined) {
+    return { window: { timeframe, honoursTimeframe: true, label: 'all time', days: undefined, fromMs: undefined, toMs: now }, start: null };
+  }
+  // Aligned DOWN to the bucket: TraderDay has no finer grain.
+  const fromMs = startOfUtcDay(sinceMs);
+  const days = Math.floor((startOfUtcDay(now) - fromMs) / 86_400_000) + 1;
+  const from = new Date(fromMs).toISOString().slice(0, 10);
+  return {
+    window: {
+      timeframe,
+      honoursTimeframe: false,
+      label: days === 1 ? `the UTC day from ${from} (today so far)` : `the ${days} UTC days from ${from} (today so far)`,
+      days,
+      fromMs,
+      toMs: now,
+    },
+    start: iso(fromMs),
+  };
+}
+
+/**
+ * A Traders search: an address prefix (0x and up to 40 hex, lowercased, per
+ * the case rule) or an account id (digits, optionally #). Anything else is no
+ * search at all rather than a guess.
+ */
+export function parseTraderQuery(raw: string | undefined): { readonly kind: 'address'; readonly prefix: string } | { readonly kind: 'account'; readonly accountId: number } | undefined {
+  const q = raw?.trim();
+  if (q === undefined || q === '') return undefined;
+  if (/^0x[0-9a-fA-F]{1,40}$/.test(q)) return { kind: 'address', prefix: q.toLowerCase() };
+  const id = q.replace(/^#/, '');
+  if (/^\d{1,12}$/.test(id)) return { kind: 'account', accountId: Number(id) };
+  return undefined;
+}
+
 const ratioOrUndefined = (value: unknown): number | undefined => {
   if (value === null || value === undefined) return undefined;
   const n = Number(value);
@@ -1441,38 +1518,38 @@ export class PostgresAnalytics implements Analytics {
 
   async traders(
     timeframe: Timeframe,
-    options: { readonly sort?: TraderSortKey; readonly direction?: SortDirection; readonly limit?: number; readonly offset?: number } = {},
+    options: {
+      readonly sort?: TraderSortKey;
+      readonly direction?: SortDirection;
+      readonly limit?: number;
+      readonly offset?: number;
+      readonly ranking?: TraderRanking;
+      readonly query?: string;
+    } = {},
   ): Promise<TraderList> {
     const decimals = await this.#decimals();
     const now = this.#now();
-    const { sinceMs } = windowFor(timeframe, now);
-    const sort: TraderSortKey = options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl';
-    const direction: SortDirection = options.direction === 'asc' ? 'asc' : 'desc';
-    // Capped like every other list: 1,565 accounts is a page, not a payload.
+    const ranking = options.ranking !== undefined && TRADER_RANKINGS.includes(options.ranking) ? options.ranking : undefined;
+    const rule = ranking === undefined ? undefined : TRADER_RANKING[ranking];
+    const sort: TraderSortKey = rule?.sort ?? (options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl');
+    const direction: SortDirection = rule?.direction ?? (options.direction === 'asc' ? 'asc' : 'desc');
+    // Capped like every other list: a page, not a payload.
     const limit = Math.min(Math.max(1, options.limit ?? 50), 200);
     const offset = Math.max(0, options.offset ?? 0);
+    const search = parseTraderQuery(options.query);
+    // A SEARCH DROPS THE FLOOR: whoever is searched for is found, with their
+    // row marked by its round trips like any other.
+    const where = rule === undefined ? 'true' : search === undefined ? rule.where : rule.floor ? 'true' : rule.where;
+    const floorApplied = rule?.floor === true && search === undefined;
 
-    let rows: Array<Record<string, unknown>>;
-    let window: TraderWindow;
-    if (sinceMs === undefined) {
-      rows = await this.#rows(tradersLifetimeSql(sort, direction), [limit, offset]);
-      window = { timeframe, honoursTimeframe: true, label: 'all time', days: undefined, fromMs: undefined, toMs: now };
-    } else {
-      // Aligned DOWN to the bucket: the window is served as whole UTC days and
-      // labelled as such, because TraderDay has no finer grain.
-      const fromMs = startOfUtcDay(sinceMs);
-      rows = await this.#rows(tradersWindowSql(sort, direction), [limit, offset, iso(fromMs)]);
-      const days = Math.floor((startOfUtcDay(now) - fromMs) / 86_400_000) + 1;
-      const from = new Date(fromMs).toISOString().slice(0, 10);
-      window = {
-        timeframe,
-        honoursTimeframe: false,
-        label: days === 1 ? `the UTC day from ${from} (today so far)` : `the ${days} UTC days from ${from} (today so far)`,
-        days,
-        fromMs,
-        toMs: now,
-      };
-    }
+    const { window, start } = traderWindow(timeframe, now);
+    const rows = await this.#rows(tradersSql(start === null, sort, direction, where), [
+      limit,
+      offset,
+      start,
+      search?.kind === 'address' ? search.prefix : null,
+      search?.kind === 'account' ? String(search.accountId) : null,
+    ]);
 
     const list: TraderRow[] = rows.map((row) => {
       const roundTrips = count(row['round_trips']);
@@ -1489,6 +1566,8 @@ export class PostgresAnalytics implements Analytics {
         winRate: roundTrips >= MIN_ROUND_TRIPS_FOR_RATIOS ? share(wins, roundTrips) : undefined,
         liquidationCount: count(row['liquidations']),
         rescuableLiquidationCount: count(row['rescuable']),
+        marginLostAusd: toAusd(row['margin_lost'], decimals),
+        maxSpareHeldAusd: row['spare_held'] === null || row['spare_held'] === undefined ? undefined : toAusd(row['spare_held'], decimals),
         freeBalanceAusd: toAusd(row['free_balance'], decimals),
         openPositionCount: count(row['open_positions']),
         lastActiveAtMs: requireMs(row['last_active']),
@@ -1503,6 +1582,37 @@ export class PostgresAnalytics implements Analytics {
       limit,
       offset,
       minRoundTripsForRatios: MIN_ROUND_TRIPS_FOR_RATIOS,
+      ranking,
+      // From the first row, which carries it; with no row, the floor still left
+      // these out, so it is asked for alone rather than reported as zero.
+      belowFloor: !floorApplied ? undefined : rows[0] !== undefined ? count(rows[0]['below_floor']) : await this.#belowFloor(start),
+      query: search === undefined ? undefined : search.kind === 'address' ? search.prefix : `#${search.accountId}`,
+    };
+  }
+
+  async #belowFloor(start: string | null): Promise<number> {
+    const row = await this.#one(
+      `with w as (${start === null ? TRADER_SOURCE_LIFETIME : TRADER_SOURCE_WINDOW.replace('$3', '$1')}) select count(*) as n from w where trades > 0 and round_trips < ${MIN_ROUND_TRIPS_FOR_RATIOS}`,
+      start === null ? [] : [start],
+    );
+    return count(row?.['n']);
+  }
+
+  async traderSummary(timeframe: Timeframe): Promise<TraderSummary> {
+    const decimals = await this.#decimals();
+    const { window, start } = traderWindow(timeframe, this.#now());
+    const row = await this.#one(traderSummarySql(start === null), [start]);
+    const closed = count(row?.['closed']);
+    return {
+      window,
+      traders: count(row?.['traders']),
+      volumeAusd: toAusd(row?.['market_volume'], decimals),
+      closedTraders: closed,
+      profitableTraders: count(row?.['profitable']),
+      medianNetPnlAusd: closed >= MIN_TRADERS_FOR_DISTRIBUTION ? medianAusd(row?.['median_pnl'], decimals) : undefined,
+      minTradersForDistribution: MIN_TRADERS_FOR_DISTRIBUTION,
+      liquidations: count(row?.['liquidations']),
+      rescuableLiquidations: count(row?.['rescuable']),
     };
   }
 

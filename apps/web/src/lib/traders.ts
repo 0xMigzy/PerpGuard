@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the Traders section. No I/O, no React, unit tested.
  */
-import type { RoundTrip, TraderDayPoint, TraderSortKey } from '@perpguard/shared';
+import type { RoundTrip, TraderDayPoint, TraderRanking, TraderSortKey } from '@perpguard/shared';
 
 /** What a search box was given: an address, an account id, or neither. */
 export type TraderQuery =
@@ -136,4 +136,109 @@ export function defaultTraderDirection(key: TraderSortKey): 'asc' | 'desc' {
 export function pageRange(offset: number, shown: number, total: number): { readonly from: number; readonly to: number; readonly total: number } {
   if (shown === 0) return { from: 0, to: 0, total };
   return { from: offset + 1, to: offset + shown, total };
+}
+
+// ── the Traders page: rankings, search, open-position PnL ───────────────────
+
+/** Which table column a ranking orders by, so the page can mark it. */
+export type RankedColumn = 'netPnl' | 'volume' | 'liquidations';
+
+export interface RankingInfo {
+  readonly key: TraderRanking;
+  /** The tab. */
+  readonly label: string;
+  readonly column: RankedColumn;
+  /** One sentence under the tabs: what this list is, and its rule. */
+  readonly describe: (floor: number) => string;
+  /** What an empty list means for this ranking, in the window. */
+  readonly empty: (window: string) => string;
+}
+
+/** The five leaderboards, in tab order. The rules themselves live in the backend. */
+export const RANKINGS: readonly RankingInfo[] = [
+  {
+    key: 'pnl',
+    label: 'Top PnL',
+    column: 'netPnl',
+    describe: (floor) => `Highest Net PnL (after fees and funding), among accounts with at least ${floor} round trips in the window, so one lucky trade cannot top it.`,
+    empty: (w) => `No account closed enough round trips ${w} to be ranked.`,
+  },
+  {
+    key: 'losses',
+    label: 'Top losses',
+    column: 'netPnl',
+    describe: (floor) => `Lowest Net PnL (after fees and funding), among accounts with at least ${floor} round trips in the window.`,
+    empty: (w) => `No account closed enough round trips ${w} to be ranked.`,
+  },
+  {
+    key: 'volume',
+    label: 'Volume',
+    column: 'volume',
+    describe: () => 'Most traded, by the account\'s own volume (both sides of its fills).',
+    empty: (w) => `No account traded ${w}.`,
+  },
+  {
+    key: 'liquidated',
+    label: 'Liquidated',
+    column: 'liquidations',
+    describe: () => 'Most liquidations in the window, with how many the account could have prevented.',
+    empty: (w) => `No account was liquidated ${w}.`,
+  },
+  {
+    key: 'spare',
+    label: 'Liquidated with spare',
+    column: 'liquidations',
+    describe: () =>
+      'Accounts liquidated while holding enough free AUSD to cover the shortfall, ranked by the largest free balance held at one of those liquidations. Isolated margin never reached for it.',
+    empty: (w) => `No account was liquidated ${w} while holding enough free AUSD to survive.`,
+  },
+];
+
+export const DEFAULT_RANKING: TraderRanking = 'pnl';
+
+export function rankingInfo(key: TraderRanking): RankingInfo {
+  return RANKINGS.find((r) => r.key === key) ?? RANKINGS[0]!;
+}
+
+/** The ranking from a `?rank=` value, or the default. */
+export function rankingFromQuery(value: string | null | undefined): TraderRanking {
+  return RANKINGS.some((r) => r.key === value) ? (value as TraderRanking) : DEFAULT_RANKING;
+}
+
+/**
+ * What the panel's search box sends: undefined for an empty box, the
+ * normalised query for a good one, or the reason a bad one is not sent.
+ */
+export function searchParam(raw: string): { readonly q: string | undefined } | { readonly invalid: string } {
+  if (raw.trim() === '') return { q: undefined };
+  const parsed = parseTraderQuery(raw.trim().replace(/^#/, ''));
+  switch (parsed.kind) {
+    case 'address':
+      return { q: parsed.address.toLowerCase() };
+    case 'prefix':
+      return { q: parsed.prefix.toLowerCase() };
+    case 'account':
+      return { q: String(parsed.accountId) };
+    case 'invalid':
+      return { invalid: parsed.reason };
+  }
+}
+
+/**
+ * Unrealised PnL per account, summed over its PRICED open positions in the
+ * Risk snapshot. An account the snapshot does not price is absent rather
+ * than zero: zero would claim a flat book.
+ */
+export function unrealisedByAccount(positions: readonly { readonly accountId: number; readonly unrealisedPnlAusd: number }[]): ReadonlyMap<number, { readonly ausd: number; readonly positions: number }> {
+  const out = new Map<number, { ausd: number; positions: number }>();
+  for (const p of positions) {
+    const prev = out.get(p.accountId) ?? { ausd: 0, positions: 0 };
+    out.set(p.accountId, { ausd: prev.ausd + p.unrealisedPnlAusd, positions: prev.positions + 1 });
+  }
+  return out;
+}
+
+/** "54% of 1,240" as its two parts, or undefined below the floor. */
+export function shareOf(part: number, whole: number, floor: number): number | undefined {
+  return whole >= floor && whole > 0 ? part / whole : undefined;
 }

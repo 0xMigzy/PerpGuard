@@ -29,6 +29,8 @@ import type {
   Timeframe,
   TraderDayPoint,
   TraderList,
+  TraderRanking,
+  TraderSummary,
   TraderSortKey,
   TvlReading,
   WalletLookup,
@@ -211,8 +213,13 @@ export const api = {
   /** The account's UTC days in the window, oldest first. */
   accountDays: (accountId: number, t: Timeframe) => getJson<Envelope<readonly TraderDayPoint[]>>(`${A}/account/${accountId}/days?timeframe=${t}`),
   /** Sorted and paged by the backend; the page never re-sorts a page. */
-  traders: (t: Timeframe, sort: TraderSortKey, direction: SortDirection, limit: number, offset: number) =>
-    getJson<Envelope<TraderList>>(`${A}/traders?timeframe=${t}&sort=${sort}&direction=${direction}&limit=${limit}&offset=${offset}`),
+  /** One leaderboard page, optionally filtered by an address prefix or account id. */
+  traders: (t: Timeframe, ranking: TraderRanking, limit: number, offset: number, q?: string) =>
+    getJson<Envelope<TraderList>>(
+      `${A}/traders?timeframe=${t}&ranking=${ranking}&limit=${limit}&offset=${offset}${q === undefined ? '' : `&q=${encodeURIComponent(q)}`}`,
+    ),
+  /** The Traders cards: counts, the median PnL and liquidations over the same day buckets. */
+  traderSummary: (t: Timeframe) => getJson<Envelope<TraderSummary>>(`${A}/traders/summary?timeframe=${t}`),
   liquidationSummary: (t: Timeframe) => getJson<Envelope<LiquidationSummary>>(`${A}/liquidations/summary?timeframe=${t}`),
   /** A point-in-time snapshot. No timeframe: the payload carries its block. */
   risk: () => getJson<Envelope<RiskSnapshot>>(`${A}/risk`),

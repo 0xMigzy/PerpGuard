@@ -32,6 +32,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   TIMEFRAMES,
+  TRADER_RANKINGS,
   TRADER_SORT_KEYS,
   type AccountLookup,
   type Analytics,
@@ -42,6 +43,7 @@ import {
   type RiskSnapshot,
   type SortDirection,
   type Timeframe,
+  type TraderRanking,
   type TraderSortKey,
   type WalletLookup,
   type WalletMatch,
@@ -152,15 +154,26 @@ export function analyticsLoaders(analytics: Analytics) {
         analytics.liquidations(t, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
       ),
     liquidationSummary: (t: Timeframe) => entry(`liquidation-summary:${t}`, () => analytics.liquidationSummary(t)),
-    traders: (t: Timeframe, sort: TraderSortKey | undefined, direction: SortDirection | undefined, limit: number | undefined, offset: number | undefined) =>
-      entry(`traders:${t}:${sort ?? ''}:${direction ?? ''}:${limit ?? ''}:${offset ?? ''}`, () =>
+    traders: (
+      t: Timeframe,
+      sort: TraderSortKey | undefined,
+      direction: SortDirection | undefined,
+      limit: number | undefined,
+      offset: number | undefined,
+      ranking?: TraderRanking,
+      query?: string,
+    ) =>
+      entry(`traders:${t}:${sort ?? ''}:${direction ?? ''}:${limit ?? ''}:${offset ?? ''}:${ranking ?? ''}:${query?.toLowerCase() ?? ''}`, () =>
         analytics.traders(t, {
           ...(sort === undefined ? {} : { sort }),
           ...(direction === undefined ? {} : { direction }),
           ...(limit === undefined ? {} : { limit }),
           ...(offset === undefined ? {} : { offset }),
+          ...(ranking === undefined ? {} : { ranking }),
+          ...(query === undefined ? {} : { query }),
         }),
       ),
+    traderSummary: (t: Timeframe) => entry(`trader-summary:${t}`, () => analytics.traderSummary(t)),
     profile: (accountId: number) => entry(`account:${accountId}`, () => analytics.walletByAccountId(accountId)),
     roundTrips: (accountId: number, limit: number | undefined, offset: number | undefined) =>
       entry(`round-trips:${accountId}:${limit ?? ''}:${offset ?? ''}`, () =>
@@ -195,6 +208,8 @@ export function defaultWarmEntries(analytics: Analytics): ReadonlyArray<{ readon
     l.liquidationSummary('30d'),
     l.liquidations('30d', 50, 0),
     l.traders('30d', 'netPnl', 'desc', 50, 0),
+    l.traders('30d', undefined, undefined, 50, 0, 'pnl'),
+    l.traderSummary('30d'),
   ];
 }
 
@@ -554,7 +569,13 @@ export function registerAnalyticsRoutes(
    * AND in the reader; a typo is a 400, never a default, for the same reason a
    * bad timeframe is.
    */
-  scope.get<{ Querystring: { timeframe?: string; sort?: string; direction?: string; limit?: string; offset?: string } }>(
+  scope.get(`${prefix}/traders/summary`, async (request, reply) => {
+    const timeframe = timeframeOf(request.query);
+    if (typeof timeframe !== 'string') return reply.code(400).send(timeframe);
+    return served(loaders.traderSummary(timeframe));
+  });
+
+  scope.get<{ Querystring: { timeframe?: string; sort?: string; direction?: string; limit?: string; offset?: string; ranking?: string; q?: string } }>(
     `${prefix}/traders`,
     async (request, reply) => {
       const timeframe = timeframeOf(request.query);
@@ -566,6 +587,11 @@ export function registerAnalyticsRoutes(
       if (direction !== undefined && direction !== 'asc' && direction !== 'desc') {
         return reply.code(400).send({ error: `unknown direction ${JSON.stringify(direction)}. Use asc or desc.` });
       }
+      const { ranking, q } = request.query;
+      if (ranking !== undefined && !(TRADER_RANKINGS as readonly string[]).includes(ranking)) {
+        return reply.code(400).send({ error: `unknown ranking ${JSON.stringify(ranking)}. Use one of ${TRADER_RANKINGS.join(', ')}.` });
+      }
+      const query = q === undefined || q.trim() === '' ? undefined : q.trim().slice(0, 64);
       const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
       const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
       return served(
@@ -575,6 +601,8 @@ export function registerAnalyticsRoutes(
           direction === undefined ? undefined : (direction as SortDirection),
           limit === undefined || !Number.isFinite(limit) ? undefined : limit,
           offset === undefined || !Number.isFinite(offset) ? undefined : offset,
+          ranking === undefined ? undefined : (ranking as TraderRanking),
+          query,
         ),
       );
     },

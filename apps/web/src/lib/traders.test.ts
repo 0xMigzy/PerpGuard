@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TraderDayPoint } from '@perpguard/shared';
-import { bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, sumDays, winRateOf } from './traders.ts';
+import { RANKINGS, bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, rankingFromQuery, searchParam, shareOf, sumDays, unrealisedByAccount, winRateOf } from './traders.ts';
 
 test('a checksummed address is accepted as an address, in the case it was given', () => {
   assert.deepEqual(parseTraderQuery(' 0x83107A83F5fA8c419F131aa970eb975Bd0225D4D '), {
@@ -68,4 +68,43 @@ test('a win rate is withheld under the floor the backend named, never computed o
   assert.equal(winRateOf(6, 10, 10), 0.6);
   assert.deepEqual(pageRange(50, 25, 1_478), { from: 51, to: 75, total: 1_478 });
   assert.deepEqual(pageRange(0, 0, 0), { from: 0, to: 0, total: 0 });
+});
+
+test('the five rankings, in tab order, each tied to the column it orders', () => {
+  assert.deepEqual(RANKINGS.map((r) => [r.key, r.label, r.column]), [
+    ['pnl', 'Top PnL', 'netPnl'],
+    ['losses', 'Top losses', 'netPnl'],
+    ['volume', 'Volume', 'volume'],
+    ['liquidated', 'Liquidated', 'liquidations'],
+    ['spare', 'Liquidated with spare', 'liquidations'],
+  ]);
+  assert.match(RANKINGS[0]!.describe(10), /at least 10 round trips/);
+  assert.match(RANKINGS[4]!.describe(10), /largest free balance/);
+  assert.equal(rankingFromQuery('spare'), 'spare');
+  assert.equal(rankingFromQuery('richest'), 'pnl', 'an unknown ?rank= falls back to the default');
+  assert.equal(rankingFromQuery(null), 'pnl');
+});
+
+test('the panel search sends a normalised address, prefix or id, and refuses junk with a reason', () => {
+  assert.deepEqual(searchParam(''), { q: undefined });
+  assert.deepEqual(searchParam('0xB7854953A71e45D1033B3d619E76d56391291765'), { q: '0xb7854953a71e45d1033b3d619e76d56391291765' });
+  assert.deepEqual(searchParam('b78549'), { q: '0xb78549' });
+  assert.deepEqual(searchParam('#2260'), { q: '2260' });
+  assert.ok('invalid' in searchParam('whale'));
+});
+
+test('unrealised PnL is summed per account over priced positions; an unpriced account is absent, not zero', () => {
+  const m = unrealisedByAccount([
+    { accountId: 1, unrealisedPnlAusd: 10 },
+    { accountId: 1, unrealisedPnlAusd: -25 },
+    { accountId: 2, unrealisedPnlAusd: 3 },
+  ]);
+  assert.deepEqual(m.get(1), { ausd: -15, positions: 2 });
+  assert.equal(m.get(3), undefined);
+});
+
+test('a share is withheld below the floor and never divides by zero', () => {
+  assert.equal(shareOf(363, 1048, 10), 363 / 1048);
+  assert.equal(shareOf(3, 4, 10), undefined);
+  assert.equal(shareOf(0, 0, 0), undefined);
 });

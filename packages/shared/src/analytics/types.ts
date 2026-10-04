@@ -772,10 +772,29 @@ export interface MarketPnl {
 
 // ── the Traders section ─────────────────────────────────────────────────────
 
-export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive';
+export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld';
 export type SortDirection = 'asc' | 'desc';
 
-export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive'];
+export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld'];
+
+/**
+ * The Traders page's leaderboards. Each is an order AND a filter, decided here
+ * rather than in the page:
+ *
+ *   pnl, losses  Net PnL, desc / asc, over accounts with at least
+ *                MIN_ROUND_TRIPS_FOR_RATIOS round trips in the window. One lucky
+ *                (or unlucky) trade is not a ranking: the same floor as the
+ *                ratios, and the list says how many it left out.
+ *   volume       traded volume, desc. No floor: volume is not luck.
+ *   liquidated   liquidation count, desc, over accounts liquidated at least once.
+ *   spare        THE FINDING, PER TRADER: accounts with at least one RESCUABLE
+ *                liquidation (free balance covered the shortfall; never the
+ *                dust flag `hadSpareBalance`), by the LARGEST free balance held
+ *                at any of them. The largest, not a sum: a sum counts one
+ *                account's money once per liquidation.
+ */
+export type TraderRanking = 'pnl' | 'losses' | 'volume' | 'liquidated' | 'spare';
+export const TRADER_RANKINGS: readonly TraderRanking[] = ['pnl', 'losses', 'volume', 'liquidated', 'spare'];
 
 /**
  * Which rows the list's windowed columns were summed over.
@@ -812,6 +831,13 @@ export interface TraderRow {
   readonly winRate: number | undefined;
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
+  /** Margin lost to forced exits in the window. A flow, so summing it is right. */
+  readonly marginLostAusd: number;
+  /**
+   * The largest free balance held at any RESCUABLE liquidation in the window,
+   * or undefined when there was none. A max, never a sum (see TraderRanking).
+   */
+  readonly maxSpareHeldAusd: number | undefined;
   // ── now ──
   readonly freeBalanceAusd: number;
   readonly openPositionCount: number;
@@ -828,7 +854,48 @@ export interface TraderList {
   readonly limit: number;
   readonly offset: number;
   readonly minRoundTripsForRatios: number;
+  /** The leaderboard this page is, when one was asked for. */
+  readonly ranking: TraderRanking | undefined;
+  /**
+   * Accounts that traded in the window but were left out of a PnL ranking for
+   * having fewer than `minRoundTripsForRatios` round trips. Undefined when no
+   * floor applied (other rankings, or a search, which always finds an account).
+   */
+  readonly belowFloor: number | undefined;
+  /** The search the rows were filtered by, normalised, when there was one. */
+  readonly query: string | undefined;
 }
+
+/**
+ * The Traders page's cards: every account that TRADED in the window, over the
+ * same UTC-day buckets as the table, so the two always agree.
+ */
+export interface TraderSummary {
+  readonly window: TraderWindow;
+  /** Accounts with at least one trade in the window. */
+  readonly traders: number;
+  /**
+   * Traded notional in the window counted ONCE PER MATCH (market buckets). Not
+   * the sum of the rows' volume, which credits maker and taker both and runs
+   * at about twice this.
+   */
+  readonly volumeAusd: number;
+  /** Accounts with at least one closed round trip: the denominator below. */
+  readonly closedTraders: number;
+  /** Of `closedTraders`, those whose Net PnL (after fees and funding) is above zero. */
+  readonly profitableTraders: number;
+  /**
+   * The median Net PnL across `closedTraders`. Undefined below
+   * `minTradersForDistribution`: a median of four accounts describes nobody.
+   */
+  readonly medianNetPnlAusd: number | undefined;
+  readonly minTradersForDistribution: number;
+  readonly liquidations: number;
+  readonly rescuableLiquidations: number;
+}
+
+/** Below this many accounts with a closed trade, the cards withhold the share and the median. */
+export const MIN_TRADERS_FOR_DISTRIBUTION = 10;
 
 /** One UTC day of one trader, straight off `TraderDay`. Buckets are the unit. */
 export interface TraderDayPoint {
@@ -992,8 +1059,20 @@ export interface Analytics {
    */
   traders(
     timeframe: Timeframe,
-    options?: { readonly sort?: TraderSortKey; readonly direction?: SortDirection; readonly limit?: number; readonly offset?: number },
+    options?: {
+      readonly sort?: TraderSortKey;
+      readonly direction?: SortDirection;
+      readonly limit?: number;
+      readonly offset?: number;
+      /** A leaderboard: overrides sort and direction, and applies its filter. See TraderRanking. */
+      readonly ranking?: TraderRanking;
+      /** An address prefix (0x…) or an account id; a search drops the ranking floor so any account can be found. */
+      readonly query?: string;
+    },
   ): Promise<TraderList>;
+
+  /** The cards over the Traders table. See TraderSummary. */
+  traderSummary(timeframe: Timeframe): Promise<TraderSummary>;
 
   /** One account's UTC days in the window, oldest first. */
   traderDays(accountId: number, timeframe: Timeframe): Promise<readonly TraderDayPoint[]>;

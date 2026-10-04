@@ -31,6 +31,7 @@ import type {
   Timeframe,
   TraderDayPoint,
   TraderList,
+  TraderSummary,
   TvlReading,
   WalletLookup,
   WalletMatch,
@@ -192,8 +193,8 @@ class FakeAnalytics implements Analytics {
     return [];
   }
 
-  async traders(timeframe: Timeframe, options: { sort?: string; direction?: string; limit?: number; offset?: number } = {}): Promise<TraderList> {
-    this.asked.push(`traders:${timeframe}:${options.sort ?? '-'}:${options.direction ?? '-'}:${options.limit ?? '-'}:${options.offset ?? '-'}`);
+  async traders(timeframe: Timeframe, options: { sort?: string; direction?: string; limit?: number; offset?: number; ranking?: string; query?: string } = {}): Promise<TraderList> {
+    this.asked.push(`traders:${timeframe}:${options.sort ?? '-'}:${options.direction ?? '-'}:${options.limit ?? '-'}:${options.offset ?? '-'}${options.ranking === undefined ? '' : `:${options.ranking}`}${options.query === undefined ? '' : `:q=${options.query}`}`);
     return {
       rows: [],
       total: 0,
@@ -203,7 +204,15 @@ class FakeAnalytics implements Analytics {
       limit: options.limit ?? 50,
       offset: options.offset ?? 0,
       minRoundTripsForRatios: 10,
+      ranking: undefined,
+      belowFloor: undefined,
+      query: undefined,
     };
+  }
+
+  async traderSummary(timeframe: Timeframe): Promise<TraderSummary> {
+    this.asked.push(`trader-summary:${timeframe}`);
+    return { window: { timeframe, honoursTimeframe: false, label: 'x', days: 31, fromMs: undefined, toMs: 0 }, traders: 1108, volumeAusd: 1, closedTraders: 1048, profitableTraders: 363, medianNetPnlAusd: -1.82, minTradersForDistribution: 10, liquidations: 589, rescuableLiquidations: 442 };
   }
 
   async traderDays(accountId: number, timeframe: Timeframe): Promise<readonly TraderDayPoint[]> {
@@ -750,4 +759,17 @@ test('the history curve is served through the cache with its start, and is warme
   assert.ok(analytics.asked.includes('history'));
   assert.ok(defaultWarmEntries(analytics).some((e) => e.key === 'history'));
   assert.ok(defaultWarmEntries(analytics).some((e) => e.key === 'metrics:all'), 'All is the slow one, so it is kept warm');
+});
+
+test('traders: ranking and search reach the reader; an unknown ranking is a 400; the summary route serves the cards', async () => {
+  const { instance, analytics } = app();
+  const ok = await instance.inject({ method: 'GET', url: '/api/analytics/traders?timeframe=30d&ranking=spare&q=%200xB785%20' });
+  assert.equal(ok.statusCode, 200);
+  assert.ok(analytics.asked.includes('traders:30d:-:-:-:-:spare:q=0xB785'), analytics.asked.join(' '));
+  const bad = await instance.inject({ method: 'GET', url: '/api/analytics/traders?timeframe=30d&ranking=richest' });
+  assert.equal(bad.statusCode, 400);
+  assert.match(bad.json().error, /unknown ranking "richest"/);
+  const summary = await instance.inject({ method: 'GET', url: '/api/analytics/traders/summary?timeframe=30d' });
+  assert.equal(summary.statusCode, 200);
+  assert.equal(body(summary.payload)['data'] && (body(summary.payload)['data'] as TraderSummary).traders, 1108);
 });

@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PostgresAnalytics, type SqlClient } from './pg.ts';
+import { PostgresAnalytics, parseTraderQuery, type SqlClient } from './pg.ts';
 import { symbolResolver } from './map.ts';
 
 const NOW = Date.parse('2026-09-30T05:04:14Z');
@@ -672,12 +672,14 @@ test('trader sort keys are whitelisted into the SQL and the direction is never i
   await reader(sql).traders('all', { sort: 'winRate', direction: 'asc', limit: 25, offset: 50 });
   const query = sql.touching('Trader')[0]!;
   assert.match(query.sql, /order by win_rate asc nulls last/);
-  assert.deepEqual(query.values, [25, 50]);
+  assert.deepEqual(query.values, [25, 50, null, null, null]);
   // THE NUMERIC COLUMN, NOT THE TEXT ALIAS. `order by net_pnl` sorted "+99"
   // above "+911" on the live list, because the alias is the ::text output.
+  // Qualified `w.net_pnl` is the CTE's numeric column, in both forms.
   const pnl = new FakeSql();
   await reader(pnl).traders('all', { sort: 'netPnl' });
-  assert.match(pnl.touching('Trader')[0]!.sql, /order by "netPnlCNS" desc nulls last/);
+  assert.match(pnl.touching('Trader')[0]!.sql, /order by w\.net_pnl desc nulls last/);
+  assert.doesNotMatch(pnl.touching('Trader')[0]!.sql, /order by net_pnl/);
   const windowed = new FakeSql();
   await reader(windowed).traders('7d', { sort: 'netPnl' });
   assert.match(windowed.touching('TraderDay')[0]!.sql, /order by w\.net_pnl desc nulls last/);
@@ -685,7 +687,7 @@ test('trader sort keys are whitelisted into the SQL and the direction is never i
   // An unknown key falls back to the default rather than reaching the text.
   const bad = new FakeSql();
   await reader(bad).traders('all', { sort: 'id; drop table' as never, direction: 'sideways' as never });
-  assert.match(bad.touching('Trader')[0]!.sql, /order by "netPnlCNS" desc nulls last/);
+  assert.match(bad.touching('Trader')[0]!.sql, /order by w\.net_pnl desc nulls last/);
   assert.doesNotMatch(bad.touching('Trader')[0]!.sql, /drop table/);
 });
 
@@ -877,4 +879,84 @@ test('THE COVER RATIO: free balance over shortfall, per rescuable event, never a
   assert.doesNotMatch(text, /sum\("freeBalanceBeforeCNS"\)/, 'no sum of a per-account level across liquidations');
   assert.equal(metrics.rescues.medianCoverRatio, 42.5);
   assert.equal(metrics.rescues.coverRatioCount, 2);
+});
+
+// ── the Traders page: rankings, the floor, search, the cards ───────────────
+
+test('a trader is someone who TRADED in the window: every list filters trades > 0', async () => {
+  for (const tf of ['all', '30d'] as const) {
+    const sql = new FakeSql();
+    await reader(sql).traders(tf);
+    assert.match(sql.touching('Trader')[0]!.sql, /where w\.trades > 0/);
+  }
+});
+
+test('THE RANKING FLOOR: PnL rankings need 10 round trips; volume and liquidations do not', async () => {
+  const pnl = new FakeSql();
+  await reader(pnl).traders('30d', { ranking: 'pnl' });
+  const text = pnl.touching('Trader')[0]!.sql;
+  assert.match(text, /and \(w\.round_trips >= 10\)/);
+  assert.match(text, /order by w\.net_pnl desc/);
+  const losses = new FakeSql();
+  await reader(losses).traders('30d', { ranking: 'losses' });
+  assert.match(losses.touching('Trader')[0]!.sql, /and \(w\.round_trips >= 10\)[\s\S]*order by w\.net_pnl asc/);
+  const volume = new FakeSql();
+  await reader(volume).traders('30d', { ranking: 'volume' });
+  assert.match(volume.touching('Trader')[0]!.sql, /and \(true\)[\s\S]*order by w\.volume desc/);
+  const liquidated = new FakeSql();
+  await reader(liquidated).traders('30d', { ranking: 'liquidated' });
+  assert.match(liquidated.touching('Trader')[0]!.sql, /and \(w\.liquidations > 0\)[\s\S]*order by w\.liquidations desc/);
+});
+
+test('"Liquidated with spare" ranks by the LARGEST free balance at a RESCUABLE liquidation, never a sum, never the dust flag', async () => {
+  const sql = new FakeSql();
+  await reader(sql).traders('all', { ranking: 'spare' });
+  const text = sql.touching('Trader')[0]!.sql;
+  assert.match(text, /max\("freeBalanceBeforeCNS"\) filter \(where "wasRescuable" = true\) as spare_held/);
+  assert.doesNotMatch(text, /sum\("freeBalanceBeforeCNS"\)/);
+  assert.doesNotMatch(text, /hadSpareBalance/);
+  assert.match(text, /and \(l\.spare_held is not null\)[\s\S]*order by l\.spare_held desc/);
+});
+
+test('the floor reports how many it left out; a search drops it so any account can be found', async () => {
+  const row = { id: '2260', owner: '0xabc', free_balance: '0', open_positions: 0, last_active: new Date('2026-10-01T00:00:00Z'), net_pnl: '30262000000', volume: '1', trades: 2, round_trips: 1, wins: 1, losses: 0, win_rate: null, liquidations: 0, rescuable: 0, spare_held: null, margin_lost: '0', below_floor: '48', total: '1' };
+  const floored = new FakeSql().on(/join "Trader" t/, [row]);
+  const list = await reader(floored).traders('30d', { ranking: 'pnl' });
+  assert.equal(list.belowFloor, 48);
+  assert.equal(list.ranking, 'pnl');
+  const searched = new FakeSql().on(/join "Trader" t/, [row]);
+  const found = await reader(searched).traders('30d', { ranking: 'pnl', query: '#2260' });
+  assert.match(searched.touching('Trader')[0]!.sql, /and \(true\)/, 'the floor is dropped for a search');
+  assert.deepEqual(searched.touching('Trader')[0]!.values.slice(3), [null, '2260']);
+  assert.equal(found.belowFloor, undefined);
+  assert.equal(found.query, '#2260');
+  assert.equal((await reader(new FakeSql().on(/join "Trader" t/, [row])).traders('30d', { ranking: 'volume' })).belowFloor, undefined);
+});
+
+test('search: an address prefix is lowercased and compared lowercased; junk is no search at all', async () => {
+  const sql = new FakeSql();
+  await reader(sql).traders('all', { query: '0xB78549' });
+  const q = sql.touching('Trader')[0]!;
+  assert.match(q.sql, /lower\(t\.owner\) like \$4::text \|\| '%'/);
+  assert.deepEqual(q.values.slice(3), ['0xb78549', null]);
+  assert.equal(parseTraderQuery('drop table'), undefined);
+  assert.equal(parseTraderQuery('0x'), undefined);
+  assert.deepEqual(parseTraderQuery(' 710 '), { kind: 'account', accountId: 710 });
+});
+
+test('the cards: traders who traded, a median over those with a closed trade, withheld below 10, market volume once per match', async () => {
+  const sql = new FakeSql().on(/percentile_cont/, [{ traders: '1108', closed: '1060', profitable: '571', median_pnl: '-1234567', liquidations: '601', rescuable: '448', market_volume: '1855650300000000' }]);
+  sql.on(/from "Exchange"/, [exchangeRow]);
+  const summary = await reader(sql).traderSummary('30d');
+  const text = sql.touching('TraderDay')[0]!.sql;
+  assert.match(text, /a as \(select \* from w where trades > 0\)/);
+  assert.match(text, /from "MarketDay"/, 'volume counted once per match, from market buckets');
+  assert.equal(summary.traders, 1108);
+  assert.equal(summary.closedTraders, 1060);
+  assert.equal(summary.profitableTraders, 571);
+  assert.equal(summary.medianNetPnlAusd, -1.234567);
+  assert.equal(summary.volumeAusd, 1_855_650_300);
+  const few = new FakeSql().on(/percentile_cont/, [{ traders: '9', closed: '4', profitable: '3', median_pnl: '5000000', liquidations: '0', rescuable: '0', market_volume: '0' }]);
+  few.on(/from "Exchange"/, [exchangeRow]);
+  assert.equal((await reader(few).traderSummary('24h')).medianNetPnlAusd, undefined, 'a median of four accounts describes nobody');
 });
