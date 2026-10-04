@@ -191,7 +191,12 @@ select count(*)::text                                                  as total,
        count(*) filter (where "wasRescuable" = true)::text              as rescuable,
        count(*) filter (where "wasRescuable" is null)::text             as unknown,
        count(*) filter (where "hadSpareBalance")::text                  as any_spare,
-       coalesce(sum("freeBalanceBeforeCNS"), 0)::text                   as spare_balance,
+       -- NO SUM OF FREE BALANCE: it counts one account's money once per
+       -- liquidation (#4734: 23 rescuable, the same balance 23 times). The
+       -- ratio below is per event and cannot be inflated by repeats.
+       (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS"::numeric / "marginToSurviveCNS")
+          filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0))::text as median_cover,
+       count(*) filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0)::text as cover_count,
        (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
           filter (where "wasRescuable" = true))::text                    as median_spare
   from "Liquidation"
@@ -504,7 +509,10 @@ select count(*)::text                                      as total,
        count(*) filter (where "wasRescuable" = true)::text  as rescuable,
        count(*) filter (where "wasRescuable" is null)::text as unknown,
        count(*) filter (where "hadSpareBalance")::text      as any_spare,
-       coalesce(sum("freeBalanceBeforeCNS"), 0)::text       as spare_balance,
+       -- No sum of free balance: see LIQUIDATION_SQL.
+       (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS"::numeric / "marginToSurviveCNS")
+          filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0))::text as median_cover,
+       count(*) filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0)::text as cover_count,
        (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
           filter (where "wasRescuable" = true))::text        as median_spare,
        coalesce(sum("notionalCNS"), 0)::text                as notional,
@@ -755,6 +763,13 @@ const markOrUndefined = (pns: unknown, priceDecimals: number): number | undefine
  * float ON PURPOSE: a median of integers can be a half, and it is a display
  * statistic, never an amount anything sends.
  */
+/** A unitless median off percentile_cont, or undefined when there was nothing to take it over. */
+const ratioOrUndefined = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
 const medianAusd = (raw: unknown, decimals: number): number | undefined => {
   if (raw === null || raw === undefined) return undefined;
   const micros = Number(raw);
@@ -985,7 +1000,8 @@ export class PostgresAnalytics implements Analytics {
       unknownCount,
       rescuableCount,
       rate,
-      spareBalanceAusd: toAusd(row?.['spare_balance'], decimals),
+      medianCoverRatio: ratioOrUndefined(row?.['median_cover']),
+      coverRatioCount: count(row?.['cover_count']),
       medianSpareBalanceAusd: medianAusd(row?.['median_spare'], decimals),
       withAnySpareBalanceCount: count(row?.['any_spare']),
     };
@@ -1338,7 +1354,8 @@ export class PostgresAnalytics implements Analytics {
         unknownCount,
         rescuableCount,
         rate,
-        spareBalanceAusd: toAusd(liq?.['spare_balance'], decimals),
+        medianCoverRatio: ratioOrUndefined(liq?.['median_cover']),
+        coverRatioCount: count(liq?.['cover_count']),
         medianSpareBalanceAusd: medianAusd(liq?.['median_spare'], decimals),
         withAnySpareBalanceCount: count(liq?.['any_spare']),
       },

@@ -235,8 +235,18 @@ export interface RescueStats {
   readonly rescuableCount: number;
   /** `rescuableCount / judgeableCount`, or undefined when nothing is judgeable. */
   readonly rate: number | undefined;
-  /** Total free AUSD sitting in these accounts at the moment of liquidation. */
-  readonly spareBalanceAusd: number;
+  /**
+   * THE COVER RATIO: the median, across rescuable liquidations, of the free
+   * AUSD held divided by the shortfall that would have saved the position:
+   * "in the median rescuable liquidation the trader held 187x what they
+   * needed". Per event, so repeat liquidations of one account cannot inflate
+   * it the way a SUM of free balance did (removed 4 Oct 2026: that counted the
+   * same account's money once per liquidation, #4734's 23 times over).
+   * Undefined when nothing in the window is rescuable.
+   */
+  readonly medianCoverRatio: number | undefined;
+  /** How many rescuable liquidations the ratio's median was taken over. */
+  readonly coverRatioCount: number;
   /**
    * Median free AUSD at liquidation, over the RESCUABLE cases only, or undefined
    * when there are none. A median rather than a mean because a handful of large

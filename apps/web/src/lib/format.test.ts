@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  formatMultiple,
   formatFundingPct,
   blocksToApproxMs,
   formatAge,
@@ -69,4 +70,11 @@ test('a funding mean too small for six places is never printed as a signed zero'
   assert.equal(formatFundingPct(-0.0000002), '−<0.000001%');
   assert.equal(formatFundingPct(0.0000004), '+<0.000001%');
   assert.equal(formatFundingPct(0.0000006), '+0.000001%');
+});
+
+test('a multiple keeps a decimal only below 10', () => {
+  assert.equal(formatMultiple(186.8), '187×');
+  assert.equal(formatMultiple(1447.4), '1,447×');
+  assert.equal(formatMultiple(1.43), '1.4×');
+  assert.equal(formatMultiple(Number.POSITIVE_INFINITY), '—');
 });

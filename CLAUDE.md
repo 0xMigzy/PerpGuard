@@ -20,6 +20,15 @@ hole — 32 liquidations are of positions opened before the indexer's start bloc
 and cannot be judged, so they are excluded from the denominator, never counted
 as failures.
 
+NEVER SUM A PER-ACCOUNT LEVEL ACROSS LIQUIDATIONS. Free balance is a level an
+account holds, not a flow; summing it over liquidations counts the same money
+once per liquidation (#4734: 23 rescuable, its balance counted 23 times; the
+"7.38M AUSD spare" tile was this). Sum across ACCOUNTS, or use a per-event
+ratio: the cover ratio, the median of free balance / shortfall across
+rescuable liquidations (187x over 2,344, full history, 4 Oct 2026). The
+indexer's `spareBalanceAtLiquidationCNS` running totals are that same sum and
+are never served.
+
 NEVER quote `liquidationsWithSpareBalanceCount` or `hadSpareBalance` as a
 headline. That flag is `freeBalanceBeforeCNS > 0`, so it counts dust: it is true
 for 654 of 654 mainnet liquidations, the smallest balance being 0.00024 AUSD and

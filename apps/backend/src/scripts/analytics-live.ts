@@ -223,7 +223,7 @@ try {
   console.log(`  opened before our start      ${r.unknownCount}  (excluded, never counted as failures)`);
   console.log(`  RESCUABLE                    ${r.rescuableCount}`);
   console.log(`  RATE                         ${pct(r.rate)}  (${r.rescuableCount} of ${r.judgeableCount})`);
-  console.log(`  spare balance at liquidation ${ausd(r.spareBalanceAusd)}`);
+  console.log(`  cover ratio (median)         ${r.medianCoverRatio === undefined ? '-' : `${r.medianCoverRatio.toFixed(1)}x`} over ${r.coverRatioCount} rescuable: free balance / shortfall, per event`);
   console.log(
     `  had ANY spare balance        ${r.withAnySpareBalanceCount} of ${r.count} — DIAGNOSTIC ONLY,\n` +
       `                               it counts dust and is never the headline`,
@@ -232,7 +232,7 @@ try {
     const m = metrics.get(timeframe)!.rescues;
     console.log(
       `  ${timeframe.padEnd(4)} ${String(m.rescuableCount).padStart(4)} of ${String(m.judgeableCount).padStart(4)} judgeable` +
-        `  rate ${pct(m.rate).padStart(8)}  spare ${ausd(m.spareBalanceAusd)}`,
+        `  rate ${pct(m.rate).padStart(8)}  cover ${m.medianCoverRatio === undefined ? '-' : `${m.medianCoverRatio.toFixed(1)}x`}`,
     );
   }
 
@@ -360,7 +360,7 @@ try {
     const rescues = profile.rescues;
     console.log(
       `  liquidations       ${rescues.count} (${rescues.rescuableCount} rescuable of ` +
-        `${rescues.judgeableCount} judgeable, rate ${pct(rescues.rate)}, spare ${ausd(rescues.spareBalanceAusd)})`,
+        `${rescues.judgeableCount} judgeable, rate ${pct(rescues.rate)}, median cover ${rescues.medianCoverRatio === undefined ? '-' : `${rescues.medianCoverRatio.toFixed(1)}x`})`,
     );
     const shown = profile.openPositions.slice(0, 5);
     console.log(

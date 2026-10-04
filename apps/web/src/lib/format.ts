@@ -168,3 +168,9 @@ export function formatDuration(ms: number): string {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
+
+/** A multiple, "187×" or "1.4×": one decimal only below 10, where it still says something. */
+export function formatMultiple(ratio: number): string {
+  if (!Number.isFinite(ratio)) return '—';
+  return ratio >= 10 ? `${Math.round(ratio).toLocaleString(EN)}×` : `${ratio.toFixed(1)}×`;
+}

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { LiquidationRecord, MarketBreakdown, RescueVerdict } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
+import { formatAusd, formatAusdExact, formatCompact, formatCount, formatMultiple, formatPct, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit, splitLiquidationDays } from '@/lib/liquidations.ts';
 import { deltaVsPrevious, lastDays } from '@/lib/overview.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
@@ -137,15 +137,22 @@ export function LiquidationsView() {
               sparkline={days?.map((d) => d.rescuable)}
               sparklineColor={COLORS.accentHi}
             />
+            {/* NOT a sum of free balance: that counted one account's money once per
+                liquidation (#4734's 23 times over). A per-event ratio cannot be
+                inflated by repeat liquidations. */}
             <StatTile
-              label="Spare balance held"
-              value={formatCompact(r.spareBalanceAusd)}
-              exact={`${formatAusdExact(r.spareBalanceAusd)} AUSD free across all ${formatCount(r.count)} liquidations`}
+              label="Spare vs shortfall"
+              value={r.medianCoverRatio === undefined ? '—' : formatMultiple(r.medianCoverRatio)}
+              exact={r.medianCoverRatio === undefined ? undefined : `median of free AUSD held ÷ shortfall, across ${formatCount(r.coverRatioCount)} rescuable liquidations`}
               secondary={
-                <>
-                  <div>AUSD sitting free at the moment of liquidation, summed over {formatCount(r.count)}</div>
-                  <div>{r.medianSpareBalanceAusd === undefined ? 'no rescuable case to take a median over' : `median ${formatAusd(r.medianSpareBalanceAusd)} over the ${formatCount(r.rescuableCount)} rescuable`}</div>
-                </>
+                r.medianCoverRatio === undefined ? (
+                  'no rescuable liquidation in this window'
+                ) : (
+                  <>
+                    <div>In the median rescuable liquidation, the trader held {formatMultiple(r.medianCoverRatio)} what they needed · across {formatCount(r.coverRatioCount)}</div>
+                    {r.medianSpareBalanceAusd !== undefined && <div>median {formatAusd(r.medianSpareBalanceAusd)} AUSD held</div>}
+                  </>
+                )
               }
               sparklineNote="isolated margin never reached for any of it"
             />

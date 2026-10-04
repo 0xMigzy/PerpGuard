@@ -204,7 +204,8 @@ test('the rescue rate comes back over the judgeable denominator', async () => {
       rescuable: '485',
       unknown: '33',
       any_spare: '680',
-      spare_balance: '1126526379973',
+      median_cover: '186.8',
+      cover_count: '485',
     },
   ]);
 
@@ -214,7 +215,9 @@ test('the rescue rate comes back over the judgeable denominator', async () => {
   assert.equal(metrics.rescues.unknownCount, 33);
   assert.equal(metrics.rescues.rescuableCount, 485);
   assert.equal(metrics.rescues.rate?.toFixed(4), '0.7496');
-  assert.equal(metrics.rescues.spareBalanceAusd, 1_126_526.379973);
+  assert.equal(metrics.rescues.medianCoverRatio, 186.8);
+  assert.equal(metrics.rescues.coverRatioCount, 485);
+  assert.ok(!('spareBalanceAusd' in metrics.rescues), 'the summed free balance is gone: it counted one account once per liquidation');
   // The dust diagnostic is carried but is not the rate.
   assert.equal(metrics.rescues.withAnySpareBalanceCount, 680);
 });
@@ -526,15 +529,17 @@ test('previous-period fees compare whole day buckets and never say "today so far
 test('the median spare balance is over RESCUABLE cases, and undefined when there are none', async () => {
   const sql = new FakeSql();
   sql.on(/from "Liquidation"/, [
-    { total: '3', rescuable: '2', unknown: '0', any_spare: '3', spare_balance: '3000000', median_spare: '1234567.5' },
+    { total: '3', rescuable: '2', unknown: '0', any_spare: '3', median_cover: '42.5', cover_count: '2', median_spare: '1234567.5' },
   ]);
   const metrics = await reader(sql).protocolMetrics('24h');
   assert.match(sql.touching('Liquidation')[0]!.sql, /percentile_cont\(0\.5\)[\s\S]*filter \(where "wasRescuable" = true\)/);
   assert.equal(metrics.rescues.medianSpareBalanceAusd, 1.2345675);
 
   const none = new FakeSql();
-  none.on(/from "Liquidation"/, [{ total: '0', rescuable: '0', unknown: '0', any_spare: '0', spare_balance: '0', median_spare: null }]);
-  assert.equal((await reader(none).protocolMetrics('24h')).rescues.medianSpareBalanceAusd, undefined);
+  none.on(/from "Liquidation"/, [{ total: '0', rescuable: '0', unknown: '0', any_spare: '0', median_cover: null, cover_count: '0', median_spare: null }]);
+  const empty = (await reader(none).protocolMetrics('24h')).rescues;
+  assert.equal(empty.medianSpareBalanceAusd, undefined);
+  assert.equal(empty.medianCoverRatio, undefined, 'no rescuable case: no ratio, never zero');
 });
 
 // ── daily series ────────────────────────────────────────────────────────────
@@ -859,4 +864,17 @@ test('a listing reads the contract parameters in the context’s units, and keep
   assert.equal(btc!.maxLeverage, 15, 'the ground-truth position is 15x at BTC’s maximum');
   assert.equal(btc!.maintenanceMarginRatio, 0.04);
   assert.equal(btc!.markAtMs, undefined);
+});
+
+test('THE COVER RATIO: free balance over shortfall, per rescuable event, never a sum of free balance', async () => {
+  const sql = new FakeSql();
+  sql.on(/from "Exchange"/, [exchangeRow]);
+  sql.on(/from "Liquidation"/, [{ total: '3', rescuable: '2', unknown: '0', any_spare: '3', median_cover: '42.5', cover_count: '2', median_spare: '1' }]);
+  const metrics = await reader(sql).protocolMetrics('30d');
+  const text = sql.touching('Liquidation')[0]!.sql;
+  assert.match(text, /percentile_cont\(0\.5\) within group \(order by "freeBalanceBeforeCNS"::numeric \/ "marginToSurviveCNS"\)/);
+  assert.match(text, /"wasRescuable" = true and "marginToSurviveCNS" > 0/, 'rescuable only, and never a division by zero');
+  assert.doesNotMatch(text, /sum\("freeBalanceBeforeCNS"\)/, 'no sum of a per-account level across liquidations');
+  assert.equal(metrics.rescues.medianCoverRatio, 42.5);
+  assert.equal(metrics.rescues.coverRatioCount, 2);
 });

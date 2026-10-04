@@ -830,6 +830,12 @@ variation: BTC last 0.000030%, PUMP 0.000040%, MON mean 0.000015%.
 - The rescue headline over the judgeable denominator: **485 of 647, 74.96%**, with
   the 33 unjudgeable excluded rather than counted as failures, and
   1,126,526.38 AUSD of spare balance sitting in those accounts.
+  **Correction, 4 Oct 2026: that figure is not a real total and must not be
+  quoted.** It summed each liquidation's free balance, so an account
+  liquidated repeatedly had the same money counted once per liquidation
+  (#4734: 23 rescuable liquidations, its balance counted 23 times). It is
+  replaced by a per-event ratio: in the median rescuable liquidation the trader
+  held 187x the shortfall (2,344 rescuable, full history, 4 Oct 2026).
 - Wallet performance folds in SQL: 113,421 round trips for account 2118, a 207-loss
   streak, profit factor 0.022, max drawdown 8,812.54 AUSD, average hold 2.7 s.
 - `health()` refuses to certify synced without an INDEPENDENT chain head, and got
