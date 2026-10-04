@@ -95,6 +95,8 @@ export interface PostgresAnalyticsOptions {
   readonly chainId: number;
   /** Canonical tickers, keyed by market id. See `symbolResolver`. */
   readonly resolveSymbol: SymbolResolver;
+  /** `funding_interval_sec` from the venue's context, keyed by market id. Absent: unknown. */
+  readonly fundingIntervalSec?: (marketId: number) => number | undefined;
   /**
    * REAL chain head, from something that is not the indexer.
    *
@@ -407,6 +409,22 @@ select f.market_id as id, m.name,
  where ($1::timestamptz is null or f.timestamp >= $1::timestamptz)
  group by f.market_id, m.name, 3
  order by (f.market_id::bigint), 3
+`;
+
+/**
+ * Each market's settlement cadence, measured over the 24 hours up to its latest
+ * settlement (not up to now, so indexer lag cannot thin it): how many, and the
+ * mean gap between consecutive ones.
+ */
+const FUNDING_CADENCE_SQL = `
+select f.market_id as id,
+       count(*)::text as events,
+       (extract(epoch from max(f.timestamp) - min(f.timestamp)) / nullif(count(*) - 1, 0))::text as mean_gap_sec
+  from "FundingEvent" f
+  join (select market_id, max(timestamp) as last_at from "FundingEvent" group by market_id) l
+    on l.market_id = f.market_id
+ where f.timestamp > l.last_at - interval '24 hours'
+ group by f.market_id
 `;
 
 /** Every market the chain lists, with the contract's parameters for it. */
@@ -747,6 +765,7 @@ export class PostgresAnalytics implements Analytics {
   readonly #client: SqlClient;
   readonly #chainId: number;
   readonly #resolve: SymbolResolver;
+  readonly #fundingIntervalSec: (marketId: number) => number | undefined;
   readonly #chainHead: (() => Promise<number | undefined>) | undefined;
   readonly #tvlProbe: { read(): Promise<TvlReading> } | undefined;
   readonly #now: () => number;
@@ -758,6 +777,7 @@ export class PostgresAnalytics implements Analytics {
     this.#client = options.client;
     this.#chainId = options.chainId;
     this.#resolve = options.resolveSymbol;
+    this.#fundingIntervalSec = options.fundingIntervalSec ?? (() => undefined);
     this.#chainHead = options.chainHead;
     this.#tvlProbe = options.tvlProbe;
     this.#now = options.now ?? Date.now;
@@ -1164,9 +1184,15 @@ export class PostgresAnalytics implements Analytics {
     // 30 days the ~1,000 steps, flipping sign settlement to settlement, draw four
     // to a pixel and read as a solid block. The sum is over every event either way.
     const byDay = timeframe === '30d' || timeframe === 'all';
-    const rows = await this.#rows(FUNDING_SERIES_SQL, [iso(sinceMs), byDay]);
+    const [rows, cadenceRows] = await Promise.all([this.#rows(FUNDING_SERIES_SQL, [iso(sinceMs), byDay]), this.#rows(FUNDING_CADENCE_SQL)]);
+    const cadenceById = new Map(
+      cadenceRows.map((row) => {
+        const gap = row['mean_gap_sec'] === null || row['mean_gap_sec'] === undefined ? undefined : Number(row['mean_gap_sec']);
+        return [count(row['id']), { events: count(row['events']), gap: gap !== undefined && Number.isFinite(gap) ? gap : undefined }] as const;
+      }),
+    );
 
-    const out: Array<{ market: MarketRef; points: { atMs: number; ratePct: number }[]; sum100k: bigint; events: number }> = [];
+    const out: Array<{ market: MarketRef; points: { atMs: number; ratePct: number; events: number }[]; sum100k: bigint; events: number }> = [];
     for (const row of rows) {
       const marketId = count(row['id']);
       let current = out.at(-1);
@@ -1174,7 +1200,7 @@ export class PostgresAnalytics implements Analytics {
         current = { market: toMarketRef(row['id'], row['name'], this.#resolve), points: [], sum100k: 0n, events: 0 };
         out.push(current);
       }
-      current.points.push({ atMs: requireMs(row['at']), ratePct: Number(row['rate']) / 100_000 });
+      current.points.push({ atMs: requireMs(row['at']), ratePct: Number(row['rate']) / 100_000, events: count(row['events']) });
       current.sum100k += bigintOrZero(row['rate_sum']);
       current.events += count(row['events']);
     }
@@ -1187,6 +1213,11 @@ export class PostgresAnalytics implements Analytics {
       cumulativeRatePct: Number(m.sum100k) / 100_000,
       firstAtMs: m.points[0]?.atMs,
       lastAtMs: m.points.at(-1)?.atMs,
+      cadence: {
+        venueIntervalSec: this.#fundingIntervalSec(m.market.marketId),
+        measuredIntervalSec: cadenceById.get(m.market.marketId)?.gap,
+        eventsPerDay: cadenceById.get(m.market.marketId)?.events ?? 0,
+      },
     }));
   }
 

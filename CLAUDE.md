@@ -77,12 +77,18 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   symbols, prices, action availability — follows the CONTEXT, not the chain.
   The chain is the history; the context is what a trader can see and touch
   today.
-  - THE ONE PLACE THE CHAIN SHOWS THROUGH is the Markets page's "Not yet
-    trading" group (`upcomingMarkets` in `apps/web/src/lib/markets.ts`): listed
-    on chain, absent from the context, NEVER TRADED. It shows the contract's own
-    parameters under the contract's own symbol, no venue figures, and no
-    opening date. A market the context omits that HAS traded is retired and is
-    not shown anywhere on the page. The rule reads the data; no id is named.
+  - THE ONE PLACE THE CHAIN SHOWS THROUGH is the Markets table's UPCOMING
+    rows (`upcomingRows` in `apps/web/src/lib/markets.ts`): listed on chain,
+    absent from the context, NEVER TRADED. Same table as the live markets, with
+    a Status column; the contract's own symbol, the contract's last mark
+    labelled "contract mark", "—" (never 0, sorted last) for every venue
+    figure, and the contract's parameters in the row's detail. No opening date.
+    A market the context omits that HAS traded is retired and is not shown
+    anywhere on the page. The rule reads the data.
+  - THE ONE NAMED EXCEPTION is `EXCLUDED_MARKETS` in the same file: mainnet
+    80, TAO, off every page at the owner's request (4 Oct 2026). An explicit
+    list with a reason per entry, never a rule, so nothing else can be dropped
+    by accident. Delete the entry to bring it back.
 - Trading requests are signed locally with an Ed25519 API key and sent through
   Perpl's forwarder.
 - `mt: 3` with `code: 0` means ACCEPTED FOR FORWARDING ONLY. It is not posted
@@ -333,24 +339,42 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   page states that the shock is static and that all-markets assumes every
   market moves together, the worst case rather than the likely one, and that
   book depth is not shown because the indexer has no order book.
-- FUNDING ON THE MARKETS PAGE IS RATES, NEVER AN AUSD TOTAL. "Funding rates
-  over time" is a small multiple per market on one shared scale: every rate
-  applied at 24H and 7D, the labelled mean per event by UTC day at 30D and All
-  (1,000 sign-flipping steps draw four to a pixel). "Historical funding" is the
-  sum of every rate applied in the window, exact, positive = longs paid shorts
-  (Perpl docs). An AUSD total across traders needs each side's open interest at
-  every funding event, which the index does not keep; it is said on the page,
-  not estimated.
+- FUNDING ON THE MARKETS PAGE IS ONE HEATMAP OF RATES, NEVER AN AUSD TOTAL.
+  Page order is header -> all-markets table -> funding heatmap, nothing
+  between. One row per LIVE market (the table's live rows, so the counts always
+  match; a live market with no settlement gets a row of missing cells, never
+  dropped). Upcoming markets are never in it. Columns follow the page's
+  timeframe: every settlement at 24H, the MEAN RATE PER SETTLEMENT by UTC day at
+  7D and 30D, by UTC week at All; every cell carries how many settlements it
+  averaged and the caption says which grain is drawn. A missing cell is
+  hatched; a 0% cell is a solid neutral: not listed is not zero. Each row ends
+  in a simple APR from the CURRENT rate × settlements a year (venue
+  `funding_interval_sec`, else measured), stated on the panel as not
+  compounded and assuming the rate holds. A Table view gives every figure as
+  text. Positive = longs pay shorts (Perpl docs).
+  - FUNDING SETTLES EVERY ~43 MIN, NOT HOURLY: 2,580 s in the context, 2,587 s
+    measured between indexed settlements, about 33 a day. It was about 25 a
+    day until 23 Jul 2026, so a whole weekly column holds 174 to 234. The API serves
+    both figures as `MarketFundingSeries.cadence`; the page states them.
+  - An AUSD total across traders needs each side's open interest at every
+    settlement, which the index does not keep; it is said on the page, not
+    estimated.
 - TOKEN ICONS ARE VENDORED, LICENSED AND IDENTIFIED. `apps/web/public/tokens/`
-  holds only Cryptocurrency Icons (CC0) and Trust Wallet assets (MIT), pinned,
-  each checked against its source's own name, symbol and website;
-  `SOURCES.md` there is the record and a test keeps every mapped file in it.
-  Never a logo from an exchange site or a project page. A ticker that names
-  more than one token (LIT) or has no entry (TAO) gets the initials circle.
-  Icons are decorative: `aria-hidden`, the name is the text beside them.
+  holds the project's OWN mark from its brand page where it publishes one
+  (Solana, Aave, Lighter), otherwise Cryptocurrency Icons (CC0) or Trust Wallet
+  assets (MIT), pinned. Each is checked against the actual project, not the
+  ticker (LIT is Lighter by price, not Litentry); `SOURCES.md` there records
+  source, terms and how identity was checked, and a test keeps every mapped
+  file in it. Never a logo from an exchange site. A market with no licensed
+  source gets the initials circle. Icons are decorative: `aria-hidden`, the
+  name is the text beside them.
 - NOT BUILT, ON PURPOSE: order book depth, intraday candles, open-interest
   history as a level (the indexer holds only deltas). Single-market drill-down
   is a later pass.
+- THE FOOTER HAS NO "Data & methodology" SECTION: taken off the site on 4 Oct
+  2026 at the owner's request, to come back later. `docs/methodology.md` and
+  `apps/web/src/lib/methodology.ts` stay; the section's markup is in git at
+  `11e3eec`. Do not re-add it unasked.
 - EMPTY STATES ARE DESIGNED. The likeliest first visit is someone with no
   account and no positions; every table and panel has a sentence for that.
 

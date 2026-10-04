@@ -17,6 +17,24 @@
 import type { MarketBreakdown, MarketDailyPoint, MarketDailySeries, MarketListing, MarketOpenInterest, Timeframe } from '@perpguard/shared';
 
 /**
+ * MARKETS KEPT OFF THE SITE BY DECISION, by MAINNET market id (the web reads
+ * mainnet only; ids differ on testnet), each with its reason. An explicit list,
+ * not a rule, so nothing else can ever be dropped by accident: every other market
+ * the chain lists still reaches the table by the rules below.
+ *
+ * 80, TAO: removed from every page at the owner's request, 4 Oct 2026. What the
+ * data says about it: listed on chain 20 Aug 2026, never traded, not paused
+ * (unlike the other listings waiting to open), absent from the venue's context,
+ * and with no first-party icon (public/tokens/SOURCES.md). Without this entry
+ * the upcoming rule below would show it. Delete the entry to bring it back.
+ */
+export const EXCLUDED_MARKETS: ReadonlyMap<number, string> = new Map([[80, 'TAO: listed on chain, never traded, not paused, not in the venue context']]);
+
+export function isExcludedMarket(marketId: number): boolean {
+  return EXCLUDED_MARKETS.has(marketId);
+}
+
+/**
  * Which day buckets the mark-derived columns (change, low–high, volatility)
  * are computed over, and how to label them honestly.
  *
@@ -196,6 +214,7 @@ export function riskTag(score: RiskScore, longShare: number | undefined, funding
 // ── the rows ────────────────────────────────────────────────────────────────
 
 export interface MarketRow {
+  readonly status: 'live';
   readonly marketId: number;
   readonly symbol: string;
   /** The venue's mark now when the level is known, else the indexed one. */
@@ -237,7 +256,7 @@ export interface MarketRow {
 export interface MarketTable {
   /**
    * The markets the venue's context lists. A market it does not list is not a
-   * row: if it has never traded it is UPCOMING (see `upcomingMarkets`); if it has
+   * LIVE row: if it has never traded it is an UPCOMING row (see `upcomingRows`); if it has
    * traded it is RETIRED (SOL v1, market 30) and is not shown at all.
    */
   readonly rows: readonly MarketRow[];
@@ -259,7 +278,7 @@ export function buildMarketTable(
   const rows: MarketRow[] = [];
 
   for (const m of breakdown) {
-    if (m.market.symbol === undefined) continue;
+    if (m.market.symbol === undefined || isExcludedMarket(m.market.marketId)) continue;
     const oi = oiById.get(m.market.marketId);
     const points = shown(seriesById.get(m.market.marketId)?.points ?? [], showDays);
     const markPrice = oi?.markPrice ?? m.markPrice ?? points.at(-1)?.markClose;
@@ -283,6 +302,7 @@ export function buildMarketTable(
     });
 
     rows.push({
+      status: 'live',
       marketId: m.market.marketId,
       symbol: m.market.symbol,
       markPrice,
@@ -314,10 +334,47 @@ export function buildMarketTable(
   return { rows };
 }
 
+// ── upcoming rows, and the one table ────────────────────────────────────────
+
+/**
+ * A market listed on chain that the venue has not opened, as a row of the one
+ * table. It has a name (the contract's own symbol: there is no venue ticker yet)
+ * and the contract's last mark, and NONE of the venue's figures: volume, open
+ * interest, funding, exposure and risk are absent, rendered as "—", and sorted
+ * last, never as zero.
+ */
+export interface UpcomingRow {
+  readonly status: 'upcoming';
+  readonly marketId: number;
+  readonly symbol: string;
+  /** The CONTRACT's last mark, labelled so on the page. Not a venue price. */
+  readonly markPrice: number | undefined;
+  readonly listing: MarketListing;
+}
+
+export type TableRow = MarketRow | UpcomingRow;
+
+export function upcomingRows(listings: readonly MarketListing[]): readonly UpcomingRow[] {
+  return upcomingMarkets(listings).map((l) => ({ status: 'upcoming', marketId: l.market.marketId, symbol: l.chainSymbol, markPrice: l.markPrice, listing: l }));
+}
+
+/** Which rows the page's All | Live | Upcoming control shows. `?status=` in the URL. */
+export type StatusFilter = 'all' | 'live' | 'upcoming';
+export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'live', 'upcoming'];
+
+export function statusFromQuery(value: string | null | undefined): StatusFilter {
+  return value === 'live' || value === 'upcoming' ? value : 'all';
+}
+
+export function filterRows(rows: readonly TableRow[], filter: StatusFilter): readonly TableRow[] {
+  return filter === 'all' ? rows : rows.filter((r) => r.status === filter);
+}
+
 // ── sorting ─────────────────────────────────────────────────────────────────
 
 export type SortKey =
   | 'symbol'
+  | 'status'
   | 'markPrice'
   | 'change'
   | 'volumeAusd'
@@ -331,28 +388,34 @@ export type SortKey =
 
 export type SortDirection = 'asc' | 'desc';
 
-/** The direction a column starts in when first clicked: figures high-first, names A–Z. */
+/** The direction a column starts in when first clicked: figures high-first, names A–Z, live first. */
 export function defaultDirection(key: SortKey): SortDirection {
-  return key === 'symbol' ? 'asc' : 'desc';
+  return key === 'symbol' || key === 'status' ? 'asc' : 'desc';
 }
 
-function sortValue(row: MarketRow, key: SortKey): number | string | undefined {
+function sortValue(row: TableRow, key: SortKey): number | string | undefined {
   switch (key) {
     case 'symbol':
       return row.symbol;
+    case 'status':
+      return row.status === 'live' ? 0 : 1;
+    case 'markPrice':
+      return row.markPrice;
     case 'risk':
-      return row.risk.score;
+      return row.status === 'live' ? row.risk.score : undefined;
     default:
-      return row[key];
+      // An upcoming market has none of the venue's figures: unknown, so last.
+      return row.status === 'live' ? row[key] : undefined;
   }
 }
 
 /**
  * A stable sort with UNKNOWNS LAST in either direction: a market with no mark is
- * not the cheapest market, and one with no funding event is not the calmest.
- * Ties break by market id so the order never flickers between polls.
+ * not the cheapest market, one with no funding event is not the calmest, and an
+ * upcoming market's "—" is not a zero. Ties break by market id so the order never
+ * flickers between polls.
  */
-export function sortRows(rows: readonly MarketRow[], key: SortKey, direction: SortDirection): readonly MarketRow[] {
+export function sortRows<R extends TableRow>(rows: readonly R[], key: SortKey, direction: SortDirection): readonly R[] {
   const sign = direction === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
     const va = sortValue(a, key);
@@ -373,12 +436,12 @@ export function sortRows(rows: readonly MarketRow[], key: SortKey, direction: So
  * new listing appears here on its own and leaves when the venue opens it.
  *
  * A market the context omits that HAS traded is retired (SOL v1) and is left out
- * entirely. "Coming" is the venue's call, not ours: a market that has sat listed
- * and untraded for weeks (TAO) is shown with its listing date, and the page does
- * not claim to know when it opens.
+ * entirely. "Coming" is the venue's call, not ours: a market is shown with its
+ * listing date, and the page does not claim to know when it opens. The only
+ * exceptions are named, not inferred: see EXCLUDED_MARKETS.
  */
 export function upcomingMarkets(listings: readonly MarketListing[]): readonly MarketListing[] {
   return listings
-    .filter((m) => m.market.symbol === undefined && m.tradesAllTime === 0)
+    .filter((m) => m.market.symbol === undefined && m.tradesAllTime === 0 && !isExcludedMarket(m.market.marketId))
     .sort((a, b) => a.market.marketId - b.market.marketId);
 }

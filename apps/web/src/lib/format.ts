@@ -150,6 +150,10 @@ export function formatPriceAsServed(value: number): string {
 /** A funding rate in PERCENT units, signed, to six places: real values are that small. */
 export function formatFundingPct(pct: number): string {
   const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
+  // A settled rate is a whole number of 0.00001%, but a MEAN over a day or week is
+  // not: one that is non-zero yet rounds to nothing says so, rather than printing
+  // a signed zero that reads as a rate of exactly 0.
+  if (pct !== 0 && Math.abs(pct) < 0.0000005) return `${sign}<0.000001%`;
   return `${sign}${Math.abs(pct).toLocaleString(EN, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}%`;
 }
 

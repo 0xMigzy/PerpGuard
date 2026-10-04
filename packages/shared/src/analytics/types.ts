@@ -339,12 +339,28 @@ export interface MarketFundingSeries {
    * event would draw several to a pixel; the sum is still over every event.
    */
   readonly resolution: 'event' | 'utc-day';
-  readonly points: readonly { readonly atMs: number; readonly ratePct: number }[];
+  /** `events`: how many settlements the point's rate averages. 1 at `event` resolution. */
+  readonly points: readonly { readonly atMs: number; readonly ratePct: number; readonly events: number }[];
   readonly eventCount: number;
   /** Sum of every rate applied in the window, in percent. Positive: longs paid. */
   readonly cumulativeRatePct: number;
   readonly firstAtMs: number | undefined;
   readonly lastAtMs: number | undefined;
+  readonly cadence: FundingCadence;
+}
+
+/**
+ * How often a market settles funding: what the venue says, and what the index
+ * measured. Independent of the requested window — always the 24 hours up to the
+ * market's latest indexed settlement — so it reads the same on every timeframe.
+ */
+export interface FundingCadence {
+  /** `funding_interval_sec` from the venue's context. Undefined when it does not list the market. */
+  readonly venueIntervalSec: number | undefined;
+  /** Mean spacing between consecutive settlements over the measured 24 hours. */
+  readonly measuredIntervalSec: number | undefined;
+  /** Settlements in those 24 hours. */
+  readonly eventsPerDay: number;
 }
 
 /**

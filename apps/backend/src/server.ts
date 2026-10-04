@@ -673,6 +673,8 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     resolveSymbol: symbolResolver(
       analyticsMarkets.map((m) => ({ marketId: m.marketId, symbol: m.symbol })),
     ),
+    // The venue's own settlement interval, so an annualised rate is never off a hard-coded hour.
+    fundingIntervalSec: (marketId) => analyticsMarkets.find((m) => m.marketId === marketId)?.fundingIntervalSec,
     // An INDEPENDENT chain head, so a halted indexer cannot report itself synced.
     // The same helper the lag monitor uses, so the two cannot disagree about the
     // head and then disagree about whether the indexer is healthy.

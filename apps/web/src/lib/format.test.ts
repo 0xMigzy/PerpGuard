@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  formatFundingPct,
   blocksToApproxMs,
   formatAge,
   formatCompact,
@@ -60,4 +61,12 @@ test('ages pick the coarsest unit that still says something', () => {
 
 test('short addresses keep both ends', () => {
   assert.equal(shortAddress('0xB7854953A71e45D1033B3d619E76d56391291765'), '0xB785…1765');
+});
+
+test('a funding mean too small for six places is never printed as a signed zero', () => {
+  assert.equal(formatFundingPct(0), '0.000000%');
+  assert.equal(formatFundingPct(0.00004), '+0.000040%');
+  assert.equal(formatFundingPct(-0.0000002), '−<0.000001%');
+  assert.equal(formatFundingPct(0.0000004), '+<0.000001%');
+  assert.equal(formatFundingPct(0.0000006), '+0.000001%');
 });

@@ -825,8 +825,21 @@ test('over 30D and All the line is a daily mean, but the sum is still over every
   assert.equal(btc!.eventCount, 67);
   assert.equal(btc!.cumulativeRatePct, 0.00052, '(85 − 33) / 100,000: the events, not the daily means');
   assert.equal(sql.touching('FundingEvent')[0]!.values[1], true);
+  assert.deepEqual(btc!.points.map((p) => p.events), [34, 33], 'each point says how many settlements it averages');
   await reader(sql).fundingSeries('30d');
-  assert.equal(sql.touching('FundingEvent')[1]!.values[1], true, '30D too: 1,000 steps would read as a block');
+  const series = sql.touching('FundingEvent').filter((c) => /join "Market" m/.test(c.sql));
+  assert.equal(series[1]!.values[1], true, '30D too: 1,000 steps would read as a block');
+});
+
+test('the funding cadence is the venue interval beside the measured one, never assumed hourly', async () => {
+  const sql = new FakeSql()
+    .on(/from "FundingEvent" f join "Market" m/, [{ id: '1', name: 'BTC Perp', at: new Date('2026-10-01T00:00:00Z'), rate: '4', rate_sum: '4', events: '1' }])
+    .on(/mean_gap_sec/, [{ id: '1', events: '33', mean_gap_sec: '2587.4' }]);
+  const analytics = new PostgresAnalytics({ client: sql, chainId: 143, resolveSymbol: RESOLVE, fundingIntervalSec: (id) => (id === 1 ? 2580 : undefined), now: () => NOW });
+  const [btc] = await analytics.fundingSeries('24h');
+  assert.deepEqual(btc!.cadence, { venueIntervalSec: 2580, measuredIntervalSec: 2587.4, eventsPerDay: 33 });
+  const bare = await reader(new FakeSql().on(/from "FundingEvent" f join "Market" m/, [{ id: '1', name: 'BTC Perp', at: new Date('2026-10-01T00:00:00Z'), rate: '4', rate_sum: '4', events: '1' }])).fundingSeries('24h');
+  assert.deepEqual(bare[0]!.cadence, { venueIntervalSec: undefined, measuredIntervalSec: undefined, eventsPerDay: 0 }, 'unknown stays unknown');
 });
 
 test('a listing reads the contract parameters in the context’s units, and keeps the chain symbol', async () => {

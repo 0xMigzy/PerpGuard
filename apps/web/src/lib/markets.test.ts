@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MarketBreakdown, MarketDailySeries, MarketListing, MarketOpenInterest } from '@perpguard/shared';
-import { RISK_WEIGHT, buildMarketTable, markWindow, riskScore, riskTag, sortRows, upcomingMarkets } from './markets.ts';
+import { EXCLUDED_MARKETS, RISK_WEIGHT, buildMarketTable, filterRows, markWindow, riskScore, riskTag, sortRows, statusFromQuery, upcomingMarkets, upcomingRows, type TableRow } from './markets.ts';
 
 const day = (n: number) => Date.parse('2026-09-01T00:00:00Z') + n * 86_400_000;
 
@@ -180,5 +180,41 @@ test('upcoming: on chain, not in the context, never traded. Retired and live mar
     listing(80, undefined, 'TAO', 0),
     listing(120, undefined, 'ARB', 0),
   ]);
-  assert.deepEqual(upcoming.map((m) => m.chainSymbol), ['TAO', 'ARB', 'ENA'], 'by market id; SOL v1 is retired, BTC is live');
+  assert.deepEqual(upcoming.map((m) => m.chainSymbol), ['ARB', 'ENA'], 'by market id; SOL v1 is retired, BTC is live, TAO (80) is excluded by id');
+});
+
+test('the exclusion list is explicit and holds TAO alone: a rule cannot widen it', () => {
+  assert.deepEqual([...EXCLUDED_MARKETS.keys()], [80]);
+  const table = buildMarketTable([breakdown({ marketId: 80, symbol: 'TAO' }), breakdown({ marketId: 1, symbol: 'BTC' })], undefined, undefined, undefined);
+  assert.deepEqual(table.rows.map((r) => r.symbol), ['BTC'], 'excluded even if the venue starts naming it, until the entry is deleted');
+});
+
+test('one table: upcoming rows sort their "—" last in both directions, never as zero', () => {
+  const live = buildMarketTable(
+    [breakdown({ marketId: 1, symbol: 'BTC', markPrice: 83_000, volumeAusd: 0 }), breakdown({ marketId: 10, symbol: 'MON', markPrice: 0.03, volumeAusd: 7 })],
+    undefined,
+    undefined,
+    undefined,
+  ).rows;
+  const upcoming = upcomingRows([listing(120, undefined, 'ARB', 0), listing(150, undefined, 'ENA', 0)]);
+  assert.deepEqual(upcoming.map((r) => [r.status, r.symbol]), [['upcoming', 'ARB'], ['upcoming', 'ENA']], 'named by the contract');
+  const rows: TableRow[] = [...upcoming, ...live];
+  for (const direction of ['asc', 'desc'] as const) {
+    const sorted = sortRows(rows, 'volumeAusd', direction).map((r) => r.symbol);
+    assert.deepEqual(sorted.slice(2), ['ARB', 'ENA'], `${direction}: upcoming last, by id; BTC's real 0 is not one of them`);
+    assert.deepEqual(sortRows(rows, 'risk', direction).slice(2).map((r) => r.status), ['upcoming', 'upcoming']);
+  }
+  assert.deepEqual(sortRows(rows, 'status', 'asc').map((r) => r.status), ['live', 'live', 'upcoming', 'upcoming']);
+  assert.deepEqual(sortRows(rows, 'symbol', 'asc').map((r) => r.symbol), ['ARB', 'BTC', 'ENA', 'MON']);
+});
+
+test('the status filter reads ?status= and keeps the default out of the URL', () => {
+  assert.equal(statusFromQuery(null), 'all');
+  assert.equal(statusFromQuery('live'), 'live');
+  assert.equal(statusFromQuery('upcoming'), 'upcoming');
+  assert.equal(statusFromQuery('LIVE'), 'all', 'unknown values fall back, never throw');
+  const rows: TableRow[] = [...upcomingRows([listing(120, undefined, 'ARB', 0)]), ...buildMarketTable([breakdown({ marketId: 1, symbol: 'BTC' })], undefined, undefined, undefined).rows];
+  assert.deepEqual(filterRows(rows, 'live').map((r) => r.symbol), ['BTC']);
+  assert.deepEqual(filterRows(rows, 'upcoming').map((r) => r.symbol), ['ARB']);
+  assert.equal(filterRows(rows, 'all').length, 2);
 });
