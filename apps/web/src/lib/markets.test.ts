@@ -218,3 +218,12 @@ test('the status filter reads ?status= and keeps the default out of the URL', ()
   assert.deepEqual(filterRows(rows, 'upcoming').map((r) => r.symbol), ['ARB']);
   assert.equal(filterRows(rows, 'all').length, 2);
 });
+
+test('a retired market is named for what it was; a live one keeps its ticker; an unknown one its id', async () => {
+  const { marketName, marketIconSymbol, RETIRED_MARKETS } = await import('./markets.ts');
+  assert.equal(marketName({ marketId: 30, symbol: undefined }), 'SOL v1 (retired)');
+  assert.equal(marketIconSymbol({ marketId: 30, symbol: undefined }), 'SOL', 'borrows its successor\'s icon');
+  assert.equal(marketName({ marketId: 31, symbol: 'SOL' }), 'SOL');
+  assert.equal(marketName({ marketId: 999, symbol: undefined }), 'market 999');
+  assert.deepEqual([...RETIRED_MARKETS.keys()], [30], 'an explicit list, one entry');
+});

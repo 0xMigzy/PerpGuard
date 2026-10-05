@@ -48,3 +48,9 @@ test('direction words and whole days for the backstop line', async () => {
   assert.equal(wholeDays(Date.UTC(2026, 1, 11, 23), Date.UTC(2026, 9, 5, 12)), 235);
   assert.equal(wholeDays(10, 0), 0);
 });
+
+test('the page and the builder agree on what counts as a shortfall', async () => {
+  const page = (await import('./risk.ts')).hasShortfall;
+  const builder = (await import('../../../../packages/shared/src/analytics/exposure.ts')).hasShortfall;
+  for (const v of [0, 0.000059, 0.0049, 0.005, 0.01, 0.57, 4_399.96]) assert.equal(page(v), builder(v), String(v));
+});

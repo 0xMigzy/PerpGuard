@@ -89,3 +89,14 @@ export function formatMove(move: number): string {
   const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
   return `${sign}${Math.abs(pct)}%`;
 }
+
+/**
+ * Whether a loss beyond collateral is real: it does not round to zero at the
+ * cent. Below that there is no ratio to show, only "no shortfall". The same
+ * rule as `hasShortfall` in the shared exposure builder (which withholds the
+ * cover ratio); kept here because the page imports only TYPES from shared,
+ * and a test pins the two to agree.
+ */
+export function hasShortfall(shortfallAusd: number): boolean {
+  return Math.round(shortfallAusd * 100) > 0;
+}

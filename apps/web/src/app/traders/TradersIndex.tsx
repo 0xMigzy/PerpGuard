@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import type { TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
-import { inPeriod, periodLabel } from '@/lib/history.ts';
+import { DAY_BUCKET_24H, dayPeriodLabel, inDayPeriod } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -76,7 +76,7 @@ export function TradersIndex() {
   const data = list.data?.data;
   const start = useHistoryStart();
   const window = data?.window ?? summary.data?.data.window;
-  const period = periodLabel(t, start);
+  const period = dayPeriodLabel(t, start);
   // Day buckets: "24h" is today and yesterday so far, and the column says so.
   const windowed = window === undefined || window.days === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
   const floor = data?.minRoundTripsForRatios ?? 10;
@@ -126,7 +126,7 @@ export function TradersIndex() {
       <PageHeader
         title="Traders"
         subtitle="Every account the indexer has seen. Search an address, or sort the table."
-        right={<TimeframePills />}
+        right={<TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />}
       />
 
       <ErrorNote error={summary.error} what="The trader totals" />
@@ -257,7 +257,7 @@ export function TradersIndex() {
                 <tr>
                   <td colSpan={columns.length} className="px-[10px] py-8 text-center text-muted">
                     <div className="text-[14px] font-semibold text-text">
-                      {data.query !== undefined ? `No account matching ${data.query} is in the ${info.label} list ${inPeriod(t, start)}.` : info.empty(inPeriod(t, start))}
+                      {data.query !== undefined ? `No account matching ${data.query} is in the ${info.label} list ${inDayPeriod(t, start)}.` : info.empty(inDayPeriod(t, start))}
                     </div>
                     <div className="mt-1 text-[12.5px]">{data.query !== undefined ? 'Try Volume, which lists every account that traded, or widen the window.' : 'Widen the window, or choose another ranking.'}</div>
                   </td>

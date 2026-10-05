@@ -16,7 +16,10 @@ export function BandBars({ bands, unit }: { readonly bands: readonly Liquidation
       <div className="mb-2 flex flex-wrap gap-[14px] text-[12px] text-muted">
         <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: COLORS.accentHi }} />Rescuable</span>
         <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: OTHER_SERIES }} />Not rescuable</span>
-        <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px] border border-border2" style={{ background: 'transparent' }} />Unjudgeable</span>
+        {/* Only when a band holds one: the full-history index judges every liquidation, so this is normally empty. */}
+        {bands.some((b) => b.unknownCount > 0) && (
+          <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px] border border-border2" style={{ background: 'transparent' }} />Unjudgeable</span>
+        )}
       </div>
       <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-[7px] text-[12px]">
         {bands.map((b) => (

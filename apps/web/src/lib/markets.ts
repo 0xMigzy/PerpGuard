@@ -35,6 +35,27 @@ export function isExcludedMarket(marketId: number): boolean {
 }
 
 /**
+ * RETIRED MARKETS, NAMED FOR WHAT THEY WERE. The venue context no longer lists
+ * them, so they have no ticker, but the index holds their history and the
+ * Liquidations and trader pages show it. An explicit list with a reason per
+ * entry, like EXCLUDED_MARKETS: never inferred from a name, so nothing else
+ * can be relabelled by accident.
+ */
+export const RETIRED_MARKETS: ReadonlyMap<number, { readonly label: string; readonly icon: string; readonly reason: string }> = new Map([
+  [30, { label: 'SOL v1 (retired)', icon: 'SOL', reason: 'the first SOL contract (127,499 trades), retired and replaced by SOL_v2, market 31' }],
+]);
+
+/** A market as a page names it: the venue's ticker, else its retired name, else its id. */
+export function marketName(ref: { readonly marketId: number; readonly symbol?: string | undefined }): string {
+  return ref.symbol ?? RETIRED_MARKETS.get(ref.marketId)?.label ?? `market ${ref.marketId}`;
+}
+
+/** The ticker whose icon stands for a market: a retired market borrows its successor's. */
+export function marketIconSymbol(ref: { readonly marketId: number; readonly symbol?: string | undefined }): string {
+  return ref.symbol ?? RETIRED_MARKETS.get(ref.marketId)?.icon ?? `market ${ref.marketId}`;
+}
+
+/**
  * Which day buckets the mark-derived columns (change, low–high, volatility)
  * are computed over, and how to label them honestly.
  *

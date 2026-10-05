@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import type { DirectionalExposure, RiskSnapshot } from '@perpguard/shared';
 import { formatAge, formatAusdExact, formatCompact, formatCount, formatPct } from '@/lib/format.ts';
-import { directionWord, wholeDays } from '@/lib/risk.ts';
+import { directionWord, hasShortfall, wholeDays } from '@/lib/risk.ts';
 import { VAR } from '@/lib/theme.ts';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { TokenIcon } from '@/components/TokenIcon.tsx';
@@ -171,7 +171,7 @@ function LossesCard({ worse }: { readonly worse: DirectionalExposure }) {
       </div>
       <div
         className="metric-value mt-[6px]"
-        style={{ color: worse.shortfallAusd > 0 ? VAR.danger : VAR.text }}
+        style={{ color: hasShortfall(worse.shortfallAusd) ? VAR.danger : VAR.text }}
         title={`${formatAusdExact(worse.shortfallAusd)} AUSD`}
       >
         {formatCompact(worse.shortfallAusd)}

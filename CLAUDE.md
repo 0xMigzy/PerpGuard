@@ -13,12 +13,14 @@ account balance is NEVER pulled in to rescue a losing position. Traders get
 liquidated while holding plenty of spare AUSD. PerpGuard watches each position,
 warns before liquidation, and lets the user add margin or close in one tap.
 
-THE NUMBER WE QUOTE IS `rescuableLiquidationCount`: 463 of the 622 mainnet
-liquidations we can judge, 74%, where the trader's free AUSD would have covered
-the top-up that kept the position above maintenance margin. Quote it with its
-hole — 32 liquidations are of positions opened before the indexer's start block
-and cannot be judged, so they are excluded from the denominator, never counted
-as failures.
+THE NUMBER WE QUOTE IS `rescuableLiquidationCount`, ALWAYS WITH ITS WINDOW:
+2,318 of 3,463 mainnet liquidations (66.9%) since Perpl launched on 11 Feb
+2026, and 467 of 637 (73.3%) over 30 days (`docs/liquidation-finding-2026-10-01.md`)
+— liquidations where the trader's free AUSD would have covered the top-up that
+kept the position above maintenance margin. Nothing is excluded: the index runs
+from the Exchange's deployment block, so every liquidation can be judged. If a
+position ever predates the index again, it is excluded from the denominator,
+never counted as a failure.
 
 NEVER SUM A PER-ACCOUNT LEVEL ACROSS LIQUIDATIONS. Free balance is a level an
 account holds, not a flow; summing it over liquidations counts the same money

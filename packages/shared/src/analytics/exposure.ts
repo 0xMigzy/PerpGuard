@@ -250,6 +250,16 @@ export interface ExposureInputs {
 
 const moveKey = (move: number): string => move.toFixed(3);
 
+/**
+ * Whether a loss beyond collateral is real enough to cover: it must not round
+ * to zero at the cent, the precision every figure on the page is printed at.
+ * Below that a cover ratio is insurance over dust (a 0.000059 AUSD shortfall
+ * gave "423,268,560×") and means nothing, so no ratio is computed at all.
+ */
+export function hasShortfall(shortfallAusd: number): boolean {
+  return Math.round(shortfallAusd * 100) > 0;
+}
+
 export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
   const unpricedReasons: Record<string, number> = {};
   const skip = (reason: string): void => {
@@ -451,7 +461,7 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     const cover10: MarketCover = {
       direction: worse10.move < 0 ? 'fall' : 'rise',
       shortfallAusd: worse10.shortfallAusd,
-      cover: insuranceAusd === undefined || worse10.shortfallAusd <= 0 ? undefined : insuranceAusd / worse10.shortfallAusd,
+      cover: insuranceAusd === undefined || !hasShortfall(worse10.shortfallAusd) ? undefined : insuranceAusd / worse10.shortfallAusd,
     };
 
     const sizes = acc.exposed.map((p) => p.notionalAusd).sort((a, b) => b - a);

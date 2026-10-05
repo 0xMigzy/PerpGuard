@@ -13,7 +13,12 @@ export function useTimeframe(): Timeframe {
   return timeframeFromQuery(params.get('t'), DEFAULT_TIMEFRAME);
 }
 
-export function TimeframePills() {
+/**
+ * `labels` renames a pill on a page whose window is not what the shared label
+ * says (Traders counts whole UTC days, so its 24H is "2D"). The value, and so
+ * the URL and the query, is unchanged.
+ */
+export function TimeframePills({ labels }: { readonly labels?: Partial<Record<Timeframe, { readonly text: string; readonly title: string }>> } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -36,8 +41,9 @@ export function TimeframePills() {
           }`}
           aria-pressed={t === current}
           onClick={() => select(t)}
+          title={labels?.[t]?.title}
         >
-          {TIMEFRAME_LABEL[t]}
+          {labels?.[t]?.text ?? TIMEFRAME_LABEL[t]}
         </button>
       ))}
     </div>

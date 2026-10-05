@@ -5,7 +5,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { DirectionalExposure, ExposedPosition, MarketExposure } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd, formatWhen } from '@/lib/format.ts';
-import { chartRungs, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
+import { chartRungs, exposedAt, formatMove, hasShortfall, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
 import { VAR } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -136,7 +136,7 @@ export function RiskView() {
               />
               <Stat
                 label="Losses beyond collateral"
-                value={<span className={rung.shortfallAusd > 0 ? 'text-danger' : ''}>{formatCompact(rung.shortfallAusd)}</span>}
+                value={<span className={hasShortfall(rung.shortfallAusd) ? 'text-danger' : ''}>{formatCompact(rung.shortfallAusd)}</span>}
                 title={`${formatCount(rung.shortfallPositions)} positions past their own collateral`}
               />
               <Stat
@@ -146,8 +146,8 @@ export function RiskView() {
                     <span className="text-[12px] font-medium text-muted2">per market only</span>
                   ) : scope.insuranceAusd === undefined ? (
                     <span className="text-[12px] font-medium text-muted2">no reading</span>
-                  ) : rung.shortfallAusd === 0 ? (
-                    <span className="text-[12px] font-medium text-muted2">nothing to cover</span>
+                  ) : !hasShortfall(rung.shortfallAusd) ? (
+                    <span className="text-[12px] font-medium text-muted2">no shortfall</span>
                   ) : (
                     <span className={scope.insuranceAusd / rung.shortfallAusd < 10 ? 'text-danger' : 'text-safe'}>{(scope.insuranceAusd / rung.shortfallAusd).toFixed(1)}×</span>
                   )
@@ -391,7 +391,7 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                         <SplitCell d={ten.rise} />
                       </td>
                       <td className={cell} title={`${formatCount(ten.worse.shortfallPositions)} positions lose more than their own collateral`}>
-                        {m.cover10.shortfallAusd > 0 ? (
+                        {hasShortfall(m.cover10.shortfallAusd) ? (
                           <>
                             <span className="text-danger">
                               <Amount ausd={m.cover10.shortfallAusd} />
@@ -407,8 +407,8 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                       </td>
                       <td className={adv}>
                         {m.cover10.cover === undefined ? (
-                          <span className="text-muted2" title={m.cover10.shortfallAusd === 0 ? 'no losses beyond collateral at 10%' : 'no insurance reading'}>
-                            {m.cover10.shortfallAusd === 0 ? 'none needed' : '—'}
+                          <span className="text-muted2" title={!hasShortfall(m.cover10.shortfallAusd) ? 'no loss beyond collateral that rounds above zero at 10%' : 'no insurance reading'}>
+                            {!hasShortfall(m.cover10.shortfallAusd) ? 'no shortfall' : '—'}
                           </span>
                         ) : (
                           <span className={m.cover10.cover < 10 ? 'text-danger' : m.cover10.cover < 50 ? 'text-watch' : 'text-safe'} title={`against the ${m.cover10.direction}`}>

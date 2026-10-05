@@ -25,10 +25,10 @@ export function TokenIcon({ symbol, size = 20 }: { readonly symbol: string; read
 }
 
 /** The icon and the name on one line, text alignment unchanged. */
-export function MarketName({ symbol, size }: { readonly symbol: string; readonly size?: number }) {
+export function MarketName({ symbol, size, icon }: { readonly symbol: string; readonly size?: number; /** The ticker whose icon to show, when it is not `symbol`. */ readonly icon?: string }) {
   return (
     <span className="inline-flex items-center gap-2 align-middle">
-      <TokenIcon symbol={symbol} {...(size === undefined ? {} : { size })} />
+      <TokenIcon symbol={icon ?? symbol} {...(size === undefined ? {} : { size })} />
       <span>{symbol}</span>
     </span>
   );

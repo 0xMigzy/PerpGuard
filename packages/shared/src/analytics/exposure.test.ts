@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MarketRiskConfig } from '../risk/position.ts';
-import { LADDER_MOVES, atRiskPair, buildRiskSnapshot, directionalAt, rungIndex } from './exposure.ts';
+import { LADDER_MOVES, atRiskPair, buildRiskSnapshot, directionalAt, hasShortfall, rungIndex } from './exposure.ts';
 import type { IndexedOpenPosition, MarketRef } from './types.ts';
 
 const BTC: MarketRiskConfig = { marketId: 1, symbol: 'BTC', priceDecimals: 1, lotDecimals: 5, collateralDecimals: 6, maintenanceMargin: 2500, initialMargin: 1500 };
@@ -204,4 +204,19 @@ test('top-five share and the weakest cover come from the per-market ladders', ()
   const twenty = atRiskPair(m.ladder, 0.2, m.openInterestAusd);
   assert.ok(twenty.fall.shortfallAusd > 0);
   assert.ok(twenty.rise.shortfallAusd > 0);
+});
+
+test('a shortfall that rounds to zero at the cent is no shortfall: no ratio, never insurance over dust', () => {
+  assert.equal(hasShortfall(0), false);
+  assert.equal(hasShortfall(0.000059), false, 'the MON +10% case that printed 423,268,560x');
+  assert.equal(hasShortfall(0.0049), false);
+  assert.equal(hasShortfall(0.005), true, 'prints as 0.01');
+  assert.equal(hasShortfall(0.57), true);
+  // A position just past its collateral by dust: the market gets no cover ratio.
+  // 1 BTC long, 8,000 margin, entry 80,000: at -10% equity is exactly 0; nudge the margin down by dust.
+  const snapshot = buildRiskSnapshot({ positions: [position(7, 'long', 1, 7_999.99999)], configs: CONFIGS, marks: MARKS, insurance: INSURANCE, indexerBlock: 1, nowMs: 0 });
+  const m = snapshot.markets[0]!;
+  assert.ok(m.cover10.shortfallAusd > 0 && m.cover10.shortfallAusd < 0.005);
+  assert.equal(m.cover10.cover, undefined);
+  assert.equal(snapshot.weakestCover, undefined);
 });

@@ -7,10 +7,14 @@ import { COLORS, OTHER_SERIES } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
 const RESCUABLE = 'Rescuable';
-const OTHER = 'Not rescuable or unjudgeable';
 
 /** Liquidations per UTC day, stacked: the ones the trader could have prevented on top of the rest. */
-export function LiquidationsByDayChart({ days }: { readonly days: readonly LiquidationDay[] }) {
+/**
+ * `includesUnjudgeable`: day buckets carry no unjudgeable count, so the grey
+ * series holds both whenever the window has any; the legend says so only then.
+ */
+export function LiquidationsByDayChart({ days, includesUnjudgeable = false }: { readonly days: readonly LiquidationDay[]; readonly includesUnjudgeable?: boolean }) {
+  const OTHER = includesUnjudgeable ? 'Not rescuable or unjudgeable' : 'Not rescuable';
   return (
     <div>
       <div className="flex flex-wrap gap-[14px] text-[12px] text-muted">

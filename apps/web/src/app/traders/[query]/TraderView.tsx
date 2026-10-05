@@ -22,7 +22,7 @@ import {
 } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
-import { periodLabel } from '@/lib/history.ts';
+import { DAY_BUCKET_24H, dayPeriodLabel, periodLabel } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf, type TraderQuery } from '@/lib/traders.ts';
@@ -34,6 +34,7 @@ import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
 import { AccountSummary } from './AccountSummary.tsx';
+import { marketName } from '@/lib/markets.ts';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 
 const POLL_MS = 30_000;
@@ -116,7 +117,7 @@ function PrefixSearch({ query, prefix }: { readonly query: string; readonly pref
 function TraderProfile({ query, parsed }: { readonly query: string; readonly parsed: Exclude<TraderQuery, { kind: 'prefix' }> }) {
   const t = useTimeframe();
   const start = useHistoryStart();
-  const period = periodLabel(t, start);
+  const period = dayPeriodLabel(t, start);
 
   // One lookup by whatever was typed. An address resolves to a profile or to
   // `not-linked`; an id resolves to a profile or a 404. Both are answers.
@@ -229,7 +230,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
         right={
           <>
             {p !== undefined && <SaveWalletButton accountId={p.accountId} address={p.address} />}
-            <TimeframePills />
+            <TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />
           </>
         }
       />
@@ -479,7 +480,7 @@ function PositionsTable({
             : (rows ?? []).map((a) => {
                 const pos = a.position;
                 const tier = bufferTier(a.liqBufferPct);
-                const symbol = pos.market.symbol ?? `market ${pos.market.marketId}`;
+                const symbol = marketName(pos.market);
                 return (
                   <tr key={`${pos.market.marketId}-${pos.openedAtMs}`} className="border-b border-border last:border-b-0 hover:bg-card2">
                     <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] font-semibold whitespace-nowrap" title={`opened ${formatWhen(pos.openedAtMs)} UTC`}>
@@ -524,7 +525,7 @@ function PositionsTable({
         <div className="border-t border-border px-[10px] py-2 text-[11.5px] text-muted2">
           {rows
             .filter((a) => a.reason !== undefined)
-            .map((a) => `${a.position.market.symbol ?? `market ${a.position.market.marketId}`}: ${a.reason}`)
+            .map((a) => `${marketName(a.position.market)}: ${a.reason}`)
             .join(' · ')}
         </div>
       )}
@@ -564,7 +565,7 @@ function TripsTable({ rows }: { readonly rows: readonly RoundTrip[] | undefined 
                   <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] whitespace-nowrap text-muted" title={`opened ${formatWhen(r.openedAtMs)} UTC`}>
                     {formatWhen(r.closedAtMs)}
                   </td>
-                  <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">{r.market.symbol ?? `market ${r.market.marketId}`}</td>
+                  <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">{marketName(r.market)}</td>
                   <td className="px-[10px] py-[10px] whitespace-nowrap">
                     <span className={SIDE_BADGE(r.side)}>{r.side}</span>
                   </td>

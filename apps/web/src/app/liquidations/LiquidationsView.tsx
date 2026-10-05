@@ -20,6 +20,7 @@ import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { MarketName } from '@/components/TokenIcon.tsx';
+import { marketIconSymbol, marketName } from '@/lib/markets.ts';
 import { LiquidationsByDayChart } from '@/components/charts/LiquidationsByDayChart.tsx';
 
 const POLL_MS = 30_000;
@@ -159,7 +160,7 @@ export function LiquidationsView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">By market</h2>
-            <span className="text-[12.5px] text-muted">{r === undefined ? '' : `${formatCount(r.count)} liquidations in ${period}`}</span>
+            <span className="text-[12.5px] text-muted">{r === undefined ? '' : `${formatCount(r.count)} liquidations ${within}`}</span>
           </div>
           <ErrorNote error={markets.error} what="The market breakdown" />
           {markets.data === undefined ? <Skeleton className="mt-3 h-[180px] w-full" /> : <MarketBars markets={markets.data.data} />}
@@ -225,9 +226,10 @@ export function LiquidationsView() {
           <span className="text-[12.5px] text-muted">Split by whether the account could have survived</span>
         </div>
         <ErrorNote error={series.error} what="Daily liquidations" />
-        {days === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <LiquidationsByDayChart days={days} />}
+        {days === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <LiquidationsByDayChart days={days} includesUnjudgeable={(r?.unknownCount ?? 0) > 0} />}
         <div className="mt-2 text-[11.5px] text-muted2">
-          Day buckets carry no per-day unjudgeable count, so the grey series holds both the liquidations judged not rescuable and the ones that cannot be judged.
+          {(r?.unknownCount ?? 0) > 0 &&
+            'Day buckets carry no per-day unjudgeable count, so the grey series holds both the liquidations judged not rescuable and the ones that cannot be judged.'}
           {chartNote !== undefined && ` ${chartNote}`}
         </div>
       </section>
@@ -289,24 +291,24 @@ export function LiquidationsView() {
 function MarketBars({ markets }: { readonly markets: readonly MarketBreakdown[] }) {
   const rows = markets
     .filter((m) => m.liquidationCount > 0)
-    .map((m) => ({ symbol: m.market.symbol ?? `market ${m.market.marketId}`, count: m.liquidationCount, rescuable: m.rescuableLiquidationCount }))
+    .map((m) => ({ symbol: marketName(m.market), icon: marketIconSymbol(m.market), count: m.liquidationCount, rescuable: m.rescuableLiquidationCount }))
     .sort((a, b) => b.count - a.count);
   if (rows.length === 0) return <div className="mt-3 text-[12.5px] text-muted">No market had a liquidation in this window.</div>;
   const max = Math.max(...rows.map((r) => r.count));
   return (
     <div className="mt-3 grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-[7px] text-[12px]">
       {rows.map((r) => (
-        <MarketBarRow key={r.symbol} symbol={r.symbol} count={r.count} rescuable={r.rescuable} max={max} />
+        <MarketBarRow key={r.symbol} symbol={r.symbol} icon={r.icon} count={r.count} rescuable={r.rescuable} max={max} />
       ))}
     </div>
   );
 }
 
-function MarketBarRow({ symbol, count, rescuable, max }: { readonly symbol: string; readonly count: number; readonly rescuable: number; readonly max: number }) {
+function MarketBarRow({ symbol, icon, count, rescuable, max }: { readonly symbol: string; readonly icon: string; readonly count: number; readonly rescuable: number; readonly max: number }) {
   return (
     <>
       <span className="font-semibold">
-        <MarketName symbol={symbol} size={16} />
+        <MarketName symbol={symbol} icon={icon} size={16} />
       </span>
       <span className="flex h-[16px] w-full overflow-hidden rounded-[4px] bg-border" role="img" aria-label={`${symbol}: ${formatCount(count)} liquidations, ${formatCount(rescuable)} rescuable`}>
         <i className="block h-full" style={{ width: `${(rescuable / max) * 100}%`, background: COLORS.accentHi }} />
@@ -329,7 +331,7 @@ const VERDICT: Record<RescueVerdict, { readonly text: string; readonly className
 function LiquidationRow({ row }: { readonly row: LiquidationRecord }) {
   const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
   const verdict = VERDICT[row.verdict];
-  const symbol = row.market.symbol ?? `market ${row.market.marketId}`;
+  const symbol = marketName(row.market);
   return (
     <tr className="border-b border-border last:border-b-0 hover:bg-card2">
       <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] whitespace-nowrap text-muted" title={new Date(row.atMs).toISOString()}>
@@ -342,7 +344,7 @@ function LiquidationRow({ row }: { readonly row: LiquidationRecord }) {
       </td>
       <td className="px-[10px] py-[10px] whitespace-nowrap" title={row.market.symbol === undefined ? `${row.market.indexerName}: not listed by the venue` : undefined}>
         <span className="font-semibold">
-          <MarketName symbol={symbol} size={16} />
+          <MarketName symbol={symbol} icon={marketIconSymbol(row.market)} size={16} />
         </span>
         <span className={`ml-2 rounded-[4px] px-[5px] py-[1.5px] text-[10px] font-semibold tracking-[0.05em] uppercase ${row.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{row.side}</span>
         {!row.isFull && <span className="ml-1 text-[10.5px] text-muted2">partial</span>}
