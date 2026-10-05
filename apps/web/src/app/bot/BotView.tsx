@@ -14,12 +14,12 @@ import { COLORS } from '@/lib/theme.ts';
  * keyboard, which is what a watcher is: someone who can see a position in
  * danger and cannot touch it.
  */
-export function AlertsView() {
+export function BotView() {
   return (
     <>
       <PageHeader
-        title="Alerts"
-        subtitle="Alerts are delivered to Telegram. This page explains the two tiers and shows what each one receives."
+        title="PerpGuard Bot"
+        subtitle="Watch any Perpl address for free, or link your own account to act on it: add margin, reduce or close a position. All inside Telegram."
         right={<span className="chip">Telegram only</span>}
       />
 

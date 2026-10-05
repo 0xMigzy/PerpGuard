@@ -27,7 +27,9 @@ const config: NextConfig = {
     return [
       { source: '/wallets', destination: '/traders', permanent: true },
       { source: '/wallets/:query', destination: '/traders/:query', permanent: true },
-      { source: '/protect', destination: '/alerts', permanent: true },
+      // The Alerts section became Bot: it acts as well as alerts. Old links keep working, in one hop.
+      { source: '/alerts', destination: '/bot', permanent: true },
+      { source: '/protect', destination: '/bot', permanent: true },
     ];
   },
 };

@@ -14,14 +14,14 @@ export const SECTIONS = [
   { href: '/traders', label: 'Traders', timeframed: true },
   { href: '/liquidations', label: 'Liquidations', timeframed: true },
   { href: '/risk', label: 'Risk', timeframed: false },
-  { href: '/alerts', label: 'Alerts', timeframed: false },
+  { href: '/bot', label: 'Bot', timeframed: false },
 ] as const;
 
 export function Tabs() {
   const pathname = usePathname();
   const params = useSearchParams();
   // The selected window follows the reader between the timeframed sections,
-  // so 7D on Overview is still 7D on Markets. Risk and Alerts have no window.
+  // so 7D on Overview is still 7D on Markets. Risk and Bot have no window.
   const t = params.get('t');
   const carry = isTimeframe(t) ? `?t=${t}` : '';
   return (

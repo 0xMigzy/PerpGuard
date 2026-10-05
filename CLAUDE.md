@@ -344,7 +344,8 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   else, no session, no provider, no sign-in. Everything reads the mainnet
   indexer, so there is ONE network and NO network labelling anywhere on a page.
 - SIX SECTIONS, in this order, Overview as the landing page: Overview,
-  Markets, Traders, Liquidations, Risk, Alerts. `docs/frontend-mockup.html` is
+  Markets, Traders, Liquidations, Risk, Bot (`/bot`; `/alerts` redirects to it
+  permanently: the page was Alerts until 5 Oct 2026). `docs/frontend-mockup.html` is
   the layout reference — structure, density and wording; never its figures.
 - ONE TIMEFRAME CONTROL PER SECTION, in the header of Overview, Markets,
   Traders and Liquidations, defaulting to 30D, carried between sections by the
