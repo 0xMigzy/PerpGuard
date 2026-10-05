@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+Refuse a commit that contains any value from .env or apps/indexer/.env.
+
+The repo is PUBLIC. Every value of 8+ characters in those files (and the token
+part of any URL in them) is matched literally against the lines this commit
+adds. A match names the file, line and variable, never the value. Variables
+whose values are public are listed in deploy/git-hooks/public-env-keys.
+
+Install once per clone:   git config core.hooksPath deploy/git-hooks
+Bypass (only if you are sure):   git commit --no-verify
+"""
+import os, re, subprocess, sys
+
+root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()
+env_files = [os.path.join(root, '.env'), os.path.join(root, 'apps', 'indexer', '.env')]
+
+public = set()
+try:
+    for line in open(os.path.join(root, 'deploy', 'git-hooks', 'public-env-keys')):
+        name = line.split('#', 1)[0].strip()
+        if name: public.add(name)
+except FileNotFoundError:
+    pass
+
+secrets = []  # (needle, label)
+for path in env_files:
+    if not os.path.exists(path):
+        continue
+    for line in open(path, encoding='utf-8', errors='replace'):
+        m = re.match(r'\s*(?:export\s+)?([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$', line)
+        if not m or m.group(1) in public:
+            continue
+        value = m.group(2).strip().strip('"').strip("'")
+        if len(value) < 8 or value.lower() in ('true', 'false'):
+            continue
+        label = m.group(1)
+        secrets.append((value, label))
+        # The token inside a URL (an RPC key, a password) is caught even when the rest differs.
+        for part in re.findall(r'[A-Za-z0-9_\-]{20,}', value):
+            if part != value:
+                secrets.append((part, label))
+
+if not secrets:
+    sys.exit(0)
+
+diff = subprocess.run(['git', 'diff', '--cached', '-U0', '--no-color', '--text', '--no-ext-diff'],
+                      capture_output=True, text=True, errors='replace').stdout
+hits = []
+path, line_no = None, 0
+for raw in diff.splitlines():
+    if raw.startswith('+++ '):
+        path = raw[6:] if raw.startswith('+++ b/') else raw[4:]
+    elif raw.startswith('@@'):
+        m = re.search(r'\+(\d+)', raw)
+        line_no = int(m.group(1)) if m else 0
+    elif raw.startswith('+') and not raw.startswith('+++'):
+        added = raw[1:]
+        for needle, label in secrets:
+            if needle in added:
+                hits.append((path, line_no, label))
+        line_no += 1
+
+if hits:
+    by_line = {}
+    for path, n, label in hits:
+        by_line.setdefault((path, n), set()).add(label)
+    print('\npre-commit: BLOCKED. This commit contains secret values from .env / apps/indexer/.env:\n', file=sys.stderr)
+    for (path, n), labels in sorted(by_line.items()):
+        print(f'  {path}:{n}  holds the value of {", ".join(sorted(labels))}', file=sys.stderr)
+    print('\nRemove them (read the value from the environment instead), stage again and commit.', file=sys.stderr)
+    print('Nothing was committed. The values themselves are not printed.\n', file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)

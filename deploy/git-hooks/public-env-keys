@@ -1,0 +1,10 @@
+# Variables in .env whose VALUES are public, so the pre-commit hook does not
+# block a commit that mentions them. One name per line, with the reason.
+# Everything not listed here is treated as secret. Never add a key whose value
+# carries a token (the QuickNode RPC URL does; it is deliberately absent).
+ENVIO_PERPL_EXCHANGE          # the Exchange proxy address, public on chain and in CLAUDE.md
+ENVIO_PERPGUARD_START_BLOCK   # a block number
+ENVIO_PERPL_HYPERSYNC_URL     # Envio's public HyperSync host, no token in it
+ENVIO_PG_HOST                 # 127.0.0.1
+ENVIO_PG_DATABASE             # the local database name
+PUBLIC_WEB_URL                # the site's public address
