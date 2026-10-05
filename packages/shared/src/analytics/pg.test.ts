@@ -965,3 +965,40 @@ test('the cards: traders who traded, a median over those with a closed trade, wi
   few.on(/from "Exchange"/, [exchangeRow]);
   assert.equal((await reader(few).traderSummary('24h')).medianNetPnlAusd, undefined, 'a median of four accounts describes nobody');
 });
+
+test('FLOWS: accounts that moved capital, from the deposit and withdrawal events, by |net flow|; a reader may re-sort among the flow keys only', async () => {
+  const sql = new FakeSql();
+  await reader(sql).traders('30d', { ranking: 'flows' });
+  const text = sql.touching('Trader')[0]!.sql;
+  assert.match(text, /where \(w\.deposited > 0 or w\.withdrawn > 0\)/, 'who moved capital, traded or not');
+  assert.doesNotMatch(text, /where w\.trades > 0/);
+  assert.match(text, /sum\("depositedCNS"\)\s+as deposited/, 'windowed from TraderDay, the indexed events');
+  assert.match(text, /sum\("withdrawnCNS"\)\s+as withdrawn/);
+  assert.doesNotMatch(text, /freeBalanceCNS"\s*-/, 'never a balance delta');
+  assert.match(text, /\(w\.deposited - w\.withdrawn\)::text as net_flow/);
+  assert.match(text, /order by abs\(w\.deposited - w\.withdrawn\) desc/);
+
+  const lifetime = new FakeSql();
+  await reader(lifetime).traders('all', { ranking: 'flows' });
+  assert.match(lifetime.touching('Trader')[0]!.sql, /"depositedCNS" as deposited, "withdrawnCNS" as withdrawn/);
+
+  const outflows = new FakeSql();
+  const list = await reader(outflows).traders('30d', { ranking: 'flows', sort: 'netFlow', direction: 'asc' });
+  assert.match(outflows.touching('Trader')[0]!.sql, /order by \(w\.deposited - w\.withdrawn\) asc/, 'largest outflows first');
+  assert.equal(list.sort, 'netFlow');
+  assert.equal(list.direction, 'asc');
+
+  const refused = new FakeSql();
+  await reader(refused).traders('30d', { ranking: 'flows', sort: 'netPnl', direction: 'asc' });
+  assert.match(refused.touching('Trader')[0]!.sql, /order by abs\(w\.deposited - w\.withdrawn\) desc/, 'a non-flow sort is not a Flows order');
+});
+
+test('adding Flows changes no other ranking: their order is still fixed and they still list traders only', async () => {
+  for (const [ranking, order] of [['pnl', /order by w\.net_pnl desc/], ['losses', /order by w\.net_pnl asc/], ['volume', /order by w\.volume desc/], ['liquidated', /order by w\.liquidations desc/]] as const) {
+    const sql = new FakeSql();
+    await reader(sql).traders('30d', { ranking, sort: 'netFlow', direction: 'asc' });
+    const text = sql.touching('Trader')[0]!.sql;
+    assert.match(text, order, `${ranking} ignores a requested sort`);
+    assert.match(text, /where w\.trades > 0/, `${ranking} still lists traders`);
+  }
+});

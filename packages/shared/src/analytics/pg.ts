@@ -87,7 +87,7 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
-import { MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
+import { FLOW_SORT_KEYS, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -662,21 +662,37 @@ const TRADER_SORT: Record<TraderSortKey, string> = {
   freeBalance: 't."freeBalanceCNS"',
   lastActive: 't."lastActiveAt"',
   spareHeld: 'l.spare_held',
+  deposits: 'w.deposited',
+  withdrawals: 'w.withdrawn',
+  netFlow: '(w.deposited - w.withdrawn)',
+  netFlowAbs: 'abs(w.deposited - w.withdrawn)',
 };
 
+/**
+ * Who a list is ABOUT. Every ranking but one lists traders (an account that
+ * traded in the window); Flows lists accounts that moved capital in it,
+ * traded or not.
+ */
+const TRADER_ACTIVITY = { trades: 'w.trades > 0', flows: '(w.deposited > 0 or w.withdrawn > 0)' } as const;
+
 /** Each leaderboard's order and filter. See `TraderRanking`. */
-const TRADER_RANKING: Record<TraderRanking, { readonly sort: TraderSortKey; readonly direction: SortDirection; readonly where: string; readonly floor: boolean }> = {
-  pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true },
-  losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true },
-  volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false },
-  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false },
-  spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false },
+const TRADER_RANKING: Record<
+  TraderRanking,
+  { readonly sort: TraderSortKey; readonly direction: SortDirection; readonly where: string; readonly floor: boolean; readonly activity: keyof typeof TRADER_ACTIVITY; readonly sortable?: readonly TraderSortKey[] }
+> = {
+  pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
+  losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
+  volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false, activity: 'trades' },
+  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'trades' },
+  spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false, activity: 'trades' },
+  flows: { sort: 'netFlowAbs', direction: 'desc', where: 'true', floor: false, activity: 'flows', sortable: FLOW_SORT_KEYS },
 };
 
 const TRADER_SOURCE_LIFETIME = `
   select id as trader_id, "netPnlCNS" as net_pnl, "volumeCNS" as volume, "tradeCount" as trades,
          "roundTrips" as round_trips, wins, losses,
-         "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable
+         "liquidationCount" as liquidations, "rescuableLiquidationCount" as rescuable,
+         "depositedCNS" as deposited, "withdrawnCNS" as withdrawn
     from "Trader"`;
 
 const TRADER_SOURCE_WINDOW = `
@@ -688,7 +704,9 @@ const TRADER_SOURCE_WINDOW = `
          sum(wins)              as wins,
          sum(losses)            as losses,
          sum("liquidationCount") as liquidations,
-         sum("rescuableLiquidationCount") as rescuable
+         sum("rescuableLiquidationCount") as rescuable,
+         sum("depositedCNS")    as deposited,
+         sum("withdrawnCNS")    as withdrawn
     from "TraderDay"
    where day >= $3::timestamptz
    group by trader_id`;
@@ -697,7 +715,7 @@ const TRADER_SOURCE_WINDOW = `
  * Binds: $1 limit, $2 offset, $3 window start (null for lifetime), $4 address
  * prefix (lowercased, or null), $5 account id (or null).
  */
-const tradersSql = (lifetime: boolean, sort: TraderSortKey, direction: SortDirection, where: string): string => `
+const tradersSql = (lifetime: boolean, sort: TraderSortKey, direction: SortDirection, where: string, activity: keyof typeof TRADER_ACTIVITY = 'trades'): string => `
 with w as (${lifetime ? TRADER_SOURCE_LIFETIME : TRADER_SOURCE_WINDOW}),
 l as (
   select trader_id,
@@ -713,11 +731,12 @@ select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionC
        case when w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS} then w.wins::float / w.round_trips end as win_rate,
        w.liquidations, w.rescuable,
        l.spare_held::text as spare_held, coalesce(l.margin_lost, 0)::text as margin_lost,
+       w.deposited::text as deposited, w.withdrawn::text as withdrawn, (w.deposited - w.withdrawn)::text as net_flow,
        (select count(*) from w w2 where w2.trades > 0 and w2.round_trips < ${MIN_ROUND_TRIPS_FOR_RATIOS}) as below_floor,
        count(*) over () as total
   from w join "Trader" t on t.id = w.trader_id
   left join l on l.trader_id = w.trader_id
- where w.trades > 0
+ where ${TRADER_ACTIVITY[activity]}
    and (${where})
    and ($4::text is null or lower(t.owner) like $4::text || '%')
    and ($5::text is null or t.id = $5::text)
@@ -1566,8 +1585,10 @@ export class PostgresAnalytics implements Analytics {
     const now = this.#now();
     const ranking = options.ranking !== undefined && TRADER_RANKINGS.includes(options.ranking) ? options.ranking : undefined;
     const rule = ranking === undefined ? undefined : TRADER_RANKING[ranking];
-    const sort: TraderSortKey = rule?.sort ?? (options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl');
-    const direction: SortDirection = rule?.direction ?? (options.direction === 'asc' ? 'asc' : 'desc');
+    // A ranking fixes its order, except where it names sorts a reader may choose (Flows).
+    const chosen = rule?.sortable !== undefined && options.sort !== undefined && rule.sortable.includes(options.sort);
+    const sort: TraderSortKey = chosen ? options.sort! : (rule?.sort ?? (options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl'));
+    const direction: SortDirection = chosen ? (options.direction === 'asc' ? 'asc' : 'desc') : (rule?.direction ?? (options.direction === 'asc' ? 'asc' : 'desc'));
     // Capped like every other list: a page, not a payload.
     const limit = Math.min(Math.max(1, options.limit ?? 50), 200);
     const offset = Math.max(0, options.offset ?? 0);
@@ -1578,7 +1599,7 @@ export class PostgresAnalytics implements Analytics {
     const floorApplied = rule?.floor === true && search === undefined;
 
     const { window, start } = traderWindow(timeframe, now);
-    const rows = await this.#rows(tradersSql(start === null, sort, direction, where), [
+    const rows = await this.#rows(tradersSql(start === null, sort, direction, where, rule?.activity ?? 'trades'), [
       limit,
       offset,
       start,
@@ -1603,6 +1624,9 @@ export class PostgresAnalytics implements Analytics {
         rescuableLiquidationCount: count(row['rescuable']),
         marginLostAusd: toAusd(row['margin_lost'], decimals),
         maxSpareHeldAusd: row['spare_held'] === null || row['spare_held'] === undefined ? undefined : toAusd(row['spare_held'], decimals),
+        depositedAusd: toAusd(row['deposited'], decimals),
+        withdrawnAusd: toAusd(row['withdrawn'], decimals),
+        netFlowAusd: toAusd(row['net_flow'], decimals),
         freeBalanceAusd: toAusd(row['free_balance'], decimals),
         openPositionCount: count(row['open_positions']),
         lastActiveAtMs: requireMs(row['last_active']),

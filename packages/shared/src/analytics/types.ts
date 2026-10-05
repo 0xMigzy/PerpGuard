@@ -785,10 +785,13 @@ export interface MarketPnl {
 
 // ── the Traders section ─────────────────────────────────────────────────────
 
-export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld';
+export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld' | 'deposits' | 'withdrawals' | 'netFlow' | 'netFlowAbs';
 export type SortDirection = 'asc' | 'desc';
 
-export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld'];
+export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld', 'deposits', 'withdrawals', 'netFlow', 'netFlowAbs'];
+
+/** The sorts the Flows ranking lets a reader choose between. Every other ranking's order is fixed. */
+export const FLOW_SORT_KEYS: readonly TraderSortKey[] = ['netFlowAbs', 'netFlow', 'deposits', 'withdrawals'];
 
 /**
  * The Traders page's leaderboards. Each is an order AND a filter, decided here
@@ -805,9 +808,16 @@ export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', '
  *                dust flag `hadSpareBalance`), by the LARGEST free balance held
  *                at any of them. The largest, not a sum: a sum counts one
  *                account's money once per liquidation.
+ *   flows        CAPITAL MOVED: accounts with any deposit or withdrawal in the
+ *                window, whether or not they traded, by |net flow| desc so the
+ *                largest inflows and outflows both surface. The one ranking a
+ *                reader may re-sort, among FLOW_SORT_KEYS. Deposits and
+ *                withdrawals are the indexed events (CollateralFlow, summed
+ *                into Trader and TraderDay), NEVER a balance delta: a balance
+ *                also moves on PnL, funding, fees and liquidations.
  */
-export type TraderRanking = 'pnl' | 'losses' | 'volume' | 'liquidated' | 'spare';
-export const TRADER_RANKINGS: readonly TraderRanking[] = ['pnl', 'losses', 'volume', 'liquidated', 'spare'];
+export type TraderRanking = 'pnl' | 'losses' | 'volume' | 'liquidated' | 'spare' | 'flows';
+export const TRADER_RANKINGS: readonly TraderRanking[] = ['pnl', 'losses', 'volume', 'liquidated', 'spare', 'flows'];
 
 /**
  * Which rows the list's windowed columns were summed over.
@@ -851,6 +861,12 @@ export interface TraderRow {
    * or undefined when there was none. A max, never a sum (see TraderRanking).
    */
   readonly maxSpareHeldAusd: number | undefined;
+  /** Deposited into the account over the window, from the indexed deposit events. */
+  readonly depositedAusd: number;
+  /** Withdrawn over the window, from the indexed withdrawal events. */
+  readonly withdrawnAusd: number;
+  /** `depositedAusd - withdrawnAusd`, computed exactly in SQL. */
+  readonly netFlowAusd: number;
   // ── now ──
   readonly freeBalanceAusd: number;
   readonly openPositionCount: number;

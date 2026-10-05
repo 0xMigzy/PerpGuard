@@ -8,7 +8,7 @@ import { api } from '@/lib/api.ts';
 import { formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
 import { inPeriod, periodLabel } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
-import { RANKINGS, pageRange, rankingFromQuery, rankingInfo, searchParam, type RankedColumn } from '@/lib/traders.ts';
+import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
@@ -24,7 +24,7 @@ const PAGE = 50;
 const SEARCH_DEBOUNCE_MS = 300;
 
 interface Column {
-  readonly key: 'account' | RankedColumn | 'winRate';
+  readonly key: 'account' | RankedColumn | 'winRate' | 'deposits' | 'withdrawals';
   readonly label: string;
   /** The period the column covers: the window, or "now". */
   readonly sub: string;
@@ -44,6 +44,10 @@ export function TradersIndex() {
   const ranking = rankingFromQuery(params.get('rank'));
   const info = rankingInfo(ranking);
   const [offset, setOffset] = useState(0);
+  const [flowSort, setFlowSort] = useState<FlowSort>(DEFAULT_FLOW_SORT);
+  const flows = ranking === 'flows';
+  // Only Flows takes a reader's order; every other ranking's order is fixed by the backend.
+  const sortParam = flows ? flowSort : undefined;
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState<string | undefined>(undefined);
   const parsed = searchParam(typed);
@@ -61,7 +65,11 @@ export function TradersIndex() {
     return () => clearTimeout(id);
   }, [typed]);
 
-  const list = usePoll(() => api.traders(t, ranking, PAGE, offset, query), POLL_MS, `traders:${t}:${ranking}:${offset}:${query ?? ''}`);
+  const list = usePoll(
+    () => api.traders(t, ranking, PAGE, offset, query, sortParam),
+    POLL_MS,
+    `traders:${t}:${ranking}:${offset}:${query ?? ''}:${sortParam === undefined ? '' : `${sortParam.key}:${sortParam.direction}`}`,
+  );
   const summary = usePoll(() => api.traderSummary(t), POLL_MS, `trader-summary:${t}`);
   const oi = usePoll(api.openInterest, POLL_MS, 'oi');
 
@@ -75,6 +83,7 @@ export function TradersIndex() {
 
   const choose = (next: TraderRanking) => {
     setOffset(0);
+    setFlowSort(DEFAULT_FLOW_SORT);
     const nextParams = new URLSearchParams(params.toString());
     if (next === 'pnl') nextParams.delete('rank');
     else nextParams.set('rank', next);
@@ -82,13 +91,33 @@ export function TradersIndex() {
     router.replace(qs === '' ? pathname : `${pathname}?${qs}`, { scroll: false });
   };
 
-  const columns: readonly Column[] = [
+  const sortFlows = (column: 'netFlow' | 'deposits' | 'withdrawals') => {
+    setOffset(0);
+    setFlowSort((current) => nextFlowSort(current, column));
+  };
+
+  const flowColumns: readonly Column[] = [
+    { key: 'account', label: 'Account (one wallet each)', sub: '', title: 'One Perpl account per row. Every account has its own owner wallet and no wallet holds two, so nothing is summed across accounts.' },
+    { key: 'deposits', label: 'Deposits', sub: windowed, title: 'Deposited into the account over the window, from the indexed deposit events.' },
+    { key: 'withdrawals', label: 'Withdrawals', sub: windowed, title: 'Withdrawn over the window, from the indexed withdrawal events.' },
+    { key: 'netFlow', label: 'Net flow', sub: windowed, title: 'Deposits − withdrawals. Never a change in balance, which also moves on PnL, funding, fees and liquidations.' },
+  ];
+
+  const tradeColumns: readonly Column[] = [
     { key: 'account', label: 'Account', sub: '' },
     { key: 'netPnl', label: 'Net PnL', sub: windowed, title: 'Realised + funding − fees over the window.' },
     { key: 'volume', label: 'Volume', sub: windowed, title: 'The account’s own traded volume.' },
     { key: 'winRate', label: 'Win rate', sub: windowed, title: `Withheld below ${floor} round trips.` },
     { key: 'liquidations', label: 'Liquidations', sub: windowed, title: 'Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.' },
   ];
+  const columns = flows ? flowColumns : tradeColumns;
+  /** Which Flows header is the active order, and which way it points. */
+  const flowActive = (key: Column['key']): { readonly arrow: string; readonly note?: string } | undefined => {
+    if (key === 'netFlow' && flowSort.key === 'netFlowAbs') return { arrow: '↓', note: 'by size' };
+    if (key === 'netFlow' && flowSort.key === 'netFlow') return { arrow: flowSort.direction === 'desc' ? '↓' : '↑', note: flowSort.direction === 'desc' ? 'inflows first' : 'outflows first' };
+    if ((key === 'deposits' || key === 'withdrawals') && flowSort.key === key) return { arrow: flowSort.direction === 'desc' ? '↓' : '↑' };
+    return undefined;
+  };
 
   const range = data === undefined ? undefined : pageRange(data.offset, data.rows.length, data.total);
 
@@ -137,7 +166,7 @@ export function TradersIndex() {
               spellCheck={false}
               className="w-[260px] min-w-0 max-w-full rounded-[9px] border border-border2 bg-card2 px-[10px] py-[6px] text-[12.5px] text-text outline-none placeholder:text-muted focus:border-accent"
             />
-            <ExportCsv timeframe={t} ranking={ranking} rankingLabel={info.label} query={query} />
+            <ExportCsv timeframe={t} ranking={ranking} rankingLabel={info.label} query={query} sort={sortParam} />
             </div>
             {'invalid' in parsed && <span className="text-[11px] text-watch">{parsed.invalid}</span>}
           </div>
@@ -161,15 +190,42 @@ export function TradersIndex() {
         <ErrorNote error={list.error} what="The traders list" />
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px] table-fixed border-collapse text-[13px]">
+          <table className={`w-full table-fixed border-collapse text-[13px] ${flows ? 'min-w-[520px]' : 'min-w-[600px]'}`}>
             <colgroup>
               {columns.map((c) => (
-                <col key={c.key} className={c.key === 'account' ? 'w-[28%]' : 'w-[18%]'} />
+                <col key={c.key} className={c.key === 'account' ? (flows ? 'w-[34%]' : 'w-[28%]') : flows ? 'w-[22%]' : 'w-[18%]'} />
               ))}
             </colgroup>
             <thead>
               <tr className="border-y border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
-                {columns.map((c) => (
+                {flows && columns.map((c) => {
+                  const active = flowActive(c.key);
+                  const sortable = c.key === 'netFlow' || c.key === 'deposits' || c.key === 'withdrawals';
+                  return (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      title={c.title}
+                      aria-sort={active === undefined ? undefined : active.arrow === '↑' ? 'ascending' : 'descending'}
+                      className={`px-[10px] py-[8px] font-semibold whitespace-nowrap align-bottom ${c.key === 'account' ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${active !== undefined ? 'text-text' : ''}`}
+                    >
+                      {sortable ? (
+                        <button
+                          type="button"
+                          onClick={() => sortFlows(c.key as 'netFlow' | 'deposits' | 'withdrawals')}
+                          className="cursor-pointer bg-transparent p-0 font-semibold tracking-[0.06em] text-inherit uppercase hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                        >
+                          {c.label}
+                          <span className="ml-1" aria-hidden="true">{active?.arrow ?? '↕'}</span>
+                        </button>
+                      ) : (
+                        c.label
+                      )}
+                      <span className="block text-[10px] font-medium normal-case tracking-normal text-muted2">{active?.note ?? c.sub}</span>
+                    </th>
+                  );
+                })}
+                {!flows && columns.map((c) => (
                   <th
                     key={c.key}
                     scope="col"
@@ -196,9 +252,7 @@ export function TradersIndex() {
                       ))}
                     </tr>
                   ))
-                : data.rows.map((row) => (
-                    <TraderTableRow key={row.accountId} row={row} floor={data.minRoundTripsForRatios} />
-                  ))}
+                : data.rows.map((row) => (flows ? <FlowTableRow key={row.accountId} row={row} /> : <TraderTableRow key={row.accountId} row={row} floor={data.minRoundTripsForRatios} />))}
               {data !== undefined && data.rows.length === 0 && (
                 <tr>
                   <td colSpan={columns.length} className="px-[10px] py-8 text-center text-muted">
@@ -215,8 +269,17 @@ export function TradersIndex() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-[14px] py-[10px] text-[11.5px] text-muted2">
           <span className="max-w-[80ch]">
-            Every column is summed over whole UTC days{window?.days === undefined ? '' : ` (${window.label})`}, because the per-trader record is kept by day. Win rate is
-            withheld below {formatCount(floor)} round trips; the counts stay.
+            {flows ? (
+              <>
+                Deposits and withdrawals are the indexed deposit and withdrawal events, summed over whole UTC days{window?.days === undefined ? '' : ` (${window.label})`}. Net flow is
+                deposits minus withdrawals, never a change in balance.
+              </>
+            ) : (
+              <>
+                Every column is summed over whole UTC days{window?.days === undefined ? '' : ` (${window.label})`}, because the per-trader record is kept by day. Win rate is
+                withheld below {formatCount(floor)} round trips; the counts stay.
+              </>
+            )}
           </span>
           {range !== undefined && data !== undefined && data.total > 0 && (
             <span className="flex items-center gap-2">
@@ -247,13 +310,7 @@ function TraderTableRow({ row, floor }: { readonly row: TraderRow; readonly floo
         (row.maxSpareHeldAusd === undefined ? '' : ` · up to ${formatAusdExact(row.maxSpareHeldAusd)} AUSD free at a rescuable liquidation`);
   return (
     <tr className="group border-b border-border last:border-b-0 hover:bg-card2">
-      <td className="sticky left-0 z-[1] bg-card px-[10px] py-[9px] whitespace-nowrap align-top group-hover:bg-card2">
-        <Link href={`/traders/${row.accountId}`} className="num font-semibold text-text no-underline hover:text-accent-hi" title={row.address || `account #${row.accountId}`}>
-          {row.address === '' ? `#${row.accountId}` : shortAddress(row.address)}
-        </Link>
-        {row.address !== '' && <CopyAddress address={row.address} />}
-        <span className="block text-[11px] text-muted2">account #{formatCount(row.accountId)}</span>
-      </td>
+      <AccountCell row={row} />
       <td className={`${cell} ${sign(row.netPnlAusd)}`} title={`${formatSignedAusd(row.netPnlAusd)} AUSD`}>
         {formatSignedAusd(row.netPnlAusd, 0)}
       </td>
@@ -277,6 +334,36 @@ function TraderTableRow({ row, floor }: { readonly row: TraderRow; readonly floo
       <td className={cell} title={liquidationHover}>
         {formatCount(row.liquidationCount)}
         {row.liquidationCount > 0 && <span className="block text-[11px] text-watch">{formatCount(row.rescuableLiquidationCount)} rescuable</span>}
+      </td>
+    </tr>
+  );
+}
+
+/** The account as every Traders view shows it: short address, copy button, account id under it. */
+function AccountCell({ row }: { readonly row: TraderRow }) {
+  return (
+    <td className="sticky left-0 z-[1] bg-card px-[10px] py-[9px] whitespace-nowrap align-top group-hover:bg-card2">
+      <Link href={`/traders/${row.accountId}`} className="num font-semibold text-text no-underline hover:text-accent-hi" title={row.address || `account #${row.accountId}`}>
+        {row.address === '' ? `#${row.accountId}` : shortAddress(row.address)}
+      </Link>
+      {row.address !== '' && <CopyAddress address={row.address} />}
+      <span className="block text-[11px] text-muted2">account #{formatCount(row.accountId)}</span>
+    </td>
+  );
+}
+
+/** One account's capital flow over the window. Net flow's colour carries the direction; zero is muted. */
+function FlowTableRow({ row }: { readonly row: TraderRow }) {
+  const cell = 'num px-[10px] py-[9px] text-right whitespace-nowrap align-top';
+  const amount = (ausd: number) => (ausd === 0 ? <span className="text-muted2">0</span> : formatCompact(ausd));
+  const net = row.netFlowAusd;
+  return (
+    <tr className="group border-b border-border last:border-b-0 hover:bg-card2">
+      <AccountCell row={row} />
+      <td className={cell} title={`${formatAusdExact(row.depositedAusd)} AUSD deposited`}>{amount(row.depositedAusd)}</td>
+      <td className={cell} title={`${formatAusdExact(row.withdrawnAusd)} AUSD withdrawn`}>{amount(row.withdrawnAusd)}</td>
+      <td className={`${cell} font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : 'text-muted2'}`} title={`${formatSignedAusd(net)} AUSD`}>
+        {net === 0 ? '0' : `${net > 0 ? '+' : '−'}${formatCompact(Math.abs(net))}`}
       </td>
     </tr>
   );

@@ -141,7 +141,7 @@ export function pageRange(offset: number, shown: number, total: number): { reado
 // ── the Traders page: rankings, search, open-position PnL ───────────────────
 
 /** Which table column a ranking orders by, so the page can mark it. */
-export type RankedColumn = 'netPnl' | 'volume' | 'liquidations';
+export type RankedColumn = 'netPnl' | 'volume' | 'liquidations' | 'netFlow';
 
 export interface RankingInfo {
   readonly key: TraderRanking;
@@ -155,7 +155,7 @@ export interface RankingInfo {
 }
 
 /**
- * The four leaderboards, in tab order. The rules themselves live in the
+ * The five leaderboards, in tab order. The rules themselves live in the
  * backend, which still serves a `spare` ranking; the page no longer offers it,
  * so `?rank=spare` falls back to the default.
  */
@@ -187,6 +187,13 @@ export const RANKINGS: readonly RankingInfo[] = [
     column: 'liquidations',
     describe: () => 'Most liquidations in the window, with how many the account could have prevented.',
     empty: (w) => `No account was liquidated ${w}.`,
+  },
+  {
+    key: 'flows',
+    label: 'Flows',
+    column: 'netFlow',
+    describe: () => 'Track capital moving into and out of Perpl trader accounts.',
+    empty: (w) => `No account deposited or withdrew ${w}.`,
   },
 ];
 
@@ -292,5 +299,37 @@ export function tradersCsv(rows: readonly TraderRow[], ranking: string, window: 
         .join(','),
     );
   });
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+// ── Flows ───────────────────────────────────────────────────────────────────
+
+/** The orders the Flows view offers. The backend accepts exactly these for `ranking=flows`. */
+export type FlowSort = { readonly key: 'netFlowAbs' | 'netFlow' | 'deposits' | 'withdrawals'; readonly direction: 'asc' | 'desc' };
+
+export const DEFAULT_FLOW_SORT: FlowSort = { key: 'netFlowAbs', direction: 'desc' };
+
+/**
+ * The next order when a Flows header is clicked. Net flow cycles through
+ * size (largest either way), largest inflows, largest outflows; a deposits or
+ * withdrawals header starts largest-first and flips on a second click.
+ */
+export function nextFlowSort(current: FlowSort, column: 'netFlow' | 'deposits' | 'withdrawals'): FlowSort {
+  if (column === 'netFlow') {
+    if (current.key === 'netFlowAbs') return { key: 'netFlow', direction: 'desc' };
+    if (current.key === 'netFlow' && current.direction === 'desc') return { key: 'netFlow', direction: 'asc' };
+    return DEFAULT_FLOW_SORT;
+  }
+  if (current.key === column) return { key: column, direction: current.direction === 'desc' ? 'asc' : 'desc' };
+  return { key: column, direction: 'desc' };
+}
+
+/**
+ * The Flows rows as CSV, in the backend's order. Amounts are the API's AUSD
+ * figures; an unrecorded owner is an empty address, never a made-up one.
+ */
+export function flowsCsv(rows: readonly TraderRow[]): string {
+  const lines = ['Account,Account ID,Deposits (AUSD),Withdrawals (AUSD),Net Flow (AUSD)'];
+  for (const r of rows) lines.push([r.address === '' ? undefined : r.address, r.accountId, r.depositedAusd, r.withdrawnAusd, r.netFlowAusd].map(csvField).join(','));
   return `${lines.join('\r\n')}\r\n`;
 }

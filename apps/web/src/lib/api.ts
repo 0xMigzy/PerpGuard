@@ -214,9 +214,11 @@ export const api = {
   accountDays: (accountId: number, t: Timeframe) => getJson<Envelope<readonly TraderDayPoint[]>>(`${A}/account/${accountId}/days?timeframe=${t}`),
   /** Sorted and paged by the backend; the page never re-sorts a page. */
   /** One leaderboard page, optionally filtered by an address prefix or account id. */
-  traders: (t: Timeframe, ranking: TraderRanking, limit: number, offset: number, q?: string) =>
+  traders: (t: Timeframe, ranking: TraderRanking, limit: number, offset: number, q?: string, sort?: { readonly key: string; readonly direction: 'asc' | 'desc' }) =>
     getJson<Envelope<TraderList>>(
-      `${A}/traders?timeframe=${t}&ranking=${ranking}&limit=${limit}&offset=${offset}${q === undefined ? '' : `&q=${encodeURIComponent(q)}`}`,
+      `${A}/traders?timeframe=${t}&ranking=${ranking}&limit=${limit}&offset=${offset}${q === undefined ? '' : `&q=${encodeURIComponent(q)}`}${
+        sort === undefined ? '' : `&sort=${sort.key}&direction=${sort.direction}`
+      }`,
     ),
   /** The Traders cards: counts, the median PnL and liquidations over the same day buckets. */
   traderSummary: (t: Timeframe) => getJson<Envelope<TraderSummary>>(`${A}/traders/summary?timeframe=${t}`),

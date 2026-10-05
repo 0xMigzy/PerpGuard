@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { Timeframe, TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatCount } from '@/lib/format.ts';
-import { tradersCsv } from '@/lib/traders.ts';
+import { flowsCsv, tradersCsv, type FlowSort } from '@/lib/traders.ts';
 
 /** The backend's own page cap for the traders list. */
 const EXPORT_PAGE = 200;
@@ -19,11 +19,14 @@ export function ExportCsv({
   ranking,
   rankingLabel,
   query,
+  sort,
 }: {
   readonly timeframe: Timeframe;
   readonly ranking: TraderRanking;
   readonly rankingLabel: string;
   readonly query: string | undefined;
+  /** The reader's order, for the one ranking that takes one (Flows). */
+  readonly sort?: FlowSort | undefined;
 }) {
   const [state, setState] = useState<{ readonly kind: 'idle' } | { readonly kind: 'busy'; readonly got: number; readonly total: number | undefined } | { readonly kind: 'failed' }>({ kind: 'idle' });
 
@@ -35,7 +38,7 @@ export function ExportCsv({
       let total = Infinity;
       let window = '';
       for (let offset = 0; offset < total; offset += EXPORT_PAGE) {
-        const page = (await api.traders(timeframe, ranking, EXPORT_PAGE, offset, query)).data;
+        const page = (await api.traders(timeframe, ranking, EXPORT_PAGE, offset, query, sort)).data;
         total = page.total;
         window = page.window.label;
         // A cache refresh between pages can shift a row; never write one twice.
@@ -43,7 +46,9 @@ export function ExportCsv({
         setState({ kind: 'busy', got: rows.length, total });
         if (page.rows.length === 0) break;
       }
-      const blob = new Blob([tradersCsv(rows, rankingLabel, window)], { type: 'text/csv;charset=utf-8' });
+      // Flows exports its own dataset; every other ranking the trading one.
+      const csv = ranking === 'flows' ? flowsCsv(rows) : tradersCsv(rows, rankingLabel, window);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

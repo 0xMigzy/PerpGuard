@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TraderDayPoint } from '@perpguard/shared';
-import { RANKINGS, bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, rankingFromQuery, searchParam, shareOf, sumDays, tradersCsv, unrealisedByAccount, winRateOf } from './traders.ts';
+import { RANKINGS, bufferTier, cumulativeDays, cumulativePnl, pageRange, parseTraderQuery, rankingFromQuery, searchParam, shareOf, sumDays, tradersCsv, flowsCsv, nextFlowSort, DEFAULT_FLOW_SORT, unrealisedByAccount, winRateOf } from './traders.ts';
 
 test('a checksummed address is accepted as an address, in the case it was given', () => {
   assert.deepEqual(parseTraderQuery(' 0x83107A83F5fA8c419F131aa970eb975Bd0225D4D '), {
@@ -70,12 +70,13 @@ test('a win rate is withheld under the floor the backend named, never computed o
   assert.deepEqual(pageRange(0, 0, 0), { from: 0, to: 0, total: 0 });
 });
 
-test('the four rankings, in tab order, each tied to the column it orders', () => {
+test('the five rankings, in tab order, each tied to the column it orders', () => {
   assert.deepEqual(RANKINGS.map((r) => [r.key, r.label, r.column]), [
     ['pnl', 'Top PnL', 'netPnl'],
     ['losses', 'Top losses', 'netPnl'],
     ['volume', 'Volume', 'volume'],
     ['liquidated', 'Liquidated', 'liquidations'],
+    ['flows', 'Flows', 'netFlow'],
   ]);
   assert.match(RANKINGS[0]!.describe(10), /at least 10 round trips/);
   assert.equal(rankingFromQuery('spare'), 'pnl', 'the retired tab falls back to the default');
@@ -111,6 +112,7 @@ test('the CSV keeps the backend order, leaves unserved fields empty and quotes w
   const base = {
     accountId: 1, address: '0xabc', netPnlAusd: 12.5, volumeAusd: 1000, tradeCount: 4, roundTrips: 12, wins: 9, losses: 3, winRate: 0.75,
     liquidationCount: 2, rescuableLiquidationCount: 1, marginLostAusd: 5, maxSpareHeldAusd: 40, freeBalanceAusd: 1, openPositionCount: 0, lastActiveAtMs: 0,
+    depositedAusd: 1_000, withdrawnAusd: 250.5, netFlowAusd: 749.5,
   };
   const csv = tradersCsv([base, { ...base, accountId: 2, address: '', netPnlAusd: -3, roundTrips: 2, wins: 1, winRate: undefined }], 'Top PnL', 'Sep 4, 2026 – Oct 4, 2026');
   const lines = csv.trimEnd().split('\r\n');
@@ -118,4 +120,28 @@ test('the CSV keeps the backend order, leaves unserved fields empty and quotes w
   assert.equal(lines[1], '1,1,0xabc,12.5,1000,4,12,9,75,2,1,Top PnL,"Sep 4, 2026 – Oct 4, 2026"');
   assert.equal(lines[2], '2,2,,-3,1000,4,2,1,,2,1,Top PnL,"Sep 4, 2026 – Oct 4, 2026"', 'no address and a withheld rate are empty, not zero');
   assert.equal(lines.length, 3);
+});
+
+test('Flows sorting: net flow cycles size, inflows, outflows; amounts start largest-first and flip', () => {
+  const a = nextFlowSort(DEFAULT_FLOW_SORT, 'netFlow');
+  assert.deepEqual(a, { key: 'netFlow', direction: 'desc' }, 'largest inflows');
+  const b = nextFlowSort(a, 'netFlow');
+  assert.deepEqual(b, { key: 'netFlow', direction: 'asc' }, 'largest outflows');
+  assert.deepEqual(nextFlowSort(b, 'netFlow'), DEFAULT_FLOW_SORT, 'back to size either way');
+  const d = nextFlowSort(DEFAULT_FLOW_SORT, 'deposits');
+  assert.deepEqual(d, { key: 'deposits', direction: 'desc' });
+  assert.deepEqual(nextFlowSort(d, 'deposits'), { key: 'deposits', direction: 'asc' });
+  assert.deepEqual(nextFlowSort(d, 'withdrawals'), { key: 'withdrawals', direction: 'desc' });
+});
+
+test('the Flows CSV has its own five columns and leaves an unrecorded owner empty', () => {
+  const row = {
+    accountId: 7, address: '0xabc', netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, roundTrips: 0, wins: 0, losses: 0, winRate: undefined,
+    liquidationCount: 0, rescuableLiquidationCount: 0, marginLostAusd: 0, maxSpareHeldAusd: undefined, freeBalanceAusd: 0, openPositionCount: 0, lastActiveAtMs: 0,
+    depositedAusd: 1_000, withdrawnAusd: 1_250.5, netFlowAusd: -250.5,
+  };
+  const lines = flowsCsv([row, { ...row, accountId: 8, address: '' }]).trimEnd().split('\r\n');
+  assert.equal(lines[0], 'Account,Account ID,Deposits (AUSD),Withdrawals (AUSD),Net Flow (AUSD)');
+  assert.equal(lines[1], '0xabc,7,1000,1250.5,-250.5');
+  assert.equal(lines[2], ',8,1000,1250.5,-250.5');
 });
