@@ -31,3 +31,25 @@ export const COLORS = {
  */
 export const SERIES = ['#3987E5', '#D95926', '#199E70', '#C98500'] as const;
 export const OTHER_SERIES = '#3A3F52';
+
+/**
+ * The same palette as CSS variable references, for inline styles and SVG
+ * fills that must follow whichever system the page is in (classic or
+ * terminal). Prefer these over COLORS on any page that opts into the
+ * terminal system; COLORS stays for canvases that cannot read a variable.
+ */
+export const VAR = {
+  page: 'var(--color-page)',
+  card: 'var(--color-card)',
+  card2: 'var(--color-card2)',
+  border: 'var(--color-border)',
+  border2: 'var(--color-border2)',
+  text: 'var(--color-text)',
+  text2: 'var(--color-text2)',
+  muted: 'var(--color-muted)',
+  muted2: 'var(--color-muted2)',
+  accent: 'var(--color-accent)',
+  safe: 'var(--color-safe)',
+  watch: 'var(--color-watch)',
+  danger: 'var(--color-danger)',
+} as const;

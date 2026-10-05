@@ -20,6 +20,8 @@
   --color-safe: #3DD9A0;
   --color-watch: #F5B93C;
   --color-danger: #FF6B80;
+  /* Secondary text, between text and muted. Used by the terminal system first. */
+  --color-text2: #A4A6B3;
   --font-sans: var(--font-inter), Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -172,3 +174,184 @@ input[type="range"]::-webkit-slider-thumb {
 }
 input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: var(--color-accent-hi); border: 2px solid var(--color-page); }
 input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 4px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * THE TERMINAL DESIGN SYSTEM
+ *
+ * Flat, near-black, dense: one panel surface, four text levels, purple only
+ * where something is interactive or selected. It is SCOPED: a page opts in by
+ * rendering `data-ui="terminal"`, and while it is on screen the tokens below
+ * replace the classic ones for the whole document (header and navigation
+ * included). Every Tailwind colour utility reads these variables, so nothing
+ * is duplicated per page. Only Risk opts in today; rolling the system out is
+ * moving these values to :root and deleting the scope.
+ * ══════════════════════════════════════════════════════════════════════════ */
+:root:has([data-ui="terminal"]) {
+  --color-page: #080A0F;
+  --color-card: #0D1016;
+  --color-card2: #12161E;
+  --color-border: #20242E;
+  --color-border2: #2A2F3B;
+  --color-text: #F4F4F6;
+  --color-text2: #A4A6B3;
+  --color-muted: #717583;
+  --color-muted2: #555966;
+  --color-accent: #6E54FF;
+  --color-accent-hi: #8E7BFF;
+  --color-accent-deep: #5A40F0;
+  --color-safe: #34D399;
+  --color-watch: #F5B942;
+  --color-danger: #FB5470;
+  --terminal-radius: 8px;
+}
+
+/* A wide, centred terminal: the header, page and footer share one width. */
+:root:has([data-ui="terminal"]) .wrap {
+  max-width: 1560px;
+}
+@media (min-width: 1024px) {
+  :root:has([data-ui="terminal"]) .wrap {
+    padding-inline: 36px;
+  }
+}
+
+/* Navigation: the active section is a quiet lighter rectangle, never a purple button. */
+:root:has([data-ui="terminal"]) .tab {
+  border-radius: 6px;
+}
+:root:has([data-ui="terminal"]) .tab[aria-current="page"] {
+  background: var(--color-card2);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+:root:has([data-ui="terminal"]) .search-box,
+:root:has([data-ui="terminal"]) .indexer-chip {
+  border-radius: 6px;
+  border-color: var(--color-border);
+  background: var(--color-card);
+}
+
+/* Primitives live in the components layer, so a utility on the same element (a
+ * semantic colour on one cell, say) still wins. */
+@layer components {
+/* ── panel: the one surface for cards, charts and tables ─────────────────── */
+.panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--terminal-radius, 8px);
+}
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--color-text);
+}
+.panel-meta {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* ── metric card: label, value, support ──────────────────────────────────── */
+.metric {
+  padding: 16px 17px;
+}
+.metric-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.metric-value {
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.metric-value-lg {
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.metric-support {
+  font-size: 12.5px;
+  color: var(--color-text2);
+}
+.metric-note {
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+
+/* ── data table: flat, dense, hairline rows ──────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.data-table th {
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+.data-table td {
+  padding: 9px 12px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+}
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.data-table tbody tr.is-interactive:hover,
+.data-table tbody tr.is-interactive:hover > td {
+  background: var(--color-card2);
+}
+
+/* ── segmented control: compact, purple only when selected ───────────────── */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.seg:hover {
+  border-color: var(--color-border2);
+  color: var(--color-text);
+}
+.seg[aria-pressed="true"],
+.seg[aria-selected="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.seg:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+}

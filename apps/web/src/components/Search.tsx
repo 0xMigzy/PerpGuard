@@ -46,7 +46,7 @@ export function Search() {
     <form
       onSubmit={submit}
       role="search"
-      className={`mx-auto flex items-center gap-2 rounded-[10px] border border-border2 bg-card px-3 py-2 text-muted ${
+      className={`search-box mx-auto flex items-center gap-2 rounded-[10px] border border-border2 bg-card px-3 py-2 text-muted ${
         open ? 'flex-1' : 'flex-none sm:flex-1'
       } sm:max-w-[520px]`}
     >

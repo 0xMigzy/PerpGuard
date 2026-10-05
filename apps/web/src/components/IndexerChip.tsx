@@ -51,7 +51,7 @@ export function IndexerChip() {
   const verdict = verdictOf(data?.data, error);
   return (
     <div
-      className="flex flex-none items-center gap-2 rounded-[10px] border border-border2 bg-card px-[10px] py-[7px] text-[12px] text-muted"
+      className="indexer-chip flex flex-none items-center gap-2 rounded-[10px] border border-border2 bg-card px-[10px] py-[7px] text-[12px] text-muted"
       title={verdict.detail}
       aria-live="polite"
     >

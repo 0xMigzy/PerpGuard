@@ -6,7 +6,7 @@ import type { DirectionalExposure, ExposedPosition, MarketExposure } from '@perp
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd, formatWhen } from '@/lib/format.ts';
 import { chartRungs, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
-import { COLORS } from '@/lib/theme.ts';
+import { VAR } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
@@ -20,7 +20,7 @@ import { InfoTip, PANEL, RiskKpis } from './RiskKpis.tsx';
 const POLL_MS = 30_000;
 const DEFAULT_MOVE = -0.1;
 const LARGEST = 10;
-const TIER_COLOR = { past: COLORS.danger, danger: COLORS.danger, watch: COLORS.watch, safe: COLORS.safe, unknown: COLORS.muted } as const;
+const TIER_COLOR = { past: VAR.danger, danger: VAR.danger, watch: VAR.watch, safe: VAR.safe, unknown: VAR.muted } as const;
 
 /**
  * Risk is a POINT-IN-TIME SNAPSHOT: contract state at one block, so it has no
@@ -49,7 +49,8 @@ export function RiskView() {
   const selectedSymbol = marketId === undefined ? undefined : (s?.markets.find((m) => m.market.marketId === marketId)?.market.symbol ?? `market ${marketId}`);
 
   return (
-    <>
+    // Opts this page into the terminal design system (globals.css): tokens, width, header.
+    <div data-ui="terminal">
       <PageHeader
         title="Risk"
         subtitle="Liquidation exposure of every open position, from contract state at the latest indexed block."
@@ -73,7 +74,7 @@ export function RiskView() {
       <RiskKpis s={s} />
 
       {s !== undefined && s.counted.priced === 0 && (
-        <div className="card mb-4 px-[18px] py-6 text-center">
+        <div className="panel mb-4 px-[18px] py-6 text-center">
           <div className="text-[15px] font-semibold text-text">No open position can be priced right now.</div>
           <div className="mt-1 text-[12.5px] text-muted">
             {s.counted.positions === 0 ? 'The index holds no open position.' : `${formatCount(s.counted.positions)} are open; none has a mark, a margin config and a known entry.`}
@@ -83,10 +84,10 @@ export function RiskView() {
       )}
 
       {/* ── stress test and ladder ──────────────────────────────────────── */}
-      <section className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
-        <div className={`${PANEL} px-[18px] py-4`}>
-          <div className="flex flex-wrap items-center justify-between gap-[10px]">
-            <h2 className="m-0 flex items-center gap-2 text-[15px] font-bold tracking-[-0.01em]">
+      <section className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className={`${PANEL} p-4`}>
+          <div className="panel-head">
+            <h2 className="panel-title flex items-center gap-2">
               Stress test
               <InfoTip align="left" text={(s?.statements ?? []).join(' ')} />
             </h2>
@@ -105,7 +106,7 @@ export function RiskView() {
               onChange={(e) => setMove(Number(e.target.value) / 100)}
               aria-label="Price shock"
               className="min-w-0 flex-1"
-              style={{ accentColor: COLORS.accent }}
+              style={{ accentColor: VAR.accent }}
             />
             <span className="num text-[11.5px] text-muted2">+50%</span>
           </div>
@@ -156,12 +157,12 @@ export function RiskView() {
           )}
         </div>
 
-        <div className={`${PANEL} px-[18px] py-4`}>
-          <div className="flex flex-wrap items-center justify-between gap-[10px]">
-            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Liquidation ladder</h2>
+        <div className={`${PANEL} p-4`}>
+          <div className="panel-head">
+            <h2 className="panel-title">Liquidation ladder</h2>
             <span className="text-[13px] font-semibold text-text">{selectedSymbol === undefined ? 'All markets' : <MarketName symbol={selectedSymbol} size={16} />}</span>
           </div>
-          <p className="mt-1 mb-2 text-[12px] text-muted">Where liquidations could occur as prices move: notional exposed at each move size.</p>
+          <p className="panel-meta mt-1 mb-2">Where liquidations could occur as prices move: notional exposed at each move size.</p>
           <div className="mb-2 flex flex-wrap gap-[14px] text-[12px] text-muted">
             <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: LADDER_COLORS.longs }} />Longs · price falls</span>
             <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: LADDER_COLORS.shorts }} />Shorts · price rises</span>
@@ -172,9 +173,9 @@ export function RiskView() {
 
       {/* ── largest exposed ─────────────────────────────────────────────── */}
       <section className="mb-4">
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
-          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Largest positions exposed</h2>
-          <span className="text-[12.5px] text-muted">
+        <div className="panel-head mb-2">
+          <h2 className="panel-title">Largest positions exposed</h2>
+          <span className="panel-meta">
             {scope?.label ?? '…'} at {formatMove(move)} · {rows.length === 0 ? 'none' : `${formatCount(Math.min(LARGEST, rows.length))} largest of ${formatCount(rows.length)}`}
           </span>
         </div>
@@ -182,16 +183,16 @@ export function RiskView() {
       </section>
 
       {/* ── by market ───────────────────────────────────────────────────── */}
-      <section className="mb-5">
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
-          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">By market</h2>
-          <span className="text-[12.5px] text-muted">A fall (longs) and a rise (shorts) side by side, never added. Losses and cover use each market&rsquo;s worse direction at 10%.</span>
+      <section className="mb-4">
+        <div className="panel-head mb-2">
+          <h2 className="panel-title">By market</h2>
+          <span className="panel-meta">A fall (longs) and a rise (shorts) side by side, never added. Losses and cover use each market&rsquo;s worse direction at 10%.</span>
         </div>
         <MarketsTable markets={s?.markets} onSelect={setMarketId} selected={marketId} />
       </section>
 
       <div className="flex gap-[10px] rounded-[8px] border border-watch/30 bg-watch/8 px-[14px] py-3 text-[12.5px] text-[#E8D7B0]">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COLORS.watch} strokeWidth="2.2" aria-hidden="true" className="mt-[2px] flex-none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={VAR.watch} strokeWidth="2.2" aria-hidden="true" className="mt-[2px] flex-none">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16.5v.01" />
         </svg>
@@ -208,20 +209,18 @@ export function RiskView() {
           {s.asOf.marksAtMs === undefined ? 'unknown' : `${formatAge(Date.now() - s.asOf.marksAtMs)} ago`}.
         </div>
       )}
-    </>
+    </div>
   );
 }
 
 function MarketPills({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number | undefined) => void }) {
-  const pill = (active: boolean) =>
-    `pill inline-flex items-center gap-[5px] rounded-[6px] border px-[8px] py-[4px] text-[11.5px] font-semibold ${active ? 'border-accent bg-accent/15 text-text' : 'border-border bg-transparent text-muted hover:border-border2 hover:text-text'}`;
   return (
     <div className="flex flex-wrap gap-[3px]" role="group" aria-label="Market">
-      <button type="button" className={pill(selected === undefined)} aria-pressed={selected === undefined} onClick={() => onSelect(undefined)}>
+      <button type="button" className="seg" aria-pressed={selected === undefined} onClick={() => onSelect(undefined)}>
         All
       </button>
       {(markets ?? []).map((m) => (
-        <button key={m.market.marketId} type="button" className={pill(selected === m.market.marketId)} aria-pressed={selected === m.market.marketId} onClick={() => onSelect(m.market.marketId)}>
+        <button key={m.market.marketId} type="button" className="seg" aria-pressed={selected === m.market.marketId} onClick={() => onSelect(m.market.marketId)}>
           <TokenIcon symbol={marketLabel(m)} size={14} />
           {marketLabel(m)}
         </button>
@@ -233,14 +232,14 @@ function MarketPills({ markets, selected, onSelect }: { readonly markets: readon
 const EXPOSED_COLUMNS = ['Trader', 'Market', 'Side', 'Notional', 'Leverage', 'Liq. price', 'Distance to liq.', 'uPnL'] as const;
 
 function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: readonly ExposedPosition[]; readonly loading: boolean; readonly move: number; readonly scopeLabel: string }) {
-  const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
+  const cell = 'num text-right whitespace-nowrap';
   return (
     <div className={`${PANEL} overflow-x-auto`}>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="data-table">
         <thead>
-          <tr className="border-b border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
+          <tr>
             {EXPOSED_COLUMNS.map((label, i) => (
-              <th key={label} scope="col" className={`px-[10px] py-[9px] font-semibold whitespace-nowrap ${i < 3 ? 'text-left' : 'text-right'} ${i === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
+              <th key={label} scope="col" className={`whitespace-nowrap ${i < 3 ? 'text-left' : 'text-right'} ${i === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
                 {label}
               </th>
             ))}
@@ -249,9 +248,9 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
         <tbody>
           {loading
             ? Array.from({ length: 5 }, (_, i) => (
-                <tr key={i} className="border-b border-border last:border-b-0">
+                <tr key={i}>
                   {EXPOSED_COLUMNS.map((label, j) => (
-                    <td key={label} className={`px-[10px] py-[10px] ${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
+                    <td key={label} className={`${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
                       <Skeleton className={`h-[14px] ${j < 3 ? 'w-[70px]' : 'ml-auto w-[64px]'}`} />
                     </td>
                   ))}
@@ -260,16 +259,16 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
             : rows.map((p) => {
                 const tier = bufferTier(p.liqBufferPct);
                 return (
-                  <tr key={`${p.accountId}-${p.market.marketId}-${p.openedAtMs}`} className="border-b border-border last:border-b-0 hover:bg-card2">
-                    <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] whitespace-nowrap">
+                  <tr key={`${p.accountId}-${p.market.marketId}-${p.openedAtMs}`} >
+                    <td className="sticky left-0 z-[1] bg-card whitespace-nowrap">
                       <Link href={`/traders/${p.accountId}`} className="num font-semibold text-text no-underline hover:text-accent-hi">
                         #{p.accountId}
                       </Link>
                     </td>
-                    <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">
+                    <td className="font-semibold whitespace-nowrap">
                       <MarketName symbol={p.market.symbol ?? `market ${p.market.marketId}`} size={16} />
                     </td>
-                    <td className="px-[10px] py-[10px] whitespace-nowrap">
+                    <td className="whitespace-nowrap">
                       <span className={`rounded-[4px] px-[6px] py-[2px] text-[10px] font-semibold tracking-[0.05em] uppercase ${p.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{p.side}</span>
                     </td>
                     <td className={cell} title={`${formatPriceAsServed(p.sizeLots)} ${p.market.symbol ?? ''} · margin ${formatAusd(p.marginAusd)} AUSD`}>{formatCompact(p.notionalAusd)}</td>
@@ -324,20 +323,20 @@ function Amount({ ausd }: { readonly ausd: number }) {
 }
 
 function MarketsTable({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number) => void }) {
-  const cell = 'num px-[12px] py-[11px] text-right whitespace-nowrap align-top';
-  const adv = 'num px-[12px] py-[11px] text-right whitespace-nowrap align-top text-[12.5px] text-muted';
+  const cell = 'num text-right whitespace-nowrap align-top';
+  const adv = 'num text-right whitespace-nowrap align-top text-[12.5px] text-muted';
   const firstAdvanced = MARKET_COLUMNS.findIndex((c) => c.advanced === true);
   return (
     <div className={`${PANEL} overflow-x-auto`}>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="data-table">
         <thead>
-          <tr className="border-b border-border text-[11px] tracking-[0.06em] uppercase">
+          <tr>
             {MARKET_COLUMNS.map((c, i) => (
               <th
                 key={c.label}
                 scope="col"
                 title={c.title}
-                className={`px-[12px] py-[10px] font-semibold whitespace-nowrap ${i === 0 ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${c.advanced === true ? 'text-muted2' : 'text-muted'} ${i === firstAdvanced ? 'border-l border-border' : ''}`}
+                className={`whitespace-nowrap ${i === 0 ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${c.advanced === true ? 'text-muted2' : 'text-muted'} ${i === firstAdvanced ? 'border-l border-border' : ''}`}
               >
                 {c.label}
               </th>
@@ -347,9 +346,9 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
         <tbody>
           {markets === undefined
             ? Array.from({ length: 6 }, (_, i) => (
-                <tr key={i} className="border-b border-border last:border-b-0">
+                <tr key={i}>
                   {MARKET_COLUMNS.map((c, j) => (
-                    <td key={c.label} className={`px-[12px] py-[11px] ${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
+                    <td key={c.label} className={`${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
                       <Skeleton className={`h-[14px] ${j === 0 ? 'w-[60px]' : 'ml-auto w-[56px]'}`} />
                     </td>
                   ))}
@@ -364,11 +363,11 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                   return (
                     <tr
                       key={m.market.marketId}
-                      className={`group cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${active ? 'bg-card2' : ''}`}
+                      className={`is-interactive group cursor-pointer ${active ? 'bg-card2' : ''}`}
                       onClick={() => onSelect(m.market.marketId)}
                       title="Show this market in the stress test"
                     >
-                      <td className={`sticky left-0 z-[1] px-[12px] py-[11px] font-semibold whitespace-nowrap align-top group-hover:bg-card2 ${active ? 'bg-card2' : 'bg-card'}`}>
+                      <td className={`sticky left-0 z-[1] font-semibold whitespace-nowrap align-top group-hover:bg-card2 ${active ? 'bg-card2' : 'bg-card'}`}>
                         <MarketName symbol={marketLabel(m)} size={16} />
                       </td>
                       <td
