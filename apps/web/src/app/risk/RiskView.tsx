@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
-import type { DirectionalExposure, ExposedPosition, MarketExposure, RiskSnapshot } from '@perpguard/shared';
+import { useMemo, useState, type ReactNode } from 'react';
+import type { DirectionalExposure, ExposedPosition, MarketExposure } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd, formatWhen } from '@/lib/format.ts';
-import { chartRungs, directionWord, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed, wholeDays } from '@/lib/risk.ts';
+import { chartRungs, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -13,8 +13,9 @@ import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
-import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
-import { LadderChart } from '@/components/charts/LadderChart.tsx';
+import { LADDER_COLORS, LadderChart } from '@/components/charts/LadderChart.tsx';
+import { MarketName, TokenIcon } from '@/components/TokenIcon.tsx';
+import { InfoTip, PANEL, RiskKpis } from './RiskKpis.tsx';
 
 const POLL_MS = 30_000;
 const DEFAULT_MOVE = -0.1;
@@ -44,11 +45,8 @@ export function RiskView() {
   const rows = useMemo(() => (s === undefined ? [] : exposedAt(s.positions, move, marketId)), [s, move, marketId]);
   const chart = useMemo(() => (scope === undefined || s === undefined ? undefined : chartRungs(scope.ladder, s.moves)), [scope, s]);
   const shockedMark = marketId === undefined ? undefined : s?.markets.find((m) => m.market.marketId === marketId)?.markPrice;
-  const at5 = s?.atRisk['0.050'];
-  const at10 = s?.atRisk['0.100'];
-  const backstop = s?.backstop;
-  const backstopDays = backstop?.sinceMs === undefined || s === undefined ? undefined : wholeDays(backstop.sinceMs, s.asOf.indexerBlockAtMs ?? s.asOf.generatedAtMs);
   const side = sideExposed(move);
+  const selectedSymbol = marketId === undefined ? undefined : (s?.markets.find((m) => m.market.marketId === marketId)?.market.symbol ?? `market ${marketId}`);
 
   return (
     <>
@@ -56,99 +54,23 @@ export function RiskView() {
         title="Risk"
         subtitle="Liquidation exposure of every open position, from contract state at the latest indexed block."
         right={
-          <>
-            <span className="chip">{s?.asOf.indexerBlock === undefined ? 'Contract state at block …' : `Contract state at block ${formatCount(s.asOf.indexerBlock)}`}</span>
+          <div className="flex flex-wrap items-center gap-x-[14px] gap-y-1 text-[11.5px] text-muted2">
+            <span>
+              Contract state at block <span className="num text-muted">{s?.asOf.indexerBlock === undefined ? '…' : formatCount(s.asOf.indexerBlock)}</span>
+            </span>
             {s?.asOf.indexerBlockAtMs !== undefined && (
-              <span className="chip" title={new Date(s.asOf.indexerBlockAtMs).toISOString()}>
-                block time {formatWhen(s.asOf.indexerBlockAtMs)} UTC
+              <span title={new Date(s.asOf.indexerBlockAtMs).toISOString()}>
+                Block time <span className="num text-muted">{formatWhen(s.asOf.indexerBlockAtMs)} UTC</span>
               </span>
             )}
-          </>
+          </div>
         }
       />
 
       <StaleMarker envelope={poll.data} />
       <ErrorNote error={poll.error} what="The risk snapshot" />
 
-      {/* ── eight tiles: open interest, each direction on its own, the backstop ── */}
-      <section className="mb-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {s === undefined || at5 === undefined || at10 === undefined ? (
-          Array.from({ length: 8 }, (_, i) => <StatTileSkeleton key={i} />)
-        ) : (
-          <>
-            <StatTile
-              label="Open interest · now"
-              value={formatCompact(s.totals.openInterestAusd)}
-              exact={`${formatAusdExact(s.totals.openInterestAusd)} AUSD at the venue's marks, one side: every long is matched by a short`}
-              secondary={
-                <>
-                  <div>{formatCount(s.counted.priced)} open positions across {formatCount(s.counted.markets)} markets</div>
-                  <div>Total position value, both sides: {formatCompact(s.totals.notionalAusd)}</div>
-                </>
-              }
-              sparklineNote={`margin ${formatCompact(s.totals.marginAusd)}: long ${formatCompact(s.totals.longMarginAusd)} · short ${formatCompact(s.totals.shortMarginAusd)}`}
-            />
-            <DirectionTile d={at10.fall} />
-            <DirectionTile d={at10.rise} />
-            <StatTile
-              label="Losses beyond collateral · 10%"
-              value={formatCompact(at10.worse.shortfallAusd)}
-              exact={`${formatAusdExact(at10.worse.shortfallAusd)} AUSD of equity below zero at the shocked mark, if every market ${directionWord(at10.worse.move)} 10%`}
-              valueColor={at10.worse.shortfallAusd > 0 ? COLORS.danger : undefined}
-              secondary={
-                <>
-                  <div>worst case if every market {directionWord(at10.worse.move)} 10%</div>
-                  <div>
-                    {at10.worse.shortfallPositions === 0
-                      ? 'no position loses more than its own collateral'
-                      : `${formatCount(at10.worse.shortfallPositions)} ${at10.worse.shortfallPositions === 1 ? 'position loses more than its' : 'positions lose more than their'} own collateral`}
-                  </div>
-                </>
-              }
-              sparklineNote="one direction: a fall and a rise are never added"
-            />
-            <DirectionTile d={at5.fall} />
-            <DirectionTile d={at5.rise} />
-            <StatTile
-              label="Insurance funds"
-              value={s.insurance.totalAusd === undefined ? 'unknown' : formatCompact(s.insurance.totalAusd)}
-              exact={s.insurance.totalAusd === undefined ? undefined : `${formatAusdExact(s.insurance.totalAusd)} AUSD, ${formatCount(s.insurance.marketsWithReading)} per-market balances read off the Exchange contract and added together`}
-              secondary={
-                <>
-                  <div>held across {formatCount(s.insurance.marketsWithReading)} markets{s.insurance.marketsWithout === 0 ? '' : ` · ${formatCount(s.insurance.marketsWithout)} without a reading`}</div>
-                  <div>
-                    {backstop === undefined
-                      ? 'draw history not read'
-                      : backstop.insuranceCredits === 0 && backstop.badDebtLiquidations === 0
-                        ? `never drawn on: 0 insurance credits, 0 bad debt${backstopDays === undefined ? '' : ` in ${formatCount(backstopDays)} days`}*`
-                        : `drawn on: ${formatCount(backstop.insuranceCredits)} insurance credits, ${formatCount(backstop.badDebtLiquidations)} with bad debt*`}
-                  </div>
-                </>
-              }
-              sparklineNote={s.asOf.insuranceAtMs === undefined ? 'no reading' : `each fund pays only for its own market · as of ${formatAge(Date.now() - s.asOf.insuranceAtMs)} ago`}
-            />
-            <StatTile
-              label="Weakest cover · 10%"
-              value={s.weakestCover === undefined ? '—' : `${marketName(s.weakestCover.market)} ${s.weakestCover.cover.toFixed(1)}×`}
-              valueColor={s.weakestCover === undefined ? undefined : s.weakestCover.cover < 10 ? COLORS.danger : s.weakestCover.cover < 50 ? COLORS.watch : COLORS.safe}
-              exact={
-                s.weakestCover === undefined
-                  ? undefined
-                  : `${marketName(s.weakestCover.market)} insurance ÷ ${formatAusdExact(s.weakestCover.shortfallAusd)} AUSD of losses beyond collateral if it ${directionWord(s.weakestCover.direction === 'fall' ? -1 : 1)} 10%`
-              }
-              secondary={
-                s.weakestCover === undefined
-                  ? 'no market has losses beyond collateral at 10%, so there is nothing to cover'
-                  : `its fund ÷ its losses beyond collateral if ${marketName(s.weakestCover.market)} ${directionWord(s.weakestCover.direction === 'fall' ? -1 : 1)} 10%`
-              }
-              sparklineNote="each market against its own worse direction; funds are not pooled"
-            />
-          </>
-        )}
-      </section>
-      <p className="mt-0 mb-4 text-[11.5px] text-muted2">
-        * From our indexer&rsquo;s record of insurance-credit and bad-debt events, not an independent chain read: a direct count from the chain was rate-limited.
-      </p>
+      <RiskKpis s={s} />
 
       {s !== undefined && s.counted.priced === 0 && (
         <div className="card mb-4 px-[18px] py-6 text-center">
@@ -161,13 +83,18 @@ export function RiskView() {
       )}
 
       {/* ── stress test and ladder ──────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <div className="card px-[18px] py-4">
-          <div className="mb-[6px] flex flex-wrap items-center justify-between gap-[10px]">
-            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Stress test</h2>
+      <section className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className={`${PANEL} px-[18px] py-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-[10px]">
+            <h2 className="m-0 flex items-center gap-2 text-[15px] font-bold tracking-[-0.01em]">
+              Stress test
+              <InfoTip align="left" text={(s?.statements ?? []).join(' ')} />
+            </h2>
+          </div>
+          <div className="mt-3">
             <MarketPills markets={s?.markets} selected={marketId} onSelect={setMarketId} />
           </div>
-          <div className="mt-3 flex items-center gap-3">
+          <div className="mt-4 flex items-center gap-3">
             <span className="num text-[11.5px] text-muted2">−50%</span>
             <input
               type="range"
@@ -182,64 +109,64 @@ export function RiskView() {
             />
             <span className="num text-[11.5px] text-muted2">+50%</span>
           </div>
-          <div className="mt-[10px] text-center text-[13px]">
-            Mark moves <b className={`num ${move < 0 ? 'text-danger' : move > 0 ? 'text-safe' : 'text-muted'}`}>{formatMove(move)}</b>
+          <div className="mt-[10px] text-center text-[13px] text-muted">
+            Mark {move < 0 ? 'falls' : move > 0 ? 'rises' : 'moves'} <b className="num text-[15px] text-text">{formatMove(move)}</b>
             {shockedMark !== undefined && (
               <>
-                {' '}to <b className="num">{formatPriceAsServed(shockedMark * (1 + move))}</b>
+                {' '}to <b className="num text-text">{formatPriceAsServed(shockedMark * (1 + move))}</b>
               </>
             )}
-            {marketId === undefined && <span className="text-muted"> · every market together</span>}
+            {marketId === undefined && <span> · every market together</span>}
           </div>
           {rung === undefined || scope === undefined ? (
             <Skeleton className="mt-4 h-[120px] w-full" />
           ) : (
-            <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-[9px] text-[12.5px] sm:grid-cols-[auto_1fr_auto_1fr]">
-              <dt className="text-muted">Positions exposed</dt>
-              <dd className="num m-0 text-right">{formatCount(rung.positions)}</dd>
-              <dt className="text-muted">Notional exposed</dt>
-              <dd className="num m-0 text-right">{formatCompact(rung.notionalAusd)}</dd>
-              <dt className="text-muted">Share of open interest</dt>
-              <dd className="num m-0 text-right">{scope.openInterestAusd > 0 ? formatPct(rung.notionalAusd / scope.openInterestAusd) : '—'}</dd>
-              <dt className="text-muted">Side exposed</dt>
-              <dd className="m-0 text-right">
-                <span className={`rounded-[4px] px-[6px] py-[2px] text-[10px] font-semibold tracking-[0.05em] uppercase ${side === 'long' ? 'bg-safe/12 text-safe' : side === 'short' ? 'bg-danger/12 text-danger' : 'bg-card2 text-muted'}`}>
-                  {side === 'both' ? 'already past' : side}
-                </span>
-              </dd>
-              <dt className="text-muted">Losses beyond collateral</dt>
-              <dd className={`num m-0 text-right ${rung.shortfallAusd > 0 ? 'text-danger' : ''}`} title={`${formatCount(rung.shortfallPositions)} positions`}>{formatCompact(rung.shortfallAusd)}</dd>
-              <dt className="text-muted">Insurance covers</dt>
-              <dd className="num m-0 text-right">
-                {marketId === undefined ? (
-                  <span className="text-muted2">per market only</span>
-                ) : scope.insuranceAusd === undefined ? (
-                  <span className="text-muted2">no reading</span>
-                ) : rung.shortfallAusd === 0 ? (
-                  <span className="text-muted2">nothing to cover</span>
-                ) : (
-                  <span className={scope.insuranceAusd / rung.shortfallAusd < 10 ? 'text-danger' : 'text-safe'}>{(scope.insuranceAusd / rung.shortfallAusd).toFixed(1)}×</span>
-                )}
-              </dd>
+            <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-[6px] border border-border bg-border sm:grid-cols-3">
+              <Stat label="Positions exposed" value={formatCount(rung.positions)} />
+              <Stat label="Notional exposed" value={formatCompact(rung.notionalAusd)} />
+              <Stat label="Share of open interest" value={scope.openInterestAusd > 0 ? formatPct(rung.notionalAusd / scope.openInterestAusd) : '—'} />
+              <Stat
+                label="Side exposed"
+                value={
+                  <span className={`rounded-[4px] px-[6px] py-[2px] text-[10.5px] font-semibold tracking-[0.05em] uppercase ${side === 'long' ? 'bg-safe/12 text-safe' : side === 'short' ? 'bg-danger/12 text-danger' : 'bg-card2 text-muted'}`}>
+                    {side === 'both' ? 'already past' : side}
+                  </span>
+                }
+              />
+              <Stat
+                label="Losses beyond collateral"
+                value={<span className={rung.shortfallAusd > 0 ? 'text-danger' : ''}>{formatCompact(rung.shortfallAusd)}</span>}
+                title={`${formatCount(rung.shortfallPositions)} positions past their own collateral`}
+              />
+              <Stat
+                label="Insurance covers"
+                value={
+                  marketId === undefined ? (
+                    <span className="text-[12px] font-medium text-muted2">per market only</span>
+                  ) : scope.insuranceAusd === undefined ? (
+                    <span className="text-[12px] font-medium text-muted2">no reading</span>
+                  ) : rung.shortfallAusd === 0 ? (
+                    <span className="text-[12px] font-medium text-muted2">nothing to cover</span>
+                  ) : (
+                    <span className={scope.insuranceAusd / rung.shortfallAusd < 10 ? 'text-danger' : 'text-safe'}>{(scope.insuranceAusd / rung.shortfallAusd).toFixed(1)}×</span>
+                  )
+                }
+              />
             </dl>
           )}
-          <div className="mt-4 space-y-[6px] text-[11.5px] text-muted2">
-            {(s?.statements ?? []).map((line) => (
-              <p key={line} className="m-0 max-w-[70ch]">{line}</p>
-            ))}
-          </div>
         </div>
 
-        <div className="card px-[18px] py-4">
-          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+        <div className={`${PANEL} px-[18px] py-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Liquidation ladder</h2>
-            <span className="text-[12.5px] text-muted">{scope?.label ?? '…'} · notional exposed at each move</span>
+            <span className="text-[13px] font-semibold text-text">{selectedSymbol === undefined ? 'All markets' : <MarketName symbol={selectedSymbol} size={16} />}</span>
           </div>
+          <p className="mt-1 mb-2 text-[12px] text-muted">Where liquidations could occur as prices move: notional exposed at each move size.</p>
           <div className="mb-2 flex flex-wrap gap-[14px] text-[12px] text-muted">
-            <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-full align-[-1px]" style={{ background: COLORS.safe }} />Longs (price down)</span>
-            <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-full align-[-1px]" style={{ background: COLORS.danger }} />Shorts (price up)</span>
+            <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: LADDER_COLORS.longs }} />Longs · price falls</span>
+            <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: LADDER_COLORS.shorts }} />Shorts · price rises</span>
           </div>
-          {chart === undefined ? <Skeleton className="h-[340px] w-full" /> : <LadderChart rungs={chart} />}
+          {chart === undefined ? <Skeleton className="h-[340px] w-full" /> : <LadderChart rungs={chart} highlightSize={Math.abs(move)} />}
         </div>
       </section>
 
@@ -255,7 +182,7 @@ export function RiskView() {
       </section>
 
       {/* ── by market ───────────────────────────────────────────────────── */}
-      <section className="mb-4">
+      <section className="mb-5">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
           <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">By market</h2>
           <span className="text-[12.5px] text-muted">A fall (longs) and a rise (shorts) side by side, never added. Losses and cover use each market&rsquo;s worse direction at 10%.</span>
@@ -263,7 +190,7 @@ export function RiskView() {
         <MarketsTable markets={s?.markets} onSelect={setMarketId} selected={marketId} />
       </section>
 
-      <div className="flex gap-[10px] rounded-[10px] border border-watch/30 bg-watch/8 px-[14px] py-3 text-[12.5px] text-[#E8D7B0]">
+      <div className="flex gap-[10px] rounded-[8px] border border-watch/30 bg-watch/8 px-[14px] py-3 text-[12.5px] text-[#E8D7B0]">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COLORS.watch} strokeWidth="2.2" aria-hidden="true" className="mt-[2px] flex-none">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16.5v.01" />
@@ -286,7 +213,8 @@ export function RiskView() {
 }
 
 function MarketPills({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number | undefined) => void }) {
-  const pill = (active: boolean) => `pill rounded-[6px] border px-[9px] py-[4px] text-[11.5px] ${active ? 'border-border2 bg-card2 text-text' : 'border-transparent bg-transparent text-muted hover:text-text'}`;
+  const pill = (active: boolean) =>
+    `pill inline-flex items-center gap-[5px] rounded-[6px] border px-[8px] py-[4px] text-[11.5px] font-semibold ${active ? 'border-accent bg-accent/15 text-text' : 'border-border bg-transparent text-muted hover:border-border2 hover:text-text'}`;
   return (
     <div className="flex flex-wrap gap-[3px]" role="group" aria-label="Market">
       <button type="button" className={pill(selected === undefined)} aria-pressed={selected === undefined} onClick={() => onSelect(undefined)}>
@@ -294,6 +222,7 @@ function MarketPills({ markets, selected, onSelect }: { readonly markets: readon
       </button>
       {(markets ?? []).map((m) => (
         <button key={m.market.marketId} type="button" className={pill(selected === m.market.marketId)} aria-pressed={selected === m.market.marketId} onClick={() => onSelect(m.market.marketId)}>
+          <TokenIcon symbol={marketLabel(m)} size={14} />
           {marketLabel(m)}
         </button>
       ))}
@@ -301,12 +230,12 @@ function MarketPills({ markets, selected, onSelect }: { readonly markets: readon
   );
 }
 
-const EXPOSED_COLUMNS = ['Trader', 'Market', 'Side', 'Notional', 'Leverage', 'Liq. price', 'Liq. distance', 'uPnL'] as const;
+const EXPOSED_COLUMNS = ['Trader', 'Market', 'Side', 'Notional', 'Leverage', 'Liq. price', 'Distance to liq.', 'uPnL'] as const;
 
 function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: readonly ExposedPosition[]; readonly loading: boolean; readonly move: number; readonly scopeLabel: string }) {
   const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
   return (
-    <div className="card overflow-x-auto">
+    <div className={`${PANEL} overflow-x-auto`}>
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr className="border-b border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
@@ -337,7 +266,9 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
                         #{p.accountId}
                       </Link>
                     </td>
-                    <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">{p.market.symbol ?? `market ${p.market.marketId}`}</td>
+                    <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">
+                      <MarketName symbol={p.market.symbol ?? `market ${p.market.marketId}`} size={16} />
+                    </td>
                     <td className="px-[10px] py-[10px] whitespace-nowrap">
                       <span className={`rounded-[4px] px-[6px] py-[2px] text-[10px] font-semibold tracking-[0.05em] uppercase ${p.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{p.side}</span>
                     </td>
@@ -345,7 +276,11 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
                     <td className={`${cell} text-muted`}>{p.leverage.toFixed(1)}×</td>
                     <td className={cell}>{p.liquidationPrice === undefined ? '—' : formatPriceAsServed(p.liquidationPrice)}</td>
                     <td className={cell}>
-                      {tier === 'past' ? <b style={{ color: TIER_COLOR.past }}>past liquidation</b> : <b style={{ color: TIER_COLOR[tier] }}>{p.liqBufferPct === undefined ? '—' : formatPct(p.liqBufferPct)}</b>}
+                      {tier === 'past' ? (
+                        <b className="text-[13.5px]" style={{ color: TIER_COLOR.past }}>past liquidation</b>
+                      ) : (
+                        <b className="text-[14px]" style={{ color: TIER_COLOR[tier] }}>{p.liqBufferPct === undefined ? '—' : formatPct(p.liqBufferPct)}</b>
+                      )}
                     </td>
                     <td className={`${cell} ${p.unrealisedPnlAusd > 0 ? 'text-safe' : p.unrealisedPnlAusd < 0 ? 'text-danger' : ''}`}>{formatSignedAusd(p.unrealisedPnlAusd, 0)}</td>
                   </tr>
@@ -353,9 +288,12 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
               })}
           {!loading && rows.length === 0 && (
             <tr>
-              <td colSpan={EXPOSED_COLUMNS.length} className="px-[10px] py-8 text-center text-muted">
-                <div className="text-[14px] font-semibold text-text">No position is liquidated by a {formatMove(move)} move in {scopeLabel}.</div>
-                <div className="mt-1 text-[12.5px]">Drag the slider further, or pick another market. Liq. distance is signed: a negative one is already past liquidation.</div>
+              <td colSpan={EXPOSED_COLUMNS.length} className="px-[10px] py-10 text-center text-muted">
+                <div className="mx-auto mb-2 flex h-[28px] w-[28px] items-center justify-center rounded-full border border-border2 text-muted2" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 8h10" /></svg>
+                </div>
+                <div className="text-[14px] font-semibold text-text">Nothing is liquidated by a {formatMove(move)} move in {scopeLabel}.</div>
+                <div className="mx-auto mt-1 max-w-[52ch] text-[12.5px]">Drag the slider further, or pick another market. Distance to liquidation is signed: a negative one is already past it.</div>
               </td>
             </tr>
           )}
@@ -365,18 +303,43 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
   );
 }
 
-const MARKET_COLUMNS = ['Market', 'Open interest', 'Positions', 'At risk 5%', 'At risk 10%', 'Beyond collateral 10%', 'Insurance', 'Cover', 'Top 5 share', 'Maint. margin'] as const;
+/** Primary columns first; the advanced ones (from Insurance on) are set back visually, never removed. */
+const MARKET_COLUMNS: readonly { readonly label: string; readonly advanced?: boolean; readonly title?: string }[] = [
+  { label: 'Market' },
+  { label: 'Open interest', title: 'One side, at the mark' },
+  { label: 'Positions' },
+  { label: 'At risk 5%', title: 'Notional a 5% fall (longs) or a 5% rise (shorts) liquidates, shown separately' },
+  { label: 'At risk 10%', title: 'Notional a 10% fall (longs) or a 10% rise (shorts) liquidates, shown separately' },
+  { label: 'Beyond collateral 10%', title: "Losses beyond the positions' own collateral in this market's worse direction at 10%" },
+  { label: 'Insurance', advanced: true },
+  { label: 'Cover', advanced: true, title: "Insurance ÷ losses beyond collateral, this market's worse direction" },
+  { label: 'Top 5 share', advanced: true, title: 'Share of total position value held by the five largest positions' },
+  { label: 'Maint. margin', advanced: true },
+];
+
+/** A table amount: compact from 10K, whole AUSD below, a quiet 0 for nothing. The exact figure is on hover. */
+function Amount({ ausd }: { readonly ausd: number }) {
+  if (ausd === 0) return <span className="text-muted2">0</span>;
+  return <span title={`${formatAusdExact(ausd)} AUSD`}>{Math.abs(ausd) >= 10_000 ? formatCompact(ausd) : formatCount(ausd)}</span>;
+}
 
 function MarketsTable({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number) => void }) {
-  const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
+  const cell = 'num px-[12px] py-[11px] text-right whitespace-nowrap align-top';
+  const adv = 'num px-[12px] py-[11px] text-right whitespace-nowrap align-top text-[12.5px] text-muted';
+  const firstAdvanced = MARKET_COLUMNS.findIndex((c) => c.advanced === true);
   return (
-    <div className="card overflow-x-auto">
+    <div className={`${PANEL} overflow-x-auto`}>
       <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="border-b border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
-            {MARKET_COLUMNS.map((label, i) => (
-              <th key={label} scope="col" className={`px-[10px] py-[9px] font-semibold whitespace-nowrap ${i === 0 ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'}`}>
-                {label}
+          <tr className="border-b border-border text-[11px] tracking-[0.06em] uppercase">
+            {MARKET_COLUMNS.map((c, i) => (
+              <th
+                key={c.label}
+                scope="col"
+                title={c.title}
+                className={`px-[12px] py-[10px] font-semibold whitespace-nowrap ${i === 0 ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${c.advanced === true ? 'text-muted2' : 'text-muted'} ${i === firstAdvanced ? 'border-l border-border' : ''}`}
+              >
+                {c.label}
               </th>
             ))}
           </tr>
@@ -385,9 +348,9 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
           {markets === undefined
             ? Array.from({ length: 6 }, (_, i) => (
                 <tr key={i} className="border-b border-border last:border-b-0">
-                  {MARKET_COLUMNS.map((label, j) => (
-                    <td key={label} className={`px-[10px] py-[10px] ${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
-                      <Skeleton className={`h-[14px] ${j === 0 ? 'w-[50px]' : 'ml-auto w-[64px]'}`} />
+                  {MARKET_COLUMNS.map((c, j) => (
+                    <td key={c.label} className={`px-[12px] py-[11px] ${j === 0 ? 'sticky left-0 z-[1] bg-card' : ''}`}>
+                      <Skeleton className={`h-[14px] ${j === 0 ? 'w-[60px]' : 'ml-auto w-[56px]'}`} />
                     </td>
                   ))}
                 </tr>
@@ -399,12 +362,26 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                   const ten = m.atRisk['0.100']!;
                   const active = selected === m.market.marketId;
                   return (
-                    <tr key={m.market.marketId} className={`cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${active ? 'bg-card2' : ''}`} onClick={() => onSelect(m.market.marketId)} title="Show this market in the stress test">
-                      <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${active ? 'bg-card2' : 'bg-card'}`}>{marketLabel(m)}</td>
-                      <td className={cell} title={`one side · total position value, both sides ${formatCompact(m.notionalAusd)} · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}>{formatCompact(m.openInterestAusd)}</td>
+                    <tr
+                      key={m.market.marketId}
+                      className={`group cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${active ? 'bg-card2' : ''}`}
+                      onClick={() => onSelect(m.market.marketId)}
+                      title="Show this market in the stress test"
+                    >
+                      <td className={`sticky left-0 z-[1] px-[12px] py-[11px] font-semibold whitespace-nowrap align-top group-hover:bg-card2 ${active ? 'bg-card2' : 'bg-card'}`}>
+                        <MarketName symbol={marketLabel(m)} size={16} />
+                      </td>
+                      <td
+                        className={`${cell} font-semibold`}
+                        title={`one side · total position value, both sides ${formatCompact(m.notionalAusd)} · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}
+                      >
+                        {formatCompact(m.openInterestAusd)}
+                      </td>
                       <td className={cell}>
                         {formatCount(m.positions)}
-                        <span className="block text-[11px] text-muted2">{formatCount(m.longs)}L · {formatCount(m.shorts)}S</span>
+                        <span className="block text-[11px] text-muted2">
+                          {formatCount(m.longs)}L · {formatCount(m.shorts)}S
+                        </span>
                       </td>
                       <td className={cell}>
                         <SplitCell d={five.fall} />
@@ -414,26 +391,42 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                         <SplitCell d={ten.fall} />
                         <SplitCell d={ten.rise} />
                       </td>
-                      <td className={`${cell} ${m.cover10.shortfallAusd > 0 ? 'text-danger' : 'text-muted'}`} title={`${formatCount(ten.worse.shortfallPositions)} positions lose more than their own collateral`}>
-                        {formatCompact(m.cover10.shortfallAusd)}
-                        {m.cover10.shortfallAusd > 0 && <span className="block text-[11px] text-muted2">if it {m.cover10.direction === 'fall' ? 'falls' : 'rises'}</span>}
-                      </td>
-                      <td className={cell} title={m.insuranceReason}>{m.insuranceAusd === undefined ? <span className="text-muted2">no reading</span> : formatCompact(m.insuranceAusd)}</td>
-                      <td className={cell}>
-                        {m.cover10.cover === undefined ? (
-                          <span className="text-muted2" title={m.cover10.shortfallAusd === 0 ? 'no losses beyond collateral at 10%' : 'no insurance reading'}>{m.cover10.shortfallAusd === 0 ? 'none needed' : '—'}</span>
+                      <td className={cell} title={`${formatCount(ten.worse.shortfallPositions)} positions lose more than their own collateral`}>
+                        {m.cover10.shortfallAusd > 0 ? (
+                          <>
+                            <span className="text-danger">
+                              <Amount ausd={m.cover10.shortfallAusd} />
+                            </span>
+                            <span className="block text-[11px] text-muted2">if it {m.cover10.direction === 'fall' ? 'falls' : 'rises'}</span>
+                          </>
                         ) : (
-                          <span className={m.cover10.cover < 10 ? 'text-danger' : m.cover10.cover < 50 ? 'text-watch' : 'text-safe'} title={`against the ${m.cover10.direction}`}>{m.cover10.cover.toFixed(1)}×</span>
+                          <Amount ausd={0} />
                         )}
                       </td>
-                      <td className={`${cell} ${m.topFiveShare !== undefined && m.topFiveShare > 0.7 ? 'text-watch' : ''}`}>{m.topFiveShare === undefined ? '—' : formatPct(m.topFiveShare, 0)}</td>
-                      <td className={`${cell} text-muted`}>{formatPct(m.maintenanceMarginRatio, 2)}</td>
+                      <td className={`${adv} border-l border-border`} title={m.insuranceReason}>
+                        {m.insuranceAusd === undefined ? <span className="text-muted2">no reading</span> : <Amount ausd={m.insuranceAusd} />}
+                      </td>
+                      <td className={adv}>
+                        {m.cover10.cover === undefined ? (
+                          <span className="text-muted2" title={m.cover10.shortfallAusd === 0 ? 'no losses beyond collateral at 10%' : 'no insurance reading'}>
+                            {m.cover10.shortfallAusd === 0 ? 'none needed' : '—'}
+                          </span>
+                        ) : (
+                          <span className={m.cover10.cover < 10 ? 'text-danger' : m.cover10.cover < 50 ? 'text-watch' : 'text-safe'} title={`against the ${m.cover10.direction}`}>
+                            {m.cover10.cover >= 1000 ? `${formatCount(m.cover10.cover)}×` : `${m.cover10.cover.toFixed(1)}×`}
+                          </span>
+                        )}
+                      </td>
+                      <td className={`${adv} ${m.topFiveShare !== undefined && m.topFiveShare > 0.7 ? 'text-watch' : ''}`}>{m.topFiveShare === undefined ? '—' : formatPct(m.topFiveShare, 0)}</td>
+                      <td className={adv}>{formatPct(m.maintenanceMarginRatio, 2)}</td>
                     </tr>
                   );
                 })}
           {markets !== undefined && markets.length === 0 && (
             <tr>
-              <td colSpan={MARKET_COLUMNS.length} className="px-[10px] py-6 text-center text-muted">No market has a priced open position.</td>
+              <td colSpan={MARKET_COLUMNS.length} className="px-[12px] py-6 text-center text-muted">
+                No market has a priced open position.
+              </td>
             </tr>
           )}
         </tbody>
@@ -442,46 +435,24 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
   );
 }
 
-function marketName(market: MarketExposure['market']): string {
-  return market.symbol ?? `market ${market.marketId}`;
-}
 
-/**
- * One direction as a tile: a fall closes longs, a rise closes shorts, and the
- * tile says which in words. Never a sum of the two.
- */
-function DirectionTile({ d }: { readonly d: DirectionalExposure }) {
-  const size = `${Math.round(Math.abs(d.move) * 100)}%`;
-  const fall = d.move < 0;
-  return (
-    <StatTile
-      label={`If prices ${fall ? 'fall' : 'rise'} ${size}`}
-      value={formatCompact(d.notionalAusd)}
-      exact={`${formatAusdExact(d.notionalAusd)} AUSD of ${fall ? 'long' : 'short'} positions liquidated, at today's marks`}
-      secondary={
-        <>
-          <div>
-            {formatCount(d.positions)} positions · {d.shareOfOpenInterest === undefined ? 'no open interest' : `${formatPct(d.shareOfOpenInterest)} of open interest`}
-          </div>
-          <div>{fall ? 'a fall closes longs' : 'a rise closes shorts'}</div>
-        </>
-      }
-      sparklineNote={
-        d.shortfallPositions === 0
-          ? 'none loses more than its own collateral'
-          : `${formatCount(d.shortfallPositions)} ${d.shortfallPositions === 1 ? 'loses' : 'lose'} more than ${d.shortfallPositions === 1 ? 'its' : 'their'} own collateral: ${formatCompact(d.shortfallAusd)}`
-      }
-    />
-  );
-}
-
-/** One direction inside a table cell: "fall 191.4K" over "rise 64.6K". */
+/** One direction inside a table cell: "fall 96K" over "rise 45.7K". Never a sum of the two. */
 function SplitCell({ d }: { readonly d: DirectionalExposure }) {
   const fall = d.move < 0;
   return (
-    <span className="block" title={`${formatCount(d.positions)} ${fall ? 'longs' : 'shorts'}`}>
-      <span className="mr-1 text-[10.5px] text-muted2">{fall ? 'fall' : 'rise'}</span>
-      {formatCompact(d.notionalAusd)}
+    <span className="block leading-[1.5]" title={`${formatCount(d.positions)} ${fall ? 'longs' : 'shorts'}`}>
+      <span className="mr-[6px] text-[10.5px] text-muted2">{fall ? 'fall' : 'rise'}</span>
+      <Amount ausd={d.notionalAusd} />
     </span>
+  );
+}
+
+/** One stress-test figure: a muted label over a clear value, in a hairline grid. */
+function Stat({ label, value, title }: { readonly label: string; readonly value: ReactNode; readonly title?: string }) {
+  return (
+    <div className="bg-card px-3 py-[10px]" title={title}>
+      <dt className="text-[11px] text-muted">{label}</dt>
+      <dd className="num m-0 mt-[3px] text-[15px] font-semibold text-text">{value}</dd>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { ChartRung } from '@/lib/risk.ts';
 import { formatCompact, formatCount } from '@/lib/format.ts';
-import { COLORS } from '@/lib/theme.ts';
+import { COLORS, SERIES } from '@/lib/theme.ts';
 
 const W = 560;
 const LABEL_W = 82;
@@ -9,11 +9,21 @@ const BAR_H = 14;
 const TOP = 10;
 
 /**
+ * The ladder's two hues: the first two categorical slots, NOT safe/danger.
+ * These bars are positions being liquidated on either side; green would read
+ * as "fine" the way it does everywhere else on the site. Validated against the
+ * card surface with the dataviz checker (CVD ΔE 26.8, normal 31.8).
+ */
+export const LADDER_COLORS = { longs: SERIES[0], shorts: SERIES[1] } as const;
+
+/**
  * Notional exposed at each move size, longs to the left of zero and shorts to
  * the right, diverging from one centre line. Every rung is a row; a rung with
- * nothing exposed still draws so the reader can see it is empty.
+ * nothing exposed still draws so the reader can see it is empty. The row for
+ * the stress test's current move size, when it is one of the drawn sizes, is
+ * marked so the two panels read together.
  */
-export function LadderChart({ rungs }: { readonly rungs: readonly ChartRung[] }) {
+export function LadderChart({ rungs, highlightSize }: { readonly rungs: readonly ChartRung[]; readonly highlightSize?: number | undefined }) {
   const max = Math.max(1, ...rungs.map((r) => Math.max(r.longsAusd, r.shortsAusd)));
   const centre = LABEL_W + (W - LABEL_W) / 2;
   const half = (W - LABEL_W) / 2 - 10;
@@ -37,12 +47,14 @@ export function LadderChart({ rungs }: { readonly rungs: readonly ChartRung[] })
         const y = TOP + i * ROW_H + (ROW_H - BAR_H) / 2;
         const lw = Math.max(r.longsAusd > 0 ? 1.5 : 0, px(r.longsAusd));
         const sw = Math.max(r.shortsAusd > 0 ? 1.5 : 0, px(r.shortsAusd));
+        const marked = highlightSize !== undefined && Math.abs(highlightSize - r.size) < 1e-9;
         return (
           <g key={r.size}>
-            <text x={LABEL_W - 8} y={y + BAR_H - 3} textAnchor="end" fill={COLORS.muted} fontSize="10.5" className="num">{Math.round(r.size * 1000) / 10}%</text>
+            {marked && <rect x={4} y={TOP + i * ROW_H + 1} width={W - 8} height={ROW_H - 2} rx={4} fill={COLORS.card2} stroke={COLORS.border2} />}
+            <text x={LABEL_W - 8} y={y + BAR_H - 3} textAnchor="end" fill={marked ? COLORS.text : COLORS.muted} fontSize="10.5" fontWeight={marked ? 600 : 400} className="num">{Math.round(r.size * 1000) / 10}%</text>
             <title>{`${Math.round(r.size * 1000) / 10}%: ${formatCount(r.longs)} longs (${formatCompact(r.longsAusd)}) exposed to a fall, ${formatCount(r.shorts)} shorts (${formatCompact(r.shortsAusd)}) to a rise`}</title>
-            <rect x={centre - lw} y={y} width={lw} height={BAR_H} rx={2} fill={COLORS.safe} />
-            <rect x={centre} y={y} width={sw} height={BAR_H} rx={2} fill={COLORS.danger} />
+            <rect x={centre - lw} y={y} width={lw} height={BAR_H} rx={2} fill={LADDER_COLORS.longs} />
+            <rect x={centre} y={y} width={sw} height={BAR_H} rx={2} fill={LADDER_COLORS.shorts} />
           </g>
         );
       })}
