@@ -87,6 +87,7 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
+import type { LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
@@ -505,6 +506,40 @@ select date_trunc('month', day) as month, sum("tradeCount")::text as trades, sum
 const HISTORY_ACCOUNTS_SQL = `
 select date_trunc('month', "createdAt") as month, count(*)::text as accounts
   from "Trader" where "createdAt" is not null group by 1
+`;
+
+/** The hold-time split the insights use, in hours. */
+export const INSIGHT_HOLD_HOURS = 48;
+
+/**
+ * One account's lifetime insight facts, over its closed round trips (the same
+ * set as the round-trip list). One aggregate pass: an account with a million
+ * round trips takes ~11 s, which the route's cache absorbs.
+ */
+const WALLET_INSIGHTS_SQL = `
+select count(*)::text                                                              as round_trips,
+       (avg("leverageHdths") filter (where "leverageHdths" > 0))::text              as avg_lev_hdths,
+       count(*) filter (where "isWin" is not true)::text                            as losing,
+       count(*) filter (where "isWin" is not true
+                          and "closedAt" - "openedAt" > make_interval(hours => $2))::text as losing_held_over,
+       count(*) filter (where "closedAt" - "openedAt" > make_interval(hours => $2))::text as held_over,
+       count(*) filter (where side = 'LONG')::text                                 as longs,
+       count(*) filter (where side = 'SHORT')::text                                as shorts,
+       coalesce(sum("netPnlCNS") filter (where side = 'LONG'), 0)::text            as long_net,
+       coalesce(sum("netPnlCNS") filter (where side = 'SHORT'), 0)::text           as short_net
+  from "Position"
+ where trader_id = $1 and status <> 'OPEN'
+`;
+
+/** The median account's mean leverage at open, over accounts with at least the ratio floor of round trips. */
+const LEVERAGE_BASELINE_SQL = `
+select (percentile_cont(0.5) within group (order by avg_lev))::text as median_hdths,
+       count(*)::text                                              as accounts
+  from (select trader_id, avg("leverageHdths") as avg_lev
+          from "Position"
+         where status <> 'OPEN' and "leverageHdths" > 0
+         group by trader_id
+        having count(*) >= $1) per_account
 `;
 
 /** Whether the backstop was ever used: insurance top-ups and bad debt, across every forced exit. */
@@ -1186,6 +1221,38 @@ export class PostgresAnalytics implements Analytics {
       withdrawnAusd: toAusd(row['withdrawn'], decimals),
       netFlowAusd: toAusd(row['deposited'], decimals) - toAusd(row['withdrawn'], decimals),
     }));
+  }
+
+  async walletInsightFacts(accountId: number): Promise<WalletInsightFacts | undefined> {
+    const exists = await this.#one('select 1 as found from "Trader" where id = $1', [String(accountId)]);
+    if (exists === undefined) return undefined;
+    const decimals = await this.#decimals();
+    const row = await this.#one(WALLET_INSIGHTS_SQL, [String(accountId), INSIGHT_HOLD_HOURS]);
+    const avgHdths = row?.['avg_lev_hdths'];
+    return {
+      accountId,
+      roundTrips: count(row?.['round_trips']),
+      // Leverage is stored in hundredths of a multiple (1500 = 15x).
+      averageLeverage: avgHdths === null || avgHdths === undefined ? undefined : Number(avgHdths) / 100,
+      holdThresholdHours: INSIGHT_HOLD_HOURS,
+      losingTrips: count(row?.['losing']),
+      losingTripsHeldOver: count(row?.['losing_held_over']),
+      tripsHeldOver: count(row?.['held_over']),
+      longTrips: count(row?.['longs']),
+      shortTrips: count(row?.['shorts']),
+      longNetPnlAusd: toAusd(row?.['long_net'], decimals),
+      shortNetPnlAusd: toAusd(row?.['short_net'], decimals),
+    };
+  }
+
+  async leverageBaseline(): Promise<LeverageBaseline> {
+    const row = await this.#one(LEVERAGE_BASELINE_SQL, [MIN_ROUND_TRIPS_FOR_RATIOS]);
+    const median = row?.['median_hdths'];
+    return {
+      medianLeverage: median === null || median === undefined ? undefined : Number(median) / 100,
+      accounts: count(row?.['accounts']),
+      minRoundTrips: MIN_ROUND_TRIPS_FOR_RATIOS,
+    };
   }
 
   async backstopHistory(): Promise<BackstopHistory> {

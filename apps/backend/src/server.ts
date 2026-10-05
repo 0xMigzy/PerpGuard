@@ -92,7 +92,7 @@ import { buildHealth, type HealthReport } from './server/health.ts';
 import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { RiskSnapshotSource } from './server/riskSnapshot.ts';
-import { defaultWarmEntries } from './server/analyticsRoutes.ts';
+import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
@@ -990,7 +990,19 @@ if (analyticsReader !== undefined) {
     }
     if (warmed > 0) log(`analytics cache: ${warmed} answer(s) warm in ${Date.now() - startedAt}ms`);
   };
-  void warmCycle();
+  // The cross-account leverage baseline (a ~7 s scan of every position) is
+  // warmed ONCE, after the first cycle and never beside it; its hour-long TTL on
+  // the insights route keeps it fresh behind readers from then on.
+  void warmCycle().then(async () => {
+    const baseline = analyticsLoaders(reader).leverageBaseline();
+    // A reader may already have started it behind an early insights request.
+    if (analyticsCache.ageOf(baseline.key) !== undefined) return;
+    try {
+      await analyticsCache.warm(baseline.key, baseline.load);
+    } catch (error) {
+      warn(`analytics warm: ${baseline.key} failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
   warmTimer = setInterval(() => void warmCycle(), KEEP_WARM_MS);
   warmTimer.unref();
 }

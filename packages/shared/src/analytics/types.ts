@@ -685,6 +685,40 @@ export interface WalletProfile {
   readonly withdrawnAusd: number;
 }
 
+/**
+ * Lifetime facts behind a wallet's computed insights: counts and sums over the
+ * account's CLOSED round trips (status not OPEN, the same set as the round-trip
+ * list), straight from the index. No interpretation lives here; the rules that
+ * turn these into sentences are pure functions on the page.
+ */
+export interface WalletInsightFacts {
+  readonly accountId: number;
+  readonly roundTrips: number;
+  /** Mean leverage at open across the round trips, as a multiple. */
+  readonly averageLeverage: number | undefined;
+  /** The hold-time split below, in hours. */
+  readonly holdThresholdHours: number;
+  /** Round trips that were not wins (forced exits included). */
+  readonly losingTrips: number;
+  readonly losingTripsHeldOver: number;
+  readonly tripsHeldOver: number;
+  readonly longTrips: number;
+  readonly shortTrips: number;
+  readonly longNetPnlAusd: number;
+  readonly shortNetPnlAusd: number;
+}
+
+/**
+ * The median account's mean leverage at open, over accounts with at least
+ * MIN_ROUND_TRIPS_FOR_RATIOS round trips: the baseline a wallet's leverage is
+ * compared against. One scan of every position, so it is cached for an hour.
+ */
+export interface LeverageBaseline {
+  readonly medianLeverage: number | undefined;
+  readonly accounts: number;
+  readonly minRoundTrips: number;
+}
+
 export interface OpenPosition {
   readonly market: MarketRef;
   readonly side: Side;
@@ -1031,6 +1065,10 @@ export interface Analytics {
   dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]>;
   /** Every month since the index's first event. See {@link HistoryCurve}. */
   history(): Promise<HistoryCurve>;
+  /** Lifetime facts for one account's computed insights; undefined when the account is not indexed. */
+  walletInsightFacts(accountId: number): Promise<WalletInsightFacts | undefined>;
+  /** The cross-account leverage baseline. Heavy: one pass over every position. */
+  leverageBaseline(): Promise<LeverageBaseline>;
   /**
    * Whether the insurance funds have ever been drawn on: liquidations the fund
    * topped up (`PositionLiquidationCredit`) and liquidations that left bad

@@ -12,6 +12,8 @@
  */
 import type {
   AssessedPositions,
+  LeverageBaseline,
+  WalletInsightFacts,
   DailyPoint,
   HistoryCurve,
   IndexerHealth,
@@ -212,6 +214,9 @@ export const api = {
     getJson<Envelope<readonly RoundTrip[]>>(`${A}/account/${accountId}/round-trips?limit=${limit}&offset=${offset}`),
   /** The account's UTC days in the window, oldest first. */
   accountDays: (accountId: number, t: Timeframe) => getJson<Envelope<readonly TraderDayPoint[]>>(`${A}/account/${accountId}/days?timeframe=${t}`),
+  /** The computed-insight facts for one account, with the cross-account leverage baseline. */
+  accountInsights: (accountId: number) =>
+    getJson<Envelope<{ readonly facts: WalletInsightFacts; readonly baseline?: (LeverageBaseline & { readonly computedAtMs: number }) | undefined }>>(`${A}/account/${accountId}/insights`),
   /** Sorted and paged by the backend; the page never re-sorts a page. */
   /** One leaderboard page, optionally filtered by an address prefix or account id. */
   traders: (t: Timeframe, ranking: TraderRanking, limit: number, offset: number, q?: string, sort?: { readonly key: string; readonly direction: 'asc' | 'desc' }) =>

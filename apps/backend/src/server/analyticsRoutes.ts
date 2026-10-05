@@ -38,6 +38,7 @@ import {
   type Analytics,
   type AssessedPositions,
   type IndexerHealth,
+  type LeverageBaseline,
   type OpenPosition,
   type MarketOpenInterest,
   type RiskSnapshot,
@@ -133,6 +134,9 @@ const DEFAULT_CACHE_TTL_MS = 20_000;
 /** The health verdict: one small query plus a chain RPC, and every response wants it. */
 const HEALTH_TTL_MS = 2_000;
 
+/** The cross-account leverage baseline moves slowly and costs a full scan. */
+export const LEVERAGE_BASELINE_TTL_MS = 60 * 60_000;
+
 /**
  * The cache keys and loaders for every indexed answer, in ONE place, so the
  * route that serves a key and the boot-time warm that precomputes it cannot
@@ -180,6 +184,8 @@ export function analyticsLoaders(analytics: Analytics) {
         analytics.roundTrips(accountId, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
       ),
     traderDays: (accountId: number, t: Timeframe) => entry(`trader-days:${accountId}:${t}`, () => analytics.traderDays(accountId, t)),
+    insights: (accountId: number) => entry(`insights:${accountId}`, () => analytics.walletInsightFacts(accountId)),
+    leverageBaseline: () => entry('leverage-baseline', () => analytics.leverageBaseline()),
     walletSearch: (q: string) => entry(`wallet-search:${q.toLowerCase()}`, () => analytics.walletSearch(q, SEARCH_LIMIT)),
   };
 }
@@ -607,6 +613,33 @@ export function registerAnalyticsRoutes(
       );
     },
   );
+
+  /**
+   * One account's computed-insight facts, with the cross-account leverage
+   * baseline beside them. The baseline is one pass over every position (~7 s),
+   * so it keeps an hour's TTL: stale-while-revalidate means only the very first
+   * reader ever waits for it, and nobody waits for a refresh.
+   */
+  scope.get<{ Params: { accountId: string } }>(`${prefix}/account/:accountId/insights`, async (request, reply) => {
+    const accountId = Number(request.params.accountId);
+    if (!Number.isSafeInteger(accountId) || accountId < 0) {
+      return reply.code(400).send({ error: `${JSON.stringify(request.params.accountId)} is not an account id` });
+    }
+    const facts = await cache.get(loaders.insights(accountId).key, ttlMs, loaders.insights(accountId).load);
+    if (facts.value === undefined) return reply.code(404).send({ error: `no account ${accountId} in the index` });
+    // NEVER WAIT FOR THE BASELINE. If no answer is cached yet, start one behind
+    // this reader and serve the wallet's facts without it: the leverage rule
+    // stays silent until the panel's next refresh.
+    const b = loaders.leverageBaseline();
+    let baseline: (LeverageBaseline & { readonly computedAtMs: number }) | undefined;
+    if (cache.ageOf(b.key) === undefined) {
+      void cache.get(b.key, LEVERAGE_BASELINE_TTL_MS, b.load).catch(() => undefined);
+    } else {
+      const hit = await cache.get(b.key, LEVERAGE_BASELINE_TTL_MS, b.load);
+      baseline = { ...hit.value, computedAtMs: hit.cachedAtMs };
+    }
+    return envelope({ facts: facts.value, baseline }, facts);
+  });
 
   /** One account's UTC days in the window: daily PnL, volume, wins, flows. */
   scope.get<{ Params: { accountId: string }; Querystring: { timeframe?: string } }>(`${prefix}/account/:accountId/days`, async (request, reply) => {

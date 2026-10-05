@@ -133,6 +133,17 @@ class FakeAnalytics implements Analytics {
     return [];
   }
 
+  async walletInsightFacts(accountId: number) {
+    this.asked.push(`insights:${accountId}`);
+    if (accountId === 404) return undefined;
+    return { accountId, roundTrips: 12, averageLeverage: 9, holdThresholdHours: 48, losingTrips: 5, losingTripsHeldOver: 2, tripsHeldOver: 3, longTrips: 8, shortTrips: 4, longNetPnlAusd: -10, shortNetPnlAusd: 4 };
+  }
+
+  async leverageBaseline() {
+    this.asked.push('leverage-baseline');
+    return { medianLeverage: 10.2, accounts: 3231, minRoundTrips: 10 };
+  }
+
   async backstopHistory() {
     this.asked.push('backstop');
     return { liquidations: 0, insuranceCredits: 0, insuranceCreditedAusd: 0, badDebtLiquidations: 0, badDebtAusd: 0, sinceMs: undefined };
@@ -779,4 +790,22 @@ test('traders: ranking and search reach the reader; an unknown ranking is a 400;
   const summary = await instance.inject({ method: 'GET', url: '/api/analytics/traders/summary?timeframe=30d' });
   assert.equal(summary.statusCode, 200);
   assert.equal(body(summary.payload)['data'] && (body(summary.payload)['data'] as TraderSummary).traders, 1108);
+});
+
+test('insights: the facts and the cached cross-account baseline, a 404 for an unknown account, a 400 for junk', async () => {
+  const analytics = new FakeAnalytics();
+  const { instance } = app(analytics);
+  const first = await instance.inject({ method: 'GET', url: '/api/analytics/account/4734/insights' });
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.json().data.facts.roundTrips, 12);
+  assert.equal(first.json().data.baseline, undefined, 'the facts never wait for the heavy baseline; it starts behind the reader');
+  await new Promise((r) => setImmediate(r));
+  const ok = await instance.inject({ method: 'GET', url: '/api/analytics/account/4734/insights' });
+  const body = ok.json().data;
+  assert.equal(body.baseline.medianLeverage, 10.2);
+  assert.equal(typeof body.baseline.computedAtMs, 'number');
+  await instance.inject({ method: 'GET', url: '/api/analytics/account/710/insights' });
+  assert.equal(analytics.asked.filter((a) => a === 'leverage-baseline').length, 1, 'the heavy baseline is computed once and shared');
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/account/404/insights' })).statusCode, 404);
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/account/abc/insights' })).statusCode, 400);
 });

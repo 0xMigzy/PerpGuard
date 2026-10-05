@@ -34,6 +34,7 @@ import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
 import { AccountSummary } from './AccountSummary.tsx';
+import { InsightsPanel } from './InsightsPanel.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 
@@ -347,6 +348,9 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
         <span className="text-[12.5px] text-muted">Lifetime, over every indexed round trip. Not windowed.</span>
       </div>
       {p !== undefined && <Performance profile={p} />}
+
+      {/* ── computed insights: fixed rules over the index ───────────────── */}
+      {p !== undefined && <InsightsPanel profile={p} positions={positions.data?.data.positions} />}
 
       {/* ── open positions ──────────────────────────────────────────────── */}
       <section className="mb-4">

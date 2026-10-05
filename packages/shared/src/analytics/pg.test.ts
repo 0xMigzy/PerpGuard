@@ -1013,3 +1013,27 @@ test('adding Flows changes no other ranking: their order is still fixed and they
     assert.match(text, /where w\.trades > 0/, `${ranking} still lists traders`);
   }
 });
+
+test('insight facts: closed round trips only, the 48 h split as a parameter, leverage from hundredths; no account, no facts', async () => {
+  const sql = new FakeSql()
+    .on(/select 1 as found from "Trader"/, [{ found: 1 }])
+    .on(/from "Position"\s+where trader_id = \$1 and status <> 'OPEN'/, [
+      { round_trips: '5679', avg_lev_hdths: '917.4', losing: '3111', losing_held_over: '27', held_over: '40', longs: '2837', shorts: '2842', long_net: '-17593310000', short_net: '-134573140000' },
+    ]);
+  const facts = (await reader(sql).walletInsightFacts(4734))!;
+  const call = sql.calls.find((c) => /status <> 'OPEN'/.test(c.sql))!;
+  assert.deepEqual(call.values, ['4734', 48]);
+  assert.match(call.sql, /"isWin" is not true/, 'forced exits count as losses');
+  assert.equal(facts.roundTrips, 5679);
+  assert.equal(facts.averageLeverage, 9.174);
+  assert.equal(facts.losingTripsHeldOver, 27);
+  assert.equal(facts.longNetPnlAusd, -17593.31);
+  assert.equal(await reader(new FakeSql()).walletInsightFacts(1), undefined);
+});
+
+test('the leverage baseline is the median per-account mean over accounts at the ratio floor', async () => {
+  const sql = new FakeSql().on(/percentile_cont\(0\.5\) within group \(order by avg_lev\)/, [{ median_hdths: '1021', accounts: '3231' }]);
+  const b = await reader(sql).leverageBaseline();
+  assert.deepEqual(b, { medianLeverage: 10.21, accounts: 3231, minRoundTrips: 10 });
+  assert.deepEqual(sql.calls[0]!.values, [10]);
+});
