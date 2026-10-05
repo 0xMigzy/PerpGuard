@@ -20,6 +20,20 @@
  * negative, which is the part of a liquidation the insurance fund would have
  * to absorb. A position liquidated with equity still positive costs its owner
  * margin and the fund nothing.
+ *
+ * ONE DIRECTION AT A TIME, NEVER SUMMED. A fall closes longs and a rise
+ * closes shorts, and no single price move does both, so a count, a notional
+ * or a shortfall that adds the fall rung to the rise rung describes a world
+ * that cannot happen (the page did exactly that until 5 Oct 2026: "255 at risk
+ * at 10%" was 165 longs in a fall plus 90 shorts in a rise). Every figure here
+ * is one rung, i.e. one signed move.
+ *
+ * OPEN INTEREST IS ONE SIDE. Every long lot is matched by a short lot, so the
+ * summed notional of all positions is twice the open interest. `notionalAusd`
+ * keeps that two-sided sum under its own meaning (total position value, both
+ * sides); shares are taken of `openInterestAusd`, half of it, which matched
+ * the contract's own long open interest and the venue's figure on 5 Oct 2026
+ * (docs/notes/risk-verification-2026-10-05.md).
  */
 import { scaledToNumber } from '../units.ts';
 import { positionMetrics } from '../risk/metrics.ts';
@@ -47,22 +61,49 @@ export interface LadderPoint {
   readonly marginAusd: number;
   /** Equity below zero at the shocked mark, summed. What the insurance fund would absorb. */
   readonly shortfallAusd: number;
+  /** How many positions have equity below zero at this rung: they lose more than their own collateral. */
+  readonly shortfallPositions: number;
 }
 
 /**
- * Exposure to a move of `size` in BOTH adverse directions at once: longs to a
- * fall of `size`, shorts to a rise of `size`. The by-market table's "worse
- * direction" and the tiles' "at risk X%" are both this.
+ * Exposure to ONE signed move: a fall (`move < 0`) closes longs only, a rise
+ * closes shorts only. Shares are of ONE-SIDED open interest.
  */
-export interface AdverseExposure {
-  readonly size: number;
+export interface DirectionalExposure {
+  /** Signed fraction: −0.1 is a 10% fall. */
+  readonly move: number;
+  /** The side this move closes. */
+  readonly side: Side;
   readonly positions: number;
+  /** Notional at the current mark of the positions this move liquidates. */
   readonly notionalAusd: number;
+  /** Losses beyond the positions' own collateral at the shocked mark. */
   readonly shortfallAusd: number;
-  /** `notionalAusd / total notional`, or undefined when there is none. */
-  readonly shareOfNotional: number | undefined;
-  /** `insurance / shortfall`; undefined when there is no shortfall to cover or no insurance reading. */
-  readonly insuranceCover: number | undefined;
+  /** Positions whose loss passes their own collateral at this move. */
+  readonly shortfallPositions: number;
+  /** `notionalAusd / openInterestAusd`, or undefined when there is no open interest. */
+  readonly shareOfOpenInterest: number | undefined;
+}
+
+/** The two directions at one size, side by side and NEVER added together. */
+export interface AtRiskPair {
+  readonly size: number;
+  readonly fall: DirectionalExposure;
+  readonly rise: DirectionalExposure;
+  /** The direction with the larger shortfall (a tie goes to the fall): the worse single scenario. */
+  readonly worse: DirectionalExposure;
+}
+
+/**
+ * Insurance against ONE market's worse single direction at 10%. Funds are per
+ * market and are not pooled, so there is no cross-market ratio anywhere.
+ */
+export interface MarketCover {
+  /** The direction whose shortfall is compared. */
+  readonly direction: 'fall' | 'rise';
+  readonly shortfallAusd: number;
+  /** `insurance / shortfall`; undefined with no shortfall to cover or no insurance reading. */
+  readonly cover: number | undefined;
 }
 
 export interface ExposedPosition {
@@ -99,7 +140,10 @@ export interface MarketExposure {
   readonly positions: number;
   readonly longs: number;
   readonly shorts: number;
+  /** Total position value, BOTH sides: twice the open interest. Never call it open interest. */
   readonly notionalAusd: number;
+  /** One side: the market's open interest at the mark. */
+  readonly openInterestAusd: number;
   /** Isolated margin per side. Not notional per side: that is equal by construction. */
   readonly longMarginAusd: number;
   readonly shortMarginAusd: number;
@@ -110,8 +154,10 @@ export interface MarketExposure {
   readonly insuranceAusd: number | undefined;
   readonly insuranceReason?: string;
   readonly ladder: readonly LadderPoint[];
-  /** One entry per {@link TILE_MOVES}, keyed by the move as a string, e.g. "0.05". */
-  readonly atRisk: Readonly<Record<string, AdverseExposure>>;
+  /** One entry per {@link TILE_MOVES}, keyed by the move as a string, e.g. "0.050". */
+  readonly atRisk: Readonly<Record<string, AtRiskPair>>;
+  /** Insurance against this market's worse single direction at 10%. */
+  readonly cover10: MarketCover;
 }
 
 export interface RiskSnapshot {
@@ -121,6 +167,8 @@ export interface RiskSnapshot {
     /** The OLDEST mark used, so the worst market's age is the one shown. */
     readonly marksAtMs: number | undefined;
     readonly insuranceAtMs: number | undefined;
+    /** The timestamp of `indexerBlock`, from the chain. Undefined when it could not be read. */
+    readonly indexerBlockAtMs: number | undefined;
     readonly generatedAtMs: number;
   };
   readonly moves: readonly number[];
@@ -133,7 +181,10 @@ export interface RiskSnapshot {
     readonly markets: number;
   };
   readonly totals: {
+    /** Total position value, BOTH sides: twice the open interest. Never call it open interest. */
     readonly notionalAusd: number;
+    /** One side: the protocol's open interest at the marks. */
+    readonly openInterestAusd: number;
     /** Isolated margin per side. Not notional per side: that is equal by construction. */
     readonly longMarginAusd: number;
     readonly shortMarginAusd: number;
@@ -141,16 +192,25 @@ export interface RiskSnapshot {
     readonly unrealisedPnlAusd: number;
   };
   readonly insurance: {
-    /** Sum over the markets with a reading. Undefined when none has one. */
+    /**
+     * Sum of the per-market fund balances: how much money the funds hold. A
+     * total, never a cover ratio: a fund only pays for its own market.
+     */
     readonly totalAusd: number | undefined;
     readonly marketsWithReading: number;
     readonly marketsWithout: number;
   };
+  /** Whether the funds have ever been drawn on, from the index. Undefined when not read. */
+  readonly backstop: BackstopHistory | undefined;
   /** Every market moving together. The sum of the per-market ladders. */
   readonly ladder: readonly LadderPoint[];
-  readonly atRisk: Readonly<Record<string, AdverseExposure>>;
-  /** The market with the smallest insurance-to-shortfall ratio at the 10% move, when any market has a shortfall. */
-  readonly weakestCover: { readonly market: MarketRef; readonly cover: number } | undefined;
+  readonly atRisk: Readonly<Record<string, AtRiskPair>>;
+  /**
+   * The market with the smallest insurance-to-shortfall ratio, each market
+   * against its OWN worse single direction at 10%, when any market has a
+   * shortfall and a reading.
+   */
+  readonly weakestCover: { readonly market: MarketRef; readonly cover: number; readonly direction: 'fall' | 'rise'; readonly shortfallAusd: number } | undefined;
   readonly markets: readonly MarketExposure[];
   /** Every priced position, so a page can list the largest exposed at any rung. */
   readonly positions: readonly ExposedPosition[];
@@ -162,6 +222,20 @@ export const RISK_STATEMENTS: readonly string[] = [
   'All markets assumes every market moves together by the same fraction. That is the worst case, not the likely one; a single market’s ladder is the same evaluation restricted to that market.',
 ];
 
+/**
+ * Whether the backstop has ever been used, read from the index: liquidations
+ * the insurance fund topped up, and liquidations that left bad debt.
+ */
+export interface BackstopHistory {
+  readonly liquidations: number;
+  readonly insuranceCredits: number;
+  readonly insuranceCreditedAusd: number;
+  readonly badDebtLiquidations: number;
+  readonly badDebtAusd: number;
+  /** Where the index's history starts, so "never" says over how long. */
+  readonly sinceMs: number | undefined;
+}
+
 export interface ExposureInputs {
   readonly positions: readonly IndexedOpenPosition[];
   readonly configs: ReadonlyMap<number, MarketRiskConfig>;
@@ -169,6 +243,8 @@ export interface ExposureInputs {
   /** Per market. A market absent here is reported with no insurance reading, never as zero. */
   readonly insurance: ReadonlyMap<number, MarketInsuranceReading | { readonly reason: string }>;
   readonly indexerBlock: number | undefined;
+  readonly indexerBlockAtMs?: number | undefined;
+  readonly backstop?: BackstopHistory | undefined;
   readonly nowMs: number;
 }
 
@@ -185,11 +261,13 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     readonly market: MarketRef;
     readonly config: MarketRiskConfig;
     readonly mark: MarkReading;
-    readonly ladder: { positions: number; notionalAusd: number; marginAusd: number; shortfallAusd: number }[];
+    readonly ladder: { positions: number; notionalAusd: number; marginAusd: number; shortfallAusd: number; shortfallPositions: number }[];
     readonly exposed: ExposedPosition[];
     longs: number;
     shorts: number;
     notionalAusd: number;
+    longNotionalAusd: number;
+    shortNotionalAusd: number;
     longMarginAusd: number;
     shortMarginAusd: number;
     marginAusd: number;
@@ -224,11 +302,13 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
         market: position.market,
         config,
         mark,
-        ladder: LADDER_MOVES.map(() => ({ positions: 0, notionalAusd: 0, marginAusd: 0, shortfallAusd: 0 })),
+        ladder: LADDER_MOVES.map(() => ({ positions: 0, notionalAusd: 0, marginAusd: 0, shortfallAusd: 0, shortfallPositions: 0 })),
         exposed: [],
         longs: 0,
         shorts: 0,
         notionalAusd: 0,
+        longNotionalAusd: 0,
+        shortNotionalAusd: 0,
         longMarginAusd: 0,
         shortMarginAusd: 0,
         marginAusd: 0,
@@ -246,6 +326,12 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
         size: position.sizeLots,
         entryPrice: position.entryPrice,
         margin: position.marginAusd,
+        // KNOWN GAP, LEFT ON PURPOSE (5 Oct 2026). The docs' formula subtracts
+        // C_Funding, which the contract carries per position as `premiumPnlCNS`;
+        // the index does not, so it is zero here. Measured on chain across the
+        // 255 positions a 10% move liquidated: |premiumPnl| summed to 494 AUSD
+        // and moved the 10% shortfall from 5,872.91 to 5,895.40. Its sign
+        // convention is unconfirmed. See docs/notes/risk-verification-2026-10-05.md.
         fundingAccrued: 0,
       },
       config,
@@ -258,9 +344,11 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     acc.notionalAusd += notionalAusd;
     if (position.side === 'long') {
       acc.longs += 1;
+      acc.longNotionalAusd += notionalAusd;
       acc.longMarginAusd += position.marginAusd;
     } else {
       acc.shorts += 1;
+      acc.shortNotionalAusd += notionalAusd;
       acc.shortMarginAusd += position.marginAusd;
     }
     acc.marginAusd += position.marginAusd;
@@ -275,7 +363,10 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       rung.positions += 1;
       rung.notionalAusd += notionalAusd;
       rung.marginAusd += position.marginAusd;
-      if (shocked.equityCNS < 0n) rung.shortfallAusd += ausd(-shocked.equityCNS);
+      if (shocked.equityCNS < 0n) {
+        rung.shortfallAusd += ausd(-shocked.equityCNS);
+        rung.shortfallPositions += 1;
+      }
       // Rungs run upward, so for a long the last liquidated rung is the highest
       // move; for a short the first is the lowest.
       if (position.side === 'long') liquidatedFromMove = move;
@@ -301,8 +392,9 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
   }
 
   // ── fold ──────────────────────────────────────────────────────────────────
-  const totalLadder = LADDER_MOVES.map((move) => ({ move, positions: 0, notionalAusd: 0, marginAusd: 0, shortfallAusd: 0 }));
+  const totalLadder = LADDER_MOVES.map((move) => ({ move, positions: 0, notionalAusd: 0, marginAusd: 0, shortfallAusd: 0, shortfallPositions: 0 }));
   let totalNotional = 0;
+  let totalOpenInterest = 0;
   let totalLong = 0;
   let totalShort = 0;
   let totalMargin = 0;
@@ -316,7 +408,11 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
   const markets: MarketExposure[] = marketOrder.map((id) => {
     const acc = byMarket.get(id)!;
     const notionalAusd = acc.notionalAusd;
+    // One side. Equal by construction on an order book; the mean of the two
+    // keeps the figure honest if the index were ever caught mid-update.
+    const openInterestAusd = (acc.longNotionalAusd + acc.shortNotionalAusd) / 2;
     totalNotional += notionalAusd;
+    totalOpenInterest += openInterestAusd;
     totalLong += acc.longMarginAusd;
     totalShort += acc.shortMarginAusd;
     totalMargin += acc.marginAusd;
@@ -329,6 +425,7 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       total.notionalAusd += rung.notionalAusd;
       total.marginAusd += rung.marginAusd;
       total.shortfallAusd += rung.shortfallAusd;
+      total.shortfallPositions += rung.shortfallPositions;
       return { move: LADDER_MOVES[i]!, ...rung };
     });
 
@@ -348,6 +445,15 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       insuranceAt.push(reading.markAtMs);
     }
 
+    const atRisk = Object.fromEntries(TILE_MOVES.map((size) => [moveKey(size), atRiskPair(ladder, size, openInterestAusd)]));
+    const ten = atRisk[moveKey(0.1)]!;
+    const worse10 = ten.worse;
+    const cover10: MarketCover = {
+      direction: worse10.move < 0 ? 'fall' : 'rise',
+      shortfallAusd: worse10.shortfallAusd,
+      cover: insuranceAusd === undefined || worse10.shortfallAusd <= 0 ? undefined : insuranceAusd / worse10.shortfallAusd,
+    };
+
     const sizes = acc.exposed.map((p) => p.notionalAusd).sort((a, b) => b - a);
     const topFive = sizes.slice(0, 5).reduce((s, v) => s + v, 0);
 
@@ -360,6 +466,7 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       longs: acc.longs,
       shorts: acc.shorts,
       notionalAusd,
+      openInterestAusd,
       longMarginAusd: acc.longMarginAusd,
       shortMarginAusd: acc.shortMarginAusd,
       marginAusd: acc.marginAusd,
@@ -367,20 +474,21 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       insuranceAusd,
       ...(insuranceReason === undefined ? {} : { insuranceReason }),
       ladder,
-      atRisk: Object.fromEntries(TILE_MOVES.map((size) => [moveKey(size), adverseAt(ladder, size, notionalAusd, insuranceAusd)])),
+      atRisk,
+      cover10,
     };
   });
 
-  const atRisk = Object.fromEntries(TILE_MOVES.map((size) => [moveKey(size), adverseAt(totalLadder, size, totalNotional, insuranceTotal)]));
+  const atRisk = Object.fromEntries(TILE_MOVES.map((size) => [moveKey(size), atRiskPair(totalLadder, size, totalOpenInterest)]));
 
-  // The weakest cover, at the 10% move, among markets that HAVE a shortfall
-  // and a reading. A market with no shortfall has nothing to cover and is not
-  // "infinitely covered"; it is simply not in the running.
-  let weakest: { market: MarketRef; cover: number } | undefined;
+  // The weakest cover among markets that HAVE a shortfall and a reading, each
+  // against its own worse direction. A market with no shortfall has nothing
+  // to cover and is not "infinitely covered"; it is simply not in the running.
+  let weakest: RiskSnapshot['weakestCover'];
   for (const m of markets) {
-    const cover = m.atRisk[moveKey(0.1)]?.insuranceCover;
+    const { cover, direction, shortfallAusd } = m.cover10;
     if (cover === undefined) continue;
-    if (weakest === undefined || cover < weakest.cover) weakest = { market: m.market, cover };
+    if (weakest === undefined || cover < weakest.cover) weakest = { market: m.market, cover, direction, shortfallAusd };
   }
 
   const priced = markets.reduce((s, m) => s + m.positions, 0);
@@ -389,6 +497,7 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
       indexerBlock: inputs.indexerBlock,
       marksAtMs: marksAt.length === 0 ? undefined : Math.min(...marksAt),
       insuranceAtMs: insuranceAt.length === 0 ? undefined : Math.min(...insuranceAt),
+      indexerBlockAtMs: inputs.indexerBlockAtMs,
       generatedAtMs: inputs.nowMs,
     },
     moves: LADDER_MOVES,
@@ -401,12 +510,14 @@ export function buildRiskSnapshot(inputs: ExposureInputs): RiskSnapshot {
     },
     totals: {
       notionalAusd: totalNotional,
+      openInterestAusd: totalOpenInterest,
       longMarginAusd: totalLong,
       shortMarginAusd: totalShort,
       marginAusd: totalMargin,
       unrealisedPnlAusd: totalUpnl,
     },
     insurance: { totalAusd: insuranceTotal, marketsWithReading: withReading, marketsWithout: without },
+    backstop: inputs.backstop,
     ladder: totalLadder,
     atRisk,
     weakestCover: weakest,
@@ -428,22 +539,27 @@ export function rungIndex(move: number): number {
   return i;
 }
 
-/**
- * Both adverse directions at `size`, read off the ladder: the fall that takes
- * the longs plus the rise that takes the shorts. A long cannot be liquidated by
- * a rise, so the two rungs count disjoint positions and the sum is exact.
- */
-export function adverseAt(ladder: readonly LadderPoint[], size: number, totalNotionalAusd: number, insuranceAusd: number | undefined): AdverseExposure {
-  const down = ladder[rungIndex(-size)]!;
-  const up = ladder[rungIndex(size)]!;
-  const notionalAusd = down.notionalAusd + up.notionalAusd;
-  const shortfallAusd = down.shortfallAusd + up.shortfallAusd;
+/** One signed move, read off the ladder. Its share is of ONE-SIDED open interest. */
+export function directionalAt(ladder: readonly LadderPoint[], move: number, openInterestAusd: number): DirectionalExposure {
+  const rung = ladder[rungIndex(move)]!;
   return {
-    size,
-    positions: down.positions + up.positions,
-    notionalAusd,
-    shortfallAusd,
-    shareOfNotional: totalNotionalAusd > 0 ? notionalAusd / totalNotionalAusd : undefined,
-    insuranceCover: insuranceAusd === undefined || shortfallAusd <= 0 ? undefined : insuranceAusd / shortfallAusd,
+    move,
+    side: move < 0 ? 'long' : 'short',
+    positions: rung.positions,
+    notionalAusd: rung.notionalAusd,
+    shortfallAusd: rung.shortfallAusd,
+    shortfallPositions: rung.shortfallPositions,
+    shareOfOpenInterest: openInterestAusd > 0 ? rung.notionalAusd / openInterestAusd : undefined,
   };
+}
+
+/**
+ * A fall of `size` and a rise of `size`, side by side. Deliberately no sum:
+ * the two are alternative worlds, and a total of both is a move that cannot
+ * happen.
+ */
+export function atRiskPair(ladder: readonly LadderPoint[], size: number, openInterestAusd: number): AtRiskPair {
+  const fall = directionalAt(ladder, -size, openInterestAusd);
+  const rise = directionalAt(ladder, size, openInterestAusd);
+  return { size, fall, rise, worse: rise.shortfallAusd > fall.shortfallAusd ? rise : fall };
 }

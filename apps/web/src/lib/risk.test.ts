@@ -4,7 +4,7 @@ import type { ExposedPosition, LadderPoint } from '@perpguard/shared';
 import { CHART_SIZES, chartRungs, exposedAt, formatMove, rungAt, sideExposed } from './risk.ts';
 
 const moves = Array.from({ length: 201 }, (_, i) => (i - 100) * 0.005);
-const ladder: LadderPoint[] = moves.map((move) => ({ move, positions: move <= -0.1 ? 1 : move >= 0.05 ? 2 : 0, notionalAusd: move <= -0.1 ? 80_000 : move >= 0.05 ? 30_000 : 0, marginAusd: 0, shortfallAusd: 0 }));
+const ladder: LadderPoint[] = moves.map((move) => ({ move, positions: move <= -0.1 ? 1 : move >= 0.05 ? 2 : 0, notionalAusd: move <= -0.1 ? 80_000 : move >= 0.05 ? 30_000 : 0, marginAusd: 0, shortfallAusd: 0, shortfallPositions: 0 }));
 
 const pos = (over: Partial<ExposedPosition>): ExposedPosition => ({
   accountId: 1, market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC Perp' }, side: 'long', sizeLots: 1, notionalAusd: 80_000, marginAusd: 8_000, leverage: 10,
@@ -39,4 +39,12 @@ test('exposedAt selects by the rung the backend recorded, per side, so it matche
   assert.equal(formatMove(-0.1), '−10%');
   assert.equal(formatMove(0.025), '+2.5%');
   assert.equal(formatMove(0), '0%');
+});
+
+test('direction words and whole days for the backstop line', async () => {
+  const { directionWord, wholeDays } = await import('./risk.ts');
+  assert.equal(directionWord(-0.1), 'falls');
+  assert.equal(directionWord(0.1), 'rises');
+  assert.equal(wholeDays(Date.UTC(2026, 1, 11, 23), Date.UTC(2026, 9, 5, 12)), 235);
+  assert.equal(wholeDays(10, 0), 0);
 });

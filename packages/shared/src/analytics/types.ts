@@ -33,6 +33,7 @@
  *   position set as an empty portfolio.
  */
 import type { IndexerHealth } from './health.ts';
+import type { BackstopHistory } from './exposure.ts';
 import type { Side } from '../venues/types.ts';
 
 export type { IndexerHealth, IndexerState } from './health.ts';
@@ -1008,6 +1009,13 @@ export interface Analytics {
   dailySeries(timeframe: Timeframe): Promise<readonly DailyPoint[]>;
   /** Every month since the index's first event. See {@link HistoryCurve}. */
   history(): Promise<HistoryCurve>;
+  /**
+   * Whether the insurance funds have ever been drawn on: liquidations the fund
+   * topped up (`PositionLiquidationCredit`) and liquidations that left bad
+   * debt, over the whole index. From the indexer's own handler, so it is as
+   * good as that handler, not an independent chain read.
+   */
+  backstopHistory(): Promise<BackstopHistory>;
 
   /**
    * The same days split per market, for a stacked chart. Markets ordered by

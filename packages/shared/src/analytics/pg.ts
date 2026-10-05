@@ -86,6 +86,7 @@ import type {
   WalletProfile,
   HistoryCurve,
 } from './types.ts';
+import type { BackstopHistory } from './exposure.ts';
 import { MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
@@ -503,6 +504,17 @@ select date_trunc('month', day) as month, sum("tradeCount")::text as trades, sum
 const HISTORY_ACCOUNTS_SQL = `
 select date_trunc('month', "createdAt") as month, count(*)::text as accounts
   from "Trader" where "createdAt" is not null group by 1
+`;
+
+/** Whether the backstop was ever used: insurance top-ups and bad debt, across every forced exit. */
+const BACKSTOP_SQL = `
+select count(*)::text                                               as liquidations,
+       count(*) filter (where "insuranceCreditCNS" > 0)::text       as credits,
+       coalesce(sum("insuranceCreditCNS"), 0)::text                 as credited,
+       count(*) filter (where "badDebtCNS" > 0)::text               as bad_debt_count,
+       coalesce(sum("badDebtCNS"), 0)::text                         as bad_debt,
+       (select min("firstSeenAt") from "Market")                    as starts_at
+  from "Liquidation"
 `;
 
 /** Where the index's history begins: its first market sighting and its configured start block. */
@@ -1154,6 +1166,19 @@ export class PostgresAnalytics implements Analytics {
       withdrawnAusd: toAusd(row['withdrawn'], decimals),
       netFlowAusd: toAusd(row['deposited'], decimals) - toAusd(row['withdrawn'], decimals),
     }));
+  }
+
+  async backstopHistory(): Promise<BackstopHistory> {
+    const decimals = await this.#decimals();
+    const row = await this.#one(BACKSTOP_SQL, []);
+    return {
+      liquidations: count(row?.['liquidations']),
+      insuranceCredits: count(row?.['credits']),
+      insuranceCreditedAusd: toAusd(row?.['credited'], decimals),
+      badDebtLiquidations: count(row?.['bad_debt_count']),
+      badDebtAusd: toAusd(row?.['bad_debt'], decimals),
+      sinceMs: toMs(row?.['starts_at']),
+    };
   }
 
   async history(): Promise<HistoryCurve> {

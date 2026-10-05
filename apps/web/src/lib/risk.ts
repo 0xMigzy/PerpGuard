@@ -8,14 +8,28 @@ import type { ExposedPosition, LadderPoint, MarketExposure, RiskSnapshot } from 
 /** The rungs the ladder chart draws, as positive sizes. Each is a rung of the server's grid. */
 export const CHART_SIZES: readonly number[] = [0.005, 0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.5];
 
-/** Which ladder the page reads: every market together, or one. */
-export function ladderFor(snapshot: RiskSnapshot, marketId: number | undefined): { readonly ladder: readonly LadderPoint[]; readonly notionalAusd: number; readonly insuranceAusd: number | undefined; readonly label: string } {
+/**
+ * Which ladder the page reads: every market together, or one. `insuranceAusd`
+ * is set for ONE market only: a fund pays for its own market, so there is no
+ * all-markets cover ratio to draw.
+ */
+export function ladderFor(snapshot: RiskSnapshot, marketId: number | undefined): { readonly ladder: readonly LadderPoint[]; readonly openInterestAusd: number; readonly insuranceAusd: number | undefined; readonly label: string } {
   if (marketId === undefined) {
-    return { ladder: snapshot.ladder, notionalAusd: snapshot.totals.notionalAusd, insuranceAusd: snapshot.insurance.totalAusd, label: 'All markets' };
+    return { ladder: snapshot.ladder, openInterestAusd: snapshot.totals.openInterestAusd, insuranceAusd: undefined, label: 'All markets' };
   }
   const m = snapshot.markets.find((x) => x.market.marketId === marketId);
-  if (m === undefined) return { ladder: [], notionalAusd: 0, insuranceAusd: undefined, label: `market ${marketId}` };
-  return { ladder: m.ladder, notionalAusd: m.notionalAusd, insuranceAusd: m.insuranceAusd, label: m.market.symbol ?? m.market.indexerName };
+  if (m === undefined) return { ladder: [], openInterestAusd: 0, insuranceAusd: undefined, label: `market ${marketId}` };
+  return { ladder: m.ladder, openInterestAusd: m.openInterestAusd, insuranceAusd: m.insuranceAusd, label: m.market.symbol ?? m.market.indexerName };
+}
+
+/** "falls" / "rises" for a signed move. */
+export function directionWord(move: number): 'falls' | 'rises' {
+  return move < 0 ? 'falls' : 'rises';
+}
+
+/** Whole days between two instants, for "never drawn on in N days". */
+export function wholeDays(fromMs: number, toMs: number): number {
+  return Math.max(0, Math.floor((toMs - fromMs) / 86_400_000));
 }
 
 /** The rung for a signed move, by index into the fixed grid. Undefined off the grid. */

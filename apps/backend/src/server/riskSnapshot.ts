@@ -74,12 +74,15 @@ export class RiskSnapshotSource {
 
   async #build(): Promise<RiskSnapshot> {
     const { analytics, network } = this.#options;
-    const [positions, configs, oi, health] = await Promise.all([
+    const [positions, configs, oi, health, backstop] = await Promise.all([
       analytics.openPositions(),
       this.#options.riskConfigs(),
       this.#options.openInterest(),
       analytics.health(),
+      // Context, not risk maths: a failed read leaves it off the page, never blanks the snapshot.
+      analytics.backstopHistory().catch(() => undefined),
     ]);
+    const indexerBlockAtMs = health.latestProcessedBlock === undefined ? undefined : await this.#blockTime(health.latestProcessedBlock);
     const marks = new Map(oi.map((m) => [m.marketId, { markPrice: m.markPrice, atMs: m.atMs }]));
     // Only the markets that hold a position need an insurance reading.
     const marketIds = [...new Set(positions.map((p) => p.position.market.marketId))].filter((id) => configs.has(id));
@@ -100,9 +103,28 @@ export class RiskSnapshotSource {
       marks,
       insurance,
       indexerBlock: health.latestProcessedBlock,
+      indexerBlockAtMs,
+      backstop,
       nowMs: this.#now(),
     });
     this.#cached = { snapshot, atMs: this.#now() };
     return snapshot;
+  }
+
+  /** The block's own timestamp from the chain, so the page can say when "this block" was. Undefined on any failure. */
+  async #blockTime(block: number): Promise<number | undefined> {
+    try {
+      const fetchImpl = this.#options.fetchImpl ?? fetch;
+      const res = await fetchImpl(this.#options.network.rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber', params: [`0x${block.toString(16)}`, false] }),
+      });
+      const body = (await res.json()) as { result?: { timestamp?: string } };
+      const ts = body.result?.timestamp;
+      return ts === undefined ? undefined : Number(BigInt(ts)) * 1000;
+    } catch {
+      return undefined;
+    }
   }
 }

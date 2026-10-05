@@ -133,6 +133,11 @@ class FakeAnalytics implements Analytics {
     return [];
   }
 
+  async backstopHistory() {
+    this.asked.push('backstop');
+    return { liquidations: 0, insuranceCredits: 0, insuranceCreditedAusd: 0, badDebtLiquidations: 0, badDebtAusd: 0, sinceMs: undefined };
+  }
+
   async history(): Promise<HistoryCurve> {
     this.asked.push('history');
     return { startsAtMs: Date.UTC(2026, 1, 11, 23, 2, 27), startBlock: 54_773_010, months: [{ monthMs: Date.UTC(2026, 1, 1), trades: 12_576, volumeAusd: 1, newAccounts: 148, partial: false }] };
@@ -736,10 +741,11 @@ test('risk is a 503 without a venue, and the snapshot in the envelope with one',
   assert.match(String(body(refused.payload)['error']), /no venue/);
 
   const snapshot = {
-    asOf: { indexerBlock: 109_000_000, marksAtMs: 1, insuranceAtMs: 1, generatedAtMs: 2 },
+    asOf: { indexerBlock: 109_000_000, marksAtMs: 1, insuranceAtMs: 1, indexerBlockAtMs: 1, generatedAtMs: 2 },
     moves: [], counted: { positions: 0, priced: 0, unpriced: 0, unpricedReasons: {}, markets: 0 },
-    totals: { notionalAusd: 0, longMarginAusd: 0, shortMarginAusd: 0, marginAusd: 0, unrealisedPnlAusd: 0 },
+    totals: { notionalAusd: 0, openInterestAusd: 0, longMarginAusd: 0, shortMarginAusd: 0, marginAusd: 0, unrealisedPnlAusd: 0 },
     insurance: { totalAusd: undefined, marketsWithReading: 0, marketsWithout: 0 },
+    backstop: undefined,
     ladder: [], atRisk: {}, weakestCover: undefined, markets: [], positions: [], statements: ['static'],
   } satisfies RiskSnapshot;
   const { instance } = app(new FakeAnalytics(), { riskSnapshot: async () => snapshot });

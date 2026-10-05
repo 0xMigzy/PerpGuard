@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MarketRiskConfig } from '../risk/position.ts';
-import { LADDER_MOVES, adverseAt, buildRiskSnapshot, rungIndex } from './exposure.ts';
+import { LADDER_MOVES, atRiskPair, buildRiskSnapshot, directionalAt, rungIndex } from './exposure.ts';
 import type { IndexedOpenPosition, MarketRef } from './types.ts';
 
 const BTC: MarketRiskConfig = { marketId: 1, symbol: 'BTC', priceDecimals: 1, lotDecimals: 5, collateralDecimals: 6, maintenanceMargin: 2500, initialMargin: 1500 };
@@ -61,13 +61,23 @@ test('a 10x long is exposed at −10% and not at −5%; the mirror short at +10%
   assert.equal(at(0.1).positions, 1, 'a 10% rise takes the short');
   assert.equal(at(0).positions, 0, 'nothing is past liquidation now');
 
-  // The tile at 10% is BOTH adverse directions, read off the same ladder.
+  // Open interest is ONE side: the long and the short are one 80,000 contract.
+  assert.equal(snapshot.totals.openInterestAusd, 80_000, 'half the two-sided sum');
+  assert.equal(snapshot.markets[0]!.openInterestAusd, 80_000);
+
+  // The 10% pair is a fall and a rise SIDE BY SIDE, never added: no single
+  // move liquidates both the long and the short.
   const tile = snapshot.atRisk['0.100']!;
-  assert.equal(tile.positions, 2);
-  assert.equal(tile.notionalAusd, 160_000);
-  assert.equal(tile.shareOfNotional, 1);
-  assert.deepEqual(tile, adverseAt(snapshot.ladder, 0.1, snapshot.totals.notionalAusd, snapshot.insurance.totalAusd));
-  assert.equal(snapshot.atRisk['0.050']!.positions, 0);
+  assert.equal(tile.fall.positions, 1, 'a 10% fall closes the long only');
+  assert.equal(tile.fall.side, 'long');
+  assert.equal(tile.rise.positions, 1, 'a 10% rise closes the short only');
+  assert.equal(tile.rise.side, 'short');
+  assert.equal(tile.fall.notionalAusd, 80_000);
+  assert.equal(tile.fall.shareOfOpenInterest, 1, 'a share of ONE-SIDED open interest');
+  assert.ok(!('positions' in tile) && !('notionalAusd' in tile), 'no summed field exists to render by mistake');
+  assert.deepEqual(tile, atRiskPair(snapshot.ladder, 0.1, snapshot.totals.openInterestAusd));
+  assert.equal(snapshot.atRisk['0.050']!.fall.positions, 0);
+  assert.equal(snapshot.atRisk['0.050']!.rise.positions, 0);
 
   // The least adverse rung per position agrees with the ladder: the long goes at
   // some rung between −10% and −5%, the short between +5% and +10%.
@@ -102,10 +112,11 @@ test('shortfall is equity below zero at the shocked mark, and cover is insurance
   const at = (move: number) => snapshot.ladder[rungIndex(move)]!;
   assert.equal(at(-0.1).shortfallAusd, 0);
   assert.equal(at(-0.2).shortfallAusd, 8_000);
-  assert.equal(snapshot.atRisk['0.100']!.insuranceCover, undefined, 'no shortfall means nothing to cover, not infinite cover');
-  const twenty = adverseAt(snapshot.ladder, 0.2, snapshot.totals.notionalAusd, snapshot.insurance.totalAusd);
+  assert.equal(snapshot.markets[0]!.cover10.cover, undefined, 'no shortfall means nothing to cover, not infinite cover');
+  const twenty = directionalAt(snapshot.ladder, -0.2, snapshot.totals.openInterestAusd);
   assert.equal(twenty.shortfallAusd, 8_000);
-  assert.ok(Math.abs(twenty.insuranceCover! - 177_437.095975 / 8_000) < 1e-9);
+  assert.equal(twenty.shortfallPositions, 1, 'one position loses more than its own collateral');
+  assert.equal(directionalAt(snapshot.ladder, 0.2, snapshot.totals.openInterestAusd).shortfallAusd, 0, 'a rise costs a long nothing');
   assert.equal(snapshot.weakestCover, undefined, 'no market has a shortfall at 10%');
 });
 
@@ -151,6 +162,31 @@ test('positions that cannot be priced are counted with their reasons, never sile
   });
 });
 
+test('shortfall and its count are per direction; cover is per market against its worse direction only', () => {
+  // A 20x long and a 20x short of different sizes: both go past their collateral
+  // at 10%, but in DIFFERENT worlds. 1 BTC long with 4,000 margin: equity at −10%
+  // is 4,000 − 8,000 = −4,000. 0.5 BTC short with 2,000: at +10%, 2,000 − 4,000 = −2,000.
+  const snapshot = buildRiskSnapshot({
+    positions: [position(1, 'long', 1, 4_000), position(2, 'short', 0.5, 2_000)],
+    configs: CONFIGS,
+    marks: MARKS,
+    insurance: INSURANCE,
+    indexerBlock: 1,
+    nowMs: 0,
+  });
+  const ten = snapshot.atRisk['0.100']!;
+  assert.equal(ten.fall.shortfallAusd, 4_000);
+  assert.equal(ten.fall.shortfallPositions, 1);
+  assert.equal(ten.rise.shortfallAusd, 2_000);
+  assert.equal(ten.rise.shortfallPositions, 1);
+  assert.equal(ten.worse, ten.fall, 'the worse single direction, never 6,000 for both');
+  const m = snapshot.markets[0]!;
+  assert.equal(m.cover10.direction, 'fall');
+  assert.equal(m.cover10.shortfallAusd, 4_000);
+  assert.ok(Math.abs(m.cover10.cover! - 177_437.095975 / 4_000) < 1e-9, 'insurance over ONE direction, not over 6,000');
+  assert.deepEqual(snapshot.weakestCover, { market: m.market, cover: m.cover10.cover, direction: 'fall', shortfallAusd: 4_000 });
+});
+
 test('top-five share and the weakest cover come from the per-market ladders', () => {
   // Six equal shorts and one big long on one market; the long is 70% of notional.
   const positions = [
@@ -165,7 +201,7 @@ test('top-five share and the weakest cover come from the per-market ladders', ()
   // top five: the long (560,000) + four shorts (4 × 40,000) over 800,000
   assert.ok(Math.abs(m.topFiveShare! - 720_000 / 800_000) < 1e-12);
   // At a 20% move every position has 8,000-per-BTC of shortfall: 7 × 16,000 − 56,000 … compute via the ladder instead of by hand.
-  const twenty = adverseAt(m.ladder, 0.2, m.notionalAusd, m.insuranceAusd);
-  assert.ok(twenty.shortfallAusd > 0);
-  assert.ok(twenty.insuranceCover! > 0);
+  const twenty = atRiskPair(m.ladder, 0.2, m.openInterestAusd);
+  assert.ok(twenty.fall.shortfallAusd > 0);
+  assert.ok(twenty.rise.shortfallAusd > 0);
 });

@@ -357,6 +357,15 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   page states that the shock is static and that all-markets assumes every
   market moves together, the worst case rather than the likely one, and that
   book depth is not shown because the indexer has no order book.
+- ONE DIRECTION PER FIGURE ON THE RISK PAGE, NEVER SUMMED. A fall closes longs,
+  a rise closes shorts, and no single move does both: every count, notional,
+  share and loss beyond collateral is ONE rung (`AtRiskPair.fall` / `.rise`;
+  there is no summed field to render). Until 5 Oct 2026 the tiles added the
+  two ("255 at risk at 10%" was 165 + 90). OPEN INTEREST IS ONE SIDE: the
+  summed notional of all positions is twice it and may only be called "Total
+  position value, both sides". Insurance cover is PER MARKET against that
+  market's worse direction; the 11 balances may be totalled, never pooled into
+  a ratio. See `docs/notes/risk-verification-2026-10-05.md`.
 - FUNDING ON THE MARKETS PAGE IS ONE HEATMAP OF RATES, NEVER AN AUSD TOTAL.
   Page order is header -> all-markets table -> funding heatmap, nothing
   between. One row per LIVE market (the table's live rows, so the counts always

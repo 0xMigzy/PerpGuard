@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import type { ExposedPosition, MarketExposure, RiskSnapshot } from '@perpguard/shared';
+import type { DirectionalExposure, ExposedPosition, MarketExposure, RiskSnapshot } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd } from '@/lib/format.ts';
-import { chartRungs, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
+import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd, formatWhen } from '@/lib/format.ts';
+import { chartRungs, directionWord, exposedAt, formatMove, ladderFor, marketLabel, rungAt, sideExposed, wholeDays } from '@/lib/risk.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -27,6 +27,11 @@ const TIER_COLOR = { past: COLORS.danger, danger: COLORS.danger, watch: COLORS.w
  * the page reads ONE ladder the backend computed: the tiles are its ±5% and
  * ±10% rungs, the slider walks it, the by-market table is the same rungs per
  * market. Nothing here executes anything and nothing here is an account view.
+ *
+ * ONE DIRECTION PER FIGURE. A fall closes longs, a rise closes shorts, and no
+ * single move does both, so every count, notional, share and shortfall here
+ * belongs to one signed move. Shares are of ONE-SIDED open interest. Insurance
+ * is compared per market only: a fund pays for its own market.
  */
 export function RiskView() {
   const poll = usePoll(api.risk, POLL_MS, 'risk');
@@ -41,6 +46,8 @@ export function RiskView() {
   const shockedMark = marketId === undefined ? undefined : s?.markets.find((m) => m.market.marketId === marketId)?.markPrice;
   const at5 = s?.atRisk['0.050'];
   const at10 = s?.atRisk['0.100'];
+  const backstop = s?.backstop;
+  const backstopDays = backstop?.sinceMs === undefined || s === undefined ? undefined : wholeDays(backstop.sinceMs, s.asOf.indexerBlockAtMs ?? s.asOf.generatedAtMs);
   const side = sideExposed(move);
 
   return (
@@ -48,88 +55,100 @@ export function RiskView() {
       <PageHeader
         title="Risk"
         subtitle="Liquidation exposure of every open position, from contract state at the latest indexed block."
-        right={<span className="chip">{s?.asOf.indexerBlock === undefined ? 'Contract state at block …' : `Contract state at block ${formatCount(s.asOf.indexerBlock)}`}</span>}
+        right={
+          <>
+            <span className="chip">{s?.asOf.indexerBlock === undefined ? 'Contract state at block …' : `Contract state at block ${formatCount(s.asOf.indexerBlock)}`}</span>
+            {s?.asOf.indexerBlockAtMs !== undefined && (
+              <span className="chip" title={new Date(s.asOf.indexerBlockAtMs).toISOString()}>
+                block time {formatWhen(s.asOf.indexerBlockAtMs)} UTC
+              </span>
+            )}
+          </>
+        }
       />
 
       <StaleMarker envelope={poll.data} />
       <ErrorNote error={poll.error} what="The risk snapshot" />
 
-      {/* ── six tiles ───────────────────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* ── eight tiles: open interest, each direction on its own, the backstop ── */}
+      <section className="mb-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {s === undefined || at5 === undefined || at10 === undefined ? (
-          Array.from({ length: 6 }, (_, i) => <StatTileSkeleton key={i} />)
+          Array.from({ length: 8 }, (_, i) => <StatTileSkeleton key={i} />)
         ) : (
           <>
             <StatTile
-              label="Position notional"
-              value={formatCompact(s.totals.notionalAusd)}
-              exact={`${formatAusdExact(s.totals.notionalAusd)} AUSD at the venue's marks`}
+              label="Open interest · now"
+              value={formatCompact(s.totals.openInterestAusd)}
+              exact={`${formatAusdExact(s.totals.openInterestAusd)} AUSD at the venue's marks, one side: every long is matched by a short`}
               secondary={
                 <>
                   <div>{formatCount(s.counted.priced)} open positions across {formatCount(s.counted.markets)} markets</div>
-                  <div>{s.counted.unpriced === 0 ? 'every indexed position is priced' : `${formatCount(s.counted.unpriced)} of ${formatCount(s.counted.positions)} could not be priced`}</div>
+                  <div>Total position value, both sides: {formatCompact(s.totals.notionalAusd)}</div>
                 </>
               }
               sparklineNote={`margin ${formatCompact(s.totals.marginAusd)}: long ${formatCompact(s.totals.longMarginAusd)} · short ${formatCompact(s.totals.shortMarginAusd)}`}
             />
+            <DirectionTile d={at10.fall} />
+            <DirectionTile d={at10.rise} />
             <StatTile
-              label="At risk, 5% move"
-              value={formatCompact(at5.notionalAusd)}
-              exact={`${formatAusdExact(at5.notionalAusd)} AUSD in ${formatCount(at5.positions)} positions`}
+              label="Losses beyond collateral · 10%"
+              value={formatCompact(at10.worse.shortfallAusd)}
+              exact={`${formatAusdExact(at10.worse.shortfallAusd)} AUSD of equity below zero at the shocked mark, if every market ${directionWord(at10.worse.move)} 10%`}
+              valueColor={at10.worse.shortfallAusd > 0 ? COLORS.danger : undefined}
               secondary={
                 <>
-                  <div>{at5.shareOfNotional === undefined ? 'no notional' : `${formatPct(at5.shareOfNotional)} of notional`} · {formatCount(at5.positions)} positions</div>
-                  <div>longs to a 5% fall, shorts to a 5% rise</div>
+                  <div>worst case if every market {directionWord(at10.worse.move)} 10%</div>
+                  <div>
+                    {at10.worse.shortfallPositions === 0
+                      ? 'no position loses more than its own collateral'
+                      : `${formatCount(at10.worse.shortfallPositions)} ${at10.worse.shortfallPositions === 1 ? 'position loses more than its' : 'positions lose more than their'} own collateral`}
+                  </div>
                 </>
               }
-              sparklineNote={`shortfall ${formatCompact(at5.shortfallAusd)}`}
+              sparklineNote="one direction: a fall and a rise are never added"
             />
-            <StatTile
-              label="At risk, 10% move"
-              value={formatCompact(at10.notionalAusd)}
-              exact={`${formatAusdExact(at10.notionalAusd)} AUSD in ${formatCount(at10.positions)} positions`}
-              secondary={
-                <>
-                  <div>{at10.shareOfNotional === undefined ? 'no notional' : `${formatPct(at10.shareOfNotional)} of notional`} · {formatCount(at10.positions)} positions</div>
-                  <div>the same rung the stress test shows at ±10%</div>
-                </>
-              }
-              sparklineNote="one ladder, read twice"
-            />
-            <StatTile
-              label="Shortfall, 10%"
-              value={formatCompact(at10.shortfallAusd)}
-              exact={`${formatAusdExact(at10.shortfallAusd)} AUSD of equity below zero at the shocked mark`}
-              valueColor={at10.shortfallAusd > 0 ? COLORS.danger : undefined}
-              secondary="potential bad debt if every market gaps 10% against the crowd"
-              sparklineNote={at10.shortfallAusd === 0 ? 'no position goes below zero equity at 10%' : `${formatCount(at10.positions)} positions liquidated`}
-            />
+            <DirectionTile d={at5.fall} />
+            <DirectionTile d={at5.rise} />
             <StatTile
               label="Insurance funds"
               value={s.insurance.totalAusd === undefined ? 'unknown' : formatCompact(s.insurance.totalAusd)}
-              exact={s.insurance.totalAusd === undefined ? undefined : `${formatAusdExact(s.insurance.totalAusd)} AUSD across ${formatCount(s.insurance.marketsWithReading)} markets, read off the Exchange contract`}
+              exact={s.insurance.totalAusd === undefined ? undefined : `${formatAusdExact(s.insurance.totalAusd)} AUSD, ${formatCount(s.insurance.marketsWithReading)} per-market balances read off the Exchange contract and added together`}
               secondary={
                 <>
-                  <div>{at10.insuranceCover === undefined ? (at10.shortfallAusd === 0 ? 'nothing to cover at 10%' : 'no reading to compare') : `${at10.insuranceCover.toFixed(1)}× that shortfall`}</div>
-                  <div>{s.insurance.marketsWithout === 0 ? `read for all ${formatCount(s.insurance.marketsWithReading)} markets` : `${formatCount(s.insurance.marketsWithout)} markets without a reading`}</div>
+                  <div>held across {formatCount(s.insurance.marketsWithReading)} markets{s.insurance.marketsWithout === 0 ? '' : ` · ${formatCount(s.insurance.marketsWithout)} without a reading`}</div>
+                  <div>
+                    {backstop === undefined
+                      ? 'draw history not read'
+                      : backstop.insuranceCredits === 0 && backstop.badDebtLiquidations === 0
+                        ? `never drawn on: 0 insurance credits, 0 bad debt${backstopDays === undefined ? '' : ` in ${formatCount(backstopDays)} days`}*`
+                        : `drawn on: ${formatCount(backstop.insuranceCredits)} insurance credits, ${formatCount(backstop.badDebtLiquidations)} with bad debt*`}
+                  </div>
                 </>
               }
-              sparklineNote={s.asOf.insuranceAtMs === undefined ? 'no reading' : `per-market fund, as of ${formatAge(Date.now() - s.asOf.insuranceAtMs)} ago`}
+              sparklineNote={s.asOf.insuranceAtMs === undefined ? 'no reading' : `each fund pays only for its own market · as of ${formatAge(Date.now() - s.asOf.insuranceAtMs)} ago`}
             />
             <StatTile
-              label="Weakest cover"
-              value={s.weakestCover === undefined ? '—' : `${s.weakestCover.cover.toFixed(1)}×`}
+              label="Weakest cover · 10%"
+              value={s.weakestCover === undefined ? '—' : `${marketName(s.weakestCover.market)} ${s.weakestCover.cover.toFixed(1)}×`}
               valueColor={s.weakestCover === undefined ? undefined : s.weakestCover.cover < 10 ? COLORS.danger : s.weakestCover.cover < 50 ? COLORS.watch : COLORS.safe}
+              exact={
+                s.weakestCover === undefined
+                  ? undefined
+                  : `${marketName(s.weakestCover.market)} insurance ÷ ${formatAusdExact(s.weakestCover.shortfallAusd)} AUSD of losses beyond collateral if it ${directionWord(s.weakestCover.direction === 'fall' ? -1 : 1)} 10%`
+              }
               secondary={
                 s.weakestCover === undefined
-                  ? 'no market has a shortfall at 10%, so there is nothing to cover'
-                  : `${s.weakestCover.market.symbol ?? `market ${s.weakestCover.market.marketId}`} · smallest insurance-to-shortfall ratio at 10%`
+                  ? 'no market has losses beyond collateral at 10%, so there is nothing to cover'
+                  : `its fund ÷ its losses beyond collateral if ${marketName(s.weakestCover.market)} ${directionWord(s.weakestCover.direction === 'fall' ? -1 : 1)} 10%`
               }
-              sparklineNote="among markets with a shortfall and a reading"
+              sparklineNote="each market against its own worse direction; funds are not pooled"
             />
           </>
         )}
       </section>
+      <p className="mt-0 mb-4 text-[11.5px] text-muted2">
+        * From our indexer&rsquo;s record of insurance-credit and bad-debt events, not an independent chain read: a direct count from the chain was rate-limited.
+      </p>
 
       {s !== undefined && s.counted.priced === 0 && (
         <div className="card mb-4 px-[18px] py-6 text-center">
@@ -180,19 +199,27 @@ export function RiskView() {
               <dd className="num m-0 text-right">{formatCount(rung.positions)}</dd>
               <dt className="text-muted">Notional exposed</dt>
               <dd className="num m-0 text-right">{formatCompact(rung.notionalAusd)}</dd>
-              <dt className="text-muted">Share of open notional</dt>
-              <dd className="num m-0 text-right">{scope.notionalAusd > 0 ? formatPct(rung.notionalAusd / scope.notionalAusd) : '—'}</dd>
+              <dt className="text-muted">Share of open interest</dt>
+              <dd className="num m-0 text-right">{scope.openInterestAusd > 0 ? formatPct(rung.notionalAusd / scope.openInterestAusd) : '—'}</dd>
               <dt className="text-muted">Side exposed</dt>
               <dd className="m-0 text-right">
                 <span className={`rounded-[4px] px-[6px] py-[2px] text-[10px] font-semibold tracking-[0.05em] uppercase ${side === 'long' ? 'bg-safe/12 text-safe' : side === 'short' ? 'bg-danger/12 text-danger' : 'bg-card2 text-muted'}`}>
                   {side === 'both' ? 'already past' : side}
                 </span>
               </dd>
-              <dt className="text-muted">Shortfall (bad debt)</dt>
-              <dd className={`num m-0 text-right ${rung.shortfallAusd > 0 ? 'text-danger' : ''}`}>{formatCompact(rung.shortfallAusd)}</dd>
+              <dt className="text-muted">Losses beyond collateral</dt>
+              <dd className={`num m-0 text-right ${rung.shortfallAusd > 0 ? 'text-danger' : ''}`} title={`${formatCount(rung.shortfallPositions)} positions`}>{formatCompact(rung.shortfallAusd)}</dd>
               <dt className="text-muted">Insurance covers</dt>
               <dd className="num m-0 text-right">
-                {scope.insuranceAusd === undefined ? <span className="text-muted2">no reading</span> : rung.shortfallAusd === 0 ? <span className="text-muted2">nothing to cover</span> : <span className={scope.insuranceAusd / rung.shortfallAusd < 10 ? 'text-danger' : 'text-safe'}>{(scope.insuranceAusd / rung.shortfallAusd).toFixed(1)}×</span>}
+                {marketId === undefined ? (
+                  <span className="text-muted2">per market only</span>
+                ) : scope.insuranceAusd === undefined ? (
+                  <span className="text-muted2">no reading</span>
+                ) : rung.shortfallAusd === 0 ? (
+                  <span className="text-muted2">nothing to cover</span>
+                ) : (
+                  <span className={scope.insuranceAusd / rung.shortfallAusd < 10 ? 'text-danger' : 'text-safe'}>{(scope.insuranceAusd / rung.shortfallAusd).toFixed(1)}×</span>
+                )}
               </dd>
             </dl>
           )}
@@ -231,7 +258,7 @@ export function RiskView() {
       <section className="mb-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
           <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">By market</h2>
-          <span className="text-[12.5px] text-muted">Each market in its worse direction: longs exposed to a fall, or shorts to a rise.</span>
+          <span className="text-[12.5px] text-muted">A fall (longs) and a rise (shorts) side by side, never added. Losses and cover use each market&rsquo;s worse direction at 10%.</span>
         </div>
         <MarketsTable markets={s?.markets} onSelect={setMarketId} selected={marketId} />
       </section>
@@ -242,9 +269,8 @@ export function RiskView() {
           <path d="M12 8v5M12 16.5v.01" />
         </svg>
         <div>
-          <b className="font-semibold">Book depth is not shown, because the indexer has no order book.</b> A real liquidation has to be filled by someone, so &ldquo;can the book absorb
-          this?&rdquo; is the question that finishes this page — and answering it needs an order book reader that does not exist yet. Until it does, treat every figure here as
-          exposure, not as realised loss.
+          Shows what&rsquo;s at risk, not what will be lost. Liquidated positions need buyers. With few buyers they sell lower, deepening losses. We can&rsquo;t see the live order
+          book, so that isn&rsquo;t modelled.
         </div>
       </div>
 
@@ -339,7 +365,7 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
   );
 }
 
-const MARKET_COLUMNS = ['Market', 'Notional', 'Positions', 'At risk 5%', 'At risk 10%', 'Shortfall 10%', 'Insurance', 'Cover', 'Top 5 share', 'Maint. margin'] as const;
+const MARKET_COLUMNS = ['Market', 'Open interest', 'Positions', 'At risk 5%', 'At risk 10%', 'Beyond collateral 10%', 'Insurance', 'Cover', 'Top 5 share', 'Maint. margin'] as const;
 
 function MarketsTable({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number) => void }) {
   const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';
@@ -367,7 +393,7 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                 </tr>
               ))
             : [...markets]
-                .sort((a, b) => b.notionalAusd - a.notionalAusd)
+                .sort((a, b) => b.openInterestAusd - a.openInterestAusd)
                 .map((m) => {
                   const five = m.atRisk['0.050']!;
                   const ten = m.atRisk['0.100']!;
@@ -375,20 +401,29 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                   return (
                     <tr key={m.market.marketId} className={`cursor-pointer border-b border-border last:border-b-0 hover:bg-card2 ${active ? 'bg-card2' : ''}`} onClick={() => onSelect(m.market.marketId)} title="Show this market in the stress test">
                       <td className={`sticky left-0 z-[1] px-[10px] py-[10px] font-semibold whitespace-nowrap ${active ? 'bg-card2' : 'bg-card'}`}>{marketLabel(m)}</td>
-                      <td className={cell} title={`${formatCount(m.longs)} long / ${formatCount(m.shorts)} short positions · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}>{formatCompact(m.notionalAusd)}</td>
+                      <td className={cell} title={`one side · total position value, both sides ${formatCompact(m.notionalAusd)} · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}>{formatCompact(m.openInterestAusd)}</td>
                       <td className={cell}>
                         {formatCount(m.positions)}
                         <span className="block text-[11px] text-muted2">{formatCount(m.longs)}L · {formatCount(m.shorts)}S</span>
                       </td>
-                      <td className={cell} title={`${formatCount(five.positions)} positions`}>{formatCompact(five.notionalAusd)}</td>
-                      <td className={cell} title={`${formatCount(ten.positions)} positions`}>{formatCompact(ten.notionalAusd)}</td>
-                      <td className={`${cell} ${ten.shortfallAusd > 0 ? 'text-danger' : 'text-muted'}`}>{formatCompact(ten.shortfallAusd)}</td>
+                      <td className={cell}>
+                        <SplitCell d={five.fall} />
+                        <SplitCell d={five.rise} />
+                      </td>
+                      <td className={cell}>
+                        <SplitCell d={ten.fall} />
+                        <SplitCell d={ten.rise} />
+                      </td>
+                      <td className={`${cell} ${m.cover10.shortfallAusd > 0 ? 'text-danger' : 'text-muted'}`} title={`${formatCount(ten.worse.shortfallPositions)} positions lose more than their own collateral`}>
+                        {formatCompact(m.cover10.shortfallAusd)}
+                        {m.cover10.shortfallAusd > 0 && <span className="block text-[11px] text-muted2">if it {m.cover10.direction === 'fall' ? 'falls' : 'rises'}</span>}
+                      </td>
                       <td className={cell} title={m.insuranceReason}>{m.insuranceAusd === undefined ? <span className="text-muted2">no reading</span> : formatCompact(m.insuranceAusd)}</td>
                       <td className={cell}>
-                        {ten.insuranceCover === undefined ? (
-                          <span className="text-muted2" title={ten.shortfallAusd === 0 ? 'no shortfall at 10%' : 'no insurance reading'}>{ten.shortfallAusd === 0 ? 'none needed' : '—'}</span>
+                        {m.cover10.cover === undefined ? (
+                          <span className="text-muted2" title={m.cover10.shortfallAusd === 0 ? 'no losses beyond collateral at 10%' : 'no insurance reading'}>{m.cover10.shortfallAusd === 0 ? 'none needed' : '—'}</span>
                         ) : (
-                          <span className={ten.insuranceCover < 10 ? 'text-danger' : ten.insuranceCover < 50 ? 'text-watch' : 'text-safe'}>{ten.insuranceCover.toFixed(1)}×</span>
+                          <span className={m.cover10.cover < 10 ? 'text-danger' : m.cover10.cover < 50 ? 'text-watch' : 'text-safe'} title={`against the ${m.cover10.direction}`}>{m.cover10.cover.toFixed(1)}×</span>
                         )}
                       </td>
                       <td className={`${cell} ${m.topFiveShare !== undefined && m.topFiveShare > 0.7 ? 'text-watch' : ''}`}>{m.topFiveShare === undefined ? '—' : formatPct(m.topFiveShare, 0)}</td>
@@ -404,5 +439,49 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
         </tbody>
       </table>
     </div>
+  );
+}
+
+function marketName(market: MarketExposure['market']): string {
+  return market.symbol ?? `market ${market.marketId}`;
+}
+
+/**
+ * One direction as a tile: a fall closes longs, a rise closes shorts, and the
+ * tile says which in words. Never a sum of the two.
+ */
+function DirectionTile({ d }: { readonly d: DirectionalExposure }) {
+  const size = `${Math.round(Math.abs(d.move) * 100)}%`;
+  const fall = d.move < 0;
+  return (
+    <StatTile
+      label={`If prices ${fall ? 'fall' : 'rise'} ${size}`}
+      value={formatCompact(d.notionalAusd)}
+      exact={`${formatAusdExact(d.notionalAusd)} AUSD of ${fall ? 'long' : 'short'} positions liquidated, at today's marks`}
+      secondary={
+        <>
+          <div>
+            {formatCount(d.positions)} positions · {d.shareOfOpenInterest === undefined ? 'no open interest' : `${formatPct(d.shareOfOpenInterest)} of open interest`}
+          </div>
+          <div>{fall ? 'a fall closes longs' : 'a rise closes shorts'}</div>
+        </>
+      }
+      sparklineNote={
+        d.shortfallPositions === 0
+          ? 'none loses more than its own collateral'
+          : `${formatCount(d.shortfallPositions)} ${d.shortfallPositions === 1 ? 'loses' : 'lose'} more than ${d.shortfallPositions === 1 ? 'its' : 'their'} own collateral: ${formatCompact(d.shortfallAusd)}`
+      }
+    />
+  );
+}
+
+/** One direction inside a table cell: "fall 191.4K" over "rise 64.6K". */
+function SplitCell({ d }: { readonly d: DirectionalExposure }) {
+  const fall = d.move < 0;
+  return (
+    <span className="block" title={`${formatCount(d.positions)} ${fall ? 'longs' : 'shorts'}`}>
+      <span className="mr-1 text-[10.5px] text-muted2">{fall ? 'fall' : 'rise'}</span>
+      {formatCompact(d.notionalAusd)}
+    </span>
   );
 }
