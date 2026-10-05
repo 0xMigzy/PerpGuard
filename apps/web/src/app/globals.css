@@ -272,8 +272,9 @@ input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outl
   font-weight: 600;
   letter-spacing: -0.005em;
 }
-/* Header metadata reads as quiet text beside the title, as on Risk. */
-:root:has([data-ui="terminal"]) main .chip {
+/* Header metadata reads as quiet text beside the title, as on Risk. Only in
+ * the page header: a chip in the body is a badge and keeps its border. */
+:root:has([data-ui="terminal"]) main .page-header .chip {
   border: 0;
   padding: 0;
   text-transform: none;

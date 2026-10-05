@@ -16,7 +16,8 @@ import { COLORS } from '@/lib/theme.ts';
  */
 export function BotView() {
   return (
-    <>
+    // Opts this page into the terminal design system (globals.css).
+    <div data-ui="terminal">
       <PageHeader
         title="PerpGuard Bot"
         subtitle="Watch any Perpl address for free, or link your own account to act on it: add margin, reduce or close a position. All inside Telegram."
@@ -53,7 +54,7 @@ export function BotView() {
             reconciled against the position — and if the venue reports a failure while the margin actually applied, both are shown.
           </p>
           <Steps steps={['Send /start to the bot from the chat you want alerts in.', 'Prove the account is yours; the bot reads it off the Exchange.', 'Every action is offered, confirmed and sent in that chat, and nowhere else.']} />
-          <div className="mt-3 flex gap-[10px] rounded-[10px] border border-watch/30 bg-watch/8 px-[12px] py-[10px] text-[12.5px] text-[#E8D7B0]">
+          <div className="mt-3 flex gap-[10px] rounded-[8px] border border-watch/30 bg-watch/8 px-[12px] py-[10px] text-[12.5px] text-[#E8D7B0]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COLORS.watch} strokeWidth="2.2" aria-hidden="true" className="mt-[2px] flex-none">
               <circle cx="12" cy="12" r="9" />
               <path d="M12 8v5M12 16.5v.01" />
@@ -120,7 +121,7 @@ export function BotView() {
         Escalation is immediate; calming down is gated. WATCH fires when the buffer falls below 8% and clears above 9%; DANGER fires below 3% and clears above 4%;
         past liquidation is never softened on an old price. A blind monitor — feed down, positions untrusted — says so and offers no action.
       </div>
-    </>
+    </div>
   );
 }
 

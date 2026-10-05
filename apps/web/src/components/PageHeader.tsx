@@ -13,7 +13,7 @@ export function PageHeader({
   readonly right?: ReactNode;
 }) {
   return (
-    <div className="mb-[18px] flex flex-wrap items-end justify-between gap-4">
+    <div className="page-header mb-[18px] flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 className="m-0 mb-1 text-[24px] font-bold tracking-[-0.03em] text-balance sm:text-[28px]">
           {title}
