@@ -10,6 +10,11 @@ if [ -z "${NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID:-}" ] && [ -f ../../.env ]; then
   NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID="$(sed -n 's/^NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID=//p' ../../.env | tail -n 1 | tr -d '"'"'"' \r')"
   export NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
 fi
+# The public site URL, for absolute link-preview image URLs (metadataBase).
+if [ -z "${PUBLIC_WEB_URL:-}" ] && [ -f ../../.env ]; then
+  PUBLIC_WEB_URL="$(sed -n 's/^PUBLIC_WEB_URL=//p' ../../.env | tail -n 1 | tr -d '"'"'"' \r')"
+  export PUBLIC_WEB_URL
+fi
 # ALWAYS A CLEAN BUILD. Twice a build that reused .next or the incremental
 # type-check cache (tsconfig.tsbuildinfo) passed while a clean one failed: a
 # React version mismatch, then an invalid export from the /link layout. Both

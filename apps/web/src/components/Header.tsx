@@ -10,9 +10,10 @@ export function Header() {
     <header className="sticky top-0 z-20 border-b border-border bg-page/90 backdrop-blur-[8px]">
       <div className="wrap">
         <div className="flex items-center gap-4 py-[10px]">
-          <Link href="/" className="flex flex-none items-center gap-[10px] no-underline" aria-label="PerpGuard home">
-            {/* The mark, never recoloured, never without its glow, clear space of half its width. */}
-            <img src="/perpguard-logo.svg" alt="" width={28} height={28} className="block" style={{ margin: '0 4px' }} />
+          <Link href="/" className="flex flex-none items-center gap-[7px] no-underline" aria-label="PerpGuard home">
+            {/* One lockup: the vector mark a little above the wordmark's cap height
+                (Inter 16px caps are ~11.6px), its own 808:888 aspect, never stretched. */}
+            <img src="/perpguard-mark.svg" alt="" width={808} height={888} className="block" style={{ height: 14, width: 'auto' }} />
             <b className="text-[16px] font-bold tracking-[-0.02em] text-text">
               Perp<span className="text-accent-hi">Guard</span>
             </b>

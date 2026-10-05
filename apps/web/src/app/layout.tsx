@@ -7,18 +7,36 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
+/**
+ * Where the site is served, so link-preview images resolve to an absolute URL
+ * (a crawler cannot fetch a relative one). Lifted from the shared .env at build
+ * time by scripts/build-web.sh; without it Next falls back to localhost.
+ */
+const siteUrl = process.env.PUBLIC_WEB_URL;
+
 export const metadata: Metadata = {
+  ...(siteUrl === undefined || siteUrl === '' ? {} : { metadataBase: new URL(siteUrl) }),
   title: { default: 'PerpGuard', template: '%s · PerpGuard' },
   description: 'Protocol analytics and liquidation risk for Perpl: markets, traders, liquidations, and what the isolated-margin rule costs.',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/perpguard-logo-180.png',
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
   },
   openGraph: {
     title: 'PerpGuard',
     description: 'Protocol analytics and liquidation risk for Perpl.',
-    images: [{ url: '/perpguard-banner-640x360.png', width: 640, height: 360 }],
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'PerpGuard' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'PerpGuard',
+    description: 'Protocol analytics and liquidation risk for Perpl.',
+    images: ['/og-image.png'],
   },
 };
 
