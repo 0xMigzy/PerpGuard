@@ -200,7 +200,13 @@ select count(*)::text                                                  as total,
           filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0))::text as median_cover,
        count(*) filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0)::text as cover_count,
        (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
-          filter (where "wasRescuable" = true))::text                    as median_spare
+          filter (where "wasRescuable" = true))::text                    as median_spare,
+       -- Realised loss (PnL + funding, sign flipped), once per event: a flow,
+       -- so summing it is honest. NOT marginLostCNS, which includes margin the
+       -- event credited straight back to the account (docs/notes/accamount-
+       -- finding-2026-10-05.md).
+       coalesce(-sum("realizedPnlCNS" + "fundingCNS")
+          filter (where "wasRescuable" = true), 0)::text                as rescuable_loss
   from "Liquidation"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
    and ($2::timestamptz is null or timestamp <  $2::timestamptz)
@@ -517,6 +523,8 @@ select count(*)::text                                      as total,
        count(*) filter (where "wasRescuable" = true and "marginToSurviveCNS" > 0)::text as cover_count,
        (percentile_cont(0.5) within group (order by "freeBalanceBeforeCNS")
           filter (where "wasRescuable" = true))::text        as median_spare,
+       coalesce(-sum("realizedPnlCNS" + "fundingCNS")
+          filter (where "wasRescuable" = true), 0)::text    as rescuable_loss,
        coalesce(sum("notionalCNS"), 0)::text                as notional,
        coalesce(sum("marginLostCNS"), 0)::text              as margin_lost,
        coalesce(sum("badDebtCNS"), 0)::text                 as bad_debt
@@ -1080,6 +1088,7 @@ export class PostgresAnalytics implements Analytics {
       medianCoverRatio: ratioOrUndefined(row?.['median_cover']),
       coverRatioCount: count(row?.['cover_count']),
       medianSpareBalanceAusd: medianAusd(row?.['median_spare'], decimals),
+      rescuableRealisedLossAusd: toAusd(row?.['rescuable_loss'], decimals),
       withAnySpareBalanceCount: count(row?.['any_spare']),
     };
   }
@@ -1434,6 +1443,7 @@ export class PostgresAnalytics implements Analytics {
         medianCoverRatio: ratioOrUndefined(liq?.['median_cover']),
         coverRatioCount: count(liq?.['cover_count']),
         medianSpareBalanceAusd: medianAusd(liq?.['median_spare'], decimals),
+        rescuableRealisedLossAusd: toAusd(liq?.['rescuable_loss'], decimals),
         withAnySpareBalanceCount: count(liq?.['any_spare']),
       },
       realisedPnlAusd: toAusd(trader['realizedPnlCNS'], decimals),

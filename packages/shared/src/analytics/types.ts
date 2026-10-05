@@ -253,6 +253,18 @@ export interface RescueStats {
    * accounts would otherwise describe a typical trader nobody is.
    */
   readonly medianSpareBalanceAusd: number | undefined;
+  /**
+   * POTENTIALLY AVOIDABLE LOSSES: realised loss (PnL + funding, positive = a
+   * loss) summed over the RESCUABLE liquidations. Once per event, so repeats
+   * cannot inflate it. Excludes liquidation fees, so it understates.
+   *
+   * Deliberately NOT marginLostCNS: the event credits part of the removed
+   * margin straight back to the account (26% in a sample of 40), and the
+   * index does not store that credit (`accAmountCNS`). And never a claim the
+   * trader would have kept this money: a top-up keeps the position open, it
+   * does not undo the price move.
+   */
+  readonly rescuableRealisedLossAusd: number;
   /** DIAGNOSTIC. See the note above. Never render this as a rate. */
   readonly withAnySpareBalanceCount: number;
 }

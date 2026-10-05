@@ -109,6 +109,7 @@ class FakeAnalytics implements Analytics {
         medianCoverRatio: 186.8,
         coverRatioCount: 485,
         medianSpareBalanceAusd: 2_318.4,
+        rescuableRealisedLossAusd: 425_343.63,
         withAnySpareBalanceCount: 680,
       },
       collateralFlow: {
@@ -598,7 +599,7 @@ test('assessed positions need a venue: 503 without one, the profile\'s rows thro
       { market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC Perp' }, side: 'long', sizeLots: 0.5, entryPrice: 84_000, marginAusd: 2_800, leverage: 15, openedAtMs: 1, marginAddedAusd: 0 },
     ],
     performance: { roundTrips: 0, wins: 0, losses: 0, winRate: undefined, profitFactor: undefined, minRoundTripsForRatios: 10, maxDrawdownAusd: 0, longestWinStreak: 0, longestLossStreak: 0, averageHoldMs: undefined, bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined },
-    rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, medianCoverRatio: undefined, coverRatioCount: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
+    rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, medianCoverRatio: undefined, coverRatioCount: 0, medianSpareBalanceAusd: undefined, rescuableRealisedLossAusd: 0, withAnySpareBalanceCount: 0 },
     realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, freeBalanceAusd: 0,
   };
   const given: unknown[] = [];
@@ -640,7 +641,7 @@ const PROFILE: WalletProfile = {
     maxDrawdownAusd: 0, longestWinStreak: 2, longestLossStreak: 1, averageHoldMs: undefined,
     bestRoundTripAusd: 0, worstRoundTripAusd: 0, bestMarket: undefined, worstMarket: undefined,
   },
-  rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, medianCoverRatio: undefined, coverRatioCount: 0, medianSpareBalanceAusd: undefined, withAnySpareBalanceCount: 0 },
+  rescues: { count: 0, judgeableCount: 0, unknownCount: 0, rescuableCount: 0, rate: undefined, medianCoverRatio: undefined, coverRatioCount: 0, medianSpareBalanceAusd: undefined, rescuableRealisedLossAusd: 0, withAnySpareBalanceCount: 0 },
   realisedPnlAusd: 0, fundingAusd: 0, feesPaidAusd: 0, netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, freeBalanceAusd: 0,
 };
 

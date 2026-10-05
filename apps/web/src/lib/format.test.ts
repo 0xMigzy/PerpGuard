@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  formatUsdCompact,
   formatMultiple,
   formatFundingPct,
   blocksToApproxMs,
@@ -77,4 +78,15 @@ test('a multiple keeps a decimal only below 10', () => {
   assert.equal(formatMultiple(1447.4), '1,447×');
   assert.equal(formatMultiple(1.43), '1.4×');
   assert.equal(formatMultiple(Number.POSITIVE_INFINITY), '—');
+});
+
+test('compact dollars: two decimals at most, floored because it prints a loss', () => {
+  assert.equal(formatUsdCompact(5_312_345), '$5.31M');
+  assert.equal(formatUsdCompact(428_529.99), '$428.52K');
+  assert.equal(formatUsdCompact(3_029), '$3.02K');
+  assert.equal(formatUsdCompact(425_343.63), '$425.34K');
+  assert.equal(formatUsdCompact(146.509), '$146.5');
+  assert.equal(formatUsdCompact(999.999), '$999.99', 'never rounded up into the next unit');
+  assert.equal(formatUsdCompact(0), '$0');
+  assert.equal(formatUsdCompact(1_250_000_000), '$1.25B');
 });

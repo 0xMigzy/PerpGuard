@@ -206,6 +206,7 @@ test('the rescue rate comes back over the judgeable denominator', async () => {
       any_spare: '680',
       median_cover: '186.8',
       cover_count: '485',
+      rescuable_loss: '425343630000',
     },
   ]);
 
@@ -217,6 +218,10 @@ test('the rescue rate comes back over the judgeable denominator', async () => {
   assert.equal(metrics.rescues.rate?.toFixed(4), '0.7496');
   assert.equal(metrics.rescues.medianCoverRatio, 186.8);
   assert.equal(metrics.rescues.coverRatioCount, 485);
+  assert.equal(metrics.rescues.rescuableRealisedLossAusd, 425343.63, 'realised loss over rescuable, in AUSD');
+  const liqSql = sql.calls.find((c) => /from "Liquidation"/.test(c.sql))!.sql;
+  assert.match(liqSql, /-sum\("realizedPnlCNS" \+ "fundingCNS"\)\s+filter \(where "wasRescuable" = true\), 0\)::text\s+as rescuable_loss/,
+    'avoidable losses are realised loss over rescuable, never margin lost (part of it is credited back to the account)');
   assert.ok(!('spareBalanceAusd' in metrics.rescues), 'the summed free balance is gone: it counted one account once per liquidation');
   // The dust diagnostic is carried but is not the rate.
   assert.equal(metrics.rescues.withAnySpareBalanceCount, 680);

@@ -29,6 +29,15 @@ rescuable liquidations (187x over 2,344, full history, 4 Oct 2026). The
 indexer's `spareBalanceAtLiquidationCNS` running totals are that same sum and
 are never served.
 
+MARGIN LOST IS NOT MONEY DESTROYED. `marginLostCNS` is the drop in the
+position's deposit, and the event credits part of it straight back to the
+account (`accAmountCNS`, 26% in a sample of 40; emitted, NOT stored by the
+indexer). The Liquidations hero, "Potentially avoidable losses", is realised
+loss (PnL + funding) summed over rescuable liquidations: once per event,
+excludes liquidation fees, so it understates. Never word it as money the trader
+would have kept: a top-up keeps the position open, it does not undo the price
+move. See `docs/notes/accamount-finding-2026-10-05.md`.
+
 NEVER quote `liquidationsWithSpareBalanceCount` or `hadSpareBalance` as a
 headline. That flag is `freeBalanceBeforeCNS > 0`, so it counts dust: it is true
 for 654 of 654 mainnet liquidations, the smallest balance being 0.00024 AUSD and

@@ -33,6 +33,20 @@ export function formatCompact(value: number): string {
   return `${sign}${formatAusd(abs)}`;
 }
 
+/**
+ * Compact dollars, at most two decimals: $5.31M, $428.52K, $146.5. FLOORED, not
+ * rounded: it prints a LOSS, and a figure that rounds up claims more than
+ * happened. AUSD is a dollar stablecoin, so $ is the unit.
+ */
+export function formatUsdCompact(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '−' : '';
+  const floor2 = (v: number) => Math.floor(v * 100 + 1e-9) / 100;
+  const [div, suffix] = abs >= 1e9 ? [1e9, 'B'] : abs >= 1e6 ? [1e6, 'M'] : abs >= 1e3 ? [1e3, 'K'] : [1, ''];
+  const shown = floor2(abs / div).toLocaleString(EN, suffix === '' ? { maximumFractionDigits: 2 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}$${shown}${suffix}`;
+}
+
 /** An integer count, grouped. */
 export function formatCount(value: number): string {
   return Math.round(value).toLocaleString(EN);

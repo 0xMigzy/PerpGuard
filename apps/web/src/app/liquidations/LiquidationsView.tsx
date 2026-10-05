@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { LiquidationRecord, MarketBreakdown, RescueVerdict } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAusd, formatAusdExact, formatCompact, formatCount, formatMultiple, formatPct, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
+import { formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatUsdCompact, formatWhen } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit, splitLiquidationDays } from '@/lib/liquidations.ts';
 import { deltaVsPrevious, lastDays } from '@/lib/overview.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/Skeleton.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
+import { MarketName } from '@/components/TokenIcon.tsx';
 import { LiquidationsByDayChart } from '@/components/charts/LiquidationsByDayChart.tsx';
 
 const POLL_MS = 30_000;
@@ -26,9 +27,9 @@ const POLL_MS = 30_000;
 const COLUMNS = ['Time (UTC)', 'Account', 'Market', 'Size', 'Margin lost', 'Shortfall', 'Spare held', 'Verdict'] as const;
 
 /**
- * The rescuable finding is the hero; everything under it is its evidence. The
- * rate is ALWAYS over the judgeable denominator, and the unjudgeable count is
- * printed beside it rather than folded into either side.
+ * The hero is the realised loss on rescuable liquidations; everything under it
+ * is its evidence. Counts are ALWAYS over the judgeable denominator, and the
+ * unjudgeable count is disclosed beside it rather than folded into either side.
  */
 export function LiquidationsView() {
   const t = useTimeframe();
@@ -47,6 +48,7 @@ export function LiquidationsView() {
   const m = metrics.data?.data;
   const r = m?.rescues;
   const s = summary.data?.data;
+  // Over the judgeable only: unjudgeable cases are disclosed in the hero, not drawn.
   const days = useMemo(() => (series.data === undefined ? undefined : splitLiquidationDays(lastDays(series.data.data, showDays))), [series.data, showDays]);
   const rows = list.data?.data;
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
@@ -56,7 +58,7 @@ export function LiquidationsView() {
     <>
       <PageHeader
         title="Liquidations"
-        subtitle="Every liquidation in the window, and whether the trader could have stopped it."
+        subtitle="Every liquidation and whether it could have been avoided."
         right={<TimeframePills />}
       />
 
@@ -72,33 +74,44 @@ export function LiquidationsView() {
           </>
         ) : r.judgeableCount === 0 ? (
           <div>
-            <div className="eyebrow">The finding</div>
+            <div className="eyebrow">Potentially avoidable losses</div>
             <div className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi">—</div>
             <p className="m-0 max-w-[52ch] text-[13px] text-[#C9C4E4]">
               {r.count === 0
-                ? `No liquidation ${within}. The finding needs one to judge; widen the window to see it.`
+                ? `No liquidation ${within}. The figure needs one to judge; widen the window to see it.`
                 : `${formatCount(r.count)} liquidation${r.count === 1 ? '' : 's'} in the window, none of which can be judged: every one is of a position opened before the index starts.`}
             </p>
           </div>
         ) : (
           <>
             <div>
-              <div className="eyebrow">The finding</div>
-              <div className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi">{formatPct(r.rate ?? 0)}</div>
+              <div className="eyebrow">Potentially avoidable losses</div>
+              <div
+                className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi"
+                title={`${formatAusdExact(r.rescuableRealisedLossAusd)} AUSD realised loss across ${formatCount(r.rescuableCount)} rescuable liquidations`}
+              >
+                {formatUsdCompact(r.rescuableRealisedLossAusd)}
+              </div>
+              <div className="num text-[13px] text-text">
+                {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} liquidations
+              </div>
             </div>
             <div className="min-w-0 flex-1 basis-[300px]">
               <p className="m-0 max-w-[60ch] text-[13px] text-[#C9C4E4]">
                 <b className="font-semibold text-text">
-                  {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations {within} could have been prevented.
+                  In {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations {within}, the trader held enough free AUSD to cover the shortfall.
                 </b>{' '}
-                The trader was holding enough free AUSD at that moment to cover the shortfall — but Perpl uses isolated margin, so that balance never moves on its own.
-                They were liquidated with the money to survive sitting in the same account.
+                Perpl uses isolated margin, so that balance never moves on its own. A top-up would have kept the position open; it would not have undone the price move.
+                What it avoids for certain is being closed out at the worst moment.
+              </p>
+              <p className="mt-[8px] mb-0 text-[12px] text-muted">
+                Realised loss (PnL + funding) on liquidations where the trader&rsquo;s free balance covered the shortfall. Excludes liquidation fees, so the true figure is slightly higher.
               </p>
               <p className="mt-[10px] mb-0 text-[12.5px] text-text/85">
                 <span className="eyebrow mr-2">Window</span>
                 <span className="num">{windowRange(m?.sinceMs, m?.untilMs ?? Date.now(), start)}</span>
                 {' · '}
-                {formatCount(r.judgeableCount)} judgeable of {formatCount(r.count)} liquidations. A rate over a different window is a different number.
+                {formatCount(r.judgeableCount)} judgeable of {formatCount(r.count)} liquidations. A figure over a different window is a different number.
               </p>
               <p className="mt-[6px] mb-0 text-[13px] text-muted">
                 {r.unknownCount === 0
@@ -110,10 +123,10 @@ export function LiquidationsView() {
         )}
       </section>
 
-      {/* ── four tiles ──────────────────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── two tiles ───────────────────────────────────────────────────── */}
+      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {m === undefined || r === undefined ? (
-          Array.from({ length: 4 }, (_, i) => <StatTileSkeleton key={i} />)
+          Array.from({ length: 2 }, (_, i) => <StatTileSkeleton key={i} />)
         ) : (
           <>
             <StatTile
@@ -137,41 +150,6 @@ export function LiquidationsView() {
               sparkline={days?.map((d) => d.rescuable)}
               sparklineColor={COLORS.accentHi}
             />
-            {/* NOT a sum of free balance: that counted one account's money once per
-                liquidation (#4734's 23 times over). A per-event ratio cannot be
-                inflated by repeat liquidations. */}
-            <StatTile
-              label="Spare vs shortfall"
-              value={r.medianCoverRatio === undefined ? '—' : formatMultiple(r.medianCoverRatio)}
-              exact={r.medianCoverRatio === undefined ? undefined : `median of free AUSD held ÷ shortfall, across ${formatCount(r.coverRatioCount)} rescuable liquidations`}
-              secondary={
-                r.medianCoverRatio === undefined ? (
-                  'no rescuable liquidation in this window'
-                ) : (
-                  <>
-                    <div>In the median rescuable liquidation, the trader held {formatMultiple(r.medianCoverRatio)} what they needed · across {formatCount(r.coverRatioCount)}</div>
-                    {r.medianSpareBalanceAusd !== undefined && <div>median {formatAusd(r.medianSpareBalanceAusd)} AUSD held</div>}
-                  </>
-                )
-              }
-              sparklineNote="isolated margin never reached for any of it"
-            />
-            <StatTile
-              label="Median shortfall"
-              value={s === undefined ? '…' : s.medianShortfallAusd === undefined ? '—' : formatAusd(s.medianShortfallAusd)}
-              exact={s?.medianShortfallAusd === undefined ? undefined : `${formatAusdExact(s.medianShortfallAusd)} AUSD`}
-              secondary={
-                s === undefined ? (
-                  'loading'
-                ) : (
-                  <>
-                    <div>AUSD needed to survive · median across the {formatCount(r.rescuableCount)} rescuable</div>
-                    <div>{s.medianShortfallAllAusd === undefined ? 'no judgeable case' : `${formatAusd(s.medianShortfallAllAusd)} across all ${formatCount(r.judgeableCount)} judgeable`}</div>
-                  </>
-                )
-              }
-              sparklineNote="the top-up that would have kept the position above maintenance"
-            />
           </>
         )}
       </section>
@@ -189,18 +167,19 @@ export function LiquidationsView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Could it have been stopped?</h2>
-            <span className="text-[12.5px] text-muted">three answers, not two</span>
+            <span className="text-[12.5px] text-muted">{r === undefined || r.judgeableCount === 0 ? '' : `of ${formatCount(r.judgeableCount)} judgeable`}</span>
           </div>
           {r === undefined ? (
             <Skeleton className="mt-3 h-[150px] w-full" />
           ) : r.count === 0 ? (
             <div className="mt-3 text-[12.5px] text-muted">No liquidation in this window.</div>
+          ) : r.judgeableCount === 0 ? (
+            <div className="mt-3 text-[12.5px] text-muted">None of this window&rsquo;s liquidations can be judged.</div>
           ) : (
             <>
-              <div className="mt-3 flex h-[30px] overflow-hidden rounded-[7px]" role="img" aria-label={`${formatCount(r.rescuableCount)} rescuable, ${formatCount(notRescuable ?? 0)} not, ${formatCount(r.unknownCount)} unjudgeable`}>
-                <div className="bg-gradient-to-r from-accent-deep to-accent-hi" style={{ width: `${(r.rescuableCount / r.count) * 100}%` }} />
-                <div style={{ width: `${((notRescuable ?? 0) / r.count) * 100}%`, background: OTHER_SERIES }} />
-                <div className="border border-border2" style={{ width: `${(r.unknownCount / r.count) * 100}%` }} />
+              <div className="mt-3 flex h-[30px] overflow-hidden rounded-[7px]" role="img" aria-label={`${formatCount(r.rescuableCount)} rescuable, ${formatCount(notRescuable ?? 0)} not, of ${formatCount(r.judgeableCount)} judgeable`}>
+                <div className="bg-gradient-to-r from-accent-deep to-accent-hi" style={{ width: `${(r.rescuableCount / r.judgeableCount) * 100}%` }} />
+                <div style={{ width: `${((notRescuable ?? 0) / r.judgeableCount) * 100}%`, background: OTHER_SERIES }} />
               </div>
               <div className="mt-2 flex justify-between text-[12px] text-muted">
                 <span>Rescuable <b className="num font-semibold text-text">{formatCount(r.rescuableCount)}</b></span>
@@ -211,8 +190,6 @@ export function LiquidationsView() {
                 <dd className="num m-0 text-right text-accent-hi">{formatCount(r.rescuableCount)}</dd>
                 <dt className="text-muted">Spare &lt; shortfall</dt>
                 <dd className="num m-0 text-right">{formatCount(notRescuable ?? 0)}</dd>
-                <dt className="text-muted">Balance unknown at block</dt>
-                <dd className="num m-0 text-right text-muted2">{formatCount(r.unknownCount)}</dd>
               </dl>
             </>
           )}
@@ -328,7 +305,9 @@ function MarketBars({ markets }: { readonly markets: readonly MarketBreakdown[] 
 function MarketBarRow({ symbol, count, rescuable, max }: { readonly symbol: string; readonly count: number; readonly rescuable: number; readonly max: number }) {
   return (
     <>
-      <span className="font-semibold">{symbol}</span>
+      <span className="font-semibold">
+        <MarketName symbol={symbol} size={16} />
+      </span>
       <span className="flex h-[16px] w-full overflow-hidden rounded-[4px] bg-border" role="img" aria-label={`${symbol}: ${formatCount(count)} liquidations, ${formatCount(rescuable)} rescuable`}>
         <i className="block h-full" style={{ width: `${(rescuable / max) * 100}%`, background: COLORS.accentHi }} />
         <i className="block h-full" style={{ width: `${((count - rescuable) / max) * 100}%`, background: OTHER_SERIES }} />
@@ -362,7 +341,9 @@ function LiquidationRow({ row }: { readonly row: LiquidationRecord }) {
         </Link>
       </td>
       <td className="px-[10px] py-[10px] whitespace-nowrap" title={row.market.symbol === undefined ? `${row.market.indexerName}: not listed by the venue` : undefined}>
-        <span className="font-semibold">{symbol}</span>
+        <span className="font-semibold">
+          <MarketName symbol={symbol} size={16} />
+        </span>
         <span className={`ml-2 rounded-[4px] px-[5px] py-[1.5px] text-[10px] font-semibold tracking-[0.05em] uppercase ${row.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{row.side}</span>
         {!row.isFull && <span className="ml-1 text-[10.5px] text-muted2">partial</span>}
       </td>
