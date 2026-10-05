@@ -4,7 +4,7 @@ import { KeyRotatedError, KeyVault } from './crypto.ts';
 
 const KEY_A = 'a'.repeat(64);
 const KEY_B = 'b'.repeat(64);
-const creds = { apiKey: 'hSDSELLPjygHLHO8349pDm7feCkk-9pbnIiGv4biUkkvymJqtCc7wyIlUlxK4fF-', secretHex: '0x' + 'fd'.repeat(32) };
+const creds = { apiKey: 'test-api-key-' + 'x'.repeat(52), secretHex: '0x' + 'fd'.repeat(32) };
 
 test('a sealed key opens with the same environment key and reads back exactly', () => {
   const vault = new KeyVault(KEY_A);
