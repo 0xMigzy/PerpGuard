@@ -90,3 +90,13 @@ test('compact dollars: two decimals at most, floored because it prints a loss', 
   assert.equal(formatUsdCompact(0), '$0');
   assert.equal(formatUsdCompact(1_250_000_000), '$1.25B');
 });
+
+test('an age is never negative: a timestamp ahead of a slow visitor clock reads "under 1 s"', async () => {
+  const { formatAge } = await import('./format.ts');
+  assert.equal(formatAge(-1_386_000), 'under 1 s');
+  assert.equal(formatAge(-1), 'under 1 s');
+  assert.equal(formatAge(0), '0 ms', 'a real age, however small, keeps its milliseconds');
+  assert.equal(formatAge(Number.NaN), 'under 1 s');
+  assert.equal(formatAge(39_000), '39 s');
+  assert.equal(formatAge(5 * 60_000), '5 min');
+});

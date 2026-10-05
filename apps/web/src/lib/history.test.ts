@@ -17,10 +17,11 @@ test('a window range uses the index start when the window has none', () => {
   assert.equal(windowRange(Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 1), FEB11), 'Sep 1, 2026 – Oct 1, 2026');
 });
 
-test('the Traders pages name their 24H window for what it is: yesterday and today, never "today" or "24h"', async () => {
+test('the Traders pages caption their 24H window for what it is, and keep the site-wide 24H button', async () => {
   const { dayPeriodLabel, inDayPeriod, DAY_BUCKET_24H } = await import('./history.ts');
-  assert.equal(dayPeriodLabel('24h', undefined), 'yesterday + today');
+  assert.equal(dayPeriodLabel('24h', undefined), 'yesterday + today so far');
   assert.equal(inDayPeriod('24h', undefined), 'since yesterday 00:00 UTC');
-  assert.equal(DAY_BUCKET_24H.pill, '2D');
+  assert.equal(DAY_BUCKET_24H.pill, '24H', 'the same button as every other page');
+  assert.match(DAY_BUCKET_24H.title, /Yesterday and today so far/);
   assert.equal(dayPeriodLabel('30d', undefined), '30 days', 'other windows unchanged');
 });

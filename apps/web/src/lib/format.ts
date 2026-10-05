@@ -131,6 +131,10 @@ export function formatWhen(ms: number): string {
 
 /** How old something is, in the coarsest unit that still says something. */
 export function formatAge(ms: number): string {
+  // NEVER NEGATIVE. Callers pass Date.now() − a server timestamp, so a visitor
+  // whose clock runs behind sees a timestamp "in the future"; that is skew, not
+  // news, and it must not print as "−1386000 ms ago".
+  if (!(ms >= 0)) return 'under 1 s';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;

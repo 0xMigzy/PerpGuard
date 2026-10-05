@@ -19,10 +19,13 @@ export function periodLabel(t: Timeframe, startsAtMs: number | undefined): strin
 /**
  * THE TRADERS PAGES COUNT WHOLE UTC DAYS. Their 24H window starts at
  * yesterday 00:00 UTC (the per-trader record is kept by day), so it holds
- * yesterday and today so far, and is labelled as such, never "24h" and never
- * "today". The window itself is unchanged.
+ * yesterday and today so far. Its captions say so ("yesterday + today so
+ * far", never "today"); the button keeps the site-wide "24H" with the same
+ * words in its tooltip. The window itself is unchanged.
  */
-export const DAY_BUCKET_24H = { pill: '2D', title: 'Yesterday and today so far, in whole UTC days', period: 'yesterday + today', sentence: 'since yesterday 00:00 UTC' } as const;
+// The BUTTON stays "24H" like every other page (a lone "2D" reads as a bug);
+// the truth is in its tooltip and in the captions under the cards.
+export const DAY_BUCKET_24H = { pill: '24H', title: 'Yesterday and today so far, in whole UTC days', period: 'yesterday + today so far', sentence: 'since yesterday 00:00 UTC' } as const;
 
 /** periodLabel for a page that counts whole UTC days (Traders). */
 export function dayPeriodLabel(t: Timeframe, startsAtMs: number | undefined): string {
