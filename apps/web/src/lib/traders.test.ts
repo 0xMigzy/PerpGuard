@@ -145,3 +145,33 @@ test('the Flows CSV has its own five columns and leaves an unrecorded owner empt
   assert.equal(lines[1], '0xabc,7,1000,1250.5,-250.5');
   assert.equal(lines[2], ',8,1000,1250.5,-250.5');
 });
+
+test('account summary: equity is free + margin + unrealised to the cent, and closes against lifetime flows', async () => {
+  const { accountSummary } = await import('./traders.ts');
+  const s = accountSummary({ freeBalanceAusd: 4_180.004, depositedAusd: 23_500, withdrawnAusd: 0 }, [
+    { position: { marginAusd: 8_000 }, unrealisedPnlAusd: -1_000.4 },
+    { position: { marginAusd: 4_450 }, unrealisedPnlAusd: -283.6 },
+  ]);
+  assert.equal(s.freeAusd, 4_180);
+  assert.equal(s.marginAusd, 12_450);
+  assert.equal(s.unrealisedAusd, -1_284);
+  assert.equal(s.equityAusd, 15_346, '4,180 + 12,450 − 1,284');
+  assert.equal(s.netInAusd, 23_500);
+  assert.equal(s.sinceFirstDepositAusd, -8_154, 'down 8,154 since first deposit');
+  assert.equal(s.freeAusd + s.marginAusd + s.unrealisedAusd, s.equityAusd, 'the printed arithmetic adds up');
+});
+
+test('account summary: one unpriced position means no equity, never a partial sum', async () => {
+  const { accountSummary } = await import('./traders.ts');
+  const s = accountSummary({ freeBalanceAusd: 10, depositedAusd: 50, withdrawnAusd: 60 }, [
+    { position: { marginAusd: 5 }, unrealisedPnlAusd: 1 },
+    { position: { marginAusd: 5 } },
+  ]);
+  assert.equal(s.unpriced, 1);
+  assert.equal(s.equityAusd, undefined);
+  assert.equal(s.sinceFirstDepositAusd, undefined);
+  assert.equal(s.netInAusd, -10, 'net out');
+  const none = accountSummary({ freeBalanceAusd: 7.5, depositedAusd: 10, withdrawnAusd: 0 }, []);
+  assert.equal(none.equityAusd, 7.5, 'no positions: equity is the free balance');
+  assert.equal(none.sinceFirstDepositAusd, -2.5);
+});

@@ -127,12 +127,12 @@ export function OverviewView() {
               }
             />
             <StatTile
-              label="TVL · now"
+              label="Exchange balance · now"
               value={tvlNow === undefined ? (tvl.data === undefined ? '…' : 'unknown') : formatCompact(tvlNow)}
-              exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)} AUSD, read from the Exchange contract`}
+              exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)} AUSD: the Exchange contract's whole AUSD balance, read now. It holds traders' free balances and position margin, and also the per-market insurance funds and protocol balances, so it is not the same as collateral held across accounts.`}
               delta={tvlNow === undefined ? undefined : deltaOf(tvlNow, tvlBefore(tvlNow, m.collateralFlow.netAusd))}
               deltaLabel={`in ${period}`}
-              secondary="AUSD collateral held by the Exchange"
+              secondary="AUSD held by the Exchange contract"
               sparkline={tvlSpark}
             />
             <StatTile
@@ -213,7 +213,7 @@ export function OverviewView() {
         <ErrorNote error={series.error} what="Daily flows" />
         {days === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <NetFlowChart days={days} />}
         <div className="mt-2 text-[11.5px] text-muted2">
-          TVL is read from the Exchange contract; flows are indexed. The two answer different questions and both are shown.
+          The Exchange balance is read from the contract; flows are indexed. The two answer different questions and both are shown.
           {chartNote !== undefined && ` ${chartNote}`}
         </div>
       </section>

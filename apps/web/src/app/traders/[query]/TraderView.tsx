@@ -33,6 +33,8 @@ import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
+import { AccountSummary } from './AccountSummary.tsx';
+import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 
 const POLL_MS = 30_000;
 
@@ -224,11 +226,18 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             </>
           )
         }
-        right={<TimeframePills />}
+        right={
+          <>
+            {p !== undefined && <SaveWalletButton accountId={p.accountId} address={p.address} />}
+            <TimeframePills />
+          </>
+        }
       />
 
       <StaleMarker envelope={lookup.data} />
       <ErrorNote error={lookup.error} what="Trader profile" />
+
+      <AccountSummary profile={p} positions={positions.data?.data.positions} positionsFailed={positions.error !== undefined && positions.data === undefined} />
 
       {/* ── four tiles: the window first, lifetime beside it ────────────── */}
       <ErrorNote error={accountId === undefined ? undefined : days.error} what="The account's daily history" />

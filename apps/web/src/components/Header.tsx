@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { IndexerChip } from './IndexerChip.tsx';
+import { SavedWalletsMenu } from './SavedWallets.tsx';
 import { Search } from './Search.tsx';
 import { Tabs } from './Tabs.tsx';
 
@@ -22,6 +23,7 @@ export function Header() {
           <Suspense fallback={<div className="flex-1" aria-hidden="true" />}>
             <Search />
           </Suspense>
+          <SavedWalletsMenu />
           <IndexerChip />
         </div>
         {/* Suspense: the tabs read the URL's search params to carry the timeframe across sections. */}

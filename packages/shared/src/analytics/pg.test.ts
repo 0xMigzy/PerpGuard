@@ -720,6 +720,17 @@ test('a profile under the floor withholds both ratios and says which floor', asy
   assert.equal(profile.performance.wins, 3, 'the history is still served in full');
 });
 
+test('a profile carries lifetime deposits and withdrawals from the Trader row, the Flows totals', async () => {
+  const sql = new FakeSql().on(/from "Trader" where id/, [
+    { id: '710', accountId: '710', owner: '', firstTradeAt: null, lastActiveAt: new Date('2026-09-30T00:00:00Z'), realizedPnlCNS: '0', fundingCNS: '0', feesPaidCNS: '0', netPnlCNS: '0', volumeCNS: '0', tradeCount: 3, roundTrips: 3, wins: 3, losses: 0, bestRoundTripCNS: '0', worstRoundTripCNS: '0', liquidationCount: 0, rescuableLiquidationCount: 0, liquidationsWithSpareBalanceCount: 0, spareBalanceAtLiquidationCNS: '0', free_balance: '4180000000', deposited: '23500000000', withdrawn: '0' },
+  ]);
+  const profile = (await reader(sql).walletByAccountId(710))!;
+  assert.match(sql.touching('Trader').find((c) => /where id = \$1/.test(c.sql))!.sql, /"depositedCNS"::text as deposited, "withdrawnCNS"::text as withdrawn/);
+  assert.equal(profile.depositedAusd, 23_500);
+  assert.equal(profile.withdrawnAusd, 0);
+  assert.equal(profile.freeBalanceAusd, 4_180);
+});
+
 test('trader days read TraderDay for the account, day-aligned, oldest first', async () => {
   const sql = new FakeSql().on(/from "TraderDay"/, [
     { day: new Date('2026-09-29T00:00:00Z'), volume: '1000000', trades: 2, realised: '500000', funding: '-1000', fees: '2000', net_pnl: '497000', wins: 1, losses: 1, liquidations: 0, rescuable: 0, margin_added: '0', margin_removed: '0', deposited: '0', withdrawn: '0', end_free: '3000000' },

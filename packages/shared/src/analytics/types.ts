@@ -677,6 +677,12 @@ export interface WalletProfile {
    * lose. Display value; anything that compares money recovers exact micros.
    */
   readonly freeBalanceAusd: number;
+  /**
+   * Lifetime totals of the indexed deposit and withdrawal events, the same
+   * figures the Traders Flows ranking shows for All. Never a balance delta.
+   */
+  readonly depositedAusd: number;
+  readonly withdrawnAusd: number;
 }
 
 export interface OpenPosition {

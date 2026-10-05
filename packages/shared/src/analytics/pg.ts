@@ -490,7 +490,8 @@ select id, "accountId", owner, "firstTradeAt", "lastActiveAt",
        "bestRoundTripCNS", "worstRoundTripCNS",
        "liquidationCount", "rescuableLiquidationCount",
        "liquidationsWithSpareBalanceCount", "spareBalanceAtLiquidationCNS",
-       "freeBalanceCNS"::text as free_balance
+       "freeBalanceCNS"::text as free_balance,
+       "depositedCNS"::text as deposited, "withdrawnCNS"::text as withdrawn
   from "Trader" where id = $1
 `;
 
@@ -1497,6 +1498,8 @@ export class PostgresAnalytics implements Analytics {
       volumeAusd: toAusd(trader['volumeCNS'], decimals),
       tradeCount: count(trader['tradeCount']),
       freeBalanceAusd: toAusd(trader['free_balance'], decimals),
+      depositedAusd: toAusd(trader['deposited'], decimals),
+      withdrawnAusd: toAusd(trader['withdrawn'], decimals),
     };
   }
 
