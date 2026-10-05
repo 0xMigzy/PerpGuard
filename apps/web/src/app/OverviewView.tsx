@@ -59,6 +59,9 @@ export function OverviewView() {
   const period = periodLabel(t, useHistoryStart());
 
   const metrics = usePoll(() => api.metrics(t), POLL_MS, `metrics:${t}`);
+  // Since launch, whatever the timeframe: the line under the windowed flow.
+  const allTime = usePoll(() => api.metrics('all'), POLL_MS, 'metrics:all:since-launch');
+  const history = useHistory();
   const tvl = usePoll(api.tvl, POLL_MS, 'tvl');
   const series = usePoll(() => api.series(ct), POLL_MS, `series:${ct}`);
   const byMarket = usePoll(() => api.seriesByMarket(ct), POLL_MS, `series-markets:${ct}`);
@@ -197,6 +200,7 @@ export function OverviewView() {
             ) : (
               <FlowSummary deposited={m.collateralFlow.depositedAusd} withdrawn={m.collateralFlow.withdrawnAusd} deposits={m.collateralFlow.depositCount} withdrawals={m.collateralFlow.withdrawalCount} />
             )}
+            <SinceLaunchFlow flow={allTime.data?.data.collateralFlow} accounts={history.data?.data.months.reduce((n, mo) => n + mo.newAccounts, 0)} startsAtMs={history.data?.data.startsAtMs} />
           </div>
         </div>
       </section>
@@ -214,6 +218,36 @@ export function OverviewView() {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * Net capital flow since launch, fixed whatever the timeframe. The totals are
+ * the all-time CollateralFlow sums, which reconcile with the per-account and
+ * per-day totals; the account count is every account the index has seen
+ * created (each one opened with a deposit).
+ */
+function SinceLaunchFlow({
+  flow,
+  accounts,
+  startsAtMs,
+}: {
+  readonly flow: { readonly depositedAusd: number; readonly withdrawnAusd: number; readonly netAusd: number } | undefined;
+  readonly accounts: number | undefined;
+  readonly startsAtMs: number | undefined;
+}) {
+  if (flow === undefined || accounts === undefined) return <Skeleton className="mt-3 h-[34px] w-full" />;
+  const net = flow.netAusd;
+  return (
+    <p className="mt-3 mb-0 border-t border-border pt-3 text-[12.5px] text-muted" title={`${formatAusdExact(flow.depositedAusd)} in, ${formatAusdExact(flow.withdrawnAusd)} out, AUSD`}>
+      <span className="font-semibold text-text">Since launch{startsAtMs === undefined ? '' : ` (${formatDayLong(startsAtMs)})`}:</span>{' '}
+      <span className="num text-text">{formatCompact(flow.depositedAusd)}</span> deposited, <span className="num text-text">{formatCompact(flow.withdrawnAusd)}</span> withdrawn, net{' '}
+      <span className={`num font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : 'text-text'}`}>
+        {net >= 0 ? '+' : '−'}
+        {formatCompact(Math.abs(net))}
+      </span>{' '}
+      {net >= 0 ? 'in' : 'out'}, across <span className="num text-text">{formatCount(accounts)}</span> accounts. AUSD.
+    </p>
   );
 }
 
