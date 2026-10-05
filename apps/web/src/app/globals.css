@@ -230,6 +230,59 @@ input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outl
   background: var(--color-card);
 }
 
+/* Shared components inside a terminal page. Unlayered and scoped, so they beat
+ * the components' own utilities only on pages that opted in; classic pages are
+ * untouched. Colours are deliberately left to the components' own classes
+ * (a warning label stays amber), except where the system names one. */
+:root:has([data-ui="terminal"]) .card {
+  border-radius: var(--terminal-radius);
+}
+:root:has([data-ui="terminal"]) .stat-tile {
+  padding: 16px 17px 12px;
+}
+:root:has([data-ui="terminal"]) .stat-label {
+  font-size: 13px;
+}
+:root:has([data-ui="terminal"]) .stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+:root:has([data-ui="terminal"]) .stat-secondary {
+  font-size: 12.5px;
+  color: var(--color-text2);
+}
+:root:has([data-ui="terminal"]) .stat-note {
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+:root:has([data-ui="terminal"]) .tf-group {
+  border-radius: 8px;
+  border-color: var(--color-border);
+}
+:root:has([data-ui="terminal"]) .tf-pill {
+  border-radius: 6px;
+}
+:root:has([data-ui="terminal"]) .tf-pill[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #fff;
+}
+:root:has([data-ui="terminal"]) main h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+/* Header metadata reads as quiet text beside the title, as on Risk. */
+:root:has([data-ui="terminal"]) main .chip {
+  border: 0;
+  padding: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-muted2);
+}
+
 /* Primitives live in the components layer, so a utility on the same element (a
  * semantic colour on one cell, say) still wins. */
 @layer components {

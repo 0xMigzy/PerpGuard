@@ -49,6 +49,8 @@ export const VAR = {
   muted: 'var(--color-muted)',
   muted2: 'var(--color-muted2)',
   accent: 'var(--color-accent)',
+  accentHi: 'var(--color-accent-hi)',
+  cyan: 'var(--color-cyan)',
   safe: 'var(--color-safe)',
   watch: 'var(--color-watch)',
   danger: 'var(--color-danger)',

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { formatDay, formatFundingPct, formatWhen } from '@/lib/format.ts';
 import type { FundingHeatmap as Model, HeatCell, HeatColumn, HeatmapGrain, HeatRow } from '@/lib/funding.ts';
-import { COLORS } from '@/lib/theme.ts';
+import { VAR } from '@/lib/theme.ts';
 import { MarketName } from '@/components/TokenIcon.tsx';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -32,9 +32,9 @@ export function payerWords(ratePct: number): string {
 }
 
 /** Hex to rgba, for one hue at many strengths. */
-function tint(hex: string, alpha: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha.toFixed(3)})`;
+/** A colour at `alpha` opacity. color-mix, so it takes a CSS variable as well as a hex. */
+function tint(color: string, alpha: number): string {
+  return `color-mix(in srgb, ${color} ${(alpha * 100).toFixed(1)}%, transparent)`;
 }
 
 /**
@@ -44,17 +44,17 @@ function tint(hex: string, alpha: number): string {
  * neutral; NO SETTLEMENT is hatched and empty: a market that did not exist yet
  * is not a market at zero funding.
  */
-const ZERO_FILL = COLORS.border2;
+const ZERO_FILL = VAR.border2;
 const MISSING_STYLE = {
-  background: `repeating-linear-gradient(135deg, transparent 0 3px, ${tint(COLORS.border2, 0.9)} 3px 4px)`,
-  boxShadow: `inset 0 0 0 1px ${COLORS.border2}`,
+  background: `repeating-linear-gradient(135deg, transparent 0 3px, ${tint(VAR.border2, 0.9)} 3px 4px)`,
+  boxShadow: `inset 0 0 0 1px ${VAR.border2}`,
 } as const;
 
 function cellStyle(cell: HeatCell | undefined, max: number): React.CSSProperties {
   if (cell === undefined) return MISSING_STYLE;
   if (cell.ratePct === 0) return { background: ZERO_FILL };
   const strength = Math.sqrt(Math.min(1, Math.abs(cell.ratePct) / max));
-  return { background: tint(cell.ratePct > 0 ? COLORS.safe : COLORS.danger, 0.18 + 0.8 * strength) };
+  return { background: tint(cell.ratePct > 0 ? VAR.safe : VAR.danger, 0.18 + 0.8 * strength) };
 }
 
 interface Hover {
@@ -208,13 +208,13 @@ export function HeatLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-muted">
       <span>
-        <i className={swatch} style={{ background: tint(COLORS.danger, 0.85) }} /> <i className={swatch} style={{ background: tint(COLORS.danger, 0.3) }} /> negative: shorts pay
+        <i className={swatch} style={{ background: tint(VAR.danger, 0.85) }} /> <i className={swatch} style={{ background: tint(VAR.danger, 0.3) }} /> negative: shorts pay
       </span>
       <span>
         <i className={swatch} style={{ background: ZERO_FILL }} /> exactly 0%
       </span>
       <span>
-        <i className={swatch} style={{ background: tint(COLORS.safe, 0.3) }} /> <i className={swatch} style={{ background: tint(COLORS.safe, 0.85) }} /> positive: longs pay
+        <i className={swatch} style={{ background: tint(VAR.safe, 0.3) }} /> <i className={swatch} style={{ background: tint(VAR.safe, 0.85) }} /> positive: longs pay
       </span>
       <span>
         <i className={swatch} style={MISSING_STYLE} /> no settlement (not listed yet, or none in the period)

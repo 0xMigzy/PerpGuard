@@ -81,7 +81,8 @@ export function OverviewView() {
   const block = health.data?.data.latestProcessedBlock;
 
   return (
-    <>
+    // Opts this page into the terminal design system (globals.css).
+    <div data-ui="terminal">
       <PageHeader
         title="Perpl protocol"
         subtitle="Everything below is derived from indexed on-chain events. No account needed."
@@ -217,7 +218,7 @@ export function OverviewView() {
           {chartNote !== undefined && ` ${chartNote}`}
         </div>
       </section>
-    </>
+    </div>
   );
 }
 

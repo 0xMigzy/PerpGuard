@@ -1,6 +1,6 @@
 import type { LiquidationBand } from '@perpguard/shared';
 import { formatCount, formatPct } from '@/lib/format.ts';
-import { COLORS, OTHER_SERIES } from '@/lib/theme.ts';
+import { VAR, OTHER_SERIES } from '@/lib/theme.ts';
 
 /**
  * Bands as horizontal stacked bars: rescuable on top of not-rescuable on top
@@ -14,7 +14,7 @@ export function BandBars({ bands, unit }: { readonly bands: readonly Liquidation
   return (
     <div className="mt-3">
       <div className="mb-2 flex flex-wrap gap-[14px] text-[12px] text-muted">
-        <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: COLORS.accentHi }} />Rescuable</span>
+        <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: VAR.accentHi }} />Rescuable</span>
         <span><i className="mr-[6px] inline-block h-[9px] w-[9px] rounded-[2px] align-[-1px]" style={{ background: OTHER_SERIES }} />Not rescuable</span>
         {/* Only when a band holds one: the full-history index judges every liquidation, so this is normally empty. */}
         {bands.some((b) => b.unknownCount > 0) && (
@@ -38,7 +38,7 @@ function BandRow({ band, max, unit }: { readonly band: LiquidationBand; readonly
     <>
       <span className="num whitespace-nowrap text-muted" title={`${band.label} ${unit}`}>{band.label}</span>
       <span className="flex h-[16px] w-full overflow-hidden rounded-[4px] bg-border" role="img" aria-label={`${band.label}: ${formatCount(band.count)} liquidations, ${formatCount(band.rescuableCount)} rescuable`}>
-        <i className="block h-full" style={{ width: w(band.rescuableCount), background: COLORS.accentHi }} />
+        <i className="block h-full" style={{ width: w(band.rescuableCount), background: VAR.accentHi }} />
         <i className="block h-full" style={{ width: w(band.notRescuableCount), background: OTHER_SERIES }} />
         <i className="block h-full border-y border-r border-border2" style={{ width: w(band.unknownCount), background: 'transparent' }} />
       </span>

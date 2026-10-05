@@ -3,7 +3,7 @@
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { StackedVolume } from '@/lib/overview.ts';
 import { formatAusd, formatCompact, formatDay, formatDayLong } from '@/lib/format.ts';
-import { COLORS, OTHER_SERIES, SERIES } from '@/lib/theme.ts';
+import { VAR, OTHER_SERIES, SERIES } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
 const AVERAGE = '7-day average';
@@ -34,18 +34,18 @@ export function VolumeByMarketChart({ stacked }: { readonly stacked: StackedVolu
           </span>
         ))}
         <span>
-          <i className="mr-[6px] inline-block h-[2px] w-[12px] align-middle" style={{ background: COLORS.text }} />
+          <i className="mr-[6px] inline-block h-[2px] w-[12px] align-middle" style={{ background: VAR.text }} />
           {AVERAGE}
         </span>
       </div>
       <div className="mt-2 h-[240px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
-            <CartesianGrid vertical={false} stroke={COLORS.border} />
+            <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
             <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={52} />
             <Tooltip
-              cursor={{ fill: COLORS.card2 }}
+              cursor={{ fill: VAR.card2 }}
               content={({ active, payload, label }) => {
                 if (!active || payload === undefined || payload.length === 0) return null;
                 const row = payload[0]!.payload as Record<string, number>;
@@ -62,9 +62,9 @@ export function VolumeByMarketChart({ stacked }: { readonly stacked: StackedVolu
               }}
             />
             {stacked.keys.map((key) => (
-              <Bar key={key} dataKey={key} stackId="volume" fill={colorOf(stacked, key)} stroke={COLORS.card} strokeWidth={1} maxBarSize={24} isAnimationActive={false} />
+              <Bar key={key} dataKey={key} stackId="volume" fill={colorOf(stacked, key)} stroke={VAR.card} strokeWidth={1} maxBarSize={24} isAnimationActive={false} />
             ))}
-            <Line type="monotone" dataKey={AVERAGE} stroke={COLORS.text} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: COLORS.card, strokeWidth: 2 }} isAnimationActive={false} />
+            <Line type="monotone" dataKey={AVERAGE} stroke={VAR.text} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: VAR.card, strokeWidth: 2 }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

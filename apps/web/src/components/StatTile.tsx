@@ -52,21 +52,21 @@ export function StatTile(props: StatTileProps) {
     );
   }
   return (
-    <div className="card relative overflow-hidden px-[18px] pt-4 pb-[10px]">
-      <div className={`text-[12.5px] font-medium ${props.labelWarn ? 'text-watch' : 'text-muted'}`}>{props.label}</div>
+    <div className="card stat-tile relative overflow-hidden px-[18px] pt-4 pb-[10px]">
+      <div className={`stat-label text-[12.5px] font-medium ${props.labelWarn ? 'text-watch' : 'text-muted'}`}>{props.label}</div>
       <div
-        className="num mt-2 mb-[6px] text-[30px] leading-[1.1] font-bold tracking-[-0.035em]"
+        className="stat-value num mt-2 mb-[6px] text-[30px] leading-[1.1] font-bold tracking-[-0.035em]"
         style={props.valueColor === undefined ? undefined : { color: props.valueColor }}
         title={props.exact}
       >
         {props.value}
       </div>
       {deltaNode}
-      {props.secondary !== undefined && <div className="mt-[2px] text-[12px] text-muted">{props.secondary}</div>}
+      {props.secondary !== undefined && <div className="stat-secondary mt-[2px] text-[12px] text-muted">{props.secondary}</div>}
       {props.sparkline !== undefined ? (
         <Sparkline values={props.sparkline} color={props.sparklineColor} />
       ) : props.sparklineNote !== undefined ? (
-        <div className="mt-2 flex h-[44px] items-end text-[11px] text-muted2">{props.sparklineNote}</div>
+        <div className="stat-note mt-2 flex h-[44px] items-end text-[11px] text-muted2">{props.sparklineNote}</div>
       ) : null}
     </div>
   );

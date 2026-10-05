@@ -31,12 +31,12 @@ export function TimeframePills({ labels }: { readonly labels?: Partial<Record<Ti
     router.replace(query === '' ? pathname : `${pathname}?${query}`, { scroll: false });
   };
   return (
-    <div className="inline-flex gap-[2px] rounded-[10px] border border-border2 bg-card p-[3px]" role="group" aria-label="Timeframe">
+    <div className="tf-group inline-flex gap-[2px] rounded-[10px] border border-border2 bg-card p-[3px]" role="group" aria-label="Timeframe">
       {TIMEFRAMES.map((t) => (
         <button
           key={t}
           type="button"
-          className={`pill rounded-[8px] border-0 px-3 py-[6px] text-[12.5px] font-semibold ${
+          className={`pill tf-pill rounded-[8px] border-0 px-3 py-[6px] text-[12.5px] font-semibold ${
             t === current ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'
           }`}
           aria-pressed={t === current}
