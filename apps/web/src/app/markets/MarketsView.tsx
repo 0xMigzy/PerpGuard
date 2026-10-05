@@ -120,7 +120,8 @@ export function MarketsView() {
   const feesLabel = live?.[0]?.feesLabel;
 
   return (
-    <>
+    // Opts this page into the terminal design system (globals.css).
+    <div data-ui="terminal">
       <PageHeader title="Markets" subtitle="Live Perpl market data, including prices, OI & funding." right={<TimeframePills />} />
 
       <StaleMarker envelope={markets.data} />
@@ -216,7 +217,7 @@ export function MarketsView() {
 
       <ErrorNote error={funding.error} what="Funding history" />
       <FundingSection heat={heat} timeframe={t} period={period} liveCount={live?.length} upcomingCount={upcoming.length} view={heatView} onView={setHeatView} />
-    </>
+    </div>
   );
 }
 
@@ -265,14 +266,14 @@ function FundingSection({
         <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">
           Funding <span className="ml-1 text-[12.5px] font-medium text-muted">{period} · live markets only</span>
         </h2>
-        <div className="inline-flex gap-[2px] rounded-[9px] border border-border2 bg-card p-[2px]" role="group" aria-label="Funding view">
+        <div className="tf-group inline-flex gap-[2px] rounded-[9px] border border-border2 bg-card p-[2px]" role="group" aria-label="Funding view">
           {(['chart', 'table'] as const).map((v) => (
             <button
               key={v}
               type="button"
               aria-pressed={view === v}
               onClick={() => onView(v)}
-              className={`pill rounded-[7px] border-0 px-[10px] py-[4px] text-[12px] font-semibold ${view === v ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'}`}
+              className={`pill tf-pill rounded-[7px] border-0 px-[10px] py-[4px] text-[12px] font-semibold ${view === v ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'}`}
             >
               {v === 'chart' ? 'Heatmap' : 'Table'}
             </button>

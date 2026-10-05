@@ -24,12 +24,12 @@ export function StatusPills({ counts }: { readonly counts: Readonly<Record<Statu
     router.replace(query === '' ? pathname : `${pathname}?${query}`, { scroll: false });
   };
   return (
-    <div className="inline-flex gap-[2px] rounded-[10px] border border-border2 bg-card p-[3px]" role="group" aria-label="Market status">
+    <div className="tf-group inline-flex gap-[2px] rounded-[10px] border border-border2 bg-card p-[3px]" role="group" aria-label="Market status">
       {STATUS_FILTERS.map((s) => (
         <button
           key={s}
           type="button"
-          className={`pill rounded-[8px] border-0 px-3 py-[6px] text-[12.5px] font-semibold ${s === current ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'}`}
+          className={`pill tf-pill rounded-[8px] border-0 px-3 py-[6px] text-[12.5px] font-semibold ${s === current ? 'bg-accent-deep text-white' : 'bg-transparent text-muted hover:text-text'}`}
           aria-pressed={s === current}
           onClick={() => select(s)}
         >
