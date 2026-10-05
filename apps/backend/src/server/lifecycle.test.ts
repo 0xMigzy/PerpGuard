@@ -139,7 +139,10 @@ test('a failing step is recorded and the rest still run', async () => {
 });
 
 test('a step that never finishes is bounded by the deadline', async () => {
-  const sequence = new ShutdownSequence({ deadlineMs: 20 })
+  // A fixed clock: the step's budget is the deadline minus time already spent,
+  // and a real clock ticking between the sequence's start and the first step
+  // made the budget 19ms about once in twenty runs. The timer itself is real.
+  const sequence = new ShutdownSequence({ deadlineMs: 20, now: () => 1_000 })
     .add('wedged socket', () => new Promise<void>(() => {}))
     .add('still runs', () => {});
 
