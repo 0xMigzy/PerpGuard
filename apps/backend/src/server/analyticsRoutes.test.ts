@@ -644,6 +644,25 @@ test('without a venue, open interest is a 503 and never the indexer delta in dis
   assert.match(body(response.payload)['error'] as string, /only knows the change/);
 });
 
+// ── other venues' funding: a backend read, enveloped, never a fake ──────────
+
+test('venue funding: 503 without a venue, the payload in the usual envelope with one', async () => {
+  const bare = app(new FakeAnalytics(), {});
+  const refused = await bare.instance.inject({ method: 'GET', url: '/api/analytics/funding/venues' });
+  assert.equal(refused.statusCode, 503);
+
+  const payload = {
+    markets: [{ marketId: 1, symbol: 'BTC', perplMarkPrice: 85_800, venues: { hyperliquid: { kind: 'not-listed' }, binance: { kind: 'unavailable' } } }],
+    venues: { hyperliquid: { state: 'ok', lastGoodAtMs: 1 }, binance: { state: 'unavailable', lastGoodAtMs: undefined, error: 'timed out' } },
+  } as const;
+  const wired = app(new FakeAnalytics(), { venueFunding: async () => payload });
+  const response = await wired.instance.inject({ method: 'GET', url: '/api/analytics/funding/venues' });
+  assert.equal(response.statusCode, 200);
+  const data = body(response.payload)['data'] as typeof payload;
+  assert.equal(data.markets[0]!.venues.binance.kind, 'unavailable');
+  assert.equal(data.venues.binance.error, 'timed out');
+});
+
 // ── the on-chain fallback for a wallet the index cannot link ────────────────
 
 const PROFILE: WalletProfile = {

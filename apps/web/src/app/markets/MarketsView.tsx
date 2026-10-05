@@ -33,6 +33,7 @@ import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { MarketName } from '@/components/TokenIcon.tsx';
 import { FundingHeatmap, HeatLegend } from '@/components/charts/FundingHeatmap.tsx';
+import { FundingScanner } from './FundingScanner.tsx';
 import { StatusPills, useStatusFilter } from './StatusPills.tsx';
 
 const POLL_MS = 30_000;
@@ -217,6 +218,7 @@ export function MarketsView() {
 
       <ErrorNote error={funding.error} what="Funding history" />
       <FundingSection heat={heat} timeframe={t} period={period} liveCount={live?.length} upcomingCount={upcoming.length} view={heatView} onView={setHeatView} />
+      <FundingScanner heat={heat} />
     </div>
   );
 }

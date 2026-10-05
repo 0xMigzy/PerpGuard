@@ -11,6 +11,7 @@
  * exist and are never called from a page — actions live in Telegram.
  */
 import type {
+  VenueFundingPayload,
   AssessedPositions,
   LeverageBaseline,
   WalletInsightFacts,
@@ -201,6 +202,8 @@ export const api = {
   listings: () => getJson<Envelope<readonly MarketListing[]>>(`${A}/markets/listings`),
   /** Every funding rate applied in the window, per market, with their sum. */
   fundingSeries: (t: Timeframe) => getJson<Envelope<readonly MarketFundingSeries[]>>(`${A}/funding/series?timeframe=${t}`),
+  /** Other venues' funding against Perpl's live markets. Fetched by the backend, never from this browser. */
+  venueFunding: () => getJson<Envelope<VenueFundingPayload>>(`${A}/funding/venues`),
   liquidations: (t: Timeframe, limit: number, offset = 0) =>
     getJson<Envelope<readonly LiquidationRecord[]>>(`${A}/liquidations?timeframe=${t}&limit=${limit}&offset=${offset}`),
   /** By address, any case. `not-linked` is an ordinary 200 answer, not an error. */

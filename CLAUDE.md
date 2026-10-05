@@ -389,6 +389,21 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   - An AUSD total across traders needs each side's open interest at every
     settlement, which the index does not keep; it is said on the page, not
     estimated.
+- FUNDING ACROSS VENUES sits BELOW the heatmap (header -> table -> heatmap ->
+  scanner). Perpl's APR is the heatmap row's own `aprPct`; Hyperliquid and
+  Binance come from `GET /api/analytics/funding/venues`, which the BACKEND
+  fills (`apps/backend/src/funding/venueFundingStore.ts`): called only while
+  read, at most once a minute per venue, never from the browser. A venue that
+  fails keeps its last good figures with their age for 3 minutes, then its
+  column says unavailable with the age of the last good figure; it never
+  blocks the page. Markets match by ticker AND price (within 5%), so a
+  same-ticker different asset is never compared; not listed is an empty cell,
+  never 0. Intervals: Perpl ~43 min (context), Hyperliquid 1 h (docs, measured),
+  Binance per contract from `fundingInfo`, measured when absent, NEVER assumed
+  8 h. RAW IS THE DEFAULT; the interest term (0.01%/8h on both others, none on
+  Perpl, ~11 points) is stated ABOVE the table and a toggle strips it. Each
+  column says which "current" it is. Spread = Perpl minus the furthest venue.
+  See `docs/notes/perpl-funding-interval-2026-10-05.md`.
 - TOKEN ICONS ARE VENDORED, LICENSED AND IDENTIFIED. `apps/web/public/tokens/`
   holds the project's OWN mark from its brand page where it publishes one
   (Solana, Aave, Lighter), otherwise Cryptocurrency Icons (CC0) or Trust Wallet

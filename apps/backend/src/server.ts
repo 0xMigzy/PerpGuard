@@ -49,6 +49,8 @@ import {
   type MarketRiskConfig,
   type NetworkConfig,
   type VenueMarket,
+  fetchBinanceFunding,
+  fetchHyperliquidFunding,
 } from '@perpguard/shared';
 import {
   BOT_MENU_COMMANDS,
@@ -93,6 +95,7 @@ import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
+import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
@@ -852,6 +855,19 @@ const app = createHealthApp({
             openInterest: () => analyticsVenue!.getOpenInterest(),
           });
           return () => source.read();
+        })(),
+        // Other venues' funding against Perpl's live markets: Perpl's tickers
+        // and marks from the analytics venue, the rest from the store, which
+        // calls Hyperliquid and Binance from here and only while read.
+        venueFunding: (() => {
+          const store = new VenueFundingStore({
+            fetchers: { hyperliquid: () => fetchHyperliquidFunding(), binance: (tickers) => fetchBinanceFunding(tickers) },
+            onError: (venue, error) => warn(`venue funding: ${venue} read failed: ${describeFetchError(error)}`),
+          });
+          return async () => {
+            const markets = await analyticsVenue!.getOpenInterest();
+            return buildVenueFundingPayload(markets, await store.read(markets.map((m) => m.symbol)));
+          };
         })(),
         // ONE NETWORK: configs and marks both come from the analytics venue, and
         // the positions from the analytics network's indexer. Nothing here can

@@ -39,6 +39,7 @@ import {
   type AssessedPositions,
   type IndexerHealth,
   type LeverageBaseline,
+  type VenueFundingPayload,
   type OpenPosition,
   type MarketOpenInterest,
   type RiskSnapshot,
@@ -93,6 +94,13 @@ export interface AnalyticsRouteOptions {
    * when no venue is wired on the analytics network.
    */
   readonly riskSnapshot?: () => Promise<RiskSnapshot>;
+  /**
+   * Perpl's live markets against Hyperliquid's and Binance's funding. External
+   * reads, made by the backend only and held in their own store
+   * (`VenueFundingStore`): never from the browser. Absent when no venue is
+   * wired on the analytics network, since the join needs Perpl's tickers and marks.
+   */
+  readonly venueFunding?: () => Promise<VenueFundingPayload>;
   /** Mounted under this prefix. */
   readonly prefix?: string;
 }
@@ -387,6 +395,14 @@ export function registerAnalyticsRoutes(
       asOfMs: markets.length === 0 ? undefined : Math.min(...markets.map((m) => m.atMs)),
     };
     return envelope(payload);
+  });
+
+  scope.get(`${prefix}/funding/venues`, async (_request, reply) => {
+    const read = options.venueFunding;
+    if (read === undefined) {
+      return reply.code(503).send({ error: 'no venue is wired on the analytics network, so there are no Perpl markets to compare against other venues.' });
+    }
+    return envelope(await read());
   });
 
   scope.get(`${prefix}/markets`, async (request, reply) => {
@@ -689,6 +705,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/open-interest`,
       `${prefix}/markets?timeframe=24h`,
       `${prefix}/funding?timeframe=30d`,
+      `${prefix}/funding/venues`,
       `${prefix}/liquidations?timeframe=30d&limit=50&offset=0`,
       `${prefix}/liquidations/summary?timeframe=30d`,
       `${prefix}/traders?timeframe=30d&sort=netPnl&direction=desc&limit=50&offset=0`,
