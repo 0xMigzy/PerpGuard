@@ -56,7 +56,8 @@ export function LiquidationsView() {
   const notRescuable = r === undefined ? undefined : r.judgeableCount - r.rescuableCount;
 
   return (
-    <>
+    // Opts this page into the terminal design system (globals.css).
+    <div data-ui="terminal">
       <PageHeader
         title="Liquidations"
         subtitle="Every liquidation and whether it could have been avoided."
@@ -67,7 +68,7 @@ export function LiquidationsView() {
       <ErrorNote error={metrics.error} what="Liquidation totals" />
 
       {/* ── the finding ─────────────────────────────────────────────────── */}
-      <section className="mb-4 flex flex-wrap items-center gap-[30px] rounded-[14px] border border-accent/35 bg-gradient-to-br from-accent/14 to-cyan/6 px-6 py-[22px]">
+      <section className="mb-4 flex flex-wrap items-center gap-[30px] rounded-[8px] border border-accent/40 bg-card px-6 py-[22px]">
         {r === undefined ? (
           <>
             <Skeleton className="h-[64px] w-[180px]" />
@@ -77,7 +78,7 @@ export function LiquidationsView() {
           <div>
             <div className="eyebrow">Potentially avoidable losses</div>
             <div className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi">—</div>
-            <p className="m-0 max-w-[52ch] text-[13px] text-[#C9C4E4]">
+            <p className="m-0 max-w-[52ch] text-[13px] text-text2">
               {r.count === 0
                 ? `No liquidation ${within}. The figure needs one to judge; widen the window to see it.`
                 : `${formatCount(r.count)} liquidation${r.count === 1 ? '' : 's'} in the window, none of which can be judged: every one is of a position opened before the index starts.`}
@@ -98,7 +99,7 @@ export function LiquidationsView() {
               </div>
             </div>
             <div className="min-w-0 flex-1 basis-[300px]">
-              <p className="m-0 max-w-[60ch] text-[13px] text-[#C9C4E4]">
+              <p className="m-0 max-w-[60ch] text-[13px] text-text2">
                 <b className="font-semibold text-text">
                   In {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations {within}, the trader held enough free AUSD to cover the shortfall.
                 </b>{' '}
@@ -179,7 +180,7 @@ export function LiquidationsView() {
           ) : (
             <>
               <div className="mt-3 flex h-[30px] overflow-hidden rounded-[7px]" role="img" aria-label={`${formatCount(r.rescuableCount)} rescuable, ${formatCount(notRescuable ?? 0)} not, of ${formatCount(r.judgeableCount)} judgeable`}>
-                <div className="bg-gradient-to-r from-accent-deep to-accent-hi" style={{ width: `${(r.rescuableCount / r.judgeableCount) * 100}%` }} />
+                <div className="bg-accent-hi" style={{ width: `${(r.rescuableCount / r.judgeableCount) * 100}%` }} />
                 <div style={{ width: `${((notRescuable ?? 0) / r.judgeableCount) * 100}%`, background: OTHER_SERIES }} />
               </div>
               <div className="mt-2 flex justify-between text-[12px] text-muted">
@@ -283,7 +284,7 @@ export function LiquidationsView() {
         )}
         {rows !== undefined && rows.length >= LIST_CAP && <span>Showing the most recent {formatCount(LIST_CAP)}; narrow the timeframe for the rest.</span>}
       </div>
-    </>
+    </div>
   );
 }
 
