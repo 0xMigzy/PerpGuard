@@ -4,5 +4,10 @@ export const metadata = { title: 'Trader' };
 
 export default async function TraderPage({ params }: { readonly params: Promise<{ query: string }> }) {
   const { query } = await params;
-  return <TraderView query={decodeURIComponent(query)} />;
+  // Opts every state of the profile (found, prefix search, not linked) into the terminal design system.
+  return (
+    <div data-ui="terminal">
+      <TraderView query={decodeURIComponent(query)} />
+    </div>
+  );
 }

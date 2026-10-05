@@ -143,9 +143,8 @@ export function TradersIndex() {
                 role="tab"
                 aria-selected={r.key === ranking}
                 onClick={() => choose(r.key)}
-                className={`rounded-[7px] border px-[10px] py-[5px] text-[12.5px] font-semibold whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
-                  r.key === ranking ? 'border-accent bg-accent/15 text-text' : 'border-border2 bg-transparent text-muted hover:text-text'
-                }`}
+                // The shared segmented control (globals.css .seg): purple only when selected.
+                className="seg whitespace-nowrap"
               >
                 {r.label}
               </button>
