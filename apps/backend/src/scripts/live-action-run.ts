@@ -54,6 +54,10 @@ const { values } = parseArgs({
     amount: { type: 'string' },
     /** Fire a second attempt while the first is in flight, to show the refusal. */
     twice: { type: 'boolean', default: false },
+    /** Leverage for --open, e.g. 12. Default: the market's maximum. Refused above it. */
+    leverage: { type: 'string' },
+    /** With --open: open the position, print it, and STOP. No top-up, no close: the position stays. */
+    'open-only': { type: 'boolean', default: false },
     out: { type: 'string', default: 'fixtures/live-action-run-testnet.json' },
   },
 });
@@ -202,6 +206,12 @@ const openPosition = (): PerplPosition | undefined =>
     | PerplPosition
     | undefined;
 
+const leverage = values.leverage === undefined ? market.maxLeverage : Number(values.leverage);
+if (!(leverage > 0 && leverage <= market.maxLeverage)) {
+  console.error(`--leverage ${values.leverage} is outside 0..${market.maxLeverage}x for ${symbol}`);
+  process.exit(1);
+}
+
 try {
   await awaitReady();
 
@@ -214,7 +224,7 @@ try {
       accountId,
       side,
       sizeScaled: units,
-      leverageHundredths: Math.round(market.maxLeverage * 100),
+      leverageHundredths: Math.round(leverage * 100),
       lastExecBlock: computeLastExecBlock(headBlock(), market.orderTtlBlocks, 2),
     });
     log(`SEND ${JSON.stringify(frame)}`);
@@ -229,6 +239,18 @@ try {
       `no open ${symbol} position on testnet account ${accountId}. Re-run with --open to open one.`,
     );
     process.exit(1);
+  }
+
+  if (values['open-only']) {
+    // LEAVE IT OPEN, and say exactly what is open: the demo position, not a test round trip.
+    openedByUs = false;
+    loop.evaluate();
+    const a = loop.snapshot().find((x) => x.marketId === market.marketId);
+    rule('opened, and left open');
+    log(`position ${position.positionId}: ${values.side} ${symbol}, leverage ${leverage}x requested`);
+    log(`margin ${a?.marginCNS === undefined ? '?' : (Number(a.marginCNS) / 1e6).toFixed(2)} AUSD, value ${a === undefined ? '?' : (Number(a.metrics.notionalCNS) / 1e6).toFixed(2)} AUSD, lots ${a?.lotLNS ?? '?'}`);
+    log(`assessment: state ${a?.state ?? '?'}, distance ${a?.liqBufferPct === undefined ? '?' : (a.liqBufferPct * 100).toFixed(2) + '%'}`);
+    process.exit(0);
   }
 
   rule('the position, before');
