@@ -30,3 +30,10 @@ allowBuilds:
 # rather than moved, and the two integration tests move to `apps/backend`. The
 # alerts layer itself stays where `CLAUDE.md` puts it.
 ignoreWorkspaceCycles: true
+
+# RainbowKit's QR code (cuer 0.0.3) asks `qr` for a border-0 code and accepts
+# any qr 0.x; qr 0.6.0+ throws "invalid border=0", which crashed /link the
+# moment WalletConnect's QR was opened (found 6 Oct 2026 on perpguard.app).
+# 0.5.5 is the last release that renders it. Drop this once cuer pins qr.
+overrides:
+  'cuer>qr': 0.5.5
