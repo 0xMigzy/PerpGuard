@@ -554,7 +554,7 @@ test('the day series carries the day\'s collateral flow alongside its buckets', 
   sql.on(/full outer join flows/, [
     {
       day: new Date('2026-09-29T00:00:00Z'), volume: '5000000', trades: '2', fees: '1000',
-      liquidations: '1', rescuable: '1', oi_close: '10', max_market_traders: '3',
+      liquidations: '1', rescuable: '1', traders_distinct: '290',
       deposited: '10000000', withdrawn: '2500000',
     },
   ]);
@@ -563,17 +563,21 @@ test('the day series carries the day\'s collateral flow alongside its buckets', 
   assert.equal(day!.withdrawnAusd, 2.5);
   assert.equal(day!.netFlowAusd, 7.5);
   assert.equal(day!.volumeAusd, 5);
+  assert.equal(day!.activeTraders, 290, 'distinct accounts from TraderDay, never the largest market');
+  const query = sql.calls.find((c) => /full outer join flows/.test(c.sql))!.sql;
+  assert.match(query, /from "TraderDay"\s+where "tradeCount" > 0/);
+  assert.doesNotMatch(query, /max\("activeTraderCount"\)/, 'the per-market floor is gone');
 });
 
 test('the per-market series groups one row per market per day and names the market by id', async () => {
   const sql = new FakeSql();
-  const row = (id: string, name: string, day: string, close: string) => ({
-    id, name, priceDecimals: '1', day: new Date(day),
-    volume: '1000000', trades: '1', fees: '10', liquidations: '0', rescuable: '0', oi_close: '0',
+  const row = (id: string, name: string, day: string, close: string, oi = '0', lotDecimals = '5') => ({
+    id, name, priceDecimals: '1', lotDecimals, day: new Date(day),
+    volume: '1000000', trades: '1', fees: '10', liquidations: '0', rescuable: '0', oi_close: oi,
     mark_open: close, mark_high: close, mark_low: close, mark_close: close,
   });
   sql.on(/from "MarketDay" d join "Market" m/, [
-    row('1', 'BTC', '2026-09-28T00:00:00Z', '839877'),
+    row('1', 'BTC', '2026-09-28T00:00:00Z', '839877', '814921'),
     row('1', 'BTC', '2026-09-29T00:00:00Z', '0'),
     row('31', 'SOL_v2', '2026-09-29T00:00:00Z', '121602'),
   ]);
@@ -583,6 +587,7 @@ test('the per-market series groups one row per market per day and names the mark
   assert.equal(series[0]!.market.symbol, 'BTC');
   assert.equal(series[0]!.points.length, 2);
   assert.equal(series[0]!.points[0]!.markClose, 83987.7);
+  assert.equal(series[0]!.points[0]!.openInterestDeltaLots, 8.14921, 'scaled by the market\'s lot decimals, never the raw integer');
   assert.equal(series[0]!.points[1]!.markClose, undefined, 'a bucket with no mark is undefined, never 0');
   // Market 31 is SOL_v2 in the indexer and SOL in the context: resolved by id.
   assert.equal(series[1]!.market.symbol, 'SOL');

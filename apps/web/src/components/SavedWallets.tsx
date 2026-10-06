@@ -6,6 +6,7 @@ import { api } from '@/lib/api.ts';
 import { formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
 import { SAVED_EVENT, SAVED_KEY, readSaved, withSaved, withoutSaved, writeSaved, type SavedWallet } from '@/lib/savedWallets.ts';
 import { bufferTier } from '@/lib/traders.ts';
+import { compareHref, MAX_COMPARE } from '@/lib/compare.ts';
 
 // ── the list, shared by every component on the page ─────────────────────────
 
@@ -126,7 +127,19 @@ export function SavedWalletsMenu() {
       </button>
       {open && (
         <div role="dialog" aria-label="Saved wallets" className="fixed inset-x-4 top-[58px] z-30 rounded-[10px] sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:w-[380px] border border-border2 bg-card shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
-          <div className="border-b border-border px-[14px] py-[10px] text-[13px] font-semibold text-text">Saved wallets</div>
+          <div className="flex items-center justify-between gap-2 border-b border-border px-[14px] py-[10px]">
+            <span className="text-[13px] font-semibold text-text">Saved wallets</span>
+            {n >= 2 && (
+              <Link
+                href={compareHref(saved.list.slice(0, MAX_COMPARE).map((w) => w.accountId))}
+                onClick={() => setOpen(false)}
+                className="seg no-underline"
+                title={n > MAX_COMPARE ? `Compares the first ${MAX_COMPARE} of your ${n} saved wallets` : 'Compare these wallets side by side'}
+              >
+                Compare saved{n > MAX_COMPARE ? ` (first ${MAX_COMPARE})` : ''}
+              </Link>
+            )}
+          </div>
           {n === 0 ? (
             <div className="px-[14px] py-5 text-center text-[12.5px] text-muted">
               Nothing saved yet. Open any trader and press <b className="text-text">Save</b> beside its name.

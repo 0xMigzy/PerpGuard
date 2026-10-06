@@ -444,10 +444,10 @@ export interface DailyPoint {
   readonly volumeAusd: number;
   readonly tradeCount: number;
   readonly feesAusd: number;
+  /** DISTINCT accounts that traded that day, across all markets. */
   readonly activeTraders: number;
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
-  readonly openInterestDeltaLots: number;
   /** Collateral deposited that day. Exact: flows carry their own timestamps. */
   readonly depositedAusd: number;
   readonly withdrawnAusd: number;
@@ -469,7 +469,11 @@ export interface MarketDailyPoint {
   readonly feesAusd: number;
   readonly liquidationCount: number;
   readonly rescuableLiquidationCount: number;
-  /** Cumulative since the start block, at the day's close. A delta, not a level. */
+  /**
+   * Cumulative since the start block, at the day's close, in LOTS (one side).
+   * The index starts at the Exchange's deployment block, so this IS the level:
+   * measured equal to the venue's own OI on every market, 6 Oct 2026.
+   */
   readonly openInterestDeltaLots: number;
   readonly markOpen: number | undefined;
   readonly markHigh: number | undefined;

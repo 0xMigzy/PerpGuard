@@ -37,6 +37,7 @@ import { AccountSummary } from './AccountSummary.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
+import { compareHref } from '@/lib/compare.ts';
 
 const POLL_MS = 30_000;
 
@@ -231,6 +232,11 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
         right={
           <>
             {p !== undefined && <SaveWalletButton accountId={p.accountId} address={p.address} />}
+            {p !== undefined && (
+              <Link href={compareHref([p.accountId])} className="seg no-underline" title="Open this account in Compare, then add up to three more">
+                Compare
+              </Link>
+            )}
             <TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />
           </>
         }

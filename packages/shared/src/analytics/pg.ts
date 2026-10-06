@@ -257,11 +257,19 @@ with buckets as (
          coalesce(sum("tradeCount"), 0)                as trades,
          coalesce(sum("feesCNS"), 0)                   as fees,
          coalesce(sum("liquidationCount"), 0)          as liquidations,
-         coalesce(sum("rescuableLiquidationCount"), 0) as rescuable,
-         coalesce(sum("oiDeltaCloseLNS"), 0)           as oi_close,
-         coalesce(max("activeTraderCount"), 0)         as max_market_traders
+         coalesce(sum("rescuableLiquidationCount"), 0) as rescuable
     from "MarketDay"
    where ($1::timestamptz is null or day >= $1::timestamptz)
+   group by day
+),
+-- DISTINCT accounts that traded that day, across every market: one TraderDay
+-- row per account per day, so a count is already deduplicated. Measured equal
+-- to the maker/taker union over Trade on 1-4 Oct 2026 (290, 332, 263, 290).
+traders as (
+  select day, count(*) as traders
+    from "TraderDay"
+   where "tradeCount" > 0
+     and ($1::timestamptz is null or day >= $1::timestamptz)
    group by day
 ),
 flows as (
@@ -278,16 +286,16 @@ select coalesce(b.day, f.day)          as day,
        coalesce(b.fees, 0)::text          as fees,
        coalesce(b.liquidations, 0)::text  as liquidations,
        coalesce(b.rescuable, 0)::text     as rescuable,
-       coalesce(b.oi_close, 0)::text      as oi_close,
-       coalesce(b.max_market_traders, 0)::text as max_market_traders,
+       coalesce(t.traders, 0)::text       as traders_distinct,
        coalesce(f.deposited, 0)::text     as deposited,
        coalesce(f.withdrawn, 0)::text     as withdrawn
   from buckets b full outer join flows f on f.day = b.day
+  left join traders t on t.day = coalesce(b.day, f.day)
  order by 1 asc
 `;
 
 const MARKET_DAILY_SQL = `
-select d.market_id as id, m.name, m."priceDecimals",
+select d.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
        d.day,
        d."volumeCNS"::text                  as volume,
        d."tradeCount"::text                 as trades,
@@ -1209,14 +1217,11 @@ export class PostgresAnalytics implements Analytics {
       // The day bucket IS the unit here, so this is TOTAL fees and is exact —
       // unlike a rolling window, which cannot have them.
       feesAusd: toAusd(row['fees'], decimals),
-      // The largest single market's count, NOT a sum: summing per-market counts
-      // would multiply-count a trader active on several markets, and the set
-      // membership needed to deduplicate is per market per day. A floor, and
-      // named as the honest one available from buckets.
-      activeTraders: count(row['max_market_traders']),
+      // DISTINCT accounts that traded that day, from TraderDay. Until 6 Oct 2026
+      // this was the largest single market's count, a floor about a third low.
+      activeTraders: count(row['traders_distinct']),
       liquidationCount: count(row['liquidations']),
       rescuableLiquidationCount: count(row['rescuable']),
-      openInterestDeltaLots: Number(bigintOrZero(row['oi_close'])),
       depositedAusd: toAusd(row['deposited'], decimals),
       withdrawnAusd: toAusd(row['withdrawn'], decimals),
       netFlowAusd: toAusd(row['deposited'], decimals) - toAusd(row['withdrawn'], decimals),
@@ -1316,7 +1321,9 @@ export class PostgresAnalytics implements Analytics {
         feesAusd: toAusd(row['fees'], decimals),
         liquidationCount: count(row['liquidations']),
         rescuableLiquidationCount: count(row['rescuable']),
-        openInterestDeltaLots: Number(bigintOrZero(row['oi_close'])),
+        // In LOTS, scaled by the market's own lot decimals. Until 6 Oct 2026 this
+        // served the raw integer under the name "lots".
+        openInterestDeltaLots: toLots(row['oi_close'], count(row['lotDecimals'])),
         markOpen: markOrUndefined(row['mark_open'], priceDecimals),
         markHigh: markOrUndefined(row['mark_high'], priceDecimals),
         markLow: markOrUndefined(row['mark_low'], priceDecimals),

@@ -284,7 +284,7 @@ try {
   rule('daily series (last 14 of 30d) — total fees here ARE exact');
   console.log(
     `  ${'day'.padEnd(12)}${'volume'.padStart(18)}${'trades'.padStart(9)}` +
-      `${'fees'.padStart(14)}${'liq'.padStart(6)}${'resc'.padStart(6)}${'oi delta'.padStart(14)}`,
+      `${'fees'.padStart(14)}${'liq'.padStart(6)}${'resc'.padStart(6)}${'traders'.padStart(9)}`,
   );
   const series = await analytics.dailySeries('30d');
   for (const point of series.slice(-14)) {
@@ -295,7 +295,7 @@ try {
         `${ausd(point.feesAusd).padStart(14)}` +
         `${String(point.liquidationCount).padStart(6)}` +
         `${String(point.rescuableLiquidationCount).padStart(6)}` +
-        `${n(point.openInterestDeltaLots, 0).padStart(14)}`,
+        `${point.activeTraders.toLocaleString('en-US').padStart(9)}`,
     );
   }
   console.log(`  ${series.length} day(s) in the 30d series`);

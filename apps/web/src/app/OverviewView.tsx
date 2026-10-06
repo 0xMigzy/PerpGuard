@@ -19,6 +19,10 @@ import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { NetFlowChart } from '@/components/charts/NetFlowChart.tsx';
+import { DailyBars } from '@/components/charts/DailyBars.tsx';
+import { LevelChart, type LevelPoint } from '@/components/charts/LevelChart.tsx';
+import { marketName } from '@/lib/markets.ts';
+import { ANCHOR_TOLERANCE, oiHistory, type OiHistory } from '@/lib/oiHistory.ts';
 import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx';
 
 const POLL_MS = 30_000;
@@ -78,6 +82,9 @@ export function OverviewView() {
   const openPositions = markets.data?.data.reduce((sum, mk) => sum + mk.openPositions, 0);
   const skew = skewOf(markets.data?.data);
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
+  const oiHist = useMemo(() => (byMarket.data === undefined ? undefined : oiHistory(byMarket.data.data, oi.data?.data.markets)), [byMarket.data, oi.data]);
+  const oiPoints = useMemo(() => (oiHist === undefined ? undefined : oiLevelPoints(oiHist, showDays, Date.now())), [oiHist, showDays]);
+  const marketNames = useMemo(() => new Map((byMarket.data?.data ?? []).map((s) => [s.market.marketId, marketName(s.market)])), [byMarket.data]);
   const block = health.data?.data.latestProcessedBlock;
 
   return (
@@ -121,11 +128,8 @@ export function OverviewView() {
                   <div>{openPositions === undefined ? '…' : `${formatCount(openPositions)} open positions in the index`}</div>
                 </>
               }
-              sparklineNote={
-                oi.data?.data.asOfMs === undefined
-                  ? 'no reading yet'
-                  : `level from the venue as of ${formatAge(Date.now() - oi.data.data.asOfMs)} ago · the index holds only deltas, so there is no history to draw`
-              }
+              sparkline={oiPoints?.map((p) => p.value)}
+              sparklineNote={oi.data?.data.asOfMs === undefined ? 'no reading yet' : `level from the venue as of ${formatAge(Date.now() - oi.data.data.asOfMs)} ago`}
             />
             <StatTile
               label="Exchange balance · now"
@@ -155,6 +159,59 @@ export function OverviewView() {
             />
           </>
         )}
+      </section>
+
+      {/* ── levels through time, and the day's activity ─────────────────── */}
+      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card px-[18px] py-4">
+          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Open interest</h2>
+            <span className="text-[12.5px] text-muted">AUSD, one side · each UTC day&rsquo;s close, then now</span>
+          </div>
+          <ErrorNote error={byMarket.error} what="Open interest history" />
+          {oiPoints === undefined ? (
+            <Skeleton className="mt-2 h-[220px] w-full" />
+          ) : (
+            <LevelChart
+              points={oiPoints}
+              label="Open interest"
+              rows={(p) => topMarkets(p, oiHist!, marketNames)}
+            />
+          )}
+          <div className="mt-2 text-[11.5px] leading-[1.5] text-muted2">
+            Each day is every market&rsquo;s open lots × its closing mark. The index runs from the Exchange&rsquo;s deployment block, so its running lot count is the level itself; the last point is the venue&rsquo;s own reading now.
+            {oiHist !== undefined && oiHist.mismatches.length > 0 && (
+              <span className="mt-1 block text-watch">
+                Indexed lots differ from the venue&rsquo;s by more than {formatPct(ANCHOR_TOLERANCE)} on{' '}
+                {oiHist.mismatches.map((x) => `${x.symbol} (${x.indexedLots.toLocaleString('en-US')} indexed vs ${x.venueLots === undefined ? 'not listed' : x.venueLots.toLocaleString('en-US')})`).join(', ')}. The history is drawn as indexed.
+              </span>
+            )}
+            {chartNote !== undefined && ` ${chartNote}`}
+          </div>
+        </div>
+
+        <ExchangeBalanceCard />
+      </section>
+
+      <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="card px-[18px] py-4">
+          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Fees per day</h2>
+            <span className="text-[12.5px] text-muted">AUSD, maker + taker, per UTC day</span>
+          </div>
+          <ErrorNote error={series.error} what="Daily fees" />
+          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.feesAusd }))} label="Fees" format={(v) => `${formatAusd(v, 0)} AUSD`} />}
+          <div className="mt-2 text-[11.5px] text-muted2">Today is so far.{chartNote !== undefined && ` ${chartNote}`}</div>
+        </div>
+        <div className="card px-[18px] py-4">
+          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Active traders per day</h2>
+            <span className="text-[12.5px] text-muted">distinct accounts with a fill, per UTC day</span>
+          </div>
+          <ErrorNote error={series.error} what="Daily active traders" />
+          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.activeTraders }))} label="Active traders" format={(v) => formatCount(v)} />}
+          <div className="mt-2 text-[11.5px] text-muted2">An account trading three markets counts once. Today is so far.{chartNote !== undefined && ` ${chartNote}`}</div>
+        </div>
       </section>
 
       {/* ── volume, skew, flow ──────────────────────────────────────────── */}
@@ -343,4 +400,33 @@ function GrowthSection() {
       )}
     </section>
   );
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The OI line: whole UTC days at their close, then the venue's reading now.
+ * Today's partial bucket is dropped in favour of the live point, so the line
+ * never shows half a day as a close.
+ */
+function oiLevelPoints(h: OiHistory, showDays: number | undefined, nowMs: number): readonly LevelPoint[] {
+  const whole = h.days.filter((d) => d.dayMs + DAY_MS <= nowMs || h.now === undefined);
+  const days = lastDays(whole, showDays === undefined ? undefined : showDays - 1).map((d) => ({ atMs: d.dayMs, value: d.totalAusd }));
+  return h.now === undefined ? days : [...days, { atMs: Math.max(h.now.atMs, (days.at(-1)?.atMs ?? 0) + 1), value: h.now.totalAusd, live: true }];
+}
+
+/** A day's three largest markets, for the tooltip. */
+function topMarkets(p: LevelPoint, h: OiHistory, names: ReadonlyMap<number, string>) {
+  if (p.live === true) return [];
+  const day = h.days.find((d) => d.dayMs === p.atMs);
+  if (day === undefined) return [];
+  return Object.entries(day.byMarket)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([id, v]) => ({ label: names.get(Number(id)) ?? `market ${id}`, value: formatCompact(v), muted: true }));
+}
+
+/** Filled once the reconciliation decides the method; see the TVL step. */
+function ExchangeBalanceCard() {
+  return null;
 }
