@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 import type { MarketBreakdown } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatDayLong, formatPct, formatSignedAusd } from '@/lib/format.ts';
-import { deltaOf, deltaVsPrevious, lastDays, stackByMarket, tvlBefore, tvlHistory } from '@/lib/overview.ts';
+import { deltaOf, deltaVsPrevious, lastDays, stackByMarket } from '@/lib/overview.ts';
+import { balanceBefore, balanceCheck, rebuiltBalance } from '@/lib/exchangeBalance.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
 import { periodLabel } from '@/lib/history.ts';
 import { useHistory, useHistoryStart } from '@/lib/useHistory.ts';
@@ -70,6 +71,9 @@ export function OverviewView() {
   const series = usePoll(() => api.series(ct), POLL_MS, `series:${ct}`);
   const byMarket = usePoll(() => api.seriesByMarket(ct), POLL_MS, `series-markets:${ct}`);
   const oi = usePoll(api.openInterest, POLL_MS, 'oi');
+  // Since launch, whatever the window: the exchange balance is a running total from launch.
+  const seriesAll = usePoll(() => api.series('all'), POLL_MS, 'series:all:balance');
+  const treasury = usePoll(api.protocolTreasuryDays, POLL_MS, 'protocol-treasury-days');
   const markets = usePoll(() => api.markets(t), POLL_MS, `markets:${t}`);
   const health = usePoll(api.indexerHealth, POLL_MS, 'indexer-health');
 
@@ -78,7 +82,21 @@ export function OverviewView() {
   const stacked = useMemo(() => (byMarket.data === undefined ? undefined : stackByMarket(byMarket.data.data, 4, 7, showDays)), [byMarket.data, showDays]);
   const tvlReading = tvl.data?.data;
   const tvlNow = tvlReading?.known === true ? tvlReading.totalValueLockedAusd : undefined;
-  const tvlSpark = useMemo(() => (tvlNow === undefined || days === undefined ? undefined : tvlHistory(tvlNow, days).map((p) => p.tvlAusd)), [tvlNow, days]);
+  const balance = useMemo(() => (seriesAll.data === undefined || treasury.data === undefined ? undefined : rebuiltBalance(seriesAll.data.data, treasury.data.data)), [seriesAll.data, treasury.data]);
+  const balanceWindow = useMemo(() => (balance === undefined ? undefined : lastDays(balance, showDays)), [balance, showDays]);
+  const check = balance === undefined || tvlNow === undefined || balance.length === 0 ? undefined : balanceCheck(balance.at(-1)!.levelAusd, tvlNow);
+  const tvlSpark = balanceWindow?.map((d) => d.levelAusd);
+  const balancePoints = useMemo<readonly LevelPoint[] | undefined>(
+    () =>
+      balanceWindow === undefined
+        ? undefined
+        : [
+            // Whole days at their close; today is the live reading instead.
+            ...balanceWindow.filter((d) => d.dayMs + DAY_MS <= Date.now() || tvlNow === undefined).map((d) => ({ atMs: d.dayMs, value: d.levelAusd })),
+            ...(tvlNow === undefined ? [] : [{ atMs: Math.max(tvlReading?.known === true ? tvlReading.asOfMs : Date.now(), (balanceWindow.at(-1)?.dayMs ?? 0) + 1), value: tvlNow, live: true }]),
+          ],
+    [balanceWindow, tvlNow, tvlReading],
+  );
   const openPositions = markets.data?.data.reduce((sum, mk) => sum + mk.openPositions, 0);
   const skew = skewOf(markets.data?.data);
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
@@ -135,7 +153,7 @@ export function OverviewView() {
               label="Exchange balance · now"
               value={tvlNow === undefined ? (tvl.data === undefined ? '…' : 'unknown') : formatCompact(tvlNow)}
               exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)} AUSD: the Exchange contract's whole AUSD balance, read now. It holds traders' free balances and position margin, and also the per-market insurance funds and protocol balances, so it is not the same as collateral held across accounts.`}
-              delta={tvlNow === undefined ? undefined : deltaOf(tvlNow, tvlBefore(tvlNow, m.collateralFlow.netAusd))}
+              delta={tvlNow === undefined || treasury.data === undefined ? undefined : deltaOf(tvlNow, balanceBefore(tvlNow, m.collateralFlow.netAusd, treasury.data.data.movements, m.sinceMs))}
               deltaLabel={`in ${period}`}
               secondary="AUSD held by the Exchange contract"
               sparkline={tvlSpark}
@@ -162,7 +180,7 @@ export function OverviewView() {
       </section>
 
       {/* ── levels through time, and the day's activity ─────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-4">
+      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Open interest</h2>
@@ -185,6 +203,27 @@ export function OverviewView() {
                 Indexed lots differ from the venue&rsquo;s by more than {formatPct(ANCHOR_TOLERANCE)} on{' '}
                 {oiHist.mismatches.map((x) => `${x.symbol} (${x.indexedLots.toLocaleString('en-US')} indexed vs ${x.venueLots === undefined ? 'not listed' : x.venueLots.toLocaleString('en-US')})`).join(', ')}. The history is drawn as indexed.
               </span>
+            )}
+            {chartNote !== undefined && ` ${chartNote}`}
+          </div>
+        </div>
+
+        <div className="card px-[18px] py-4">
+          <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
+            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Exchange balance</h2>
+            <span className="text-[12.5px] text-muted">AUSD held by the contract · each UTC day&rsquo;s close, then now</span>
+          </div>
+          <ErrorNote error={seriesAll.error ?? treasury.error} what="Exchange balance history" />
+          {balancePoints === undefined ? <Skeleton className="mt-2 h-[220px] w-full" /> : <LevelChart points={balancePoints} label="Exchange balance" />}
+          <div className="mt-2 text-[11.5px] leading-[1.5] text-muted2">
+            {check === undefined ? (
+              'Rebuilt from events: deposits − withdrawals, plus the protocol treasury’s own deposits and withdrawals, running since launch.'
+            ) : (
+              <>
+                <b className={`font-semibold ${check.matches ? 'text-muted' : 'text-watch'}`}>Rebuilt from events, {check.matches ? 'matches the contract' : 'does not match the contract'}:</b>{' '}
+                {formatAusd(check.rebuiltAusd)} rebuilt, {formatAusd(check.contractAusd)} held, {formatAusd(Math.abs(check.gapAusd))} apart. Deposits − withdrawals plus the protocol treasury&rsquo;s own deposits and withdrawals
+                {treasury.data === undefined ? '' : ` (scanned off the chain through block ${formatCount(treasury.data.data.throughBlock)})`}, running since launch; the last point is the contract&rsquo;s balance now.
+              </>
             )}
             {chartNote !== undefined && ` ${chartNote}`}
           </div>

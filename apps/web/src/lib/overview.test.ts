@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deltaOf, deltaVsPrevious, lastDays, stackByMarket, trailingMean, tvlHistory } from './overview.ts';
+import { deltaOf, deltaVsPrevious, lastDays, stackByMarket, trailingMean } from './overview.ts';
 import type { MarketDailySeries } from '@perpguard/shared';
 
 const day = (n: number) => Date.parse('2026-09-01T00:00:00Z') + n * 86_400_000;
@@ -28,20 +28,6 @@ test('a delta against a complete previous period is the plain fraction', () => {
   assert.equal(deltaVsPrevious({ indexedFromMs: 0 }, (m) => m.volumeAusd, 1).fraction, undefined);
   assert.equal(deltaOf(5, 0).fraction, undefined, 'a ratio over nothing is not a delta');
   assert.equal(deltaOf(90, 100).fraction, -0.1);
-});
-
-test('TVL history walks the level now back through the exact daily flows', () => {
-  const history = tvlHistory(1000, [
-    { dayMs: day(0), netFlowAusd: 50 },
-    { dayMs: day(1), netFlowAusd: -200 },
-    { dayMs: day(2), netFlowAusd: 100 },
-  ]);
-  assert.deepEqual(
-    history.map((h) => h.tvlAusd),
-    [1100, 900, 1000],
-    'today ends at the level now; yesterday ended before today\'s +100; the day before, before the −200',
-  );
-  assert.deepEqual(tvlHistory(7, []), []);
 });
 
 test('stacking keeps the top markets by volume but ORDERS them by market id, and folds the rest', () => {

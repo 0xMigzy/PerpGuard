@@ -40,6 +40,7 @@ import {
   type IndexerHealth,
   type LeverageBaseline,
   type VenueFundingPayload,
+  type ProtocolTreasuryDays,
   type OpenPosition,
   type MarketOpenInterest,
   type RiskSnapshot,
@@ -101,6 +102,12 @@ export interface AnalyticsRouteOptions {
    * wired on the analytics network, since the join needs Perpl's tickers and marks.
    */
   readonly venueFunding?: () => Promise<VenueFundingPayload>;
+  /**
+   * The protocol treasury's AUSD in and out of the Exchange per day, from the
+   * chain-log scan (`pnpm protocol:flows`), not the index. With the indexed
+   * collateral flows it rebuilds the exchange balance. Absent: no scan file.
+   */
+  readonly protocolTreasuryDays?: () => Promise<ProtocolTreasuryDays>;
   /** Mounted under this prefix. */
   readonly prefix?: string;
 }
@@ -395,6 +402,12 @@ export function registerAnalyticsRoutes(
       asOfMs: markets.length === 0 ? undefined : Math.min(...markets.map((m) => m.atMs)),
     };
     return envelope(payload);
+  });
+
+  scope.get(`${prefix}/exchange-balance/protocol-days`, async (_request, reply) => {
+    const read = options.protocolTreasuryDays;
+    if (read === undefined) return reply.code(503).send({ error: 'no protocol treasury scan is configured, so the exchange balance cannot be rebuilt from events.' });
+    return envelope(await read());
   });
 
   scope.get(`${prefix}/funding/venues`, async (_request, reply) => {
@@ -710,6 +723,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/markets?timeframe=24h`,
       `${prefix}/funding?timeframe=30d`,
       `${prefix}/funding/venues`,
+      `${prefix}/exchange-balance/protocol-days`,
       `${prefix}/liquidations?timeframe=30d&limit=50&offset=0`,
       `${prefix}/liquidations/summary?timeframe=30d`,
       `${prefix}/traders?timeframe=30d&sort=netPnl&direction=desc&limit=50&offset=0`,

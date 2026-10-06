@@ -31,6 +31,7 @@
  *   rendered only through `maskApiKey`, the secret lives inside `ApiSecret`, and
  *   the bot token is redacted out of every string the transport hands back.
  */
+import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import {
   ApiSecret,
@@ -96,6 +97,7 @@ import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
 import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from './funding/venueFundingStore.ts';
+import { protocolDaysFromFile } from './exchangeBalance/protocolDays.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
@@ -830,6 +832,9 @@ const app = createHealthApp({
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache }),
+  // The treasury's in/out per day, from the chain-log scan's file (pnpm
+  // protocol:flows). Read on change, never per request.
+  protocolTreasuryDays: protocolDaysFromFile(process.env.PROTOCOL_FLOWS_FILE?.trim() || fileURLToPath(new URL('../../../fixtures/protocol-flows-mainnet.json', import.meta.url))),
   // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same
   // `getAccountByAddr` read Protect sign-in uses, so an address the index never
   // saw an AccountCreated for still resolves.

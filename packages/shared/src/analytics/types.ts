@@ -438,6 +438,20 @@ export interface HistoryMonth {
 }
 
 /** One day of one figure, for a chart. Buckets ARE the unit here. */
+/**
+ * The protocol treasury's AUSD into and out of the Exchange, per UTC day. Not
+ * indexed: from a log scan of the chain, so it covers blocks up to
+ * `throughBlock` and says so. Together with the indexed collateral flows it
+ * rebuilds the contract's balance (27.70 AUSD apart out of 3.84M, 6 Oct 2026).
+ */
+export interface ProtocolTreasuryDays {
+  readonly throughBlock: number;
+  readonly days: readonly { readonly dayMs: number; readonly inAusd: number; readonly outAusd: number }[];
+  /** Every movement with its time (they are rare: 20 since launch), for a rolling window. Signed: + in, − out. */
+  readonly movements: readonly { readonly atMs: number; readonly ausd: number }[];
+  readonly lastEventAtMs: number | undefined;
+}
+
 export interface DailyPoint {
   /** UTC midnight of the day. */
   readonly dayMs: number;

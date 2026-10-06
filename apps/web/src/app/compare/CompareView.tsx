@@ -123,7 +123,50 @@ export function CompareView() {
         </section>
       ) : (
         <>
-          <section className="card mb-4 overflow-x-auto" aria-label="Wallets side by side">
+          {/* Phones: one block per metric, the wallets as short columns beneath it. */}
+          <section className="card mb-4 px-[14px] py-3 sm:hidden" aria-label="Wallets side by side">
+            <ul className="m-0 flex list-none flex-col gap-[6px] border-b border-border p-0 pb-3">
+              {columns.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-2">
+                  <WalletHead id={c.id} colour={c.colour} profile={c.data?.profile} onRemove={() => go(withRemoved(ids, c.id))} />
+                  {c.data?.error !== undefined && c.data.profile === undefined && <span className="text-[11px] font-medium text-watch">{c.data.error}</span>}
+                </li>
+              ))}
+            </ul>
+            {ROWS(period).map((row) =>
+              row.group !== undefined ? (
+                <div key={row.group} className="section-label pt-4 pb-1">
+                  {row.group}
+                </div>
+              ) : (
+                <div key={row.label} className="border-b border-border py-2 last:border-b-0">
+                  <div className="text-[12px] text-muted" title={row.title}>
+                    {row.label}
+                  </div>
+                  <div className="mt-1 grid gap-2" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
+                    {columns.map((c) => (
+                      <div key={c.id} className="num flex min-w-0 items-start gap-[4px] text-[12px] leading-[1.3]">
+                        <i aria-hidden="true" className="mt-[3px] inline-block h-[8px] w-[8px] flex-none rounded-[2px]" style={{ background: c.colour }} />
+                        {/* Wraps between words only: a number is never split. */}
+                        <span className="min-w-0 break-normal">
+                          {c.data?.error !== undefined && c.data.profile === undefined ? (
+                            <span className="text-muted2">—</span>
+                          ) : c.column === undefined ? (
+                            <span aria-hidden="true" className="skeleton inline-block h-[11px] w-[44px] align-middle" />
+                          ) : (
+                            row.cell!(c.column)
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ),
+            )}
+            <Footnote period={period} floor={columns.find((c) => c.column !== undefined)?.column?.floor ?? 10} />
+          </section>
+
+          <section className="card mb-4 hidden overflow-x-auto sm:block" aria-label="Wallets side by side">
             <table className="data-table">
               <thead>
                 <tr>
@@ -167,18 +210,24 @@ export function CompareView() {
                 )}
               </tbody>
             </table>
-            <p className="m-0 border-t border-border px-[14px] py-[10px] text-[11.5px] leading-[1.55] text-muted2">
-              Window figures sum each account&rsquo;s UTC days over {period}; lifetime figures run since its first trade. Win rate and profit factor are withheld under{' '}
-              {formatCount(columns.find((c) => c.column !== undefined)?.column?.floor ?? 10)} round trips, as on every page. Rescuable liquidations are those the free balance
-              would have covered, out of those that can be judged. AUSD throughout.
-            </p>
+            <div className="border-t border-border px-[14px]">
+              <Footnote period={period} floor={columns.find((c) => c.column !== undefined)?.column?.floor ?? 10} />
+            </div>
           </section>
 
           <section className="card px-[18px] py-4" aria-label="Cumulative net PnL">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">
               Cumulative net PnL <span className="ml-1 text-[12.5px] font-medium text-muted">{period} · AUSD, from 0 where the window opens</span>
             </h2>
-            <CompareChart columns={columns.filter((c) => c.data?.days !== undefined).map((c) => ({ id: c.id, colour: c.colour, label: labelOf(c.id, c.data?.profile), days: c.data!.days! }))} />
+            <CompareChart
+              columns={columns.map((c) => ({
+                id: c.id,
+                colour: c.colour,
+                label: labelOf(c.id, c.data?.profile),
+                days: c.data?.days,
+                failed: c.data?.error !== undefined && c.data.days === undefined,
+              }))}
+            />
           </section>
         </>
       )}
@@ -259,22 +308,40 @@ function ROWS(period: string): readonly Row[] {
   ];
 }
 
-function CompareChart({ columns }: { readonly columns: readonly { readonly id: number; readonly colour: string; readonly label: string; readonly days: readonly TraderDayPoint[] }[] }) {
+interface ChartColumn {
+  readonly id: number;
+  readonly colour: string;
+  readonly label: string;
+  /** Undefined while loading, or when the read failed. */
+  readonly days: readonly TraderDayPoint[] | undefined;
+  readonly failed: boolean;
+}
+
+function CompareChart({ columns: all }: { readonly columns: readonly ChartColumn[] }) {
+  const columns = useMemo(() => all.filter((c): c is ChartColumn & { days: readonly TraderDayPoint[] } => c.days !== undefined), [all]);
   const points = useMemo(() => alignedCumulative(columns.map((c) => ({ accountId: c.id, days: c.days }))), [columns]);
-  if (columns.length === 0) return <Skeleton className="mt-3 h-[260px] w-full" />;
-  if (points.length === 0) return <div className="py-8 text-center text-[12.5px] text-muted">None of these accounts traded in this window.</div>;
   const rows = points.map((p) => ({ dayMs: p.dayMs, ...Object.fromEntries(columns.map((c) => [`w${c.id}`, p.values[c.id]])) }));
   return (
     <div>
-      {/* The legend names every line in words: colour is never the only label. */}
+      {/* The legend names EVERY wallet in words, loaded or not: a missing line is never a silent gap. */}
       <ul className="m-0 mt-2 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-[12px] text-text2">
-        {columns.map((c) => (
+        {all.map((c) => (
           <li key={c.id} className="flex items-center gap-[6px]">
-            <i aria-hidden="true" className="inline-block h-[2px] w-[14px]" style={{ background: c.colour }} />
+            {c.days === undefined ? (
+              <i aria-hidden="true" className="inline-block h-0 w-[14px] border-t-2 border-dashed" style={{ borderColor: c.colour }} />
+            ) : (
+              <i aria-hidden="true" className="inline-block h-[2px] w-[14px]" style={{ background: c.colour }} />
+            )}
             <span className="num">{c.label}</span>
+            {c.days === undefined && <span className={c.failed ? 'text-watch' : 'text-muted2'}>{c.failed ? 'could not be read' : 'loading…'}</span>}
           </li>
         ))}
       </ul>
+      {columns.length === 0 ? (
+        <Skeleton className="mt-2 h-[260px] w-full" />
+      ) : points.length === 0 ? (
+        <div className="py-8 text-center text-[12.5px] text-muted">None of these accounts traded in this window.</div>
+      ) : (
       <div className="mt-2 h-[260px] w-full" role="img" aria-label={`Cumulative net PnL per account: ${columns.map((c) => `${c.label} ends at ${formatSignedAusd(points.at(-1)!.values[c.id] ?? 0, 0)}`).join('; ')}`}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -296,7 +363,17 @@ function CompareChart({ columns }: { readonly columns: readonly { readonly id: n
           </LineChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
+  );
+}
+
+function Footnote({ period, floor }: { readonly period: string; readonly floor: number }) {
+  return (
+    <p className="m-0 py-[10px] text-[11.5px] leading-[1.55] text-muted2">
+      Window figures sum each account&rsquo;s UTC days over {period}; lifetime figures run since its first trade. Win rate and profit factor are withheld under {formatCount(floor)} round
+      trips, as on every page. Rescuable liquidations are those the free balance would have covered, out of those that can be judged. AUSD throughout.
+    </p>
   );
 }
 

@@ -6,7 +6,7 @@
  * the current level walked back through the exact daily flows, and a stacked
  * series is the per-market series regrouped.
  */
-import type { DailyPoint, MarketDailySeries, PreviousPeriodMetrics, ProtocolMetrics } from '@perpguard/shared';
+import type { MarketDailySeries, PreviousPeriodMetrics, ProtocolMetrics } from '@perpguard/shared';
 
 export interface Delta {
   /** Fraction, e.g. 0.227 for +22.7%. Undefined when there is nothing honest to compare. */
@@ -49,33 +49,6 @@ export function deltaOf(current: number, previous: number | undefined): Delta {
   if (previous === undefined) return { fraction: undefined, reason: 'no previous level is known' };
   if (previous === 0) return { fraction: undefined, reason: 'nothing before to compare with' };
   return { fraction: (current - previous) / Math.abs(previous) };
-}
-
-/**
- * The TVL at the end of each day, walked back from the level now.
- *
- * EXACT, not modelled: the Exchange's collateral balance changes only through
- * deposits and withdrawals, and both are indexed with timestamps. The last
- * point is the level as read now (today's bucket is partial and ends now); each
- * earlier day is the next day's level minus that next day's net flow.
- */
-export function tvlHistory(
-  tvlNow: number,
-  days: readonly Pick<DailyPoint, 'dayMs' | 'netFlowAusd'>[],
-): readonly { readonly dayMs: number; readonly tvlAusd: number }[] {
-  const out: { dayMs: number; tvlAusd: number }[] = [];
-  let level = tvlNow;
-  for (let i = days.length - 1; i >= 0; i -= 1) {
-    const day = days[i]!;
-    out.unshift({ dayMs: day.dayMs, tvlAusd: level });
-    level -= day.netFlowAusd;
-  }
-  return out;
-}
-
-/** The TVL at the START of the window: the level now minus the window's net flow. */
-export function tvlBefore(tvlNow: number, netFlowAusd: number): number {
-  return tvlNow - netFlowAusd;
 }
 
 export interface StackedDay {

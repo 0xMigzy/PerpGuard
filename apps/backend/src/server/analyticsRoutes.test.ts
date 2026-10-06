@@ -673,6 +673,15 @@ test('without a venue, open interest is a 503 and never the indexer delta in dis
   assert.match(body(response.payload)['error'] as string, /only knows the change/);
 });
 
+test('protocol treasury days: 503 without a scan, enveloped with one', async () => {
+  const bare = app(new FakeAnalytics(), {});
+  assert.equal((await bare.instance.inject({ method: 'GET', url: '/api/analytics/exchange-balance/protocol-days' })).statusCode, 503);
+  const wired = app(new FakeAnalytics(), { protocolTreasuryDays: async () => ({ throughBlock: 5, days: [{ dayMs: 1, inAusd: 2, outAusd: 3 }], movements: [{ atMs: 1, ausd: -1 }], lastEventAtMs: 1 }) });
+  const r = await wired.instance.inject({ method: 'GET', url: '/api/analytics/exchange-balance/protocol-days' });
+  assert.equal(r.statusCode, 200);
+  assert.equal((body(r.payload)['data'] as { throughBlock: number }).throughBlock, 5);
+});
+
 // ── other venues' funding: a backend read, enveloped, never a fake ──────────
 
 test('venue funding: 503 without a venue, the payload in the usual envelope with one', async () => {

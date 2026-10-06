@@ -413,9 +413,30 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   file in it. Never a logo from an exchange site. A market with no licensed
   source gets the initials circle. Icons are decorative: `aria-hidden`, the
   name is the text beside them.
-- NOT BUILT, ON PURPOSE: order book depth, intraday candles, open-interest
-  history as a level (the indexer holds only deltas). Single-market drill-down
-  is a later pass.
+- OPEN INTEREST HISTORY IS A LEVEL, because the index starts at the deployment
+  block: a market's cumulative lot delta at a day's close IS its OI then
+  (measured equal to the venue on every market, 6 Oct 2026). Lots × that day's
+  close mark, one side, ending on the venue's reading now. History is NEVER
+  shifted to meet the venue; a market more than 0.5% off is named on the chart
+  (`apps/web/src/lib/oiHistory.ts`).
+- THE EXCHANGE BALANCE IS REBUILT FORWARD FROM LAUNCH, never walked back from
+  today: indexed deposits − withdrawals + the protocol treasury's own
+  `ProtocolBalanceDeposit` − `ProtocolBalanceWithdraw`. The treasury events are
+  not indexed (handlers would force a re-sync); `pnpm protocol:flows` scans them
+  off the chain into `fixtures/protocol-flows-mainnet.json`, which the backend
+  serves. At block 110,989,971 it rebuilt 3,838,349.21 against the contract's
+  3,838,376.91 (27.70 apart); the 178.6K "gap" was the treasury's net
+  withdrawals. Treasury<->account/perp transfers move money INSIDE the
+  contract and are not counted. The page states both figures and the scan's
+  last block. Re-run the scan to extend it; a new treasury movement after that
+  block shows as a growing gap, never silently.
+- DAILY ACTIVE TRADERS ARE DISTINCT ACCOUNTS from `TraderDay` (tradeCount > 0),
+  never `MarketDay.activeTraderCount`, which is per market.
+- COMPARE (`/compare?a=…`, up to 4): every figure is the profile's own, through
+  the profile's helpers; each wallet is named by short address and id beside
+  its colour; a loading wallet is named "loading…" in the legend.
+- NOT BUILT, ON PURPOSE: order book depth, intraday candles. Single-market
+  drill-down is a later pass.
 - THE FOOTER HAS NO "Data & methodology" SECTION: taken off the site on 4 Oct
   2026 at the owner's request, to come back later. `docs/methodology.md` and
   `apps/web/src/lib/methodology.ts` stay; the section's markup is in git at
