@@ -282,3 +282,28 @@ test('unlink through the page deletes the key and closes the session; signing th
   assert.equal(r.keys.get('tg:4242'), undefined, 'key deleted');
   assert.deepEqual(r.closed, [711]);
 });
+
+test('every page outcome leaves a log line naming who and why, never the code, message or signature', async () => {
+  const lines: string[] = [];
+  const r = rig({ wallet: true });
+  const app = registerLinkRoutes(Fastify({ logger: false }), {
+    service: r.service, network: 'testnet', envAccountId: 710, keyStorageConfigured: true, now: () => 2_000, logger: { info: (m) => lines.push(m) },
+    wallet: new WalletChallenger({ publicWebUrl: 'https://perpguard.example', chainId: 10143, verifyMessage: (a) => verifyMessage(a), now: () => r.clock.t }),
+  });
+  await app.inject({ method: 'POST', url: '/api/link/session', payload: { code: 'NOPE-NOPE' } });
+  const { code } = r.service.mint('tg:4242', '@maxwell');
+  const opened = await app.inject({ method: 'POST', url: '/api/link/session', payload: { code } });
+  const cookie = cookieOf(opened.headers['set-cookie']);
+  const c = await app.inject({ method: 'POST', url: '/api/link/challenge', headers: { cookie }, payload: { address: OWNER } });
+  const message = (c.json() as { message: string }).message;
+  const signature = await STRANGER_KEY.signMessage({ message });
+  await app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie }, payload: { message, signature } });
+  assert.deepEqual(lines, [
+    'link page: a code was refused (wrong, used or expired)',
+    'link page: tg:4242 opened the page with a code',
+    'link page: tg:4242 was issued a wallet challenge',
+    'link page: tg:4242 sent a wallet signature that was refused: bad-signature',
+  ]);
+  const all = lines.join('\n');
+  for (const secret of [code, signature, message.slice(0, 40)]) assert.ok(!all.includes(secret), 'nothing secret in the log');
+});

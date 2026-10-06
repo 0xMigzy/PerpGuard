@@ -79,6 +79,13 @@ export interface LinkRouteOptions {
   readonly envAccountId?: number;
   readonly keyStorageConfigured: boolean;
   readonly sessions?: LinkSessionStore;
+  /**
+   * EVERY OUTCOME ON THE PAGE LEAVES A LINE: a code redeemed or refused, a
+   * challenge issued, a signature refused and why. Never the code, the
+   * message, the signature or a key. Until 6 Oct 2026 these were silent, and a
+   * phone test that failed here left nothing to check it against.
+   */
+  readonly logger?: { info(message: string): void };
   readonly prefix?: string;
   readonly now?: () => number;
 }
@@ -113,6 +120,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
   const sessions = options.sessions ?? new LinkSessionStore(options.now === undefined ? {} : { now: options.now });
   const now = options.now ?? Date.now;
   const { service } = options;
+  const log = (line: string): void => options.logger?.info(`link page: ${line}`);
 
   const me = (session: LinkSession): LinkMe => ({
     telegram: { name: session.telegramName ?? null },
@@ -127,10 +135,12 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
     const code = typeof request.body?.code === 'string' ? request.body.code : '';
     const identity = code === '' ? undefined : service.redeem(code);
     if (identity === undefined) {
+      log('a code was refused (wrong, used or expired)');
       // Flat, whatever the cause: a wrong, used and expired code read the same.
       return reply.code(401).send({ error: 'That link did not open a session. Send /link to the bot again for a fresh one; each works once, for five minutes.' });
     }
     const session = sessions.create(identity, identity.telegramName);
+    log(`${identity.userId} opened the page with a code`);
     reply.header('set-cookie', cookie(session.token, isSecure(request), (session.expiresAtMs - now()) / 1000));
     return me(session);
   });
@@ -157,7 +167,11 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       const session = sessionOf(request);
       if (options.wallet === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
       const issued = options.wallet.issue(session, typeof request.body?.address === 'string' ? request.body.address : '', session.telegramName);
-      if ('error' in issued) return reply.code(400).send({ error: issued.error });
+      if ('error' in issued) {
+        log(`${session.identity.userId} asked for a challenge and was refused: ${issued.error}`);
+        return reply.code(400).send({ error: issued.error });
+      }
+      log(`${session.identity.userId} was issued a wallet challenge`);
       return { message: issued.message };
     });
 
@@ -166,6 +180,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       if (options.wallet === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
       const checked = await options.wallet.verify(session, request.body?.message, request.body?.signature);
       if (!checked.ok) {
+        log(`${session.identity.userId} sent a wallet signature that was refused: ${checked.reason}`);
         // One sentence whatever the cause; the challenge is spent either way.
         return reply.code(401).send({ error: checked.reason === 'expired' ? 'That signature request expired. Connect and sign again.' : 'That signature couldn\'t be confirmed for this page. Connect and sign again.' });
       }
