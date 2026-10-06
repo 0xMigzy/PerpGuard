@@ -25,7 +25,7 @@ export function Tabs() {
   const t = params.get('t');
   const carry = isTimeframe(t) ? `?t=${t}` : '';
   return (
-    <nav className="flex gap-1 overflow-x-auto pt-2 pb-[10px]" aria-label="Sections" role="tablist">
+    <nav className="nav-scroll flex gap-1 overflow-x-auto pt-2 pb-[10px]" aria-label="Sections" role="tablist">
       {SECTIONS.map((tab) => {
         const active = tab.href === '/' ? pathname === '/' : pathname.startsWith(tab.href);
         return (

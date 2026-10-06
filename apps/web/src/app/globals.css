@@ -410,3 +410,20 @@ input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outl
   outline-offset: 2px;
 }
 }
+
+/* The section tabs on a phone: still swipeable, no visible scrollbar, and a
+   fade at the right edge that says there is more. Desktop fits every tab. */
+.nav-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+@media (max-width: 639px) {
+  .nav-scroll {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    padding-right: 24px;
+  }
+}
