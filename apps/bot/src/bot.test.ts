@@ -34,6 +34,7 @@ import {
   OWNER_ACCOUNT,
   OWNER_CHAT,
   OWNER_ID,
+  OWNER_LINK,
   STRANGER_ID,
   TEST_TOKEN,
   USER_ID,
@@ -287,7 +288,7 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
 
   // And now the same screens work.
   await tapNav(h, { to: 'positions' });
-  assert.match(shown(h.telegram).at(-1)!, /^<b>Account #710<\/b> · 1 open/);
+  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · account #710 · 1 open/);
 
   // A stranger's /start is an identity and the first-run home screen, not a link and not a refusal.
   await h.bot.handleUpdate(messageUpdate('/start', { from: STRANGER_ID, chat: 7_777 }));
@@ -333,13 +334,16 @@ test('My positions lists each position closest first; its screen offers both top
 
   await tapNav(h, { to: 'positions' });
   const list = lastScreen(h.telegram);
-  assert.match(String(list.payload['text']), /^<b>Account #710<\/b> · 1 open\n\n🔴 BTC long [\d.]+ BTC · <b>2\.7%<\/b>/);
+  // PHASE 14: the distance leads, bold, then the band; size, value, leverage, margin, PnL, mark, liquidation price below.
+  assert.match(String(list.payload['text']), /^📊 <b>MY POSITIONS<\/b> · account #710 · 1 open, closest to liquidation first\n\n🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER\n   Size [\d.]+ BTC · value <b>[\d,]+ AUSD<\/b> · <b>[\d.]+x<\/b>\n   Margin <b>[\d,]+ AUSD<\/b> · PnL <b>[−+][\d,]+ AUSD<\/b>\n   Mark 84,007\.3 · liquidation price 81,770\.1/);
+  assert.match(String(list.payload['text']), /Leverage: position value ÷ margin\./, 'the leverage says what it is a ratio of');
   assert.match(String(list.payload['text']), /Free balance at least <b>10,000 AUSD<\/b>/);
-  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['BTC long · 2.7%', '← Back']);
+  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['🔴 BTC long · 2.7%', '← Back']);
 
   const screen = await openPosition(h);
   const html = String(screen.payload['text']);
-  assert.match(html, /^🔴 <b>BTC long · 2\.7% from being closed<\/b>\nBTC is 84,007\.3\. At 81,770\.1 the exchange closes this and you lose the <b>[\d,]+ AUSD<\/b> behind it\./);
+  assert.match(html, /^🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER\n/);
+  assert.match(html, /\n\nAt 81,770\.1 the exchange closes BTC long and you lose the <b>[\d,]+ AUSD<\/b> behind it\./);
   assert.ok(!html.includes('Changed from'), 'a view, not an alert');
   assert.deepEqual(keyboardOf(screen).map((b) => b.text), [
     'Add 562 AUSD → closes at 80,647.1',
@@ -1415,7 +1419,7 @@ test('a linked user whose key needs renewing is told to /link again on every gat
   // Renewed: the same screens work again, with no restart.
   fake.setRelink(undefined);
   await tapNav(h, { to: 'positions' });
-  assert.match(shown(h.telegram).at(-1)!, /^<b>Account #710<\/b> · 1 open/);
+  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · account #710 · 1 open/);
 });
 
 test('a URL button Telegram refuses does not lose the screen: it goes out again without that button', async () => {
@@ -1439,7 +1443,7 @@ test('navigating on from an outcome opens a new message: the outcome stays in th
   const edits = h.telegram.of('editMessageText').length;
   await h.bot.handleUpdate(callbackUpdate(myPositions.callback_data));
   assert.equal(h.telegram.of('editMessageText').length, edits, 'nothing edited');
-  assert.match(String(h.telegram.last('sendMessage').payload['text']), /^<b>Account #710<\/b>/);
+  assert.match(String(h.telegram.last('sendMessage').payload['text']), /^📊 <b>MY POSITIONS<\/b> · account #710/);
 });
 
 // ── Phase 7: the menu as a whole ────────────────────────────────────────────
@@ -1552,7 +1556,7 @@ test('PHASE 7: Margin lists the positions and sends nothing; choosing one opens 
   assert.deepEqual(keyboardOf(margin).map((b) => b.text), ['BTC long · 2.7%', '← Back']);
   assert.equal(actionButtons(margin).length, 0, 'no action button on the Margin screen itself');
   await h.bot.handleUpdate(callbackUpdate(keyboardOf(margin)[0]!.callback_data));
-  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔴 <b>BTC long · 2\.7% from being closed<\/b>/);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER/);
   assert.equal(h.executor.calls.length, 0);
   // Not reachable for a stranger: the gate refuses before any handler.
   await tapNav(h, { to: 'margin' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
@@ -1659,4 +1663,40 @@ test('PHASES 10-11: the Trading Account shows wallet, ownership and execution as
   h.sessionStatus = { trading: { state: 'signed-in', forwardingAllowed: false } };
   await tapNav(h, { to: 'account' });
   assert.match(String(lastScreen(h.telegram).payload['text']), /Ownership: ✅ Verified by wallet signature\nExecution: 🟡 Order forwarding is off\n/);
+});
+
+// ── Phase 13: the Trading Account names what is wrong ────────────────────────
+
+test('PHASE 13: a link made on another network is refused BY NAME, and the Trading Account says which network', async () => {
+  const links = newLinks([{ ...OWNER_LINK, network: 'mainnet' }]);
+  const h = harness({ links });
+  await tapNav(h, { to: 'positions' });
+  assert.match(answers(h.telegram).at(-1)!, /^Your account #710 was connected on mainnet, but PerpGuard trades on testnet here/);
+  await tapNav(h, { to: 'account' });
+  const screen = lastScreen(h.telegram);
+  assert.match(String(screen.payload['text']), /Execution: 🔴 Linked on mainnet, not testnet/);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Fix authorization', '🔌 Disconnect account #710', '← Back']);
+});
+
+test('PHASE 13: a wallet that proved an account but sent no key sees ownership verified and execution waiting, with the way to add the key', async () => {
+  const fake = fakeLinkService();
+  const h = harness({ link: { ...fake.service, walletProof: () => ({ address: '0x169e49ece0d4f19b92de549482d1562ddd235251', accountId: 900 }) } });
+  await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  const screen = lastScreen(h.telegram);
+  assert.match(String(screen.payload['text']), /Account: <b>#900<\/b> · not connected yet\nNetwork: Monad testnet\nWallet: <code>0x169e…5251<\/code>\nOwnership: ✅ Verified by wallet signature\nExecution: ⚪ No API key yet/);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Add API key', '← Back']);
+});
+
+test('PHASE 13: a rotated key and order forwarding off are told apart; only the first offers the connect page', async () => {
+  const rotated = harness({ link: { ...fakeLinkService().service, needsRelink: () => 'rotated' } });
+  await tapNav(rotated, { to: 'account' });
+  const r = lastScreen(rotated.telegram);
+  assert.match(String(r.payload['text']), /Execution: 🔴 Key can no longer be used \(rotated\)/);
+  assert.equal(keyboardOf(r)[0]!.text, '🔑 Fix authorization');
+  const forwarding = harness();
+  forwarding.sessionStatus = { trading: { state: 'signed-in', forwardingAllowed: false } };
+  await tapNav(forwarding, { to: 'account' });
+  const f = lastScreen(forwarding.telegram);
+  assert.match(String(f.payload['text']), /Execution: 🟡 Order forwarding is off[\s\S]*allowOrderForwarding\(true\)[\s\S]*an API key cannot do it/);
+  assert.notEqual(keyboardOf(f)[0]!.text, '🔑 Fix authorization', 'a new key would not fix this: the owner wallet must');
 });

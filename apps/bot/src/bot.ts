@@ -144,6 +144,8 @@ export interface BotDeps {
     unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }>;
     /** Why a linked account cannot be served right now (a rotated key, say). */
     needsRelink?(userId: string): string | undefined;
+    /** Ownership a wallet proved for this identity, kept even when nothing is linked yet (it waits for a key). */
+    walletProof?(userId: string): { readonly address: string; readonly accountId: number } | undefined;
     /** How the link is backed, from records: for the Trading Account's Wallet and Ownership rows. */
     status?(userId: string): { readonly proof: 'wallet' | 'key' | 'owner'; readonly wallet: { readonly address: string } | undefined } | undefined;
   };
@@ -276,6 +278,10 @@ export function createBot(deps: BotDeps): Bot {
     if (telegramUserId === undefined) return { refusal: REFUSAL_TEXT };
     const link = deps.links.byTelegramUserId(telegramUserId);
     if (link === undefined) return { refusal: REFUSAL_TEXT };
+    // ONE NETWORK PER TRADING ACCOUNT: a link made on another network names another account here, or none.
+    if (link.network !== undefined && deps.tradingNetwork !== undefined && link.network !== deps.tradingNetwork) {
+      return { refusal: `Your account #${link.accountId} was connected on ${link.network}, but PerpGuard trades on ${deps.tradingNetwork} here, so nothing can act on it. Send /link to connect a ${deps.tradingNetwork} account.` };
+    }
     const relink = deps.link?.needsRelink?.(link.userId);
     if (relink !== undefined) {
       return { refusal: `Your link to account ${link.accountId} needs renewing: ${relink}. Send /link to do that.` };
@@ -358,6 +364,7 @@ export function createBot(deps: BotDeps): Bot {
 
   /** The linked account's Execution line, from its live session at the moment of asking. */
   const executionFor = (link: LinkRecord): ExecutionState => {
+    if (link.network !== undefined && deps.tradingNetwork !== undefined && link.network !== deps.tradingNetwork) return executionState({ otherNetwork: { linkedOn: link.network, tradingOn: deps.tradingNetwork } });
     const needsRelink = deps.link?.needsRelink?.(link.userId);
     if (needsRelink !== undefined) return executionState({ needsRelink });
     const account = deps.sessions.forAccount(link.accountId);
@@ -391,7 +398,16 @@ export function createBot(deps: BotDeps): Bot {
 
   const tradingAccount = (chatId: number, telegramUserId: number): Screen => {
     const link = linkHere(telegramUserId, chatId);
-    if (link === undefined) return accountScreen({ accountId: undefined, network: deps.tradingNetwork, execution: undefined });
+    if (link === undefined) {
+      // OWNERSHIP PROVEN, EXECUTION NOT YET: a wallet signed for an account but no key followed. Say exactly that.
+      const proven = deps.link?.walletProof?.(identities.register(telegramUserId, chatId, now()).identity.userId);
+      return accountScreen({
+        accountId: undefined,
+        network: deps.tradingNetwork,
+        execution: undefined,
+        ...(proven === undefined ? {} : { proven: { accountId: proven.accountId, walletAddress: proven.address } }),
+      });
+    }
     const session = deps.sessions.forAccount(link.accountId);
     const status = deps.link?.status?.(link.userId);
     return accountScreen({
@@ -567,7 +583,7 @@ export function createBot(deps: BotDeps): Bot {
     // proof-based page.
     const owner = deps.config.ownerTelegramUserId;
     if (existing === undefined && owner !== undefined && owner === telegramUserId && deps.ownerAccountId !== undefined) {
-      const result = deps.links.link({ userId: deps.config.userId, accountId: deps.ownerAccountId, telegramUserId, chatId, linkedAtMs: now() });
+      const result = deps.links.link({ userId: deps.config.userId, accountId: deps.ownerAccountId, telegramUserId, chatId, linkedAtMs: now(), ...(deps.tradingNetwork === undefined ? {} : { network: deps.tradingNetwork }) });
       if (result.ok) await ctx.reply(`Connected to account #${deps.ownerAccountId}. Its alerts come here, with the buttons to act.`);
     }
 
@@ -871,8 +887,10 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, tradingAccount(chatId, telegramUserId));
         return;
       case 'connect-go': {
+        // A linked chat may open the connect page too, to fix its authorization (a rotated key, a key for
+        // another account, an account on another network); one whose execution is fine has no reason to.
         const linked = linkHere(telegramUserId, chatId);
-        if (linked !== undefined) {
+        if (linked !== undefined && executionFor(linked).dot === '🟢') {
           await ctx.answerCallbackQuery();
           await showScreen(ctx, tradingAccount(chatId, telegramUserId));
           return;

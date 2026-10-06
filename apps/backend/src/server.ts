@@ -511,8 +511,18 @@ if (alertDb !== undefined) {
   }
 }
 
+// MAINNET TRADING IS OFF unless switched on by name (owner, 6 Oct 2026: build
+// network-aware, ship testnet-only). Monitoring and alerts run either way;
+// with it off, no account session opens, so nothing can execute.
+const MAINNET_TRADING = process.env['PERPGUARD_MAINNET_TRADING']?.trim() === '1';
+const tradingOff =
+  network.name === 'mainnet' && !MAINNET_TRADING
+    ? 'Trading on mainnet is switched off for this deployment (PERPGUARD_MAINNET_TRADING is not set), so no account can execute here.'
+    : undefined;
+if (tradingOff !== undefined) warn(tradingOff);
 const registry = new AccountRegistry({
   maxSessions: MAX_ACCOUNT_SESSIONS,
+  ...(tradingOff === undefined ? {} : { tradingOff }),
   deps: {
     network,
     markets,
@@ -610,6 +620,7 @@ const bot =
           unlink: (id) => (linkServiceImpl === undefined ? Promise.resolve({ ok: false, text: 'Linking is not available right now.' }) : linkServiceImpl.unlink(id)),
           needsRelink: (id) => linkServiceImpl?.needsRelink(id),
           status: (id) => linkServiceImpl?.status(id),
+          walletProof: (id) => linkServiceImpl?.walletProof(id),
         },
         watch: {
           store: watchStore,

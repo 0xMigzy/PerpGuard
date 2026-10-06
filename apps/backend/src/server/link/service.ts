@@ -341,7 +341,8 @@ export class LinkService {
     const existing = this.#deps.links.byTelegramUserId(identity.telegramUserId);
     if (existing !== undefined && existing.accountId !== accountId) this.#deps.links.unlink(identity.telegramUserId);
     if (existing !== undefined && existing.accountId === accountId) return { ok: true };
-    const result = this.#deps.links.link({ userId: identity.userId, accountId, telegramUserId: identity.telegramUserId, chatId: identity.chatId, linkedAtMs: this.#now() });
+    const network = this.#deps.network === 'mainnet' || this.#deps.network === 'testnet' ? this.#deps.network : undefined;
+    const result = this.#deps.links.link({ userId: identity.userId, accountId, telegramUserId: identity.telegramUserId, chatId: identity.chatId, linkedAtMs: this.#now(), ...(network === undefined ? {} : { network }) });
     if (result.ok) return { ok: true };
     return { ok: false, reason: result.refusal === 'at-capacity' ? 'PerpGuard can\'t connect another account right now. Try again later.' : 'PerpGuard couldn\'t save the connection. Try again in a moment.' };
   }

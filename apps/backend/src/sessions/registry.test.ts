@@ -313,3 +313,10 @@ test.after(() => {
 
 /** Silence an unused-import complaint while the venue's ActionResult stays a documented shape here. */
 export type _Result = ActionResult;
+
+test('MAINNET TRADING SWITCHED OFF: every open is refused with the sentence, before anything is built', () => {
+  const registry = new AccountRegistry({ deps: {} as never, tradingOff: 'Trading on mainnet is switched off for this deployment.' });
+  const result = registry.open(710, {} as never);
+  assert.deepEqual(result, { ok: false, reason: 'Trading on mainnet is switched off for this deployment.' });
+  assert.equal(registry.size, 0);
+});

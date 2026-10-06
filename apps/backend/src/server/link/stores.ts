@@ -24,7 +24,8 @@ create table if not exists account_links (
   chat_id          bigint      not null,
   account_id       bigint      not null,
   linked_at        timestamptz not null
-)`;
+);
+alter table account_links add column if not exists network text`;
 
 export class PostgresLinkStore implements LinkStore {
   readonly #inner: InMemoryLinkStore;
@@ -40,13 +41,14 @@ export class PostgresLinkStore implements LinkStore {
 
   static async load(options: { readonly pool: Pick<Pool, 'query'>; readonly capacity: number; readonly ownerTelegramUserId?: number | undefined; readonly logger?: { warn(message: string): void } }): Promise<PostgresLinkStore> {
     await options.pool.query(LINKS_SQL);
-    const result = await options.pool.query('select telegram_user_id, user_id, chat_id, account_id, linked_at from account_links');
+    const result = await options.pool.query('select telegram_user_id, user_id, chat_id, account_id, linked_at, network from account_links');
     const seed: LinkRecord[] = (result.rows as Array<Record<string, unknown>>).map((row) => ({
       telegramUserId: Number(row['telegram_user_id']),
       userId: String(row['user_id']),
       chatId: Number(row['chat_id']),
       accountId: Number(row['account_id']),
       linkedAtMs: new Date(row['linked_at'] as string | Date).getTime(),
+      ...(row['network'] === 'mainnet' || row['network'] === 'testnet' ? { network: row['network'] } : {}),
     }));
     const inner = new InMemoryLinkStore({ capacity: options.capacity, ...(options.ownerTelegramUserId === undefined ? {} : { ownerTelegramUserId: options.ownerTelegramUserId }), seed });
     return new PostgresLinkStore(inner, options.pool, options.logger ?? { warn: (m) => console.warn(m) });
@@ -72,9 +74,9 @@ export class PostgresLinkStore implements LinkStore {
     const result = this.#inner.link(record);
     if (result.ok) {
       this.#write(
-        `insert into account_links (telegram_user_id, user_id, chat_id, account_id, linked_at) values ($1, $2, $3, $4, $5)
-         on conflict (telegram_user_id) do update set user_id = excluded.user_id, chat_id = excluded.chat_id, account_id = excluded.account_id, linked_at = excluded.linked_at`,
-        [record.telegramUserId, record.userId, record.chatId, record.accountId, new Date(record.linkedAtMs).toISOString()],
+        `insert into account_links (telegram_user_id, user_id, chat_id, account_id, linked_at, network) values ($1, $2, $3, $4, $5, $6)
+         on conflict (telegram_user_id) do update set user_id = excluded.user_id, chat_id = excluded.chat_id, account_id = excluded.account_id, linked_at = excluded.linked_at, network = excluded.network`,
+        [record.telegramUserId, record.userId, record.chatId, record.accountId, new Date(record.linkedAtMs).toISOString(), record.network ?? null],
       );
     }
     return result;

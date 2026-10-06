@@ -19,6 +19,11 @@ import { WalletProofCard } from './WalletProofCard.tsx';
 
 type Phase = { kind: 'opening' } | { kind: 'no-session'; reason: string } | { kind: 'ready'; me: LinkMe };
 
+/** Execution authorized and working: a live session, signed in as the account, accepting forwarded orders. */
+function executionOk(l: NonNullable<LinkMe['link']>): boolean {
+  return l.needsRelink === undefined && l.session !== undefined && l.session.mismatch === undefined && l.session.trading.state === 'signed-in' && l.session.trading.forwardingAllowed !== false;
+}
+
 export function LinkView() {
   const params = useSearchParams();
   const code = params.get('code') ?? '';
@@ -95,7 +100,9 @@ export function LinkView() {
 
   const { me } = phase;
   const linked = me.link;
-  const showOptions = linked === null || linked.needsRelink !== undefined;
+  // The ways in collapse once linked AND able to act; a linked account that cannot execute keeps them,
+  // so a rotated key, a key for another account or a stopped session can be fixed right here.
+  const showOptions = linked === null || linked.needsRelink !== undefined || !executionOk(linked);
   // Plain words for the connection's state; the internals stay out of it.
   const stateLine = (l: NonNullable<LinkMe['link']>): string => {
     if (l.needsRelink !== undefined) return 'Your saved API key can no longer be used, so the buttons are off. Paste it again below to reconnect.';
@@ -104,8 +111,7 @@ export function LinkView() {
     if (s.trading.forwardingAllowed === false) return "This account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it.";
     return 'PerpGuard is watching it now. Alerts in your Telegram chat come with buttons to act.';
   };
-  const executionOk = (l: NonNullable<LinkMe['link']>): boolean =>
-    l.needsRelink === undefined && l.session !== undefined && l.session.mismatch === undefined && l.session.trading.state === 'signed-in' && l.session.trading.forwardingAllowed !== false;
+
 
   return (
     <>

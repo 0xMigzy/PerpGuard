@@ -1,3 +1,4 @@
+import type { NetworkName } from '@perpguard/shared';
 /**
  * Who this bot is allowed to talk to.
  *
@@ -45,6 +46,13 @@ export interface LinkRecord {
    */
   readonly chatId: number;
   readonly linkedAtMs: number;
+  /**
+   * THE NETWORK THE ACCOUNT WAS LINKED ON. A Trading Account belongs to one
+   * network; a deployment trading on another must not serve it (the account id
+   * would name a different account there, or none). Undefined on links made
+   * before 6 Oct 2026, which were all made on the deployment's network.
+   */
+  readonly network?: NetworkName;
 }
 
 /** Why a `/start` was refused, so the reply can say which. */

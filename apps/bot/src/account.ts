@@ -38,6 +38,65 @@ export function blindLine(feed: FeedHealth, positions: PositionSourceStatus): st
   return undefined;
 }
 
+// ── one position, as a card ─────────────────────────────────────────────────
+
+/** The risk band, in words. Never "safe" (CLAUDE.md, plain voice): the calm band is OK. */
+export function bandOf(state: RiskAssessment['state']): string {
+  switch (state) {
+    case 'SAFE':
+      return 'OK';
+    case 'WATCH':
+      return 'WATCH';
+    case 'DANGER':
+      return 'DANGER';
+    case 'PAST_LIQUIDATION':
+      return 'PAST LIQUIDATION';
+    case 'FEED_DOWN':
+    case 'POSITIONS_UNTRUSTED':
+      return 'CANNOT SEE';
+  }
+}
+
+/** "−112 AUSD" / "+48 AUSD", bold, floored toward zero (what someone holds or would lose); "under 1 AUSD" below one. */
+function signedHeld(cns: bigint, decimals: number): string {
+  const unit = 10n ** BigInt(decimals);
+  const abs = cns < 0n ? -cns : cns;
+  const sign = cns < 0n ? '−' : '+';
+  if (abs > 0n && abs < unit) return `<b>${sign}under 1 AUSD</b>`;
+  return `<b>${sign}${(abs / unit).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')} AUSD</b>`;
+}
+
+/**
+ * THE POSITION, AS A JUDGE READS IT (Phase 14). The DISTANCE leads, bold, on
+ * the first line, because it is the number the whole product is about; then
+ * the band. Below it, in a fixed order: size and value, leverage (position
+ * value over margin, said as such), margin and PnL, mark and liquidation price.
+ * A position it cannot see says so in the first line and offers no figure.
+ */
+export function positionCard(a: RiskAssessment, market: MarketRiskConfig | undefined): string[] {
+  const name = positionName(a);
+  if (isBlind(a.state)) return [`${dot(a.state)} <b>cannot see right now</b> · ${name} · ${bandOf(a.state)}`];
+  const lead =
+    a.liqBufferPct === undefined ? 'no liquidation price' : a.liqBufferPct < 0 ? 'past its liquidation price' : `${pct(a.liqBufferPct)} from liquidation`;
+  const lines = [`${dot(a.state)} <b>${lead}</b> · ${name} · ${bandOf(a.state)}`];
+  if (market === undefined) {
+    lines.push('   No market details, so no prices to show.');
+    return lines;
+  }
+  const d = market.collateralDecimals;
+  const size = sizeOf(a, market);
+  const value = a.metrics.notionalCNS;
+  const leverage = a.marginCNS !== undefined && a.marginCNS > 0n ? Number(value) / Number(a.marginCNS) : undefined;
+  lines.push(`   Size ${size ?? '—'} · value ${held(value, d)}${leverage === undefined ? '' : ` · <b>${leverage.toFixed(1)}x</b>`}`);
+  lines.push(`   Margin ${a.marginCNS === undefined ? '—' : held(a.marginCNS, d)} · PnL ${signedHeld(a.metrics.unrealisedPnlCNS, d)}`);
+  const liq = a.liquidationPricePNS;
+  lines.push(`   Mark ${formatPricePNS(a.markPricePNS, market)} · liquidation price ${liq !== undefined && liq > 0n ? formatPricePNS(liq, market) : 'none'}`);
+  return lines;
+}
+
+/** Said once under the cards. */
+export const POSITIONS_EXPLAINED = 'Distance: how far the price can move against you before the exchange closes the position. Leverage: position value ÷ margin. PnL: unrealised, at the mark.';
+
 // ── My positions ────────────────────────────────────────────────────────────
 
 export interface PositionsInput {
@@ -49,28 +108,30 @@ export interface PositionsInput {
   readonly configs: ReadonlyMap<number, MarketRiskConfig>;
 }
 
+/** Cards shown on the list; the rest are counted and still on the buttons. Telegram caps a message at 4,096 characters. */
+export const POSITIONS_SHOWN = 8;
+
 export function positionsScreen(input: PositionsInput): Screen {
   const blind = blindLine(input.feed, input.positions);
   const lines: string[] = [];
-  if (input.assessments.length === 0) {
-    lines.push(`<b>Account #${input.accountId}</b>`);
+  const all = ordered(input.assessments);
+  if (all.length === 0) {
+    lines.push(`📊 <b>MY POSITIONS</b> · account #${input.accountId}`, '');
     // AN EMPTY LIST IS NOT "NO POSITIONS" unless the list is live.
     lines.push(input.positions.state === 'live' ? 'No open positions.' : 'I have nothing to show, and that does not mean you have no positions: I have not been told what is open.');
   } else {
-    lines.push(`<b>Account #${input.accountId}</b> · ${input.assessments.length} open`);
-    lines.push('');
-    for (const a of ordered(input.assessments)) {
-      const size = sizeOf(a, input.configs.get(a.marketId));
-      lines.push(`${dot(a.state)} ${positionName(a)}${size === undefined ? '' : ` ${size}`} · <b>${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}</b>`);
-    }
+    lines.push(`📊 <b>MY POSITIONS</b> · account #${input.accountId} · ${all.length} open, closest to liquidation first`);
+    for (const a of all.slice(0, POSITIONS_SHOWN)) lines.push('', ...positionCard(a, input.configs.get(a.marketId)));
+    const rest = all.length - POSITIONS_SHOWN;
+    if (rest > 0) lines.push('', `And ${rest} more, all further from liquidation: open them from the buttons.`);
   }
   lines.push('');
-  lines.push(input.free.known ? `Free balance at least ${held(input.free.floorCNS)}` : `Free balance unknown: ${esc(input.free.reason)}`);
-  if (input.assessments.length > 0) lines.push('<i>The percentage is how far the price can move against you before the exchange closes the position.</i>');
+  lines.push(input.free.known ? `Free balance at least ${held(input.free.floorCNS)}: Perpl never moves it into a position by itself.` : `Free balance unknown: ${esc(input.free.reason)}`);
+  if (all.length > 0) lines.push(`<i>${POSITIONS_EXPLAINED}</i>`);
   if (blind !== undefined) lines.push('', blind);
 
-  const buttons: Button[][] = ordered(input.assessments).map((a) => [
-    { text: `${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'position', marketId: a.marketId } },
+  const buttons: Button[][] = all.map((a) => [
+    { text: `${dot(a.state)} ${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'position', marketId: a.marketId } },
   ]);
   buttons.push([{ text: '← Back', route: { to: 'home' } }]);
   return { html: lines.join('\n'), buttons };
@@ -128,16 +189,17 @@ export const REDUCE_SHARE = 0.25;
 export function positionScreen(input: PositionInput): Screen {
   const { assessment: a, market } = input;
   const name = positionName(a);
-  const lines: string[] = [`${dot(a.state)} <b>${name} · ${isBlind(a.state) ? 'I cannot see it right now' : distance(a.liqBufferPct)}</b>`];
+  const lines: string[] = [...positionCard(a, market)];
   const blind = blindLine(input.feed, input.positions);
 
   const liq = a.liquidationPricePNS;
   const lose = a.marginCNS === undefined ? 'the money behind it' : `the ${held(a.marginCNS, market.collateralDecimals)} behind it`;
   if (!isBlind(a.state)) {
     lines.push(
+      '',
       liq !== undefined && liq > 0n
-        ? `${esc(a.symbol)} is ${formatPricePNS(a.markPricePNS, market)}. At ${formatPricePNS(liq, market)} the exchange closes this and you lose ${lose}.`
-        : `${esc(a.symbol)} is ${formatPricePNS(a.markPricePNS, market)}. There is more behind this position than it could lose, so it has no closing price.`,
+        ? `At ${formatPricePNS(liq, market)} the exchange closes ${name} and you lose ${lose}.`
+        : `There is more behind ${name} than it could lose, so it has no liquidation price.`,
     );
   }
   lines.push('');

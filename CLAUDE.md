@@ -667,6 +667,24 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   floored, what something NEEDS is ceiled; under one AUSD is "under 1 AUSD",
   never "0 AUSD"; never the word "safe"; a negative buffer is "past its
   closing price". Watch alerts carry freshness and "No buttons" every time.
+- MY POSITIONS IS THE SCREEN A JUDGE READS LONGEST (Phase 14, `positionCard`
+  in `apps/bot/src/account.ts`). Each position is a card: the DISTANCE FROM
+  LIQUIDATION leads, bold, on the first line, then the band (OK, WATCH,
+  DANGER, PAST LIQUIDATION, CANNOT SEE; never "safe"); then size and value,
+  leverage (position value ÷ margin, said as such), margin and unrealised PnL,
+  mark and liquidation price. Closest to liquidation first, at most 8 cards
+  in one message, the rest counted and still on the buttons. A blind
+  position shows no figure at all.
+- THE TRADING ACCOUNT NAMES WHAT IS WRONG (Phase 13): Wallet, Ownership and
+  Execution as three rows; Execution says which failure it is (key rotated,
+  linked on another network, key for another account, not running, order
+  forwarding off, with what to do) and offers "Fix authorization" (the
+  connect page) only where a new key fixes it, never for forwarding, which
+  needs the owner's wallet. A wallet proven without a key shows ownership
+  verified and execution waiting, with "Add API key". THE LINK STORES ITS
+  NETWORK (`account_links.network`); a link from another network is refused by
+  name. MAINNET TRADING IS OFF unless `PERPGUARD_MAINNET_TRADING=1`: the
+  registry refuses every session, monitoring is unaffected.
 - THE ACCOUNT HALF (`apps/bot/src/account.ts`): My Positions, Margin (the
   same positions framed for adding margin; sends nothing itself), a position
   screen with Add (computed or custom), Reduce 25% and Close position,

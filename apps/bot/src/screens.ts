@@ -284,6 +284,8 @@ export interface AccountScreenInput {
   readonly execution: ExecutionState | undefined;
   /** How the link is backed, FROM RECORDS (link service status). Undefined: not known here. */
   readonly ownership?: { readonly proof: 'wallet' | 'key' | 'owner'; readonly walletAddress: string | undefined };
+  /** Not linked, but a wallet proved this account: ownership verified, execution waiting for a key. */
+  readonly proven?: { readonly accountId: number; readonly walletAddress: string };
 }
 
 const shortAddress = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -312,6 +314,23 @@ function ownershipLines(o: AccountScreenInput['ownership']): string[] {
  * ownership rows join when the proof is persisted (Phase 10–11).
  */
 export function accountScreen(input: AccountScreenInput): Screen {
+  if (input.accountId === undefined && input.proven !== undefined) {
+    const p = input.proven;
+    return {
+      html: [
+        '🔐 <b>TRADING ACCOUNT</b>',
+        '',
+        `Account: <b>#${p.accountId}</b> · not connected yet`,
+        `Network: ${networkLabel(input.network)}`,
+        `Wallet: <code>${shortAddress(p.walletAddress)}</code>`,
+        'Ownership: ✅ Verified by wallet signature',
+        'Execution: ⚪ No API key yet',
+        '',
+        `Your wallet proved it owns #${p.accountId}. For PerpGuard to act on it, it also needs an API key for #${p.accountId}: paste it on the connect page, never here in Telegram.`,
+      ].join('\n'),
+      buttons: [[{ text: '🔑 Add API key', route: { to: 'connect-go' } }], [BACK_HOME]],
+    };
+  }
   if (input.accountId === undefined) {
     return {
       html: [
@@ -338,9 +357,15 @@ export function accountScreen(input: AccountScreenInput): Screen {
     'Automation: ⚪ None',
   ];
   if (e?.next !== undefined) lines.push('', esc(e.next));
+  // A remedy that runs through the connect page gets its button; forwarding off does not (it needs the owner's wallet on Perpl).
+  const fixable = e !== undefined && (e.dot === '🔴' || e.label === 'Not running');
   return {
     html: lines.join('\n'),
-    buttons: [[{ text: `🔌 Disconnect account #${input.accountId}`, route: { to: 'disconnect-ask' } }], [BACK_HOME]],
+    buttons: [
+      ...(fixable ? [[{ text: '🔑 Fix authorization', route: { to: 'connect-go' } } as Button]] : []),
+      [{ text: `🔌 Disconnect account #${input.accountId}`, route: { to: 'disconnect-ask' } }],
+      [BACK_HOME],
+    ],
   };
 }
 

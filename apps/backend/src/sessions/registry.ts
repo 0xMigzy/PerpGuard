@@ -30,18 +30,26 @@ export type OpenResult =
 export interface AccountRegistryOptions {
   readonly deps: SessionDeps;
   readonly maxSessions?: number;
+  /**
+   * Set when trading on this deployment's network is switched off (mainnet,
+   * without PERPGUARD_MAINNET_TRADING=1): every open is refused with this
+   * sentence. Monitoring is unaffected; nothing can execute.
+   */
+  readonly tradingOff?: string;
 }
 
 export class AccountRegistry implements SessionRouter {
   readonly #deps: SessionDeps;
   readonly #sessions = new Map<number, AccountSession>();
   readonly #maxSessions: number;
+  readonly #tradingOff: string | undefined;
   /** Closes in progress, so a close followed by an open waits for the teardown. */
   readonly #closing = new Map<number, Promise<void>>();
 
   constructor(options: AccountRegistryOptions) {
     this.#deps = options.deps;
     this.#maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
+    this.#tradingOff = options.tradingOff;
   }
 
   get maxSessions(): number {
@@ -57,6 +65,7 @@ export class AccountRegistry implements SessionRouter {
    * already has one; refused at the cap.
    */
   open(accountId: number, credentials: SessionCredentials): OpenResult {
+    if (this.#tradingOff !== undefined) return { ok: false, reason: this.#tradingOff };
     const existing = this.#sessions.get(accountId);
     if (existing !== undefined) return { ok: true, session: existing, already: true };
     if (this.#sessions.size >= this.#maxSessions) {
