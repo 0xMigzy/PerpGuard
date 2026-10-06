@@ -162,7 +162,7 @@ export function OverviewView() {
       </section>
 
       {/* ── levels through time, and the day's activity ─────────────────── */}
-      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section className="mb-4 grid grid-cols-1 gap-4">
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Open interest</h2>
@@ -189,8 +189,6 @@ export function OverviewView() {
             {chartNote !== undefined && ` ${chartNote}`}
           </div>
         </div>
-
-        <ExchangeBalanceCard />
       </section>
 
       <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -426,7 +424,3 @@ function topMarkets(p: LevelPoint, h: OiHistory, names: ReadonlyMap<number, stri
     .map(([id, v]) => ({ label: names.get(Number(id)) ?? `market ${id}`, value: formatCompact(v), muted: true }));
 }
 
-/** Filled once the reconciliation decides the method; see the TVL step. */
-function ExchangeBalanceCard() {
-  return null;
-}

@@ -22,6 +22,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { Client } from "pg";
 import { decodeEventLog, toEventSelector, type Abi, type AbiEvent, type Hex } from "viem";
 
 const DEPLOY_BLOCK = 54_773_010;
@@ -106,16 +107,45 @@ async function page(from: number, to: number): Promise<RpcLog[]> {
   return rpc<RpcLog[]>("eth_getLogs", [{ address: PROXY, topics: [TOPICS], fromBlock: hex(from), toBlock: hex(to) }]);
 }
 
+/**
+ * A block's time, INTERPOLATED from the index rather than asked of the RPC one
+ * block at a time: every funding settlement the index holds is a known
+ * (block, time) pair, about every 43 minutes since launch, so the time between
+ * two of them is accurate to seconds. Only the UTC day is used downstream.
+ * Past the last settlement it extrapolates at the recent block rate.
+ */
+const anchors: { block: number; ms: number }[] = await (async () => {
+  const dbUrl = process.env.INDEXER_DATABASE_URL;
+  if (dbUrl === undefined) throw new Error("INDEXER_DATABASE_URL is not set: block times come from the index");
+  const db = new Client({ connectionString: dbUrl });
+  await db.connect();
+  const { rows } = await db.query<{ block: string; ms: string }>(
+    `select "blockNumber"::text as block, (extract(epoch from min(timestamp)) * 1000)::bigint::text as ms
+       from "FundingEvent" group by "blockNumber" order by "blockNumber"`,
+  );
+  await db.end();
+  return rows.map((r) => ({ block: Number(r.block), ms: Number(r.ms) }));
+})();
+if (anchors.length < 2) throw new Error("the index holds fewer than two funding settlements to interpolate block times from");
+
+function blockTimeMs(block: number): number {
+  let hi = anchors.findIndex((a) => a.block >= block);
+  if (hi === -1) hi = anchors.length - 1;
+  if (hi === 0) hi = 1;
+  const a = anchors[hi - 1]!;
+  const b = anchors[hi]!;
+  return Math.round(a.ms + ((block - a.block) * (b.ms - a.ms)) / (b.block - a.block));
+}
+
 async function decode(log: RpcLog): Promise<ProtocolFlowLog> {
   const decoded = decodeEventLog({ abi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
   const block = Number(BigInt(log.blockNumber));
-  const b = await rpc<{ timestamp: Hex }>("eth_getBlockByNumber", [hex(block), false]);
   const out: Record<string, string | boolean> = {};
   for (const [k, v] of Object.entries(decoded.args as Record<string, unknown>)) out[k] = typeof v === "boolean" ? v : String(v);
   return {
     event: decoded.eventName as ProtocolFlowLog["event"],
     block,
-    timestampMs: Number(BigInt(b.timestamp)) * 1000,
+    timestampMs: blockTimeMs(block),
     txHash: log.transactionHash.toLowerCase(),
     logIndex: Number(BigInt(log.logIndex)),
     args: out,
@@ -126,7 +156,7 @@ const head = args.to !== undefined ? Number(args.to) : Number(BigInt(await rpc<H
 const state: Output = existsSync(OUT)
   ? (JSON.parse(readFileSync(OUT, "utf8")) as Output)
   : {
-      note: "Protocol-treasury events off the Exchange proxy, from eth_getLogs. Written by apps/indexer/src/scripts/protocol-flows.ts; resumable.",
+      note: "Protocol-treasury events off the Exchange proxy, from eth_getLogs. Written by apps/indexer/src/scripts/protocol-flows.ts; resumable. Timestamps are interpolated from the index's funding settlements (accurate to seconds; only the UTC day is used).",
       exchange: PROXY,
       fromBlock: DEPLOY_BLOCK,
       scannedThroughBlock: DEPLOY_BLOCK - 1,

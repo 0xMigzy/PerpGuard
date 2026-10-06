@@ -24,7 +24,8 @@
     "bot:account-demo": "node --env-file-if-exists=.env apps/backend/src/scripts/bot-account-demo.ts",
     "registry:live": "node --env-file-if-exists=.env apps/backend/src/scripts/registry-live-run.ts",
     "verify:logs": "node --env-file-if-exists=.env apps/indexer/src/scripts/verify-logs.ts",
-    "protocol:flows": "node --env-file-if-exists=.env apps/indexer/src/scripts/protocol-flows.ts"
+    "protocol:flows": "node --env-file-if-exists=.env apps/indexer/src/scripts/protocol-flows.ts",
+    "exchange:reconcile": "node --env-file-if-exists=.env apps/indexer/src/scripts/exchange-balance-reconcile.ts"
   },
   "devDependencies": {
     "@perpguard/shared": "workspace:*",
