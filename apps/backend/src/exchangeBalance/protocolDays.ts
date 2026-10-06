@@ -1,56 +1,57 @@
-import { readFile, stat } from 'node:fs/promises';
-import type { ProtocolTreasuryDays } from '@perpguard/shared';
+import { readFile } from 'node:fs/promises';
+import type { ProtocolTreasuryDays, TreasuryMovement, TreasuryScanStatus } from '@perpguard/shared';
 
 /**
  * The protocol treasury's AUSD in and out of the Exchange, per UTC day, from
- * the scan `pnpm protocol:flows` writes (fixtures/protocol-flows-mainnet.json).
- * The index does not handle these events and adding them would force a full
- * re-sync, so the scan's output is the source. Only ProtocolBalanceDeposit and
- * ProtocolBalanceWithdraw cross the contract's edge; every other treasury event
- * moves money inside it and leaves the balance where it was.
+ * the movements the incremental scan keeps (`treasuryScanner.ts`). Only
+ * ProtocolBalanceDeposit and ProtocolBalanceWithdraw cross the contract's
+ * edge; every other treasury event moves money inside it.
  */
-interface ScanFile {
-  readonly scannedThroughBlock: number;
-  readonly logs: readonly { readonly event: string; readonly block: number; readonly timestampMs: number; readonly args: Readonly<Record<string, string | boolean>> }[];
-}
-
 const DAY_MS = 86_400_000;
 
-/** Pure: the scan's logs -> treasury in/out per UTC day, oldest first. */
-export function protocolDaysOf(scan: ScanFile, collateralDecimals = 6): ProtocolTreasuryDays {
-  const byDay = new Map<number, { inCns: bigint; outCns: bigint }>();
-  let lastMs = 0;
-  const movements: { atMs: number; ausd: number }[] = [];
+/** Pure: movements + the scan's status -> what the route serves. */
+export function treasuryDaysOf(movements: readonly TreasuryMovement[], scan: TreasuryScanStatus, collateralDecimals = 6): ProtocolTreasuryDays {
   const scale = 10 ** collateralDecimals;
-  for (const log of scan.logs) {
-    if (log.event !== 'ProtocolBalanceDeposit' && log.event !== 'ProtocolBalanceWithdraw') continue;
-    const dayMs = Math.floor(log.timestampMs / DAY_MS) * DAY_MS;
+  const byDay = new Map<number, { inCns: bigint; outCns: bigint }>();
+  for (const m of movements) {
+    const dayMs = Math.floor(m.atMs / DAY_MS) * DAY_MS;
     const d = byDay.get(dayMs) ?? { inCns: 0n, outCns: 0n };
-    const amount = BigInt(String(log.args['amountCNS']));
-    if (log.event === 'ProtocolBalanceDeposit') d.inCns += amount;
-    else d.outCns += amount;
-    movements.push({ atMs: log.timestampMs, ausd: (log.event === 'ProtocolBalanceDeposit' ? 1 : -1) * (Number(amount) / scale) });
+    if (m.direction === 'in') d.inCns += m.amountCNS;
+    else d.outCns += m.amountCNS;
     byDay.set(dayMs, d);
-    lastMs = Math.max(lastMs, log.timestampMs);
   }
+  const sorted = [...movements].sort((a, b) => a.atMs - b.atMs);
   return {
-    throughBlock: scan.scannedThroughBlock,
+    throughBlock: scan.throughBlock ?? 0,
     days: [...byDay.entries()]
       .sort(([a], [b]) => a - b)
       .map(([dayMs, d]) => ({ dayMs, inAusd: Number(d.inCns) / scale, outAusd: Number(d.outCns) / scale })),
-    movements: movements.sort((a, b) => a.atMs - b.atMs),
-    lastEventAtMs: lastMs === 0 ? undefined : lastMs,
+    movements: sorted.map((m) => ({ atMs: m.atMs, ausd: (m.direction === 'in' ? 1 : -1) * (Number(m.amountCNS) / scale) })),
+    lastEventAtMs: sorted.at(-1)?.atMs,
+    scan,
   };
 }
 
-/** Reads the scan's file, re-reading only when it changes on disk. */
-export function protocolDaysFromFile(path: string): () => Promise<ProtocolTreasuryDays> {
-  let cached: { mtimeMs: number; value: ProtocolTreasuryDays } | undefined;
-  return async () => {
-    const { mtimeMs } = await stat(path);
-    if (cached?.mtimeMs === mtimeMs) return cached.value;
-    const value = protocolDaysOf(JSON.parse(await readFile(path, 'utf8')) as ScanFile);
-    cached = { mtimeMs, value };
-    return value;
-  };
+interface ScanFile {
+  readonly scannedThroughBlock: number;
+  readonly logs: readonly { readonly event: string; readonly block: number; readonly timestampMs: number; readonly txHash: string; readonly logIndex: number; readonly args: Readonly<Record<string, string | boolean>> }[];
+}
+
+/** The committed one-off scan (`pnpm protocol:flows`) as movements and its cursor: the store's seed. */
+export function movementsFromScanFile(scan: ScanFile): { readonly throughBlock: number; readonly movements: readonly TreasuryMovement[] } {
+  const movements = scan.logs
+    .filter((l) => l.event === 'ProtocolBalanceDeposit' || l.event === 'ProtocolBalanceWithdraw')
+    .map((l): TreasuryMovement => ({
+      block: l.block,
+      txHash: l.txHash.toLowerCase(),
+      logIndex: l.logIndex,
+      atMs: l.timestampMs,
+      direction: l.event === 'ProtocolBalanceDeposit' ? 'in' : 'out',
+      amountCNS: BigInt(String(l.args['amountCNS'])),
+    }));
+  return { throughBlock: scan.scannedThroughBlock, movements };
+}
+
+export async function readScanFile(path: string): Promise<ReturnType<typeof movementsFromScanFile>> {
+  return movementsFromScanFile(JSON.parse(await readFile(path, 'utf8')) as ScanFile);
 }

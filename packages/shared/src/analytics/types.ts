@@ -450,6 +450,44 @@ export interface ProtocolTreasuryDays {
   /** Every movement with its time (they are rare: 20 since launch), for a rolling window. Signed: + in, − out. */
   readonly movements: readonly { readonly atMs: number; readonly ausd: number }[];
   readonly lastEventAtMs: number | undefined;
+  /** The incremental scan behind these figures: how far, how fresh, and its last reconciliation. */
+  readonly scan: TreasuryScanStatus;
+}
+
+/** Rebuilt vs contract at ONE block (the index's latest), so neither side trails the other. */
+export interface TreasuryReconciliation {
+  readonly atBlock: number;
+  readonly checkedAtMs: number;
+  readonly rebuiltAusd: number;
+  readonly contractAusd: number;
+  /** contract − rebuilt. */
+  readonly gapAusd: number;
+  /** The difference measured since 6 Oct 2026 and not explained by any event read. */
+  readonly expectedGapAusd: number;
+  readonly toleranceAusd: number;
+  /** |gap − expected| ≤ tolerance. False means a new, unexplained movement. */
+  readonly withinExpected: boolean;
+}
+
+export interface TreasuryScanStatus {
+  /** Every block up to this one has been scanned. */
+  readonly throughBlock: number | undefined;
+  /** When the last scan finished; undefined before the first since start-up. */
+  readonly scannedAtMs: number | undefined;
+  readonly intervalMs: number;
+  /** Present while the latest run has failed. Safe to render. */
+  readonly lastError?: string;
+  readonly lastErrorAtMs?: number;
+  readonly reconciliation?: TreasuryReconciliation;
+}
+
+/** Exact collateral totals at one block: the index side of the exchange-balance reconciliation. */
+export interface CollateralTotalsAtBlock {
+  readonly block: number;
+  readonly collateralToken: string;
+  readonly depositedCNS: bigint;
+  readonly withdrawnCNS: bigint;
+  readonly collateralDecimals: number;
 }
 
 /** Most fills one request may return: a page, or a CSV export. */
@@ -1119,6 +1157,8 @@ export interface Analytics {
   walletInsightFacts(accountId: number): Promise<WalletInsightFacts | undefined>;
   /** The cross-account leverage baseline. Heavy: one pass over every position. */
   leverageBaseline(): Promise<LeverageBaseline>;
+  /** Collateral deposited and withdrawn up to the index's latest processed block, exact, with that block. */
+  collateralTotalsAtIndexHead(): Promise<CollateralTotalsAtBlock>;
   /** One account's fills, newest first, as maker and as taker. */
   accountFills(accountId: number, options?: { readonly limit?: number; readonly offset?: number }): Promise<AccountFillsPage>;
   /** The account ids with the most fills since launch, busiest first: the profiles worth computing ahead of a reader. */

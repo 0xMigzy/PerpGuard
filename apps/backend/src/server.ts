@@ -97,7 +97,9 @@ import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
 import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from './funding/venueFundingStore.ts';
-import { protocolDaysFromFile } from './exchangeBalance/protocolDays.ts';
+import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
+import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
+import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
@@ -764,6 +766,27 @@ const health = (): HealthReport => {
   });
 };
 
+// THE PROTOCOL TREASURY'S MOVEMENTS, kept current: an incremental scan of the
+// analytics network's Exchange every 15 minutes (and once now), stored in the
+// backend's Postgres, seeded once from the committed one-off scan. Needs the
+// index for the reconciliation, so it runs only beside the analytics API.
+const treasuryScanner =
+  analyticsReader === undefined || analyticsNetworkConfig === undefined
+    ? undefined
+    : (() => {
+        const seedFile = process.env.PROTOCOL_FLOWS_FILE?.trim() || fileURLToPath(new URL('../../../fixtures/protocol-flows-mainnet.json', import.meta.url));
+        const seed = () => readScanFile(seedFile);
+        const reader = analyticsReader;
+        return new TreasuryScanner({
+          store: alertDb === undefined ? new LazySeededMemoryStore(seed) : new PostgresTreasuryStore(alertDb, seed),
+          rpc: { rpcUrl: analyticsNetworkConfig.rpcUrl, exchangeAddress: analyticsNetworkConfig.exchangeAddress },
+          collateralAtIndexHead: () => reader.collateralTotalsAtIndexHead(),
+          log,
+          warn,
+        });
+      })();
+treasuryScanner?.start();
+
 const app = createHealthApp({
   health,
   // The Protect API is bound to the ENVIRONMENT account's session. No page
@@ -832,9 +855,8 @@ const app = createHealthApp({
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache }),
-  // The treasury's in/out per day, from the chain-log scan's file (pnpm
-  // protocol:flows). Read on change, never per request.
-  protocolTreasuryDays: protocolDaysFromFile(process.env.PROTOCOL_FLOWS_FILE?.trim() || fileURLToPath(new URL('../../../fixtures/protocol-flows-mainnet.json', import.meta.url))),
+  // The treasury's in/out per day, from the incremental scan's own state.
+  ...(treasuryScanner === undefined ? {} : { protocolTreasuryDays: async () => treasuryDaysOf(treasuryScanner.movements(), treasuryScanner.status()) }),
   // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same
   // `getAccountByAddr` read Protect sign-in uses, so an address the index never
   // saw an AccountCreated for still resolves.
@@ -911,6 +933,7 @@ shutdown
   // Stop producing work first. Everything below is then draining a queue that
   // cannot grow, rather than racing one that still can.
   .add('stop the watch loop and timers', () => {
+    treasuryScanner?.stop();
     watchLoop?.stop();
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
     if (warmTimer !== undefined) clearInterval(warmTimer);

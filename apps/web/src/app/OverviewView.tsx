@@ -5,7 +5,7 @@ import type { MarketBreakdown } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatDayLong, formatPct, formatSignedAusd } from '@/lib/format.ts';
 import { deltaOf, deltaVsPrevious, lastDays, stackByMarket } from '@/lib/overview.ts';
-import { balanceBefore, balanceCheck, rebuiltBalance } from '@/lib/exchangeBalance.ts';
+import { balanceBefore, rebuiltBalance, treasuryLines } from '@/lib/exchangeBalance.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
 import { periodLabel } from '@/lib/history.ts';
 import { useHistory, useHistoryStart } from '@/lib/useHistory.ts';
@@ -84,7 +84,7 @@ export function OverviewView() {
   const tvlNow = tvlReading?.known === true ? tvlReading.totalValueLockedAusd : undefined;
   const balance = useMemo(() => (seriesAll.data === undefined || treasury.data === undefined ? undefined : rebuiltBalance(seriesAll.data.data, treasury.data.data)), [seriesAll.data, treasury.data]);
   const balanceWindow = useMemo(() => (balance === undefined ? undefined : lastDays(balance, showDays)), [balance, showDays]);
-  const check = balance === undefined || tvlNow === undefined || balance.length === 0 ? undefined : balanceCheck(balance.at(-1)!.levelAusd, tvlNow);
+  const lines = treasury.data === undefined ? undefined : treasuryLines(treasury.data.data.scan, Date.now());
   const tvlSpark = balanceWindow?.map((d) => d.levelAusd);
   const balancePoints = useMemo<readonly LevelPoint[] | undefined>(
     () =>
@@ -216,15 +216,13 @@ export function OverviewView() {
           <ErrorNote error={seriesAll.error ?? treasury.error} what="Exchange balance history" />
           {balancePoints === undefined ? <Skeleton className="mt-2 h-[220px] w-full" /> : <LevelChart points={balancePoints} label="Exchange balance" />}
           <div className="mt-2 text-[11.5px] leading-[1.5] text-muted2">
-            {check === undefined ? (
-              'Rebuilt from events: deposits − withdrawals, plus the protocol treasury’s own deposits and withdrawals, running since launch.'
-            ) : (
-              <>
-                <b className={`font-semibold ${check.matches ? 'text-muted' : 'text-watch'}`}>Rebuilt from events, {check.matches ? 'matches the contract' : 'does not match the contract'}:</b>{' '}
-                {formatAusd(check.rebuiltAusd)} rebuilt, {formatAusd(check.contractAusd)} held, {formatAusd(Math.abs(check.gapAusd))} apart. Deposits − withdrawals plus the protocol treasury&rsquo;s own deposits and withdrawals
-                {treasury.data === undefined ? '' : ` (scanned off the chain through block ${formatCount(treasury.data.data.throughBlock)})`}, running since launch; the last point is the contract&rsquo;s balance now.
-              </>
+            {lines?.reconciliation !== undefined && (
+              <span className={`block ${lines.reconciliation.tone === 'watch' ? 'font-semibold text-watch' : 'text-muted'}`}>{lines.reconciliation.text}</span>
             )}
+            <span className="block">
+              Deposits − withdrawals plus the protocol treasury&rsquo;s own deposits and withdrawals, running since launch; the last point is the contract&rsquo;s balance now.
+            </span>
+            {lines !== undefined && <span className={`block ${lines.scan.tone === 'watch' ? 'text-watch' : ''}`}>{lines.scan.text}</span>}
             {chartNote !== undefined && ` ${chartNote}`}
           </div>
         </div>

@@ -14,3 +14,4 @@ export * from './perpl.ts';
 export * from './perpl-account-lookup.ts';
 export * from './perpl-insurance.ts';
 export * from './external-funding.ts';
+export * from './perpl-treasury.ts';

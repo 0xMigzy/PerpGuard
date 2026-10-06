@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ProtocolTreasuryDays } from '@perpguard/shared';
-import { balanceBefore, balanceCheck, rebuiltBalance } from './exchangeBalance.ts';
+import { balanceBefore, rebuiltBalance, treasuryLines } from './exchangeBalance.ts';
 
 const D = (n: number) => Date.UTC(2026, 6, n);
-const treasury = (days: ProtocolTreasuryDays['days'], movements: ProtocolTreasuryDays['movements'] = []): ProtocolTreasuryDays => ({ throughBlock: 1, days, movements, lastEventAtMs: undefined });
+const treasury = (days: ProtocolTreasuryDays['days'], movements: ProtocolTreasuryDays['movements'] = []): ProtocolTreasuryDays => ({ throughBlock: 1, days, movements, lastEventAtMs: undefined, scan: { throughBlock: 1, scannedAtMs: 1, intervalMs: 900_000 } });
 
 test('the balance runs forward from launch: collateral net plus treasury net, day by day', () => {
   const b = rebuiltBalance(
@@ -33,11 +33,31 @@ test('it never starts below zero the way the backward walk did', () => {
   assert.equal(b.at(-1)!.levelAusd, 4_017_092 + 130_250 - 308_868);
 });
 
-test('the check states both figures; 27.70 apart out of 3.84M matches, 1% does not', () => {
-  const ok = balanceCheck(3_838_349.21, 3_838_376.91);
-  assert.equal(ok.gapAusd.toFixed(2), '27.70');
-  assert.equal(ok.matches, true);
-  assert.equal(balanceCheck(3_800_000, 3_838_376.91).matches, false);
+const recon = (gapAusd: number, withinExpected: boolean) => ({
+  atBlock: 111_028_717, checkedAtMs: 0, rebuiltAusd: 3_838_349.21, contractAusd: 3_838_349.21 + gapAusd, gapAusd, expectedGapAusd: 27.700465, toleranceAusd: 1, withinExpected,
+});
+
+test('inside the known difference the page says it matches, with both figures and the block', () => {
+  const l = treasuryLines({ throughBlock: 111_028_900, scannedAtMs: 1_000, intervalMs: 900_000, reconciliation: recon(27.700465, true) }, 241_000);
+  assert.equal(l.reconciliation!.tone, 'ok');
+  assert.match(l.reconciliation!.text, /^Rebuilt from events, matches the contract at block 111,028,717: 3,838,349\.21 rebuilt, 3,838,376\.91 held, 27\.70 apart/);
+  assert.equal(l.scan.text, 'Treasury events scanned through block 111,028,900, 4 min ago; rescanned every 15 min.');
+  assert.equal(l.scan.tone, 'ok');
+});
+
+test('outside it, the difference is shown in words, never smoothed over', () => {
+  const l = treasuryLines({ throughBlock: 1, scannedAtMs: 1, intervalMs: 900_000, reconciliation: recon(5_027.7, false) }, 1);
+  assert.equal(l.reconciliation!.tone, 'watch');
+  assert.match(l.reconciliation!.text, /^Rebuilt and contract differ by 5,027\.70 AUSD at block 111,028,717, outside the known 27\.70 ± 1: a movement the rebuild does not explain/);
+});
+
+test('a failed scan and a scan not yet run both say so', () => {
+  const failed = treasuryLines({ throughBlock: 9, scannedAtMs: 1_000, intervalMs: 900_000, lastError: 'the RPC timed out', lastErrorAtMs: 61_000 }, 181_000);
+  assert.equal(failed.scan.tone, 'watch');
+  assert.match(failed.scan.text, /The last scan failed 2 min ago \(the RPC timed out\); it retries every 15 min\.$/);
+  assert.equal(failed.reconciliation, undefined, 'no reconciliation is invented');
+  const first = treasuryLines({ throughBlock: 9, scannedAtMs: undefined, intervalMs: 900_000 }, 1);
+  assert.match(first.scan.text, /the first scan since start-up has not finished/);
 });
 
 test('the balance before a window takes out the treasury movements inside it, not only collateral', () => {

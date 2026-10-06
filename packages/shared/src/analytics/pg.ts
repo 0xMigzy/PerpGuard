@@ -87,7 +87,7 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
-import type { AccountFill, AccountFillsPage, LeverageBaseline, WalletInsightFacts } from './types.ts';
+import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
@@ -562,6 +562,17 @@ select f.id, f.role, f.timestamp, f."txHash",
   from f join "Market" m on m.id = f.market_id
  order by f.timestamp desc, f."logIndex" desc, f.role
  limit $3 offset $4
+`;
+
+/** Deposits and withdrawals up to the index's own latest block, in one statement so the block and the sums agree. */
+const COLLATERAL_AT_HEAD_SQL = `
+with head as (select latest_processed_block::bigint as block from chain_metadata limit 1)
+select head.block::text as block,
+       (select "collateralToken" from "Exchange" limit 1) as token,
+       coalesce(sum(f."amountCNS") filter (where f.kind = 'DEPOSIT'), 0)::text as deposited,
+       coalesce(sum(f."amountCNS") filter (where f.kind = 'WITHDRAWAL'), 0)::text as withdrawn
+  from head left join "CollateralFlow" f on f."blockNumber" <= head.block
+ group by head.block
 `;
 
 /** Busiest accounts by fills since launch, from the day buckets (~0.3 s, not a scan of Trade). */
@@ -1279,6 +1290,19 @@ export class PostgresAnalytics implements Analytics {
       shortTrips: count(row?.['shorts']),
       longNetPnlAusd: toAusd(row?.['long_net'], decimals),
       shortNetPnlAusd: toAusd(row?.['short_net'], decimals),
+    };
+  }
+
+  async collateralTotalsAtIndexHead(): Promise<CollateralTotalsAtBlock> {
+    const decimals = await this.#decimals();
+    const row = await this.#one(COLLATERAL_AT_HEAD_SQL, []);
+    if (row === undefined || row['block'] === null || row['block'] === undefined) throw new Error('the index has no processed block yet');
+    return {
+      block: Number(row['block']),
+      collateralToken: String(row['token']),
+      depositedCNS: BigInt(String(row['deposited'])),
+      withdrawnCNS: BigInt(String(row['withdrawn'])),
+      collateralDecimals: decimals,
     };
   }
 

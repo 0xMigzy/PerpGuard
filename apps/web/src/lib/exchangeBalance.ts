@@ -11,7 +11,8 @@
  * live balance pinned every unindexed movement onto launch day, and at the All
  * window the line started 178.6K below zero.
  */
-import type { DailyPoint, ProtocolTreasuryDays } from '@perpguard/shared';
+import type { DailyPoint, ProtocolTreasuryDays, TreasuryScanStatus } from '@perpguard/shared';
+import { formatAge, formatAusd, formatCount } from './format.ts';
 
 export interface BalanceDay {
   readonly dayMs: number;
@@ -35,20 +36,39 @@ export function rebuiltBalance(days: readonly Pick<DailyPoint, 'dayMs' | 'netFlo
   });
 }
 
-/** Within this share of the contract's balance, the rebuild is said to match it. */
-export const MATCH_TOLERANCE = 0.0001;
-
-export interface BalanceCheck {
-  readonly rebuiltAusd: number;
-  readonly contractAusd: number;
-  /** contract − rebuilt. */
-  readonly gapAusd: number;
-  readonly matches: boolean;
+/**
+ * What the page says about the rebuild and the scan, from the backend's own
+ * reconciliation at ONE block (never this browser's live balance against an
+ * index that trails it). `tone` is 'watch' when something needs a reader's eye:
+ * a difference outside the known one, a failed scan, or no check yet.
+ */
+export interface TreasuryLines {
+  readonly reconciliation: { readonly tone: 'ok' | 'watch'; readonly text: string } | undefined;
+  readonly scan: { readonly tone: 'ok' | 'watch'; readonly text: string };
 }
 
-export function balanceCheck(rebuiltAusd: number, contractAusd: number): BalanceCheck {
-  const gapAusd = contractAusd - rebuiltAusd;
-  return { rebuiltAusd, contractAusd, gapAusd, matches: Math.abs(gapAusd) <= Math.abs(contractAusd) * MATCH_TOLERANCE };
+export function treasuryLines(scan: TreasuryScanStatus, nowMs: number): TreasuryLines {
+  const r = scan.reconciliation;
+  const reconciliation =
+    r === undefined
+      ? undefined
+      : r.withinExpected
+        ? {
+            tone: 'ok' as const,
+            text: `Rebuilt from events, matches the contract at block ${formatCount(r.atBlock)}: ${formatAusd(r.rebuiltAusd)} rebuilt, ${formatAusd(r.contractAusd)} held, ${formatAusd(r.gapAusd)} apart, the known difference since 6 Oct 2026 that no event explains.`,
+          }
+        : {
+            tone: 'watch' as const,
+            text: `Rebuilt and contract differ by ${formatAusd(r.gapAusd)} AUSD at block ${formatCount(r.atBlock)}, outside the known ${formatAusd(r.expectedGapAusd)} ± ${formatAusd(r.toleranceAusd, 0)}: a movement the rebuild does not explain. ${formatAusd(r.rebuiltAusd)} rebuilt, ${formatAusd(r.contractAusd)} held.`,
+          };
+  const through = scan.throughBlock === undefined ? 'no block yet' : `block ${formatCount(scan.throughBlock)}`;
+  const minutes = Math.round(scan.intervalMs / 60_000);
+  const failed = scan.lastError === undefined ? '' : ` The last scan failed ${scan.lastErrorAtMs === undefined ? '' : `${formatAge(nowMs - scan.lastErrorAtMs)} ago `}(${scan.lastError}); it retries every ${minutes} min.`;
+  const text =
+    scan.scannedAtMs === undefined
+      ? `Treasury events scanned through ${through}; the first scan since start-up has not finished.${failed}`
+      : `Treasury events scanned through ${through}, ${formatAge(nowMs - scan.scannedAtMs)} ago; rescanned every ${minutes} min.${failed}`;
+  return { reconciliation, scan: { tone: scan.lastError === undefined && scan.scannedAtMs !== undefined ? 'ok' : 'watch', text } };
 }
 
 /**

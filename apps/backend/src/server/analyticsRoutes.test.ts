@@ -145,6 +145,10 @@ class FakeAnalytics implements Analytics {
     return { fills: [], limit: options.limit ?? 50, offset: options.offset ?? 0, hasMore: false };
   }
 
+  async collateralTotalsAtIndexHead() {
+    return { block: 1, collateralToken: '0x0', depositedCNS: 0n, withdrawnCNS: 0n, collateralDecimals: 6 };
+  }
+
   async busiestAccounts() {
     return [10];
   }
@@ -682,7 +686,7 @@ test('without a venue, open interest is a 503 and never the indexer delta in dis
 test('protocol treasury days: 503 without a scan, enveloped with one', async () => {
   const bare = app(new FakeAnalytics(), {});
   assert.equal((await bare.instance.inject({ method: 'GET', url: '/api/analytics/exchange-balance/protocol-days' })).statusCode, 503);
-  const wired = app(new FakeAnalytics(), { protocolTreasuryDays: async () => ({ throughBlock: 5, days: [{ dayMs: 1, inAusd: 2, outAusd: 3 }], movements: [{ atMs: 1, ausd: -1 }], lastEventAtMs: 1 }) });
+  const wired = app(new FakeAnalytics(), { protocolTreasuryDays: async () => ({ throughBlock: 5, days: [{ dayMs: 1, inAusd: 2, outAusd: 3 }], movements: [{ atMs: 1, ausd: -1 }], lastEventAtMs: 1, scan: { throughBlock: 5, scannedAtMs: 1, intervalMs: 900_000 } }) });
   const r = await wired.instance.inject({ method: 'GET', url: '/api/analytics/exchange-balance/protocol-days' });
   assert.equal(r.statusCode, 200);
   assert.equal((body(r.payload)['data'] as { throughBlock: number }).throughBlock, 5);

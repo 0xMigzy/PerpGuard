@@ -1074,3 +1074,13 @@ test('an account\'s fills: both roles off their own indexes, newest first, one r
   const capped = await reader(sql).accountFills(1, { limit: 1e9 });
   assert.equal(capped.limit, 10_000);
 });
+
+test('collateral totals are summed up to the index\'s own latest block, exactly, in one statement', async () => {
+  const sql = new FakeSql();
+  sql.on(/with head as/, [{ block: '110989971', token: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', deposited: '16236661561042', withdrawn: '12219694570773' }]);
+  const t = await reader(sql).collateralTotalsAtIndexHead();
+  assert.equal(t.block, 110_989_971);
+  assert.equal(t.depositedCNS, 16_236_661_561_042n);
+  assert.equal(t.withdrawnCNS, 12_219_694_570_773n);
+  assert.match(sql.calls.find((c) => /with head as/.test(c.sql))!.sql, /f\."blockNumber" <= head\.block/);
+});

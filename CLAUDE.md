@@ -427,9 +427,21 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   serves. At block 110,989,971 it rebuilt 3,838,349.21 against the contract's
   3,838,376.91 (27.70 apart); the 178.6K "gap" was the treasury's net
   withdrawals. Treasury<->account/perp transfers move money INSIDE the
-  contract and are not counted. The page states both figures and the scan's
-  last block. Re-run the scan to extend it; a new treasury movement after that
-  block shows as a growing gap, never silently.
+  contract and are not counted.
+  - THE SCAN IS INCREMENTAL AND THE BACKEND RUNS IT (`apps/backend/src/
+    exchangeBalance/treasuryScanner.ts`): at start-up and every 15 minutes,
+    from its stored cursor to the latest FINALIZED block, never overlapping
+    (in-process flag + Postgres advisory lock), failures logged and retried
+    next interval. Movements and cursor live in the backend's Postgres
+    (`protocol_treasury_movements`, `protocol_treasury_cursor`), seeded once
+    from the committed file. Venue code is `packages/shared/src/venues/
+    perpl-treasury.ts`.
+  - RECONCILED AT ONE BLOCK, the index's latest: collateral up to it, the
+    contract's balance AT it. Never the live balance against the trailing
+    index. The gap has been 27.700465 AUSD since it was first measured, with
+    no event explaining it; outside 27.70 ± 1 the backend logs a warning and
+    the page shows the difference in words. The page also states the block
+    scanned through and how long ago.
 - DAILY ACTIVE TRADERS ARE DISTINCT ACCOUNTS from `TraderDay` (tradeCount > 0),
   never `MarketDay.activeTraderCount`, which is per market.
 - THE TRADES TAB READS TWO INDEXES ENVIO DOES NOT KNOW ABOUT:
