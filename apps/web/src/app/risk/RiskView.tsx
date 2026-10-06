@@ -16,6 +16,7 @@ import { StaleMarker } from '@/components/StaleMarker.tsx';
 import { LADDER_COLORS, LadderChart } from '@/components/charts/LadderChart.tsx';
 import { MarketName, TokenIcon } from '@/components/TokenIcon.tsx';
 import { InfoTip, PANEL, RiskKpis } from './RiskKpis.tsx';
+import { ShortLine } from '@/components/Explain.tsx';
 
 const POLL_MS = 30_000;
 const DEFAULT_MOVE = -0.1;
@@ -196,10 +197,9 @@ export function RiskView() {
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16.5v.01" />
         </svg>
-        <div>
-          Shows what&rsquo;s at risk, not what will be lost. Liquidated positions need buyers. With few buyers they sell lower, deepening losses. We can&rsquo;t see the live order
-          book, so that isn&rsquo;t modelled.
-        </div>
+        <ShortLine line="Shows what’s at risk, not what will be lost">
+          Liquidated positions need buyers. With few buyers they sell lower, deepening losses. We can&rsquo;t see the live order book, so that isn&rsquo;t modelled.
+        </ShortLine>
       </div>
 
       {s !== undefined && s.counted.unpriced > 0 && (

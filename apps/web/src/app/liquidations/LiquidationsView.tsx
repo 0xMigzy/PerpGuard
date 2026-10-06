@@ -22,6 +22,7 @@ import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { MarketName } from '@/components/TokenIcon.tsx';
 import { marketIconSymbol, marketName } from '@/lib/markets.ts';
 import { LiquidationsByDayChart } from '@/components/charts/LiquidationsByDayChart.tsx';
+import { Explain } from '@/components/Explain.tsx';
 
 const POLL_MS = 30_000;
 
@@ -102,13 +103,13 @@ export function LiquidationsView() {
               <p className="m-0 max-w-[60ch] text-[13px] text-text2">
                 <b className="font-semibold text-text">
                   In {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} judgeable liquidations {within}, the trader held enough free AUSD to cover the shortfall.
-                </b>{' '}
+                </b>
+              </p>
+              <Explain className="mt-[6px]" label="Why this matters, and what the loss figure counts">
                 Perpl uses isolated margin, so that balance never moves on its own. A top-up would have kept the position open; it would not have undone the price move.
-                What it avoids for certain is being closed out at the worst moment.
-              </p>
-              <p className="mt-[8px] mb-0 text-[12px] text-muted">
-                Realised loss (PnL + funding) on liquidations where the trader&rsquo;s free balance covered the shortfall. Excludes liquidation fees, so the true figure is slightly higher.
-              </p>
+                What it avoids for certain is being closed out at the worst moment. The figure is realised loss (PnL + funding) on liquidations where the trader&rsquo;s free
+                balance covered the shortfall. Excludes liquidation fees, so the true figure is slightly higher.
+              </Explain>
               <p className="mt-[10px] mb-0 text-[12.5px] text-text/85">
                 <span className="eyebrow mr-2">Window</span>
                 <span className="num">{windowRange(m?.sinceMs, m?.untilMs ?? Date.now(), start)}</span>
@@ -273,10 +274,10 @@ export function LiquidationsView() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11.5px] text-muted2">
-        <span className="max-w-[90ch]">
+        <Explain className="max-w-[90ch]">
           Spare held is the account&rsquo;s free AUSD the instant before; shortfall is the top-up that would have kept the position above maintenance margin.
           A verdict is rescuable when spare covered shortfall, not when spare was merely above zero.
-        </span>
+        </Explain>
         {rows !== undefined && mayHaveMore(rows.length, limit) && (
           <button type="button" className="btn" onClick={() => setLimit(nextLimit(limit))}>
             Show more

@@ -22,6 +22,7 @@ import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { NetFlowChart } from '@/components/charts/NetFlowChart.tsx';
 import { DailyBars } from '@/components/charts/DailyBars.tsx';
 import { LevelChart, type LevelPoint } from '@/components/charts/LevelChart.tsx';
+import { ShortLine } from '@/components/Explain.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { ANCHOR_TOLERANCE, oiHistory, type OiHistory } from '@/lib/oiHistory.ts';
 import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx';
@@ -196,15 +197,17 @@ export function OverviewView() {
               rows={(p) => topMarkets(p, oiHist!, marketNames)}
             />
           )}
-          <div className="mt-2 text-[11.5px] leading-[1.5] text-muted2">
+          <ShortLine className="mt-2" line="Open lots × closing mark, ending on the venue's reading now">
             Each day is every market&rsquo;s open lots × its closing mark. The index runs from the Exchange&rsquo;s deployment block, so its running lot count is the level itself; the last point is the venue&rsquo;s own reading now.
+            {chartNote !== undefined && ` ${chartNote}`}
+          </ShortLine>
+          <div className="text-[11.5px] leading-[1.5] text-muted2">
             {oiHist !== undefined && oiHist.mismatches.length > 0 && (
               <span className="mt-1 block text-watch">
                 Indexed lots differ from the venue&rsquo;s by more than {formatPct(ANCHOR_TOLERANCE)} on{' '}
                 {oiHist.mismatches.map((x) => `${x.symbol} (${x.indexedLots.toLocaleString('en-US')} indexed vs ${x.venueLots === undefined ? 'not listed' : x.venueLots.toLocaleString('en-US')})`).join(', ')}. The history is drawn as indexed.
               </span>
             )}
-            {chartNote !== undefined && ` ${chartNote}`}
           </div>
         </div>
 
@@ -215,16 +218,18 @@ export function OverviewView() {
           </div>
           <ErrorNote error={seriesAll.error ?? treasury.error} what="Exchange balance history" />
           {balancePoints === undefined ? <Skeleton className="mt-2 h-[220px] w-full" /> : <LevelChart points={balancePoints} label="Exchange balance" />}
-          <div className="mt-2 text-[11.5px] leading-[1.5] text-muted2">
-            {lines?.reconciliation !== undefined && (
-              <span className={`block ${lines.reconciliation.tone === 'watch' ? 'font-semibold text-watch' : 'text-muted'}`}>{lines.reconciliation.text}</span>
-            )}
-            <span className="block">
-              Deposits − withdrawals plus the protocol treasury&rsquo;s own deposits and withdrawals, running since launch; the last point is the contract&rsquo;s balance now.
-            </span>
-            {lines !== undefined && <span className={`block ${lines.scan.tone === 'watch' ? 'text-watch' : ''}`}>{lines.scan.text}</span>}
-            {chartNote !== undefined && ` ${chartNote}`}
-          </div>
+          {lines === undefined ? (
+            <div className="mt-2 text-[11.5px] text-muted2">Rebuilt from events: deposits − withdrawals and the protocol treasury&rsquo;s own movements, since launch.</div>
+          ) : (
+            <ShortLine className="mt-2" line={<span className={lines.short.tone === 'watch' ? 'font-semibold text-watch' : ''}>{lines.short.text}</span>}>
+              {lines.reconciliation !== undefined && <span className={`block ${lines.reconciliation.tone === 'watch' ? 'font-semibold text-watch' : ''}`}>{lines.reconciliation.text}</span>}
+              <span className="block">
+                Deposits − withdrawals plus the protocol treasury&rsquo;s own deposits and withdrawals, running since launch; the last point is the contract&rsquo;s balance now.
+              </span>
+              <span className={`block ${lines.scan.tone === 'watch' ? 'text-watch' : ''}`}>{lines.scan.text}</span>
+              {chartNote !== undefined && <span className="block">{chartNote}</span>}
+            </ShortLine>
+          )}
         </div>
       </section>
 
@@ -402,10 +407,9 @@ function GrowthSection() {
             </p>
           )}
           <GrowthChart months={h.months} />
-          <div className="mt-2 text-[11.5px] text-muted2">
-            One trade is one maker fill. {total === undefined ? '' : `${formatCount(total)} in all. `}
+          <ShortLine className="mt-2" line={`One trade is one maker fill${total === undefined ? '' : `, ${formatCount(total)} in all`}`}>
             {h.months.some((m) => m.partial) ? 'The faint bar is the month still running. ' : ''}{h.startsAtMs === undefined ? '' : `${formatMonth(h.startsAtMs)} starts at launch, ${formatDayLong(h.startsAtMs)}, so it is not a whole month either.`}
-          </div>
+          </ShortLine>
           <details className="mt-2 text-[12px] text-muted">
             <summary className="cursor-pointer">The numbers</summary>
             <div className="mt-2 overflow-x-auto">

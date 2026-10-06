@@ -10,6 +10,7 @@ import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { MarketName } from '@/components/TokenIcon.tsx';
+import { Explain, ShortLine } from '@/components/Explain.tsx';
 
 const POLL_MS = 60_000;
 
@@ -59,11 +60,14 @@ export function FundingScanner({ heat }: { readonly heat: HeatModel | undefined 
       </div>
 
       {/* ABOVE the numbers on purpose: read top to bottom, this comes first. */}
-      <p className="mt-0 mb-3 border-l-2 border-accent pl-[10px] text-[13px] leading-[1.55] text-text">
-        Perpl&rsquo;s funding formula has no interest term; Hyperliquid&rsquo;s and Binance&rsquo;s add 0.01% per 8 hours (10.95% a year). So where Perpl&rsquo;s rate is 0, it sits
-        about 11 points below both, and that part of any gap is structural, not an opportunity. Perpl&rsquo;s rate also moves in whole steps of 0.001% per settlement, about
-        12.2% a year.
-      </p>
+      <div className="mb-3 border-l-2 border-accent pl-[10px]">
+        <p className="m-0 text-[13px] leading-[1.55] text-text">Perpl has no interest term, so where its rate is 0 it sits about 11 points below both: structural, not an opportunity.</p>
+        <ShortLine line="Why, and Perpl's 0.001% steps">
+          Hyperliquid&rsquo;s and Binance&rsquo;s funding formulas add an interest term of 0.01% per 8 hours (10.95% a year); Perpl&rsquo;s has none. So where Perpl&rsquo;s rate is
+          0, it sits about 11 points below both, and that part of any gap is structural. Perpl&rsquo;s rate also moves in whole steps of 0.001% per settlement, about 12.2% a
+          year.
+        </ShortLine>
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <button type="button" className="seg" aria-pressed={strip} onClick={() => setMode(strip ? 'raw' : 'like-for-like')}>
@@ -113,10 +117,8 @@ export function FundingScanner({ heat }: { readonly heat: HeatModel | undefined 
         </div>
       )}
 
+      {/* Sources stay visible; the method is one tap away. */}
       <div className="mt-3 text-[11.5px] leading-[1.55] text-muted2">
-        <b className="font-semibold text-muted">APR</b> is simple: the current rate × settlements a year (Perpl every ~43 min, Hyperliquid hourly, Binance every 4 or 8 hours
-        per contract), not compounded, and it assumes the rate holds. Positive: longs pay shorts. Markets are matched by ticker and confirmed by price, within 5%; a venue
-        that does not list a market is an empty cell, never 0. Spread is in percentage points, sorted largest first.{' '}
         <b className="font-semibold text-muted">Sources.</b> Perpl: PerpGuard&rsquo;s index of on-chain funding settlements, interval from Perpl&rsquo;s API context.{' '}
         {SCANNER_VENUES.map((v) => (
           <span key={v}>
@@ -127,8 +129,13 @@ export function FundingScanner({ heat }: { readonly heat: HeatModel | undefined 
             .{' '}
           </span>
         ))}
-        Fetched by PerpGuard&rsquo;s server at most once a minute while someone is reading, never from your browser.
       </div>
+      <Explain className="mt-1">
+        APR is simple: the current rate × settlements a year (Perpl every ~43 min, Hyperliquid hourly, Binance every 4 or 8 hours per contract), not compounded, and it
+        assumes the rate holds. Positive: longs pay shorts. Markets are matched by ticker and confirmed by price, within 5%; a venue that does not list a market is an empty
+        cell, never 0. Spread is in percentage points, sorted largest first. Fetched by PerpGuard&rsquo;s server at most once a minute while someone is reading, never from
+        your browser.
+      </Explain>
     </section>
   );
 }

@@ -34,6 +34,7 @@ import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { MarketName } from '@/components/TokenIcon.tsx';
 import { FundingHeatmap, HeatLegend } from '@/components/charts/FundingHeatmap.tsx';
 import { FundingScanner } from './FundingScanner.tsx';
+import { Explain, ShortLine } from '@/components/Explain.tsx';
 import { StatusPills, useStatusFilter } from './StatusPills.tsx';
 
 const POLL_MS = 30_000;
@@ -207,12 +208,14 @@ export function MarketsView() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border px-[14px] py-3 text-[11.5px] leading-[1.55] text-muted2">
+        <div className="border-t border-border px-[14px] py-3">
+          <Explain>
           <b className="font-semibold text-muted">Risk.</b> {CROWDED_RULE}{' '}
           <b className="font-semibold text-muted">Figures.</b> Symbols resolve from the venue context by market id; an upcoming market carries the contract&rsquo;s own
           symbol and none of the venue&rsquo;s figures (—). Volume is indexed over the {period} window; price and open interest are the venue&rsquo;s level
           {oiAge === undefined ? '' : ` as of ${oiAge} ago`}. Exposure is isolated margin per side, not notional, which is 50/50 on every market by construction.
           {feesLabel !== undefined && ` Fees in a row's detail are maker + taker over ${feesLabel}.`}
+          </Explain>
         </div>
       </section>
 
@@ -283,8 +286,15 @@ function FundingSection({
         </div>
       </div>
 
-      <div className="mb-3 text-[12px] leading-[1.55] text-muted">
-        Every live market in the table above has a row here{liveCount === undefined ? '' : ` (${formatCount(liveCount)})`}.
+      <ShortLine
+        className="mb-3"
+        line={
+          <>
+            Every live market{liveCount === undefined ? '' : ` (${formatCount(liveCount)})`}
+            {minutes !== undefined && perDay !== undefined && <>; settles every ~{minutes} min, about {perDay} times a day</>}
+          </>
+        }
+      >
         {upcomingCount > 0 && ` The ${formatCount(upcomingCount)} upcoming market${upcomingCount === 1 ? ' is' : 's are'} in the table but never here: not open yet, so nobody can hold a position to pay or receive funding.`}{' '}
         {cadence !== undefined && minutes !== undefined && perDay !== undefined && (
           <>
@@ -294,7 +304,7 @@ function FundingSection({
             {Math.ceil(86_400 / cadence.measuredIntervalSec!)} of them.
           </>
         )}
-      </div>
+      </ShortLine>
 
       {heat === undefined ? (
         <Skeleton className="h-[260px] w-full" />
@@ -302,16 +312,18 @@ function FundingSection({
         <div className="py-6 text-center text-[12.5px] text-muted">No funding settlement was indexed in {period}. Every live market&rsquo;s row would be empty.</div>
       ) : (
         <>
-          <div className="mb-3 text-[12px] text-muted">{grainCaption(heat, timeframe, period)}</div>
+          <ShortLine className="mb-3" line={heat.grain === 'settlement' ? 'One column per settlement' : heat.grain === 'utc-day' ? 'One column per UTC day: the mean rate per settlement' : 'One column per UTC week: the mean rate per settlement'}>
+            {grainCaption(heat, timeframe, period)}
+          </ShortLine>
           <FundingHeatmap model={heat} view={view} />
           <div className="mt-3 flex flex-col gap-2">
             {view === 'chart' && <HeatLegend />}
-            <div className="text-[11.5px] leading-[1.55] text-muted2">
+            <Explain label="How the APR is calculated">
               <b className="font-semibold text-muted">APR</b> on the right is annualised from the CURRENT rate (the table&rsquo;s Funding column) × settlements a year: simple, not
               compounded, and it assumes the rate holds. A snapshot of right now, not a forecast; rates flip sign settlement to settlement. Hover a cell for the market, the
               period and the rate to six decimal places, or switch to Table for every figure as text. Positive: longs pay shorts (Perpl docs). An AUSD total across traders
               needs each side&rsquo;s open interest at every settlement, which the index does not keep, so it is not estimated.
-            </div>
+            </Explain>
           </div>
         </>
       )}

@@ -43,6 +43,8 @@ export function rebuiltBalance(days: readonly Pick<DailyPoint, 'dayMs' | 'netFlo
  * a difference outside the known one, a failed scan, or no check yet.
  */
 export interface TreasuryLines {
+  /** The one line shown by default. A problem is IN it, never behind "details". */
+  readonly short: { readonly tone: 'ok' | 'watch'; readonly text: string };
   readonly reconciliation: { readonly tone: 'ok' | 'watch'; readonly text: string } | undefined;
   readonly scan: { readonly tone: 'ok' | 'watch'; readonly text: string };
 }
@@ -68,7 +70,15 @@ export function treasuryLines(scan: TreasuryScanStatus, nowMs: number): Treasury
     scan.scannedAtMs === undefined
       ? `Treasury events scanned through ${through}; the first scan since start-up has not finished.${failed}`
       : `Treasury events scanned through ${through}, ${formatAge(nowMs - scan.scannedAtMs)} ago; rescanned every ${minutes} min.${failed}`;
-  return { reconciliation, scan: { tone: scan.lastError === undefined && scan.scannedAtMs !== undefined ? 'ok' : 'watch', text } };
+  const age = scan.scannedAtMs === undefined ? 'first scan running' : `scanned ${formatAge(nowMs - scan.scannedAtMs)} ago`;
+  const failedTag = scan.lastError === undefined ? '' : ' · last scan failed';
+  const short =
+    r === undefined
+      ? { tone: 'watch' as const, text: `Rebuilt from events; not yet checked against the contract · ${age}${failedTag}` }
+      : r.withinExpected
+        ? { tone: scan.lastError === undefined ? ('ok' as const) : ('watch' as const), text: `Matches the contract to within ${formatMoneyExact(Math.abs(r.gapAusd))} · ${age}${failedTag}` }
+        : { tone: 'watch' as const, text: `Off the contract by ${formatMoneyExact(r.gapAusd)}, beyond the known ${formatMoneyExact(r.expectedGapAusd)} ± ${formatMoneyExact(r.toleranceAusd, 0)} · ${age}${failedTag}` };
+  return { short, reconciliation, scan: { tone: scan.lastError === undefined && scan.scannedAtMs !== undefined ? 'ok' : 'watch', text } };
 }
 
 /**
