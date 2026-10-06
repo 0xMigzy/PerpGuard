@@ -298,12 +298,15 @@ test('every page outcome leaves a log line naming who and why, never the code, m
   const message = (c.json() as { message: string }).message;
   const signature = await STRANGER_KEY.signMessage({ message });
   await app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie }, payload: { message, signature } });
-  assert.deepEqual(lines, [
-    'link page: a code was refused (wrong, used or expired)',
-    'link page: tg:4242 opened the page with a code',
-    'link page: tg:4242 was issued a wallet challenge',
-    'link page: tg:4242 sent a wallet signature that was refused: bad-signature',
-  ]);
+  assert.equal(lines.length, 4);
+  assert.match(lines[0]!, /^link page: a code was refused \(wrong, used or expired\); from /);
+  assert.match(lines[1]!, /^link page: tg:4242 opened the page with a code: session [0-9a-f]{8}; from /);
+  const tag = /session ([0-9a-f]{8})/.exec(lines[1]!)![1]!;
+  assert.match(lines[2]!, new RegExp(`^link page: tg:4242 was issued a wallet challenge \\(session ${tag};`), 'the same session, strung together');
+  assert.match(lines[3]!, new RegExp(`^link page: tg:4242 sent a wallet signature that was refused: bad-signature \\(session ${tag};`));
+  // A request with no cookie at all is now said, not silently refused.
+  await app.inject({ method: 'POST', url: '/api/link/challenge', payload: { address: OWNER }, headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 Chrome/129.0 Mobile Safari/537.36 Telegram-Android/11.2.2' } });
+  assert.match(lines.at(-1)!, /^link page: POST \/api\/link\/challenge refused: NO session cookie was sent; from Telegram in-app browser \(Android\)/);
   const all = lines.join('\n');
   for (const secret of [code, signature, message.slice(0, 40)]) assert.ok(!all.includes(secret), 'nothing secret in the log');
 });

@@ -16,6 +16,7 @@
  * process, and the session store holds identities, not credentials.
  */
 import { randomBytes } from 'node:crypto';
+import { clientLine, describeClient, sessionTag } from './client.ts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { NetworkName } from '@perpguard/shared';
 import type { TelegramIdentity } from '@perpguard/bot';
@@ -135,12 +136,13 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
     const code = typeof request.body?.code === 'string' ? request.body.code : '';
     const identity = code === '' ? undefined : service.redeem(code);
     if (identity === undefined) {
-      log('a code was refused (wrong, used or expired)');
+      const existing = parseCookies(request.headers.cookie)[LINK_COOKIE];
+      log(`a code was refused (wrong, used or expired)${existing === undefined ? '' : `; this browser holds session ${sessionTag(existing)}`}; from ${clientLine(request.headers['user-agent'])}`);
       // Flat, whatever the cause: a wrong, used and expired code read the same.
       return reply.code(401).send({ error: 'That link did not open a session. Send /link to the bot again for a fresh one; each works once, for five minutes.' });
     }
     const session = sessions.create(identity, identity.telegramName);
-    log(`${identity.userId} opened the page with a code`);
+    log(`${identity.userId} opened the page with a code: session ${sessionTag(session.token)}; from ${clientLine(request.headers['user-agent'])}`);
     reply.header('set-cookie', cookie(session.token, isSecure(request), (session.expiresAtMs - now()) / 1000));
     return me(session);
   });
@@ -154,8 +156,13 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
 
   void app.register(async (scope) => {
     scope.addHook('preHandler', async (request, reply) => {
-      const session = sessions.get(parseCookies(request.headers.cookie)[LINK_COOKIE]);
-      if (session === undefined) return reply.code(401).send({ error: 'No linking session. Open the link the bot sent you; it works once, for five minutes.' });
+      const token = parseCookies(request.headers.cookie)[LINK_COOKIE];
+      const session = sessions.get(token);
+      if (session === undefined) {
+        // THE COOKIE QUESTION, answered in the log: was a cookie sent at all, and from which client?
+        log(`${request.method} ${request.url.split('?')[0]} refused: ${token === undefined ? 'NO session cookie was sent' : `a session cookie was sent (${sessionTag(token)}) but it is expired or unknown`}; from ${clientLine(request.headers['user-agent'])}`);
+        return reply.code(401).send({ error: 'No linking session. Open the link the bot sent you; it works once, for five minutes.' });
+      }
       (request as FastifyRequest & { linkSession: LinkSession }).linkSession = session;
     });
     const sessionOf = (request: FastifyRequest): LinkSession => (request as FastifyRequest & { linkSession: LinkSession }).linkSession;
@@ -171,7 +178,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
         log(`${session.identity.userId} asked for a challenge and was refused: ${issued.error}`);
         return reply.code(400).send({ error: issued.error });
       }
-      log(`${session.identity.userId} was issued a wallet challenge`);
+      log(`${session.identity.userId} was issued a wallet challenge (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
       return { message: issued.message };
     });
 
@@ -180,12 +187,13 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       if (options.wallet === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
       const checked = await options.wallet.verify(session, request.body?.message, request.body?.signature);
       if (!checked.ok) {
-        log(`${session.identity.userId} sent a wallet signature that was refused: ${checked.reason}`);
+        log(`${session.identity.userId} sent a wallet signature that was refused: ${checked.reason} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
         // One sentence whatever the cause; the challenge is spent either way.
         return reply.code(401).send({ error: checked.reason === 'expired' ? 'That signature request expired. Connect and sign again.' : 'That signature couldn\'t be confirmed for this page. Connect and sign again.' });
       }
       // The verified address, never a body field.
       const proof = await service.proveWallet(session.identity, [checked.address]);
+      log(`${session.identity.userId} signed and was verified: ${proof.kind}${'accountId' in proof ? ` (account ${proof.accountId})` : ''} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
       if (proof.kind === 'proven-needs-key') session.provenAccountId = proof.accountId;
       if (proof.kind === 'linked') session.provenAccountId = undefined;
       return { proof, me: me(session) };
