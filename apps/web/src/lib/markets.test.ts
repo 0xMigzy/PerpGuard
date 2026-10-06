@@ -52,14 +52,14 @@ test('a score of all-zero inputs is 0 and every component says why', () => {
 
 test('every input at or past its ceiling scores 100, and the weights sum to one', () => {
   assert.ok(Math.abs(Object.values(RISK_WEIGHT).reduce((a, b) => a + b, 0) - 1) < 1e-12);
-  const r = riskScore({ dailyRanges: [0.5, 0.2], liquidationCount: 10, openPositions: 10, longShare: 1, fundingPct: -0.05 });
+  const r = riskScore({ dailyRanges: [0.5, 0.2], liquidationCount: 10, openPositions: 10, longShare: 1, fundingPct: -5 });
   assert.equal(r.score, 100);
   assert.equal(r.tier, 'danger');
   for (const c of r.components) assert.equal(c.value, 1, c.key);
 });
 
 test('the score decomposes: points sum to the score and each is value × weight × 100', () => {
-  const r = riskScore({ dailyRanges: [0.02, 0.04], liquidationCount: 3, openPositions: 60, longShare: 0.7, fundingPct: 0.00004 });
+  const r = riskScore({ dailyRanges: [0.02, 0.04], liquidationCount: 3, openPositions: 60, longShare: 0.7, fundingPct: 0.004 });
   const sum = r.components.reduce((s, c) => s + c.points, 0);
   assert.equal(r.score, Math.round(sum));
   const vol = r.components.find((c) => c.key === 'volatility')!;
@@ -154,7 +154,7 @@ test('the tag says crowded only when one side holds over 70% AND funding pays th
   assert.equal(riskTag(calm, 0.2, -0.00001).label, 'Crowded short');
   assert.equal(riskTag(calm, 0.7, 0.00001).label, 'Normal', 'exactly 70% is not over it');
   assert.equal(riskTag(calm, undefined, 0.00001).label, 'Normal', 'no margin, no crowd');
-  const hot = riskScore({ dailyRanges: [0.2], liquidationCount: 10, openPositions: 10, longShare: 0.5, fundingPct: 0.001 });
+  const hot = riskScore({ dailyRanges: [0.2], liquidationCount: 10, openPositions: 10, longShare: 0.5, fundingPct: 0.1 });
   assert.equal(riskTag(hot, 0.5, 0.001).label, 'High');
   assert.equal(riskTag(hot, 0.5, 0.001).tone, 'danger');
 });

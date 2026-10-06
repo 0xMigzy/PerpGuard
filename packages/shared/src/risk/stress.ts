@@ -6,9 +6,10 @@
  *
  * Funding scenarios are deliberately absent. `GET /v1/pub/context` reports
  * `funding: { rate, div }` while the chain event calls the same idea
- * `ratePct100k`, and those two scalings have not been reconciled. Guessing the
- * unit would silently produce a wrong number, so the funding scenario waits on
- * https://docs.perpl.xyz/exchange/funding.md and ships separately.
+ * `ratePct100k`. RECONCILED 6 Oct 2026: the chain's value is the rate as a
+ * fraction × 100,000 (measured against positions' payments; see
+ * `toRatePct`), and the API's `rate` is 10× it. The funding scenario still
+ * ships separately; this module does not price funding.
  */
 import { numberToScaled } from '../units.ts';
 import { positionMetrics, type PositionMetrics } from './metrics.ts';

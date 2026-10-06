@@ -77,15 +77,28 @@ export function toLots(lns: unknown, lotDecimals: number): number {
 }
 
 /**
- * A funding rate.
+ * A funding rate, per settlement, in PERCENT.
  *
- * The contract publishes `pct100k`: hundred-thousandths of a percent. 100000 is
- * 1%. Divided here rather than anywhere else, so no caller has to remember the
- * exponent.
+ * The contract's `ratePct100k` is the rate as a FRACTION × 100,000 ("per
+ * 100k"), so 4 is 0.00004 of notional = 0.004% per settlement, and the percent
+ * is the stored value ÷ 1,000. MEASURED, 6 Oct 2026, against what positions
+ * actually paid: for closed positions held across exactly one settlement,
+ * funding ÷ (size × funding price) ÷ (stored / 100,000) has a median of
+ * 0.97-1.00 on all 11 markets (90th percentile 0.95-1.00; below 1 only where
+ * a position shrank before the settlement). Until that date this divided by
+ * 100,000 and called the result a percent: every rate on the site was 100×
+ * too small. (The API's undocumented `funding.rate` is 10× the stored value:
+ * fraction × 1,000,000.)
  */
+export const FUNDING_UNITS_PER_PERCENT = 1_000;
+
+export function fundingUnitsToPct(units: number): number {
+  return units / FUNDING_UNITS_PER_PERCENT;
+}
+
 export function toRatePct(pct100k: unknown): number | undefined {
   const raw = bigintOrUndefined(pct100k);
-  return raw === undefined ? undefined : Number(raw) / 100_000;
+  return raw === undefined ? undefined : fundingUnitsToPct(Number(raw));
 }
 
 /**

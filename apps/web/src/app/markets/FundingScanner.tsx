@@ -60,8 +60,9 @@ export function FundingScanner({ heat }: { readonly heat: HeatModel | undefined 
 
       {/* ABOVE the numbers on purpose: read top to bottom, this comes first. */}
       <p className="mt-0 mb-3 border-l-2 border-accent pl-[10px] text-[13px] leading-[1.55] text-text">
-        Perpl&rsquo;s funding formula has no interest term. Hyperliquid&rsquo;s and Binance&rsquo;s add 0.01% per 8 hours (10.95% a year), so on quiet markets Perpl sits
-        about 11 points below both. That gap is structural, not an opportunity.
+        Perpl&rsquo;s funding formula has no interest term; Hyperliquid&rsquo;s and Binance&rsquo;s add 0.01% per 8 hours (10.95% a year). So where Perpl&rsquo;s rate is 0, it sits
+        about 11 points below both, and that part of any gap is structural, not an opportunity. Perpl&rsquo;s rate also moves in whole steps of 0.001% per settlement, about
+        12.2% a year.
       </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">

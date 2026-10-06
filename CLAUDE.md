@@ -385,6 +385,14 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   `funding_interval_sec`, else measured), stated on the panel as not
   compounded and assuming the rate holds. A Table view gives every figure as
   text. Positive = longs pay shorts (Perpl docs).
+  - THE RATE'S UNIT IS A FRACTION × 100,000 (`ratePct100k` = "per 100k"):
+    stored 4 is 0.004% per settlement, percent = stored ÷ 1,000
+    (`fundingUnitsToPct`). MEASURED against positions' payments, 11 markets
+    (6 Oct 2026). Until then the site divided by 100,000 and every Perpl rate
+    and APR was 100× too small; the risk score's funding ceiling was rescaled
+    with it (0.001% -> 0.1%) so no score moved. Rates move in steps of 0.001%
+    per settlement (~12.2% APR). The API's undocumented `funding.rate` is 10×
+    the stored value. See `docs/notes/perpl-funding-unit-2026-10-06.md`.
   - FUNDING SETTLES EVERY ~43 MIN, NOT HOURLY: 2,580 s in the context, 2,587 s
     measured between indexed settlements, about 33 a day. It was about 25 a
     day until 23 Jul 2026, so a whole weekly column holds 174 to 234. The API serves

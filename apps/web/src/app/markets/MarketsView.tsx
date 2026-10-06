@@ -112,7 +112,7 @@ export function MarketsView() {
     { key: 'markPrice', label: 'Price', sub: 'mark now', title: 'The venue’s mark now; the indexed one when the venue has no reading. For an upcoming market, the contract’s last mark.' },
     { key: 'volumeAusd', label: 'Volume', sub: period, title: 'Traded notional in the window, counted once per match.' },
     { key: 'openInterestNotional', label: 'Open interest', sub: 'level now', title: 'The level, from the venue: size × mark. Not an indexed figure.' },
-    { key: 'fundingPct', label: 'Funding', sub: 'last rate, 6 dp', title: 'The last funding rate applied, in percent, to six decimal places: real rates are that small, and four places would round them to zero. Positive means longs pay shorts.' },
+    { key: 'fundingPct', label: 'Funding', sub: 'last rate, 6 dp', title: 'The last funding rate applied, per settlement (every ~43 min), in percent. It moves in steps of 0.001%; six places keep a daily mean exact. Positive means longs pay shorts.' },
     { key: 'longShareOfMargin', label: 'Exposure', sub: 'which side has more money at stake', title: 'The isolated margin open longs and shorts have posted, as a share each. Not notional: on an order book every long lot has a matching short, so notional is always 50/50.' },
     { key: 'risk', label: 'Risk', sub: 'composite', title: CROWDED_RULE },
   ];

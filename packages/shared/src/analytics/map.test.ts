@@ -68,10 +68,14 @@ test('sizes convert at each market’s OWN lotDecimals', () => {
   assert.equal(toLots('10000', 0), 10_000, 'MON trades in whole lots');
 });
 
-test('a funding rate is hundred-thousandths of a percent', () => {
-  assert.equal(toRatePct('100000'), 1);
-  assert.equal(toRatePct('-2500'), -0.025);
+test('a funding rate is a fraction × 100,000: 4 is 0.004% per settlement, as positions paid', () => {
+  assert.equal(toRatePct('4'), 0.004);
+  assert.equal(toRatePct('-1'), -0.001);
+  assert.equal(toRatePct('1000'), 1);
   assert.equal(toRatePct(null), undefined);
+  // The measured case: a 0.00004-lot BTC long across one settlement at rate 4 and $84,538.80 paid $0.000132.
+  const paid = 0.00004 * 84_538.8 * (toRatePct('4')! / 100);
+  assert.ok(Math.abs(paid - 0.000132) / 0.000132 < 0.03, `${paid} vs 0.000132 paid`);
 });
 
 test('timestamps parse from a Date or an ISO string, and throw on anything else', () => {

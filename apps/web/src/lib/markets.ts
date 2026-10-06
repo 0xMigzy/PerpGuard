@@ -125,8 +125,12 @@ export const RISK_CEILING = {
   volatility: 0.1,
   /** Liquidations per open position over the window. One per four is the top. */
   liquidations: 0.25,
-  /** Absolute last funding rate in percent. 0.001% is the top. */
-  funding: 0.001,
+  /**
+   * Absolute last funding rate in percent per settlement. 0.1% is the top: the
+   * same ceiling as before 6 Oct 2026 (0.001%) in the CORRECTED unit, where
+   * every rate is 100× what the old divisor showed, so no score moved.
+   */
+  funding: 0.1,
 } as const;
 
 export const RISK_WEIGHT: Record<RiskKey, number> = {

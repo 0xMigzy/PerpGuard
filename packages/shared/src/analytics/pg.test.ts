@@ -299,7 +299,7 @@ test('the breakdown resolves symbols by market id and surfaces an unlisted marke
   assert.equal(breakdown[0]!.market.symbol, 'SOL', 'not SOL_v2');
   assert.equal(breakdown[0]!.market.indexerName, 'SOL_v2');
   assert.equal(breakdown[0]!.markPrice, 121.912);
-  assert.equal(breakdown[0]!.lastFundingRatePct, -0.025);
+  assert.equal(breakdown[0]!.lastFundingRatePct, -2.5, 'stored −2,500 is a fraction × 100,000: −2.5% per settlement');
   assert.equal(breakdown[0]!.longShareOfPositions?.toFixed(4), '0.6977');
 
   // The market the venue does not list: unknown, not guessed from the chain name.
@@ -837,8 +837,8 @@ test('the funding series sums every rate as integers and says which resolution i
   assert.equal(series.length, 2);
   assert.equal(series[0]!.resolution, 'event');
   assert.equal(series[0]!.eventCount, 3);
-  assert.equal(series[0]!.cumulativeRatePct, 0.00007);
-  assert.deepEqual(series[0]!.points.map((p) => p.ratePct), [0.00004, 0.00004, -0.00001]);
+  assert.equal(series[0]!.cumulativeRatePct, 0.007);
+  assert.deepEqual(series[0]!.points.map((p) => p.ratePct), [0.004, 0.004, -0.001]);
   assert.equal(series[1]!.market.symbol, 'SOL', 'resolved by id, not by the chain name');
   assert.equal(sql.touching('FundingEvent')[0]!.values[1], false, 'every event up to 7 days');
 });
@@ -851,7 +851,7 @@ test('over 30D and All the line is a daily mean, but the sum is still over every
   const [btc] = await reader(sql).fundingSeries('all');
   assert.equal(btc!.resolution, 'utc-day');
   assert.equal(btc!.eventCount, 67);
-  assert.equal(btc!.cumulativeRatePct, 0.00052, '(85 − 33) / 100,000: the events, not the daily means');
+  assert.equal(btc!.cumulativeRatePct, 0.052, '(85 − 33) / 1,000 percent: the events, not the daily means');
   assert.equal(sql.touching('FundingEvent')[0]!.values[1], true);
   assert.deepEqual(btc!.points.map((p) => p.events), [34, 33], 'each point says how many settlements it averages');
   await reader(sql).fundingSeries('30d');

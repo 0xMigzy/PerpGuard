@@ -43,6 +43,7 @@ import {
   toMs,
   toPrice,
   toRatePct,
+  fundingUnitsToPct,
   verdictFromRow,
   windowFor,
   type SymbolResolver,
@@ -1503,7 +1504,7 @@ export class PostgresAnalytics implements Analytics {
         current = { market: toMarketRef(row['id'], row['name'], this.#resolve), points: [], sum100k: 0n, events: 0 };
         out.push(current);
       }
-      current.points.push({ atMs: requireMs(row['at']), ratePct: Number(row['rate']) / 100_000, events: count(row['events']) });
+      current.points.push({ atMs: requireMs(row['at']), ratePct: fundingUnitsToPct(Number(row['rate'])), events: count(row['events']) });
       current.sum100k += bigintOrZero(row['rate_sum']);
       current.events += count(row['events']);
     }
@@ -1513,7 +1514,7 @@ export class PostgresAnalytics implements Analytics {
       points: m.points,
       eventCount: m.events,
       // Summed as integers, divided once: no float drift over thousands of events.
-      cumulativeRatePct: Number(m.sum100k) / 100_000,
+      cumulativeRatePct: fundingUnitsToPct(Number(m.sum100k)),
       firstAtMs: m.points[0]?.atMs,
       lastAtMs: m.points.at(-1)?.atMs,
       cadence: {
@@ -1951,5 +1952,5 @@ function startOfUtcDay(ms: number): number {
 function meanRate(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed / 100_000 : undefined;
+  return Number.isFinite(parsed) ? fundingUnitsToPct(parsed) : undefined;
 }
