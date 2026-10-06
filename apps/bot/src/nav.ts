@@ -57,6 +57,9 @@ export type Route =
   | { readonly to: 'positions' }
   /** 💰 Margin: the positions, framed for adding margin. Each still goes through the position screen's confirm. */
   | { readonly to: 'margin' }
+  /** 💰 One position's margin (spec 33), and its Add Margin amounts (spec 34). Linked only. */
+  | { readonly to: 'margin-pos'; readonly marketId: number }
+  | { readonly to: 'margin-add'; readonly marketId: number }
   | { readonly to: 'position'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
@@ -99,6 +102,8 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'connect-go': 'cg',
   positions: 'p',
   margin: 'mg',
+  'margin-pos': 'mp',
+  'margin-add': 'ma',
   position: 'pd',
   settings: 's',
   'warn-ask': 'sw',
@@ -120,6 +125,8 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   unwatch: 'accountId',
   'watch-id': 'accountId',
   position: 'marketId',
+  'margin-pos': 'marketId',
+  'margin-add': 'marketId',
   'warn-set': 'level',
 };
 

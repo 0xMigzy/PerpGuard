@@ -685,6 +685,16 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   NETWORK (`account_links.network`); a link from another network is refused by
   name. MAINNET TRADING IS OFF unless `PERPGUARD_MAINNET_TRADING=1`: the
   registry refuses every session, monitoring is unaffected.
+- MANUAL ADD MARGIN (Phase 15, spec 33-34): Margin → a position's 💰 MARGIN
+  screen (manual, never automated; no Remove Margin, it is cut) → ➕ ADD
+  MARGIN with +100/+250/+500/+1,000 AUSD and Custom, each amount PRICED BY
+  THE ENGINE when the screen is built (no amount offered on a position it
+  cannot see), one above the free floor offered with ⚠️, not hidden. Every
+  amount is an action token: its tap shows ⚠️ CONFIRM ADD MARGIN with the
+  before and after (margin, available, and the liquidation price and
+  distance only when projected), and nothing sends before ✅ Confirm. The
+  send path is the existing one: one in flight, reconciled against the
+  position's margin, never re-sent on `sr 32`.
 - THE ACCOUNT HALF (`apps/bot/src/account.ts`): My Positions, Margin (the
   same positions framed for adding margin; sends nothing itself), a position
   screen with Add (computed or custom), Reduce 25% and Close position,

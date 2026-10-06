@@ -155,9 +155,56 @@ export function marginScreen(input: PositionsInput): Screen {
   const blind = blindLine(input.feed, input.positions);
   if (blind !== undefined) lines.push('', blind);
   const buttons: Button[][] = ordered(input.assessments).map((a) => [
-    { text: `${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'position', marketId: a.marketId } },
+    { text: `${dot(a.state)} ${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'margin-pos', marketId: a.marketId } },
   ]);
   buttons.push([{ text: '← Back', route: { to: 'home' } }]);
+  return { html: lines.join('\n'), buttons };
+}
+
+// ── Margin, per position (spec 33) and Add Margin (spec 34) ─────────────────
+
+/** The fixed amounts Add Margin offers, in whole AUSD (spec 34). */
+export const ADD_MARGIN_PRESETS_AUSD = [100, 250, 500, 1_000] as const;
+
+/** 💰 MARGIN for one position: manual, never automated (spec 33). Remove Margin is cut. */
+export function marginPositionScreen(input: { readonly assessment: RiskAssessment; readonly market: MarketRiskConfig | undefined; readonly free: FreeBalanceReading; readonly blind: string | undefined }): Screen {
+  const a = input.assessment;
+  const lines = ['💰 <b>MARGIN</b> · manual: nothing here runs by itself', '', ...positionCard(a, input.market), ''];
+  lines.push(input.free.known ? `Available: at least ${held(input.free.floorCNS, input.market?.collateralDecimals)} free` : `Available: unknown (${esc(input.free.reason)})`);
+  if (input.blind !== undefined || isBlind(a.state)) {
+    lines.push('', input.blind ?? '⚠️ <b>I cannot see this position right now</b>, so I will not offer to add to it.');
+    return { html: lines.join('\n'), buttons: [[{ text: '↻ Look again', route: { to: 'margin-pos', marketId: a.marketId } }], [{ text: '← Back', route: { to: 'margin' } }]] };
+  }
+  return { html: lines.join('\n'), buttons: [[{ text: '➕ Add Margin', route: { to: 'margin-add', marketId: a.marketId } }], [{ text: '← Back', route: { to: 'margin' } }]] };
+}
+
+export interface AddMarginInput {
+  readonly assessment: RiskAssessment;
+  readonly market: MarketRiskConfig;
+  readonly free: FreeBalanceReading;
+  /** One per preset: its action button's data, or why it cannot be priced right now. */
+  readonly presets: ReadonlyArray<{ readonly ausd: number; readonly data: string } | { readonly ausd: number; readonly reason: string }>;
+  readonly customData: string;
+}
+
+/** ➕ ADD MARGIN (spec 34): each amount is an ACTION button whose tap shows the confirmation; nothing sends on it. */
+export function addMarginScreen(input: AddMarginInput): Screen {
+  const a = input.assessment;
+  const d = input.market.collateralDecimals;
+  const lines = [`➕ <b>ADD MARGIN</b> · ${positionName(a)}`, ''];
+  lines.push(`Current margin: ${a.marginCNS === undefined ? 'unknown' : held(a.marginCNS, d)}`);
+  lines.push(input.free.known ? `Available: at least ${held(input.free.floorCNS, d)}` : `Available: unknown (${esc(input.free.reason)})`);
+  lines.push('', 'Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.');
+  const unit = 10n ** BigInt(d);
+  const over = input.free.known ? input.presets.filter((p) => BigInt(p.ausd) * unit > (input.free as { floorCNS: bigint }).floorCNS).map((p) => p.ausd) : [];
+  if (over.length > 0) lines.push(`<i>${over.map((x) => `+${x.toLocaleString('en-US')}`).join(', ')} may be more than you hold free; offered anyway, because the balance I read is a floor. The exchange refuses what you cannot cover.</i>`);
+  const unpriced = input.presets.filter((p): p is { ausd: number; reason: string } => 'reason' in p);
+  if (unpriced.length > 0) lines.push(`<i>Cannot price right now: ${esc(unpriced[0]!.reason)}</i>`);
+  const priced = input.presets.filter((p): p is { ausd: number; data: string } => 'data' in p);
+  const buttons: Button[][] = [];
+  for (let i = 0; i < priced.length; i += 2) buttons.push(priced.slice(i, i + 2).map((p) => ({ text: `+${p.ausd.toLocaleString('en-US')} AUSD${over.includes(p.ausd) ? ' ⚠️' : ''}`, data: p.data })));
+  buttons.push([{ text: '🎛 Custom amount', data: input.customData }]);
+  buttons.push([{ text: 'Cancel', route: { to: 'margin-pos', marketId: a.marketId } }]);
   return { html: lines.join('\n'), buttons };
 }
 
@@ -291,17 +338,34 @@ export function confirmScreen(input: ConfirmInput): Screen {
   const lines: string[] = [];
   switch (action.type) {
     case 'add-margin': {
+      // SPEC 34: ALWAYS CONFIRM, WITH THE BEFORE AND AFTER. The liquidation figures only
+      // when the engine projected them (live feed, live position); otherwise not at all.
+      const d = market?.collateralDecimals;
       const amount = market === undefined ? `${action.amountCNS} micros of AUSD` : `${wholeOf(action.amountCNS, market)} AUSD`;
-      lines.push(`<b>Add ${amount} to ${name}?</b>`);
-      if (action.resultingLiquidationPricePNS !== undefined && market !== undefined) {
-        lines.push(action.resultingLiquidationPricePNS > 0n ? `Closes at, after: ${formatPricePNS(action.resultingLiquidationPricePNS, market)}` : 'Closes at, after: no closing price left to reach');
-      }
-      if (action.resultingBufferPct !== undefined) lines.push(`Room to fall, after: ${action.resultingBufferPct < 0 ? 'still past its closing price' : pct(action.resultingBufferPct)}`);
+      lines.push('⚠️ <b>CONFIRM ADD MARGIN</b>', '');
+      lines.push(`Position: <b>${name}</b>`);
+      lines.push(`Add: <b>${amount}</b>`);
+      if (assessment?.marginCNS !== undefined) lines.push(`Margin: ${held(assessment.marginCNS, d)} → ${held(assessment.marginCNS + action.amountCNS, d)}`);
       if (input.free.known) {
         const left = input.free.floorCNS - action.amountCNS;
-        lines.push(`Free balance left: ${left < 0n ? 'possibly none — this may be more than you hold' : `at least ${held(left, market?.collateralDecimals)}`}`);
+        lines.push(
+          left < 0n
+            ? `Available: at least ${held(input.free.floorCNS, d)} → possibly none: this may be more than you hold free. The exchange refuses what you cannot cover.`
+            : `Available: at least ${held(input.free.floorCNS, d)} → at least ${held(left, d)}`,
+        );
+      } else {
+        lines.push(`Available: unknown (${esc(input.free.reason)})`);
       }
-      lines.push('<i>The amount sent is exactly the figure above.</i>');
+      if (action.resultingBufferPct !== undefined && action.resultingLiquidationPricePNS !== undefined && market !== undefined) {
+        const before = assessment?.liqBufferPct;
+        lines.push(
+          action.resultingLiquidationPricePNS > 0n
+            ? `Liquidation price: ${assessment?.liquidationPricePNS !== undefined && assessment.liquidationPricePNS > 0n ? `${formatPricePNS(assessment.liquidationPricePNS, market)} → ` : ''}${formatPricePNS(action.resultingLiquidationPricePNS, market)}`
+            : 'Liquidation price: none left to reach',
+        );
+        lines.push(`Distance: ${before === undefined ? '' : `${before < 0 ? 'past it' : pct(before)} → `}<b>${action.resultingBufferPct < 0 ? 'still past it' : pct(action.resultingBufferPct)}</b>`);
+      }
+      lines.push('', '<i>The amount sent is exactly the figure above. Afterwards I check the position itself, not only the exchange\'s reply, and tell you what actually happened.</i>');
       break;
     }
     case 'reduce-position': {
@@ -326,7 +390,7 @@ export function confirmScreen(input: ConfirmInput): Screen {
   lines.push('', 'Nothing has been sent yet.');
   return {
     html: lines.join('\n'),
-    buttons: [[{ text: '✓ Send it', data: input.confirmData }, { text: 'Cancel', data: input.cancelData }]],
+    buttons: [[{ text: '✅ Confirm', data: input.confirmData }, { text: 'Cancel', data: input.cancelData }]],
   };
 }
 

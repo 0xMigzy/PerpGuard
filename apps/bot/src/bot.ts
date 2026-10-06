@@ -24,7 +24,7 @@ import {
   type AlertAction,
   type AlertConfig,
 } from '@perpguard/backend/alerts';
-import type { MarketConfigs, RiskAssessment } from '@perpguard/backend/risk';
+import { isBlind, type MarketConfigs, type RiskAssessment } from '@perpguard/backend/risk';
 import {
   type ActionExecutor,
   type PendingAction,
@@ -35,6 +35,10 @@ import {
   confirmScreen,
   disconnectAskScreen,
   marginScreen,
+  marginPositionScreen,
+  addMarginScreen,
+  blindLine,
+  ADD_MARGIN_PRESETS_AUSD,
   outcomeScreen,
   positionScreen,
   positionsScreen,
@@ -939,6 +943,42 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         await showScreen(ctx, marginScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
         return;
+      case 'margin-pos': {
+        const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
+        if (assessment === undefined) {
+          await answer(ctx, 'That position is not open any more.');
+          await showScreen(ctx, marginScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, marginPositionScreen({ assessment, market: deps.configs.get(route.marketId), free: account.balance.freeBalance(), blind: blindLine(view.feedStatus(), view.positionsStatus()) }));
+        return;
+      }
+      case 'margin-add': {
+        const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
+        const market = deps.configs.get(route.marketId);
+        if (assessment === undefined || market === undefined || isBlind(assessment.state) || blindLine(view.feedStatus(), view.positionsStatus()) !== undefined) {
+          // NOTHING TO PRICE AGAINST: no amounts are offered on a position it cannot see.
+          await answer(ctx, assessment === undefined ? 'That position is not open any more.' : 'I cannot price that position right now, so I will not offer amounts for it.');
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        // Asked of the ACTING venue before any amount is offered: an amount it will not take is not an offer.
+        const probe: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, amountCNS: 0n, label: 'probe' };
+        const availability = await availabilityFor(account, assessment.symbol, [probe]);
+        const kind: 'act' | 'blocked' = availability?.actionable === true ? 'act' : 'blocked';
+        const unit = 10n ** BigInt(market.collateralDecimals);
+        const presets = ADD_MARGIN_PRESETS_AUSD.map((ausd) => {
+          // Each amount priced by the engine NOW, so the confirmation's after-figures are this position's, not a guess.
+          const projected = view.projectAddMargin(assessment.marketId, BigInt(ausd) * unit);
+          if (!projected.ok) return { ausd, reason: projected.reason };
+          const action = customAction(projected.projection, market, assessment.positionId, alerts.bufferDecimals, assessment.liqBufferPct);
+          return { ausd, data: mint(action, kind) };
+        });
+        const custom: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }), amountCNS: 0n, label: 'Custom amount' };
+        await showScreen(ctx, addMarginScreen({ assessment, market, free: account.balance.freeBalance(), presets, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
+        return;
+      }
       case 'positions':
         await ctx.answerCallbackQuery();
         await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));

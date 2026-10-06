@@ -105,7 +105,7 @@ rec.frame('4. Add custom amount: asked with force_reply');
 await rec.send('0.01');
 rec.frame('5. The answer is heard: the confirmation, the second tap');
 const t0 = Date.now();
-await rec.tap('✓ Send it');
+await rec.tap('✅ Confirm');
 rec.frame(`6. The outcome, reconciled against the position (${Math.round((Date.now() - t0) / 1000)}s)`);
 
 await rec.tap('📊 My Positions');
@@ -127,7 +127,7 @@ if (rec.labels().includes('Reduce 25%')) {
   await rec.tap('Reduce 25%');
   rec.frame('10. Reduce 25%: the confirmation says the closing price does not move');
   const t1 = Date.now();
-  await rec.tap('✓ Send it');
+  await rec.tap('✅ Confirm');
   rec.frame(`11. Reduced, reconciled against the position (${Math.round((Date.now() - t1) / 1000)}s)`);
   await rec.tap('📊 My Positions');
 } else {

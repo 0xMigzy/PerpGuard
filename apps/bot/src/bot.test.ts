@@ -421,19 +421,25 @@ test('tapping a top-up shows a confirmation with the exact amount and liquidatio
   await h.bot.handleUpdate(callbackUpdate(data));
 
   const confirmation = texts(h.telegram).at(-1)!;
+  // SPEC 34: the before AND after, for margin, available, liquidation price and distance.
   assert.equal(
     confirmation,
     [
-      '<b>Add 562 AUSD to BTC long?</b>',
-      'Closes at, after: 80,647.1',
-      'Room to fall, after: 4.0%',
-      'Free balance left: at least <b>9,438 AUSD</b>',
-      '<i>The amount sent is exactly the figure above.</i>',
+      '⚠️ <b>CONFIRM ADD MARGIN</b>',
+      '',
+      'Position: <b>BTC long</b>',
+      'Add: <b>562 AUSD</b>',
+      'Margin: <b>2,810 AUSD</b> → <b>3,372 AUSD</b>',
+      'Available: at least <b>10,000 AUSD</b> → at least <b>9,438 AUSD</b>',
+      'Liquidation price: 81,770.1 → 80,647.1',
+      'Distance: 2.7% → <b>4.0%</b>',
+      '',
+      '<i>The amount sent is exactly the figure above. Afterwards I check the position itself, not only the exchange\'s reply, and tell you what actually happened.</i>',
       '',
       'Nothing has been sent yet.',
     ].join('\n'),
   );
-  assert.deepEqual(keyboardOf(h.telegram.last('sendMessage')).map((b) => b.text), ['✓ Send it', 'Cancel']);
+  assert.deepEqual(keyboardOf(h.telegram.last('sendMessage')).map((b) => b.text), ['✅ Confirm', 'Cancel']);
   // Nothing was executed by merely tapping.
   assert.equal(h.executor.calls.length, 0);
 });
@@ -674,11 +680,16 @@ test('a custom amount gets the outcome computed for it, on the computed options�
   assert.equal(
     confirmation,
     [
-      '<b>Add 1,000 AUSD to BTC long?</b>',
-      'Closes at, after: 79,770.1',
-      'Room to fall, after: 5.0%',
-      'Free balance left: at least <b>9,000 AUSD</b>',
-      '<i>The amount sent is exactly the figure above.</i>',
+      '⚠️ <b>CONFIRM ADD MARGIN</b>',
+      '',
+      'Position: <b>BTC long</b>',
+      'Add: <b>1,000 AUSD</b>',
+      'Margin: <b>2,810 AUSD</b> → <b>3,810 AUSD</b>',
+      'Available: at least <b>10,000 AUSD</b> → at least <b>9,000 AUSD</b>',
+      'Liquidation price: 81,770.1 → 79,770.1',
+      'Distance: 2.7% → <b>5.0%</b>',
+      '',
+      '<i>The amount sent is exactly the figure above. Afterwards I check the position itself, not only the exchange\'s reply, and tell you what actually happened.</i>',
       '',
       'Nothing has been sent yet.',
     ].join('\n'),
@@ -702,21 +713,23 @@ test('the custom confirmation screen is the computed one’s shape, line for lin
 
   assert.equal(customLines.length, computedLines.length);
   for (const lines of [computedLines, customLines]) {
-    assert.match(lines[0]!, /^<b>Add [\d,.]+ AUSD to BTC long\?<\/b>$/);
-    assert.match(lines[1]!, /^Closes at, after: [\d,.]+$/);
-    assert.match(lines[2]!, /^Room to fall, after: \d+\.\d%$/);
-    assert.match(lines[3]!, /^Free balance left: at least <b>[\d,]+ AUSD<\/b>$/);
+    assert.equal(lines[0], '⚠️ <b>CONFIRM ADD MARGIN</b>');
+    assert.match(lines[3]!, /^Add: <b>[\d,.]+ AUSD<\/b>$/);
+    assert.match(lines[4]!, /^Margin: <b>[\d,]+ AUSD<\/b> → <b>[\d,]+ AUSD<\/b>$/);
+    assert.match(lines[5]!, /^Available: at least <b>[\d,]+ AUSD<\/b> → at least <b>[\d,]+ AUSD<\/b>$/);
+    assert.match(lines[6]!, /^Liquidation price: [\d,.]+ → [\d,.]+$/);
+    assert.match(lines[7]!, /^Distance: \d+\.\d% → <b>\d+\.\d%<\/b>$/);
     assert.equal(lines.at(-1), 'Nothing has been sent yet.');
   }
   // Only the figures differ.
-  assert.notEqual(customLines[0], computedLines[0]);
+  assert.notEqual(customLines[3], computedLines[3]);
 });
 
 test('confirming a custom amount sends exactly the figure that was shown', async () => {
   const h = harness();
   await typeAmount(h, '1000.5');
   const confirm = keyboardOf(h.telegram.last('sendMessage'))[0]!;
-  assert.equal(confirm.text, '✓ Send it');
+  assert.equal(confirm.text, '✅ Confirm');
   h.telegram.calls.length = 0;
 
   await h.bot.handleUpdate(callbackUpdate(confirm.callback_data));
@@ -748,7 +761,7 @@ test('typing something that is not a number leaves the prompt open rather than s
 
   // And the retry works, without going back through /positions.
   await h.bot.handleUpdate(messageUpdate('1000'));
-  assert.match(texts(h.telegram).at(-1)!, /^<b>Add 1,000 AUSD to BTC long\?<\/b>$/m);
+  assert.match(texts(h.telegram).at(-1)!, /^Add: <b>1,000 AUSD<\/b>$/m);
 });
 
 test('each validation path answers with its own message', async () => {
@@ -778,7 +791,7 @@ test('an amount over the free-balance floor warns, and the Confirm button is sti
   assert.match(confirmation, /floor rather than your balance/);
   // Warned, not refused: our floor can understate, and blocking a legitimate
   // rescue is worse than letting the venue reject a genuinely short request.
-  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✓ Send it');
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✅ Confirm');
   // And the warning sits above the last line, which stays the last line.
   assert.match(confirmation, /Nothing has been sent yet\.$/);
 });
@@ -788,7 +801,7 @@ test('an unknown balance says so instead of implying it was checked', async () =
   h.balance.reading = { known: false, reason: 'I am not signed in to the trading account.' };
   const confirmation = await typeAmount(h, '1000');
   assert.match(confirmation, /could not check your free balance: I am not signed in/);
-  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✓ Send it');
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✅ Confirm');
 });
 
 test('an implausibly large amount asks whether it was meant, rather than refusing it', async () => {
@@ -798,7 +811,7 @@ test('an implausibly large amount asks whether it was meant, rather than refusin
 
   assert.match(confirmation, /more than 10x this position's whole size at the mark \(42,003\.65 AUSD\)/);
   assert.match(confirmation, /Confirm only if you meant it/);
-  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✓ Send it');
+  assert.equal(keyboardOf(h.telegram.last('sendMessage'))[0]?.text, '✅ Confirm');
 });
 
 test('a pending amount expires on the same fifteen minutes as an action token', async () => {
@@ -1499,7 +1512,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'margin-add', 'margin-pos', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1553,10 +1566,10 @@ test('PHASE 7: Margin lists the positions and sends nothing; choosing one opens 
   await tapNav(h, { to: 'margin' });
   const margin = lastScreen(h.telegram);
   assert.match(String(margin.payload['text']), /^💰 <b>MARGIN<\/b>\nAdd margin to one position\./);
-  assert.deepEqual(keyboardOf(margin).map((b) => b.text), ['BTC long · 2.7%', '← Back']);
+  assert.deepEqual(keyboardOf(margin).map((b) => b.text), ['🔴 BTC long · 2.7%', '← Back']);
   assert.equal(actionButtons(margin).length, 0, 'no action button on the Margin screen itself');
   await h.bot.handleUpdate(callbackUpdate(keyboardOf(margin)[0]!.callback_data));
-  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER/);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^💰 <b>MARGIN<\/b> · manual: nothing here runs by itself\n\n🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER/);
   assert.equal(h.executor.calls.length, 0);
   // Not reachable for a stranger: the gate refuses before any handler.
   await tapNav(h, { to: 'margin' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
@@ -1699,4 +1712,57 @@ test('PHASE 13: a rotated key and order forwarding off are told apart; only the 
   const f = lastScreen(forwarding.telegram);
   assert.match(String(f.payload['text']), /Execution: 🟡 Order forwarding is off[\s\S]*allowOrderForwarding\(true\)[\s\S]*an API key cannot do it/);
   assert.notEqual(keyboardOf(f)[0]!.text, '🔑 Fix authorization', 'a new key would not fix this: the owner wallet must');
+});
+
+// ── Phase 15: manual Add Margin ─────────────────────────────────────────────
+
+test('PHASE 15: Margin → position → Add Margin → +100 → confirm with before and after → exactly 100 AUSD sent, once', async () => {
+  const h = harness();
+  const scenario = dangerScenario();
+  h.view.assessments = [scenario.assessment];
+  h.view.loop = scenario.loop;
+  h.executor.outcome = { kind: 'applied', detail: 'Done — the margin is in.' };
+  const marketId = dangerAssessment().marketId;
+
+  await tapNav(h, { to: 'margin-pos', marketId });
+  const pos = lastScreen(h.telegram);
+  assert.deepEqual(keyboardOf(pos).map((b) => b.text), ['➕ Add Margin', '← Back'], 'no Remove Margin: it is cut');
+
+  await tapNav(h, { to: 'margin-add', marketId });
+  const add = lastScreen(h.telegram);
+  assert.match(String(add.payload['text']), /^➕ <b>ADD MARGIN<\/b> · BTC long\n\nCurrent margin: <b>2,810 AUSD<\/b>\nAvailable: at least <b>10,000 AUSD<\/b>/);
+  assert.deepEqual(keyboardOf(add).map((b) => b.text), ['+100 AUSD', '+250 AUSD', '+500 AUSD', '+1,000 AUSD', '🎛 Custom amount', 'Cancel']);
+  assert.equal(h.executor.calls.length, 0, 'offering amounts sends nothing');
+
+  const plus100 = keyboardOf(add).find((b) => b.text === '+100 AUSD')!;
+  await h.bot.handleUpdate(callbackUpdate(plus100.callback_data));
+  const confirm = texts(h.telegram).at(-1)!;
+  assert.match(confirm, /^⚠️ <b>CONFIRM ADD MARGIN<\/b>\n\nPosition: <b>BTC long<\/b>\nAdd: <b>100 AUSD<\/b>\nMargin: <b>2,810 AUSD<\/b> → <b>2,910 AUSD<\/b>\nAvailable: at least <b>10,000 AUSD<\/b> → at least <b>9,900 AUSD<\/b>\nLiquidation price: 81,770\.1 → [\d,.]+\nDistance: 2\.7% → <b>[\d.]+%<\/b>/);
+  assert.equal(h.executor.calls.length, 0, 'NEVER on the first button press');
+
+  const [send] = keyboardOf(h.telegram.last('sendMessage'));
+  await h.bot.handleUpdate(callbackUpdate(send!.callback_data));
+  await h.bot.handleUpdate(callbackUpdate(send!.callback_data));
+  assert.equal(h.executor.calls.length, 1, 'a double tap is one send');
+  assert.equal(h.executor.calls[0]!.action.amountCNS, 100_000_000n, 'exactly the figure shown');
+  const said = shown(h.telegram).join('\n');
+  assert.doesNotMatch(said, /failed|rejected|sr 32/i, 'a top-up that landed is never shown as failed');
+});
+
+test('PHASE 15: an amount over the free floor is offered WITH a warning; a blind position offers no amount at all', async () => {
+  const h = harness();
+  const scenario = dangerScenario();
+  h.view.assessments = [scenario.assessment];
+  h.view.loop = scenario.loop;
+  h.balance.reading = { known: true, floorCNS: 300_000_000n };
+  const marketId = dangerAssessment().marketId;
+  await tapNav(h, { to: 'margin-add', marketId });
+  const add = lastScreen(h.telegram);
+  assert.deepEqual(keyboardOf(add).map((b) => b.text).slice(0, 4), ['+100 AUSD', '+250 AUSD', '+500 AUSD ⚠️', '+1,000 AUSD ⚠️']);
+  assert.match(String(add.payload['text']), /\+500, \+1,000 may be more than you hold free; offered anyway/);
+
+  const blind = harness();
+  blind.view.assessments = [{ ...dangerAssessment(), state: 'FEED_DOWN' }];
+  await tapNav(blind, { to: 'margin-add', marketId });
+  assert.match(answers(blind.telegram).at(-1)!, /cannot price that position right now/);
 });

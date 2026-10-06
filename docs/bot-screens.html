@@ -164,7 +164,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · margin</figcaption>
       <div class="chat"><div class="bubble">💰 <b>MARGIN</b><br>Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.<br><br>Free balance at least <b>10,000 AUSD</b><br><br>Choose a position:</div>
-      <div class="row"><span class="btn">BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="row"><span class="btn">🔴 BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -228,6 +228,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · margin-pos</figcaption>
+      <div class="chat"><div class="bubble">💰 <b>MARGIN</b> · manual: nothing here runs by itself<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−11 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Available: at least <b>10,000 AUSD</b> free</div>
+      <div class="row"><span class="btn">➕ Add Margin</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · disconnect-ask</figcaption>
       <div class="chat"><div class="bubble"><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
       <div class="row"><span class="btn changes">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">Cancel</span></div>
@@ -261,6 +267,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       <figcaption>Owner · warn-custom</figcaption>
       <div class="chat"><div class="bubble">🎛 <b>CUSTOM WARNING LEVELS</b><br>Send up to 5 levels, in percent, like <b>15 8 3</b>. Each above 0 and at most 100.</div>
       <div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · margin-add</figcaption>
+      <div class="chat"><div class="bubble">➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
+      <div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
