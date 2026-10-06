@@ -20,6 +20,7 @@ import { isFromThisMachine } from '../origin.ts';
 import {
   killSwitchPlan,
   stressTest,
+  type ActingMarket,
   type ActionAvailability,
   type FeedHealth,
   type MarketRiskConfig,
@@ -84,7 +85,7 @@ export interface ProtectRouteOptions {
   readonly pending: WebPendingActionStore;
   readonly progress: ActionProgressTracker;
   readonly freeBalance: () => FreeBalanceReading;
-  readonly availability: (symbol: string) => Promise<ActionAvailability>;
+  readonly availability: (market: ActingMarket) => Promise<ActionAvailability>;
   readonly inFlightOn: (marketId: number) => Lease | undefined;
   readonly runner: { execute(command: ActionCommand): Promise<ActionOutcome> };
   readonly accountId: () => number | undefined;
@@ -231,7 +232,7 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
         if (assessment === undefined || market === undefined) continue;
         let availability: ActionAvailability | undefined;
         try {
-          availability = await options.availability(assessment.symbol);
+          availability = await options.availability({ marketId: assessment.marketId, symbol: assessment.symbol });
         } catch {
           availability = undefined;
         }
@@ -287,7 +288,7 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
       if (assessment === undefined || market === undefined) {
         return reply.code(404).send({ error: `I am not tracking a position on market ${marketId}` });
       }
-      const availability = await options.availability(assessment.symbol).catch(() => undefined);
+      const availability = await options.availability({ marketId: assessment.marketId, symbol: assessment.symbol }).catch(() => undefined);
       if (availability === undefined || !availability.actionable) {
         return reply.code(409).send({
           error:

@@ -17,7 +17,7 @@
  */
 import { Bot, HttpError, type Api } from 'grammy';
 import type { ApiResponse, UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability } from '@perpguard/shared';
+import type { ActingMarket, ActionAvailability } from '@perpguard/shared';
 import { DEFAULT_ALERT_CONFIG, type AlertMessage } from '@perpguard/backend/alerts';
 import { buildMessage } from '@perpguard/backend/alerts/render';
 import { kindFor } from '@perpguard/backend/alerts/rules';
@@ -158,7 +158,7 @@ export class FakeExecutor implements ActionExecutor {
     detail: 'Execution lands in the next piece of work. Nothing was sent.',
   };
 
-  async availability(_symbol: string): Promise<ActionAvailability> {
+  async availability(_market: ActingMarket): Promise<ActionAvailability> {
     if (this.availabilityError !== undefined) throw this.availabilityError;
     return this.available;
   }

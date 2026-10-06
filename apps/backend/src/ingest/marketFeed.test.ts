@@ -48,14 +48,13 @@ describe('MarketFeed', () => {
     assert.throws(() => new MarketFeed('mainnet', Number.NaN), RangeError);
   });
 
-  it('stores and returns the latest price by id and by symbol', () => {
+  it('stores and returns the latest price by id, and has no lookup by name', () => {
     const feed = new MarketFeed('mainnet', 10_000);
     feed.record(priceUpdate({ markPrice: 100 }));
 
     assert.equal(feed.get(1)?.markPrice, 100);
-    assert.equal(feed.getBySymbol('BTC')?.markPrice, 100);
     assert.equal(feed.get(999), undefined);
-    assert.equal(feed.getBySymbol('NOPE'), undefined);
+    assert.equal('getBySymbol' in feed, false, 'market identity is the id');
     assert.equal(feed.size, 1);
   });
 
@@ -64,8 +63,8 @@ describe('MarketFeed', () => {
     feed.record(priceUpdate({ marketId: 1, symbol: 'BTC', markPrice: 100 }));
     feed.record(priceUpdate({ marketId: 2, symbol: 'ETH', markPrice: 20 }));
 
-    assert.equal(feed.getBySymbol('BTC')?.markPrice, 100);
-    assert.equal(feed.getBySymbol('ETH')?.markPrice, 20);
+    assert.equal(feed.get(1)?.markPrice, 100);
+    assert.equal(feed.get(2)?.markPrice, 20);
     assert.equal(feed.snapshot().length, 2);
   });
 
@@ -85,7 +84,6 @@ describe('MarketFeed price age', () => {
     const feed = new MarketFeed('mainnet', 10_000);
     assert.equal(feed.ageMs(1), undefined);
     assert.equal(feed.isPriceOld(1), true, 'nothing here could be fresh');
-    assert.equal(feed.isPriceOldBySymbol('BTC'), true);
   });
 
   it('is fresh up to and including STALE_MS, old after it', () => {
@@ -181,16 +179,12 @@ describe('MarketFeed.canAct: a quiet market is not a broken feed', () => {
     assert.equal(gate.ageMs, undefined);
   });
 
-  it('answers by symbol as well', () => {
-    const time = clock();
-    const feed = new MarketFeed('mainnet', 10_000, time.now);
-    feed.record(priceUpdate({ marketId: 1, symbol: 'BTC', receivedAtMs: time.now() }));
-    time.advance(60_000);
-
-    assert.equal(feed.canActBySymbol('BTC', CONNECTED).ok, true, 'quiet BTC is fine');
-    assert.equal(feed.canActBySymbol('BTC', DISCONNECTED).ok, false);
-    assert.equal(feed.canActBySymbol('NOPE', CONNECTED).code, 'no-price');
-    assert.equal(feed.canActBySymbol('NOPE', DISCONNECTED).code, 'feed-disconnected');
+  it('two markets sharing a name stay two markets (a retired id whose name lives on)', () => {
+    const feed = new MarketFeed('mainnet', 10_000);
+    feed.record(priceUpdate({ marketId: 30, symbol: 'SOL', markPrice: 150 }));
+    feed.record(priceUpdate({ marketId: 31, symbol: 'SOL', markPrice: 200 }));
+    assert.equal(feed.get(30)?.markPrice, 150);
+    assert.equal(feed.get(31)?.markPrice, 200);
   });
 
   it('never blocks on age alone, at any age, while connected', () => {

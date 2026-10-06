@@ -233,7 +233,7 @@ export class AccountSession {
       view: this.view,
       executor: new VenueActionExecutor({
         runner: this.executor,
-        availability: (symbol) => this.venue.getActionAvailability(symbol),
+        availability: (market) => this.venue.getActionAvailability(market),
       }),
       balance: this.balance,
       status: () => {

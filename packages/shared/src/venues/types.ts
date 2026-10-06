@@ -260,10 +260,21 @@ export interface ActionResult {
   readonly at: number;
 }
 
-export interface ActionRequest {
+/**
+ * Which market, as the acting venue knows it. MARKET IDENTITY IS THE ID
+ * (CLAUDE.md): availability and the frame's market come from `marketId`; the
+ * symbol is only for wording. Until 7 Oct 2026 both were looked up by symbol,
+ * so a retired market whose name lives on (mainnet SOL 30 -> SOL_v2 31) would
+ * have been answered, and addressed, as its successor.
+ */
+export interface ActingMarket {
+  readonly marketId: number;
+  readonly symbol: string;
+}
+
+export interface ActionRequest extends ActingMarket {
   /** Required on every action: one in-flight action per position. */
   readonly idempotencyKey: string;
-  readonly symbol: string;
   /**
    * Called when the venue admits the request for forwarding — Perpl's
    * `mt: 3` / `code: 0`. Provided so a caller can show "submitted" without any
@@ -362,7 +373,7 @@ export interface ClosePositionRequest extends PositionExitRequest {}
 /** Cancels every open order, optionally limited to one market. */
 export interface CancelAllRequest {
   readonly idempotencyKey: string;
-  readonly symbol?: string;
+  readonly marketId?: number;
 }
 
 /**
@@ -418,16 +429,17 @@ export interface Venue {
   getRiskConfigs(): Promise<ReadonlyMap<number, MarketRiskConfig>>;
 
   /**
-   * Whether actions for `symbol` can be sent on this venue's network.
+   * Whether actions on this market (BY ID) can be sent on this venue's network.
    *
    * Callers ask this of the ACTING venue, which is not necessarily the venue a
    * position was read from: analytics runs on mainnet while actions run on
    * testnet, and the two do not list the same markets. A false answer disables
    * the action controls and nothing else — monitoring and alerts continue.
    *
-   * @param symbol canonical ticker, e.g. 'HYPE'.
+   * Asked by MARKET ID of the venue whose network the position is on. The
+   * symbol is only for the reason's wording.
    */
-  getActionAvailability(symbol: string): Promise<ActionAvailability>;
+  getActionAvailability(market: ActingMarket): Promise<ActionAvailability>;
 
   getPositions(address: string): Promise<VenuePosition[]>;
 

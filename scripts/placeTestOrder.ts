@@ -213,6 +213,7 @@ async function placeAndCancel(
   try {
     placed = await venue.placeLimitOrder({
       idempotencyKey: `${runId}:place`,
+      marketId: market.marketId,
       symbol: market.symbol,
       side: params.side,
       price: params.price,
@@ -272,6 +273,7 @@ async function placeAndCancel(
   try {
     cancelled = await venue.cancelOrder({
       idempotencyKey: `${runId}:cancel`,
+      marketId: market.marketId,
       symbol: market.symbol,
       venueOrderId: placed.venueRef,
       timeoutMs: params.timeoutMs,
@@ -421,7 +423,7 @@ async function main(): Promise<number> {
     }
 
     // Monitoring and actionability are separate. Ask the acting venue.
-    const availability = await venue.getActionAvailability(market.symbol);
+    const availability = await venue.getActionAvailability(market);
     if (!availability.actionable) {
       heading('Not actionable');
       console.log(`  ${availability.reason}`);

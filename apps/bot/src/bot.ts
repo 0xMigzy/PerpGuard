@@ -18,7 +18,7 @@
  */
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
+import type { ActingMarket, ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
@@ -1002,7 +1002,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         // Asked of the ACTING venue before any amount is offered: an amount it will not take is not an offer.
         const probe: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, amountCNS: 0n, label: 'probe' };
-        const availability = await availabilityFor(account, assessment.symbol, [probe]);
+        const availability = await availabilityFor(account, assessment, [probe]);
         const kind: 'act' | 'blocked' = availability?.actionable === true ? 'act' : 'blocked';
         const unit = 10n ** BigInt(market.collateralDecimals);
         const presets = ADD_MARGIN_PRESETS_AUSD.map((ausd) => {
@@ -1030,7 +1030,7 @@ export function createBot(deps: BotDeps): Bot {
         }
         await ctx.answerCallbackQuery();
         const topUps = buildMessage(assessment, kindFor(assessment.state), { alerts, market, snapshot: true }).actions;
-        const availability = await availabilityFor(account, assessment.symbol, [{ type: 'close-position' } as AlertAction]);
+        const availability = await availabilityFor(account, assessment, [{ type: 'close-position' } as AlertAction]);
         await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, topUps, button: mint, bufferDecimals: alerts.bufferDecimals }));
         return;
       }
@@ -1395,7 +1395,7 @@ export function createBot(deps: BotDeps): Bot {
     }
     const { account } = resolved;
 
-    const availability = await availabilityFor(account, action.symbol, [action]);
+    const availability = await availabilityFor(account, action, [action]);
     if (availability === undefined || !availability.actionable) {
       await answer(ctx, unavailableText(availability));
       return;
@@ -1585,7 +1585,7 @@ async function handleTypedAmount(
   // Asked of the ACTING venue, and asked HERE rather than only on the confirm
   // tap: a confirmation screen for a market that cannot be acted on is an offer
   // PerpGuard cannot honour.
-  const availability = await availabilityFor(custom.account, action.symbol, [action]);
+  const availability = await availabilityFor(custom.account, action, [action]);
   if (availability === undefined || !availability.actionable) {
     close();
     await ctx.reply(unavailableText(availability));
@@ -1606,12 +1606,12 @@ async function handleTypedAmount(
 /** Ask the ACTING venue, and treat a thrown answer as "we do not know". */
 async function availabilityFor(
   account: AccountView,
-  symbol: string,
+  market: ActingMarket,
   actions: readonly AlertAction[],
 ): Promise<ActionAvailability | undefined> {
   if (actions.length === 0) return undefined;
   try {
-    return await account.executor.availability(symbol);
+    return await account.executor.availability({ marketId: market.marketId, symbol: market.symbol });
   } catch {
     return undefined;
   }

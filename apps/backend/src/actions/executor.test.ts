@@ -729,3 +729,13 @@ test('AUTOMATION: a stop check that passes changes nothing about the send', asyn
   assert.equal(outcome.kind, 'applied');
   assert.equal(h.venue.sends.length, 1);
 });
+
+// ── market identity ─────────────────────────────────────────────────────────
+
+test('MARKET IDENTITY IS THE ID: availability is asked, and the send addressed, by the command\'s market id', async () => {
+  const h = harness();
+  h.venue.applyOnSend = () => h.positions.patch(MARKET, { marginCNS: 83_160n });
+  await h.executor.execute(topUp());
+  assert.deepEqual(h.venue.availabilityAsked, [{ marketId: MARKET, symbol: 'BTC' }]);
+  assert.equal(h.venue.sends[0]?.marketId, MARKET);
+});

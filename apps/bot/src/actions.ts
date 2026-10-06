@@ -18,7 +18,7 @@
  * {@link StubActionExecutor} is still here for the tests and for a bot wired
  * without a trading session, and it still refuses to pretend it acted.
  */
-import type { ActionAvailability } from '@perpguard/shared';
+import type { ActingMarket, ActionAvailability } from '@perpguard/shared';
 import type { AlertAction } from '@perpguard/backend/alerts';
 
 /**
@@ -97,27 +97,27 @@ export interface ExecuteRequest {
  * testnet, and the two do not list the same markets.
  */
 export interface ActionExecutor {
-  /** @param symbol canonical ticker, e.g. 'BTC'. */
-  availability(symbol: string): Promise<ActionAvailability>;
+  /** Asked BY MARKET ID; the symbol is for wording only. */
+  availability(market: ActingMarket): Promise<ActionAvailability>;
   execute(request: ExecuteRequest): Promise<ExecutionOutcome>;
 }
 
 export interface StubActionExecutorOptions {
   /** Injected so the bot can be exercised against an unavailable market. */
-  readonly availability?: (symbol: string) => Promise<ActionAvailability>;
+  readonly availability?: (market: ActingMarket) => Promise<ActionAvailability>;
 }
 
 /** The placeholder executor. Answers availability; refuses to pretend it acted. */
 export class StubActionExecutor implements ActionExecutor {
   readonly calls: ExecuteRequest[] = [];
-  readonly #availability: ((symbol: string) => Promise<ActionAvailability>) | undefined;
+  readonly #availability: ((market: ActingMarket) => Promise<ActionAvailability>) | undefined;
 
   constructor(options: StubActionExecutorOptions = {}) {
     this.#availability = options.availability;
   }
 
-  async availability(symbol: string): Promise<ActionAvailability> {
-    if (this.#availability !== undefined) return this.#availability(symbol);
+  async availability(market: ActingMarket): Promise<ActionAvailability> {
+    if (this.#availability !== undefined) return this.#availability(market);
     // Nothing to ask yet. Saying "read only" rather than "available" keeps the
     // bot from offering a live button it cannot honour.
     return {

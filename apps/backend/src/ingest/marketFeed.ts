@@ -58,8 +58,9 @@ export class MarketFeed {
   readonly #staleMs: number;
   readonly #now: () => number;
   readonly #byMarketId = new Map<number, PriceUpdate>();
-  /** Symbol -> market id, so callers can ask either way. */
-  readonly #bySymbol = new Map<string, number>();
+  // NO SYMBOL INDEX (7 Oct 2026): market identity is the id. A name-keyed map
+  // was last-writer-wins, so a retired market's name living on (SOL 30 -> 31)
+  // would have answered for the wrong market.
 
   /**
    * @param network the ONE network this feed holds prices for. Fixed at
@@ -113,20 +114,10 @@ export class MarketFeed {
     const existing = this.#byMarketId.get(update.marketId);
     if (existing !== undefined && existing.receivedAtMs > update.receivedAtMs) return;
     this.#byMarketId.set(update.marketId, update);
-    this.#bySymbol.set(update.symbol, update.marketId);
   }
 
   get(marketId: number): PriceUpdate | undefined {
     return this.#byMarketId.get(marketId);
-  }
-
-  getBySymbol(symbol: string): PriceUpdate | undefined {
-    const marketId = this.#bySymbol.get(symbol);
-    return marketId === undefined ? undefined : this.#byMarketId.get(marketId);
-  }
-
-  marketIdFor(symbol: string): number | undefined {
-    return this.#bySymbol.get(symbol);
   }
 
   /** Every held price, newest per market. */
@@ -160,11 +151,6 @@ export class MarketFeed {
   isPriceOld(marketId: number): boolean {
     const ageMs = this.ageMs(marketId);
     return ageMs === undefined || ageMs > this.#staleMs;
-  }
-
-  isPriceOldBySymbol(symbol: string): boolean {
-    const marketId = this.#bySymbol.get(symbol);
-    return marketId === undefined ? true : this.isPriceOld(marketId);
   }
 
   /** Market ids whose price is older than STALE_MS. Quiet markets included. */
@@ -211,23 +197,5 @@ export class MarketFeed {
 
     // Connected, and we have a price. Old or not, it is the venue's latest.
     return { ...base, ok: true };
-  }
-
-  canActBySymbol(symbol: string, feed: FeedHealth): PriceGate {
-    const marketId = this.#bySymbol.get(symbol);
-    if (marketId === undefined) {
-      return {
-        ok: false,
-        code: feed.state === 'connected' ? 'no-price' : 'feed-disconnected',
-        reason:
-          feed.state === 'connected'
-            ? `the feed is connected but has never sent a price for ${symbol}`
-            : (feed.reason ?? `the price feed is ${feed.state}`),
-        feed: feed.state,
-        ageMs: undefined,
-        priceIsOld: true,
-      };
-    }
-    return this.canAct(marketId, feed);
   }
 }

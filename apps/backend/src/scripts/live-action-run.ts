@@ -422,6 +422,7 @@ try {
         // exercises the real path rather than a parallel one that could drift.
         const result = await venue.closePosition({
           idempotencyKey: `live-close:${Date.now()}`,
+          marketId: market.marketId,
           symbol: market.symbol,
           positionId: position.positionId,
           positionSide: position.side,

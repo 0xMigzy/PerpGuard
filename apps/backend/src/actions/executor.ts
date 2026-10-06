@@ -257,7 +257,7 @@ export class ActionsExecutor {
     // the same markets.
     let availabilityReason: string | undefined;
     try {
-      const availability = await this.#venue.getActionAvailability(command.symbol);
+      const availability = await this.#venue.getActionAvailability({ marketId: command.marketId, symbol: command.symbol });
       if (!availability.actionable) availabilityReason = availability.reason;
     } catch (error) {
       availabilityReason = `I could not check whether ${command.symbol} can be acted on: ${message(error)}`;
@@ -362,6 +362,8 @@ export class ActionsExecutor {
     const positionId = command.positionId as number;
     const base = {
       idempotencyKey: command.idempotencyKey,
+      // THE MARKET IS THE ID: the frame is addressed to the command's market, never to a name's match.
+      marketId: command.marketId,
       symbol: command.symbol,
       ...(this.#venueTimeoutMs === undefined ? {} : { timeoutMs: this.#venueTimeoutMs }),
     };

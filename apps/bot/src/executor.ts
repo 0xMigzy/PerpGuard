@@ -21,7 +21,7 @@
  *   again". A user who is told "something went wrong" and nothing else will retry
  *   by hand, and for this action that is the dangerous move.
  */
-import type { ActionAvailability } from '@perpguard/shared';
+import type { ActingMarket, ActionAvailability } from '@perpguard/shared';
 import type { ActionCommand, ActionOutcome } from '@perpguard/backend/actions';
 import type { ActionExecutor, ExecuteRequest, ExecutionOutcome } from './actions.ts';
 
@@ -33,20 +33,20 @@ export interface CommandRunner {
 export interface VenueActionExecutorOptions {
   readonly runner: CommandRunner;
   /** Asked of the ACTING venue, which is not the venue positions were read from. */
-  readonly availability: (symbol: string) => Promise<ActionAvailability>;
+  readonly availability: (market: ActingMarket) => Promise<ActionAvailability>;
 }
 
 export class VenueActionExecutor implements ActionExecutor {
   readonly #runner: CommandRunner;
-  readonly #availability: (symbol: string) => Promise<ActionAvailability>;
+  readonly #availability: (market: ActingMarket) => Promise<ActionAvailability>;
 
   constructor(options: VenueActionExecutorOptions) {
     this.#runner = options.runner;
     this.#availability = options.availability;
   }
 
-  async availability(symbol: string): Promise<ActionAvailability> {
-    return this.#availability(symbol);
+  async availability(market: ActingMarket): Promise<ActionAvailability> {
+    return this.#availability(market);
   }
 
   async execute(request: ExecuteRequest): Promise<ExecutionOutcome> {

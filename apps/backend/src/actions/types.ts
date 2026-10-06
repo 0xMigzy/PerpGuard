@@ -288,7 +288,8 @@ export interface PositionReader {
  */
 export interface ActingVenue {
   readonly network: { readonly name: NetworkName };
-  getActionAvailability(symbol: string): Promise<import('@perpguard/shared').ActionAvailability>;
+  /** BY MARKET ID (the command's); the symbol is for wording only. */
+  getActionAvailability(market: import('@perpguard/shared').ActingMarket): Promise<import('@perpguard/shared').ActionAvailability>;
   feedStatus(): FeedHealth;
   addMargin(request: import('@perpguard/shared').AddMarginRequest): Promise<
     import('@perpguard/shared').ActionResult

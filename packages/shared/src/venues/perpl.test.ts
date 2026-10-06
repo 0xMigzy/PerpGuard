@@ -237,7 +237,7 @@ describe('PerplVenue.getCollateralToken', () => {
 describe('PerplVenue.getActionAvailability', () => {
   it('allows actions on a market the acting network lists', async () => {
     const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
-    assert.deepEqual(await venue.getActionAvailability('BTC'), {
+    assert.deepEqual(await venue.getActionAvailability({ marketId: 16, symbol: 'BTC' }), {
       actionable: true,
       network: 'testnet',
       // The acting network's own id, not mainnet's 1.
@@ -249,8 +249,8 @@ describe('PerplVenue.getActionAvailability', () => {
     // HYPE and VVV exist on mainnet only. They are still monitored; only the
     // action controls are disabled.
     const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
-    for (const symbol of ['HYPE', 'VVV']) {
-      const availability = await venue.getActionAvailability(symbol);
+    for (const [marketId, symbol] of [[40, 'HYPE'], [70, 'VVV']] as const) {
+      const availability = await venue.getActionAvailability({ marketId, symbol });
       assert.equal(availability.actionable, false);
       assert.ok(!availability.actionable);
       assert.equal(availability.code, 'not-listed-on-acting-network');
@@ -269,7 +269,7 @@ describe('PerplVenue.getActionAvailability', () => {
     lit.config.is_open = false;
 
     const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(closed) });
-    const availability = await venue.getActionAvailability('LIT');
+    const availability = await venue.getActionAvailability({ marketId: 272, symbol: 'LIT' });
     assert.ok(!availability.actionable);
     assert.equal(availability.code, 'market-closed');
   });
@@ -287,27 +287,37 @@ describe('PerplVenue.getActionAvailability', () => {
       }) as unknown as typeof fetch,
     });
 
-    const availability = await venue.getActionAvailability('BTC');
+    const availability = await venue.getActionAvailability({ marketId: 1, symbol: 'BTC' });
     assert.ok(!availability.actionable);
     assert.equal(availability.code, 'venue-read-only');
     assert.equal(availability.network, 'mainnet');
     assert.equal(calls, 0, 'a read-only refusal needs no network call');
   });
 
-  it('answers for every mainnet symbol without throwing', async () => {
+  it('MARKET IDENTITY IS THE ID: a retired market whose name lives on is refused, never answered as its successor', async () => {
+    // Mainnet SOL v1 (30) was retired and replaced by SOL_v2 (31), whose ticker is SOL.
+    // Asking by name found 31 and called market 30 actionable.
+    const venue = new PerplVenue(mainnet, { fetchImpl: stubFetch(mainnetContext) });
+    const retired = await venue.getActionAvailability({ marketId: 30, symbol: 'SOL' });
+    assert.ok(!retired.actionable);
+    assert.equal(retired.code, 'not-listed-on-acting-network');
+    assert.match(retired.reason, /market 30/);
+    const live = await venue.getActionAvailability({ marketId: 31, symbol: 'SOL' });
+    assert.deepEqual(live, { actionable: true, network: 'mainnet', marketId: 31 });
+  });
+
+  it('a symbol that does not match the id changes nothing: the id decides', async () => {
+    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
+    assert.deepEqual(await venue.getActionAvailability({ marketId: 16, symbol: 'ETH' }), { actionable: true, network: 'testnet', marketId: 16 });
+    assert.equal((await venue.getActionAvailability({ marketId: 32_000, symbol: 'BTC' })).actionable, false);
+  });
+
+  it('answers for every market id without throwing', async () => {
     // Whatever the answer, asking must never fail: an unavailable action is a
     // disabled button, not an error path.
-    const analytics = new PerplVenue(mainnet, { fetchImpl: stubFetch(mainnetContext) });
     const acting = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
-
-    const monitored = await analytics.getMarkets();
-    const answers = await Promise.all(
-      monitored.map(async (m) => [m.symbol, await acting.getActionAvailability(m.symbol)] as const),
-    );
-
-    assert.equal(answers.length, 9);
-    const unavailable = answers.filter(([, a]) => !a.actionable).map(([symbol]) => symbol);
-    assert.deepEqual(unavailable.sort(), ['HYPE', 'VVV']);
+    const listed = await acting.getMarkets();
+    for (const m of listed) assert.equal((await acting.getActionAvailability(m)).actionable, true);
   });
 });
 
@@ -334,13 +344,14 @@ describe('venue action wiring', () => {
     [
       'addMargin',
       () =>
-        venue.addMargin({ idempotencyKey: 'k', symbol: 'BTC', positionId: 1, amountCNS: 10_000_000n }),
+        venue.addMargin({ idempotencyKey: 'k', marketId: 16, symbol: 'BTC', positionId: 1, amountCNS: 10_000_000n }),
     ],
     [
       'reducePosition',
       () =>
         venue.reducePosition({
           idempotencyKey: 'k',
+          marketId: 16,
           symbol: 'BTC',
           positionId: 1,
           positionSide: 'long',
@@ -352,6 +363,7 @@ describe('venue action wiring', () => {
       () =>
         venue.closePosition({
           idempotencyKey: 'k',
+          marketId: 16,
           symbol: 'BTC',
           positionId: 1,
           positionSide: 'long',
@@ -380,6 +392,7 @@ describe('venue action wiring', () => {
       await assert.rejects(
         venue.closePosition({
           idempotencyKey: 'k',
+          marketId: 16,
           symbol: 'BTC',
           positionId: 1,
           positionSide: 'long',

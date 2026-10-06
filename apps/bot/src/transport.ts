@@ -125,7 +125,7 @@ export class TelegramAlertTransport implements AlertTransport {
   async #availabilityFor(message: AlertMessage): Promise<ActionAvailability | undefined> {
     if (message.actions.length === 0) return undefined;
     try {
-      return await this.#executor.availability(message.symbol);
+      return await this.#executor.availability({ marketId: message.marketId, symbol: message.symbol });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       this.#logger.warn(

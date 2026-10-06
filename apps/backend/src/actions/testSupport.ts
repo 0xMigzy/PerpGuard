@@ -12,6 +12,7 @@ import {
   ActionTimeoutError,
   ForwardingNotAllowedError,
   NotImplementedError,
+  type ActingMarket,
   type ActionAvailability,
   type ActionResult,
   type AddMarginRequest,
@@ -136,6 +137,8 @@ export class FakePrices implements PriceGateSource {
 export interface SendRecord {
   readonly kind: 'add-margin' | 'reduce-position' | 'close-position';
   readonly idempotencyKey: string;
+  /** The market the venue was asked to address. The id, never resolved from the symbol. */
+  readonly marketId: number;
   readonly symbol: string;
   readonly positionId: number | undefined;
   readonly amountCNS: bigint | undefined;
@@ -183,7 +186,11 @@ export class FakeVenue implements ActingVenue {
    */
   applyOnSend: ((record: SendRecord) => void) | undefined;
 
-  async getActionAvailability(_symbol: string): Promise<ActionAvailability> {
+  /** Every market availability was asked about, as asked. */
+  readonly availabilityAsked: ActingMarket[] = [];
+
+  async getActionAvailability(market: ActingMarket): Promise<ActionAvailability> {
+    this.availabilityAsked.push(market);
     if (this.availabilityError !== undefined) throw this.availabilityError;
     return this.available;
   }
@@ -197,6 +204,7 @@ export class FakeVenue implements ActingVenue {
       {
         kind: 'add-margin',
         idempotencyKey: request.idempotencyKey,
+        marketId: request.marketId,
         symbol: request.symbol,
         positionId: request.positionId,
         amountCNS: request.amountCNS,
@@ -212,6 +220,7 @@ export class FakeVenue implements ActingVenue {
       {
         kind: 'reduce-position',
         idempotencyKey: request.idempotencyKey,
+        marketId: request.marketId,
         symbol: request.symbol,
         positionId: request.positionId,
         amountCNS: undefined,
@@ -227,6 +236,7 @@ export class FakeVenue implements ActingVenue {
       {
         kind: 'close-position',
         idempotencyKey: request.idempotencyKey,
+        marketId: request.marketId,
         symbol: request.symbol,
         positionId: request.positionId,
         amountCNS: undefined,

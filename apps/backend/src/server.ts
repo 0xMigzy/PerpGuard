@@ -682,7 +682,7 @@ transport =
         // Availability is asked per account's venue by the bot; the transport
         // only needs it to decide whether buttons are live, and the shared
         // venue answers that from the same context.
-        executor: { availability: (symbol) => venue.getActionAvailability(symbol), execute: async () => ({ kind: 'refused', detail: 'the transport never executes' }) },
+        executor: { availability: (market) => venue.getActionAvailability(market), execute: async () => ({ kind: 'refused', detail: 'the transport never executes' }) },
         logger: { warn },
       });
 
@@ -1078,7 +1078,7 @@ const app = createHealthApp({
     pending: webPending,
     progress: actionProgress,
     freeBalance: () => envSession.balance.freeBalance(),
-    availability: (symbol) => envSession.venue.getActionAvailability(symbol),
+    availability: (market) => envSession.venue.getActionAvailability(market),
     inFlightOn: (marketId) => envSession.executor.inFlightOn(marketId),
     runner: envSession.executor,
     accountId: () => envSession.trading.status().accountId,

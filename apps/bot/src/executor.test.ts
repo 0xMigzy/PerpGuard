@@ -257,15 +257,15 @@ test('an action type this adapter cannot express is not-implemented, not a comma
 });
 
 test('availability is asked of the acting venue, unchanged', async () => {
-  const asked: string[] = [];
+  const asked: Array<{ marketId: number; symbol: string }> = [];
   const executor = new VenueActionExecutor({
     runner: new FakeRunner(),
-    availability: async (symbol) => {
-      asked.push(symbol);
+    availability: async (market) => {
+      asked.push(market);
       return OPEN;
     },
   });
 
-  assert.deepEqual(await executor.availability('BTC'), OPEN);
-  assert.deepEqual(asked, ['BTC']);
+  assert.deepEqual(await executor.availability({ marketId: 16, symbol: 'BTC' }), OPEN);
+  assert.deepEqual(asked, [{ marketId: 16, symbol: 'BTC' }], 'by market id; the symbol rides along for wording');
 });

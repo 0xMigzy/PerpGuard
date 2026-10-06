@@ -42,6 +42,7 @@ import type {
   AddMarginRequest,
   FeedHealth,
   CancelAllRequest,
+  ActingMarket,
   MarketOpenInterest,
   CancelOrderRequest,
   ClosePositionRequest,
@@ -256,7 +257,8 @@ export class PerplVenue implements Venue {
     return configs;
   }
 
-  async getActionAvailability(symbol: string): Promise<ActionAvailability> {
+  async getActionAvailability(ref: ActingMarket): Promise<ActionAvailability> {
+    const symbol = ref.symbol;
     const network = this.network.name;
 
     if (this.#readOnly) {
@@ -269,14 +271,15 @@ export class PerplVenue implements Venue {
     }
 
     const markets = await this.getMarkets();
-    const market = markets.find((m) => m.symbol === symbol);
+    // BY ID. A retired market whose name lives on must not be answered as its successor.
+    const market = markets.find((m) => m.marketId === ref.marketId);
 
     if (market === undefined) {
       return {
         actionable: false,
         network,
         code: 'not-listed-on-acting-network',
-        reason: `${symbol} is not listed on Perpl ${network}, so there is nothing to act on there. Monitoring and alerts continue.`,
+        reason: `${symbol} (market ${ref.marketId}) is not listed on Perpl ${network}, so there is nothing to act on there. Monitoring and alerts continue.`,
       };
     }
 
@@ -532,15 +535,15 @@ export class PerplVenue implements Venue {
     };
   }
 
-  /** Throws unless this venue can act on `symbol` right now. */
-  async #requireActionable(symbol: string): Promise<VenueMarket> {
-    const availability = await this.getActionAvailability(symbol);
+  /** Throws unless this venue can act on this market (BY ID) right now. The frame is addressed to the id asked for, never to a name's match. */
+  async #requireActionable(ref: ActingMarket): Promise<VenueMarket> {
+    const availability = await this.getActionAvailability(ref);
     if (!availability.actionable) {
       throw new VenueError(VENUE_ID, availability.reason);
     }
-    const market = (await this.getMarkets()).find((m) => m.symbol === symbol);
+    const market = (await this.getMarkets()).find((m) => m.marketId === ref.marketId);
     if (market === undefined) {
-      throw new VenueError(VENUE_ID, `${symbol} is not listed on Perpl ${this.network.name}`);
+      throw new VenueError(VENUE_ID, `${ref.symbol} (market ${ref.marketId}) is not listed on Perpl ${this.network.name}`);
     }
     return market;
   }
@@ -571,7 +574,7 @@ export class PerplVenue implements Venue {
   }
 
   async placeLimitOrder(request: PlaceLimitOrderRequest): Promise<ActionResult> {
-    const market = await this.#requireActionable(request.symbol);
+    const market = await this.#requireActionable(request);
     const socket = await this.connectTrading();
 
     const accountId = socket.accountId;
@@ -618,7 +621,7 @@ export class PerplVenue implements Venue {
   }
 
   async cancelOrder(request: CancelOrderRequest): Promise<ActionResult> {
-    const market = await this.#requireActionable(request.symbol);
+    const market = await this.#requireActionable(request);
     const socket = await this.connectTrading();
 
     const accountId = socket.accountId;
@@ -691,10 +694,11 @@ export class PerplVenue implements Venue {
       );
     }
 
-    const wanted = new Set(symbols);
+    // Names resolve to ids ONCE, here, against the current context; updates are then matched by id.
+    const wanted = new Set(markets.filter((m) => symbols.includes(m.symbol)).map((m) => m.marketId));
     const socket = await this.#connectMarketData();
     const off = socket.onPrice((update) => {
-      if (wanted.has(update.symbol)) onUpdate(update);
+      if (wanted.has(update.marketId)) onUpdate(update);
     });
     this.#priceSubscribers += 1;
 
@@ -803,7 +807,7 @@ export class PerplVenue implements Venue {
    * margin twice.
    */
   async addMargin(request: AddMarginRequest): Promise<ActionResult> {
-    const market = await this.#requireActionable(request.symbol);
+    const market = await this.#requireActionable(request);
     const socket = await this.connectTrading();
 
     const accountId = socket.accountId;
@@ -903,7 +907,7 @@ export class PerplVenue implements Venue {
       throw new VenueError(VENUE_ID, `size ${request.sizeLNS} is out of range for a wire frame`);
     }
 
-    const market = await this.#requireActionable(request.symbol);
+    const market = await this.#requireActionable(request);
     const socket = await this.connectTrading();
 
     const accountId = socket.accountId;

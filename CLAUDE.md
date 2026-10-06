@@ -88,6 +88,16 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   to venue data joins on the market id and takes the canonical ticker from the
   context, the way `toVenueMarket` already does. Matching on a name silently
   drops that market.
+  - THE ACTION PATH TOO (fixed 7 Oct 2026). Every `ActionRequest` carries
+    `marketId`; `getActionAvailability({ marketId, symbol })` and the frame's
+    market resolve BY ID, the symbol only words the reason. Until then the
+    venue looked the market up by symbol, so a live position on retired SOL
+    30 would have been called actionable and its top-up, reduce or close
+    addressed to SOL_v2 31. `MarketFeed` has no symbol index (it was
+    last-writer-wins). Name lookups that remain are deliberate: an operator's
+    typed `--symbol` in a script, resolved once against the current context,
+    and cross-VENUE matching (Hyperliquid/Binance funding: ticker AND price),
+    where no shared id exists.
 - A MARKET BEING LISTED ON CHAIN DOES NOT MAKE IT VISIBLE IN THE API. On
   3 Oct 2026 the chain lists 17 markets on mainnet and `GET /v1/pub/context`
   returns 11 (BTC, MON, ETH, SOL, HYPE, ZEC, LIT, VVV, PUMP, NEAR 100, UNI 110
