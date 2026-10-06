@@ -343,7 +343,10 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   other window pays its scan once.
 - PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
   reduce, close or kill switch from the web; every action happens in Telegram.
-  The backend's `/api/protect/*` routes still exist and no page calls them —
+  The backend's `/api/protect/*` routes still exist and no page calls them; a
+  protect session opens ONLY for a code minted for the protect user (a /link
+  code, from the same store, opened an owner session on the environment
+  account until 6 Oct 2026) —
   `apps/web/src/lib/api.ts` has GETs against `/api/analytics/*` and nothing
   else, no session, no provider, no sign-in. Everything reads the mainnet
   indexer, so there is ONE network and NO network labelling anywhere on a page.
@@ -547,7 +550,24 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   A linked chat gets the account's alerts with the buttons to act.
 
 ## The Telegram bot: screens, not commands
-- THE LAYOUT IS `docs/bot-screens.html`. Every screen is reachable by button;
+- THE MENU IS THE REBUILD SPEC'S (sections 18-30), and `docs/bot-screens.html`
+  is GENERATED from the real bot by `pnpm bot:screens`: every screen reachable
+  from /start, as the owner and as a stranger. Regenerate it after any screen
+  change. Home is "🛡 PERPGUARD / Analyse. Watch. Act." with a status block
+  (Trading Account + network, Execution, Automation, Alerts) and the buttons
+  Watch & Alerts, My Positions, Margin, Trading Account, Settings, Open
+  PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON (owner, 6 Oct 2026): Rescue,
+  Copy Trading, the Kill Switch, Top Traders, Liquidations, Large Trades and
+  Alert Settings appear when their phase lands, never as a dead button; the
+  roadmap belongs in the README. A test walks every screen and fails on any
+  label for an unbuilt feature.
+- THE TRADING ACCOUNT SHOWS ACCOUNT, NETWORK AND EXECUTION AS SEPARATE FACTS
+  (`apps/bot/src/trading.ts`): Execution is green only for a signed-in
+  session that allows forwarding, and every other state is named with what to
+  do. Wallet and Ownership rows wait for the persisted proof (Phase 10-11):
+  today's link record does not keep how it was proved, so nothing claims it.
+  Disconnect lives here, labelled with the account, not in Settings.
+- Every screen is reachable by button;
   the only commands are `/start` (the menu), `/watch`, `/link` and `/help`,
   and the BotFather menu is set to exactly those at startup
   (`BOT_MENU_COMMANDS`). `/positions`, `/status`, `/cancel`, `/unwatch`,
@@ -555,7 +575,8 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
 - NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
   `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The
   gate lets an unlinked chat through ONLY with a nav payload that decodes to a
-  route marked public (home, watch, watchlist, wallet, stop watching, connect).
+  route marked public (home, Watch & Alerts, watch, watchlist, wallet, stop
+  watching, Trading Account, connect).
   Every action payload is still refused before any handler, and account
   routes resolve the link at tap time like a command. Screens edit the message
   they were tapped on; a `fresh` button (`+` on the code) opens a new message
@@ -576,9 +597,10 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   floored, what something NEEDS is ceiled; under one AUSD is "under 1 AUSD",
   never "0 AUSD"; never the word "safe"; a negative buffer is "past its
   closing price". Watch alerts carry freshness and "No buttons" every time.
-- THE ACCOUNT HALF (`apps/bot/src/account.ts`): My positions, a position
-  screen with Add (computed or custom), Reduce 25%, Close position and the
-  kill switch, Settings. Every money button is a pending-action token through
+- THE ACCOUNT HALF (`apps/bot/src/account.ts`): My Positions, Margin (the
+  same positions framed for adding margin; sends nothing itself), a position
+  screen with Add (computed or custom), Reduce 25% and Close position,
+  Settings. Every money button is a pending-action token through
   the existing confirmation, one-in-flight lock and reconciliation; nothing is
   offered while the feed or the position list is blind. The confirmation turns
   into the progress line and then the outcome IN PLACE, so Send cannot be
@@ -588,9 +610,14 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   not hidden: the floor can understate (warn, don't refuse). The `sr 32`
   top-up's outcome says the exchange reported a rejection AND that the margin
   applied, as the layout asks.
-- KILL SWITCH per account (`AccountSession.killSwitch`), behind a single-use
-  nonce shown on its confirmation; a crafted or replayed `kill-go` fires
-  nothing. Worded as closed / still open / not known; never "fire again".
+- THE CLOSE-ALL KILL SWITCH IS RETIRED (6 Oct 2026, owner's decision). It
+  closed every position, Close All is cut, and the Kill Switch returns in
+  Phase 20 as "stop automation, leave positions open". A button whose current
+  meaning is the most destructive action in the product, about to change
+  meaning completely, does not sit on the menu meanwhile. Its nav codes
+  (`kq`, `kx`) decode to nothing: an old button still in a chat is answered
+  "from an older version of the menu. Nothing was sent." The executor's
+  `fireKillSwitch` stays for Phase 20 to rework; no bot path reaches it.
 - "WARN ME AT" (`apps/backend/src/risk/warn.ts`) is a real per-account
   threshold on that account's loop: Early 10%, Normal 8% (today's default),
   Last minute 3% (no WATCH band). DANGER stays at 3% for every level.

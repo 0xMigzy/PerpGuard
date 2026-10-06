@@ -1,415 +1,128 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PerpGuard Bot Screens</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: a wall of phone screens in the order a new user meets them —
-   read-only half first, account half second, settings last. */
-:root{
-  --page:#07080D; --card:#0F1118; --border:#1C1F2A; --border-hi:#272B3A;
-  --text:#ECEAFB; --muted:#8A8FA3; --faint:#5C6173;
-  --accent:#8B5CF6; --accent-hi:#A48BFF;
-  --safe:#3DD9A0; --watch:#F5B93C; --danger:#FF6B80;
-  /* telegram dark */
-  --tg-bg:#0E1621; --tg-bub:#1E2C3A; --tg-txt:#FFFFFF; --tg-dim:#8B9BA8;
-  --tg-link:#6AB3F3; --tg-btn:#28394A;
-  --display:'Archivo',ui-sans-serif,system-ui,sans-serif;
-  --body:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
-  --data:'IBM Plex Mono',ui-monospace,Menlo,monospace;
-  color-scheme:dark;
-}
+:root{--page:#07080D;--card:#0F1118;--border:#1C1F2A;--text:#ECEAFB;--muted:#8A8FA3;--accent:#A48BFF;
+  --tg-bg:#0E1621;--tg-bub:#1E2C3A;--tg-btn:#28394A;--tg-link:#6AB3F3;color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;background:var(--page);color:var(--text);font-family:var(--body);
-  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1240px;margin:0 auto;padding-inline:20px;padding-block:34px 64px}
-h1{font-family:var(--display);font-size:25px;font-weight:600;margin:0 0 7px;letter-spacing:-.015em;text-wrap:balance}
-.lede{margin:0;color:var(--muted);max-width:68ch}
-.rules{margin:20px 0 0;padding:14px 16px;border:1px solid var(--border-hi);border-radius:11px;
-  background:var(--card);font-size:13px;max-width:78ch}
-.rules b{color:var(--accent-hi);font-weight:600}
-h2{font-family:var(--display);font-size:16px;font-weight:600;margin:40px 0 4px;letter-spacing:-.005em}
-h2 .tag{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
-  padding:3px 8px;border-radius:5px;margin-left:10px;vertical-align:2px}
-.tag.open{color:var(--safe);background:rgba(61,217,160,.12)}
-.tag.linked{color:var(--accent-hi);background:rgba(139,92,246,.15)}
-.tag.set{color:var(--muted);background:rgba(138,143,163,.12)}
-.sub{margin:0 0 16px;color:var(--muted);font-size:13px;max-width:72ch}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(286px,1fr));gap:16px;align-items:start}
-
-.screen{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;min-width:0}
-.cap{font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--faint);padding:10px 13px;border-bottom:1px solid var(--border);
-  display:flex;justify-content:space-between;gap:10px}
-.cap b{color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;font-family:var(--body)}
-.chat{background:var(--tg-bg);padding:13px 12px 14px}
-.bub{background:var(--tg-bub);border-radius:12px;padding:11px 13px;color:var(--tg-txt);
-  font-size:13px;line-height:1.55;word-wrap:break-word}
-.bub .hd{font-weight:600;display:block;margin-bottom:6px}
-.bub .dim{color:var(--tg-dim)}
-.bub .n{font-family:var(--data);font-weight:500}
-.bub b.m{font-weight:600}
-.bub hr{border:0;border-top:1px solid rgba(255,255,255,.08);margin:9px 0}
-.bub .row{display:flex;justify-content:space-between;gap:10px;margin:3px 0}
-.bub .lbl{color:var(--tg-dim)}
-.ok{color:#5BD39B} .wn{color:#F3BE5A} .dg{color:#FF7B8E}
-
-.keys{display:flex;flex-direction:column;gap:5px;margin-top:9px}
-.krow{display:flex;gap:5px}
-.krow .key{flex:1}
-.key{background:var(--tg-btn);border:0;border-radius:9px;padding:9px 10px;color:var(--tg-link);
-  font-family:var(--body);font-size:12.5px;font-weight:500;cursor:pointer;text-align:center;
-  width:100%;line-height:1.35}
-.key:hover{background:#33465B}
-.key.warn{color:#F3BE5A}
-.key.go{color:#5BD39B}
-.nokeys{margin-top:9px;font-size:11.5px;color:#6E7F8D;font-style:italic}
-.input{margin-top:9px;background:#17212B;border:1px solid #28394A;border-radius:9px;
-  padding:9px 11px;color:#55657A;font-family:var(--data);font-size:12px}
-
-.note{display:flex;gap:10px;align-items:flex-start;border-radius:10px;padding:12px 14px;
-  font-size:12.5px;margin-top:16px;background:rgba(139,92,246,.08);
-  border:1px solid rgba(139,92,246,.3);color:#CFC6F0;max-width:78ch}
-.note svg{flex-shrink:0;margin-top:1px}
-.note b{font-weight:600;color:var(--accent-hi)}
-
-footer{margin-top:46px;padding-top:18px;border-top:1px solid var(--border);
-  font-size:11.5px;color:var(--faint);max-width:80ch}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style>
-
-<div class="wrap">
-  <h1>PerpGuard bot, screen by screen</h1>
-  <p class="lede">Every screen reachable by button. Commands stay only where typing is genuinely
-    faster. Shown in Telegram's dark theme.</p>
-
-  <div class="rules">
-    <b>The rules underneath all of it.</b> Nothing requires a typed command · every screen has a way
-    back · AUSD amounts in bold, because the money is what a beginner looks for first · money before
-    percentages · each term explained once where it appears · never the word “safe”, always what the
-    liquidation price becomes · no action buttons anywhere a watcher can reach ·
-    <b>never offer an amount the person cannot afford</b>.
-  </div>
-
-  <!-- ============ FIRST RUN ============ -->
-  <h2>Arriving<span class="tag open">Open to anyone</span></h2>
-  <p class="sub">A stranger presses Start. Two lines of what this is, then the only two things
-    worth doing.</p>
-  <div class="grid">
-
-    <div class="screen">
-      <div class="cap"><span>First run</span><b>/start</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">PerpGuard · live from Monad</span>
-          Watch any Perpl trader and get told before they are liquidated.
-          Connect your own account and you can act on it.
-          <hr>
-          <span class="dim">👁 Not watching anything yet</span><br>
-          <span class="dim">🛡 No account connected</span>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">👁 Watch a wallet</button>
-            </div>
-            <div class="krow">
-              <button class="key">🔗 Connect my account</button>
-            </div>
-            <div class="krow">
-              <button class="key">📊 Open PerpGuard</button>
-            </div>
-          </div>
-        </div>
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:16px;margin:36px 0 4px}
+p{color:var(--muted);max-width:76ch;margin:0 0 6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:14px}
+.phone{margin:0;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
+figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border)}
+.chat{background:var(--tg-bg);padding:12px}
+.bubble{background:var(--tg-bub);border-radius:12px;padding:9px 11px;font-size:13.5px;overflow-wrap:anywhere}
+.row{display:flex;gap:4px;margin-top:4px}
+.btn{flex:1;text-align:center;background:var(--tg-btn);border-radius:8px;padding:7px 6px;font-size:12.5px}
+.btn.url{color:var(--tg-link)}.btn.changes{outline:1px dashed #F5B93C55}
+</style></head><body><div class="wrap">
+<h1>PerpGuard bot screens</h1>
+<p>Generated by <code>pnpm bot:screens</code> from the real bot: every screen reachable by tapping, from /start. Telegram and the account's session are faked; nothing here is a mock-up. A dashed button changes something and was not tapped.</p>
+<p>What is not on the menu yet is not built yet: Liquidation Rescue, Copy Trading, the Kill Switch (stop automation) and the rest of Watch & Alerts arrive with their phases.</p>
+<h2>Anyone: no wallet, no link</h2><p>A stranger watching one account. Every screen is read-only; the Trading Account says Not connected and names the network.</p><div class="grid">
+    <figure class="phone">
+      <figcaption>Anyone · /start</figcaption>
+      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>Not connected</b><br>👁 Watching <b>1 wallet</b></div>
+      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span></div><div class="row"><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Home, returning</span><b>Menu</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">PerpGuard · live from Monad</span>
-          <div class="row"><span class="lbl">👁 Watching</span><span class="n">3 wallets</span></div>
-          <div class="row"><span class="lbl">🛡 My account</span><span class="n">#710</span></div>
-          <div class="row"><span class="lbl">Closest to liquidation</span><span class="n dg">3.1%</span></div>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">👁 Watch a wallet</button>
-              <button class="key">📋 My watchlist</button>
-            </div>
-            <div class="krow">
-              <button class="key">🛡 My positions</button>
-              <button class="key">⚙️ Settings</button>
-            </div>
-            <div class="krow">
-              <button class="key">📊 Open PerpGuard</button>
-            </div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Anyone · watch-menu</figcaption>
+      <div class="chat"><div class="bubble">👁 <b>WATCH & ALERTS</b><br>Read-only. No wallet, no key.<br><br>Watching <b>1 of 5</b> wallets. You get a message when one of their positions gets close to being closed.</div>
+      <div class="row"><span class="btn">👛 Watch Wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Watch a wallet</span><b>force_reply</b></div>
-      <div class="chat">
-        <div class="bub">
-          Send me an address or an account id.
-          <br><span class="dim">Either works. You can paste one any time without pressing
-            anything first.</span>
-          <div class="input">0x… or 710</div>
-          <div class="keys">
-            <div class="krow"><button class="key">← Back</button></div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Anyone · account</figcaption>
+      <div class="chat"><div class="bubble">🔐 <b>TRADING ACCOUNT</b><br><br>Account: <b>Not connected</b><br>Network: Monad testnet<br>Execution: ⚪ Not configured<br><br>Connecting lets PerpGuard add margin, reduce or close a position, each time only after you confirm here.<br>It can never withdraw or transfer your funds: a Perpl API key has no permission to move money out.</div>
+      <div class="row"><span class="btn changes">🌈 Connect Wallet</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-  </div>
-
-  <!-- ============ READ ONLY ============ -->
-  <h2>Watching<span class="tag open">Read-only · no wallet, no account</span></h2>
-  <p class="sub">The whole of this half is informational. There is no action button anywhere in it,
-    and the server refuses one even if it arrives.</p>
-  <div class="grid">
-
-    <div class="screen">
-      <div class="cap"><span>My watchlist</span><b>3 of 20</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Watching 3 wallets</span>
-          <div class="row"><span>#2724 <span class="dim">SOL long</span></span><span class="wn n">5.1%</span></div>
-          <div class="row"><span>#5293 <span class="dim">BTC long</span></span><span class="ok n">18.4%</span></div>
-          <div class="row"><span>#3388 <span class="dim">2 positions</span></span><span class="dg n">1.8%</span></div>
-          <hr>
-          <span class="dim">The percentage is how far the price can move against them before
-            the exchange closes it.</span>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">#2724</button><button class="key">#5293</button><button class="key">#3388</button>
-            </div>
-            <div class="krow">
-              <button class="key">👁 Watch another</button>
-              <button class="key">← Back</button>
-            </div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Anyone · watch-ask</figcaption>
+      <div class="chat"><div class="bubble">Send me an address or an account id.<br>Either works. You can paste one any time without pressing anything first.</div>
+      <div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Watched wallet</span><b>no actions</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Account #3388 <span class="dg">· 1.8% from liquidation</span></span>
-          MON long · <b class="m">18,400 MON</b>
-          <div class="row"><span class="lbl">Price now</span><span class="n">2.3980</span></div>
-          <div class="row"><span class="lbl">Closed out at</span><span class="n dg">2.3510</span></div>
-          <div class="row"><span class="lbl">They would lose</span><span class="n"><b class="m">1,940 AUSD</b></span></div>
-          <div class="row"><span class="lbl">They hold free</span><span class="n ok"><b class="m">2,910 AUSD</b></span></div>
-          <hr>
-          <span class="dim">They are holding more than enough to survive this. Perpl keeps each
-            position's money separate, so none of it moves on its own.</span>
-          <div class="nokeys">No buttons. You are watching this account, not holding it.</div>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">🔕 Stop watching</button>
-              <button class="key">← Back</button>
-            </div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Anyone · watchlist</figcaption>
+      <div class="chat"><div class="bubble">⭐ <b>WATCHLIST</b> · 1 of 5<br><br>#4088 · checking…<br><br><i>The percentage is how far the price can move against them before the exchange closes it.</i></div>
+      <div class="row"><span class="btn">#4088</span></div><div class="row"><span class="btn">👛 Watch another</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Watch alert</span><b>delivered</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd dg">🔴 #3388 · MON long is 1.8% from being closed</span>
-          MON is <span class="n">2.3980</span>. At <span class="n">2.3510</span> the exchange closes
-          this position and they lose the <b class="m">1,940 AUSD</b> behind it.
-          <hr>
-          <span class="dim">They hold <b class="m" style="color:#5BD39B">2,910 AUSD</b> free —
-            enough to survive, if they move it.</span>
-          <div class="nokeys">No buttons. You are watching this account, not holding it.</div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Anyone · wallet</figcaption>
+      <div class="chat"><div class="bubble"><b>Account #4088</b><br>I have not read it from the index yet. The first look takes up to half a minute; open it again in a moment.<br><br>No buttons. You are watching this account, not holding it.</div>
+      <div class="row"><span class="btn changes">🔕 Stop watching</span><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-  </div>
-
-  <!-- ============ ACCOUNT ============ -->
-  <h2>My account<span class="tag linked">Linked · actions enabled</span></h2>
-  <p class="sub">Connecting is explained before it is offered, in terms of what PerpGuard can and
-    cannot do with it.</p>
-  <div class="grid">
-
-    <div class="screen">
-      <div class="cap"><span>Before connecting</span><b>what it means</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Connecting your account</span>
-          With your approval each time, PerpGuard can add margin to a position, reduce it, or close it.
-          <hr>
-          <span class="dim">It can never withdraw or transfer your funds. A Perpl API key has no
-            permission to move money out, and you can disconnect at any time.</span>
-          <div class="keys">
-            <div class="krow"><button class="key go">🔗 Connect</button></div>
-            <div class="krow"><button class="key">← Back</button></div>
-          </div>
-        </div>
+    </figure></div>
+<h2>The linked owner</h2><p>Account #710 on testnet with one BTC long close to its closing price. Money buttons go through a confirmation; nothing on these screens sends on the first tap.</p><div class="grid">
+    <figure class="phone">
+      <figcaption>Owner · /start</figcaption>
+      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>#710</b> · Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON · first warning at 8%<br>Closest to liquidation <b>2.7%</b></div>
+      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">💰 Margin</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>My positions</span><b>account #710</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Account #710 · 2 open</span>
-          <div class="row"><span>BTC long <span class="dim">0.5</span></span><span class="dg n">3.1%</span></div>
-          <div class="row"><span>ETH short <span class="dim">4.0</span></span><span class="ok n">22.6%</span></div>
-          <hr>
-          <div class="row"><span class="lbl">Free balance</span><span class="n ok"><b class="m">4,180 AUSD</b></span></div>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">BTC long · 3.1%</button>
-            </div>
-            <div class="krow">
-              <button class="key">ETH short · 22.6%</button>
-            </div>
-            <div class="krow">
-              <button class="key">⚙️ Settings</button>
-              <button class="key">← Back</button>
-            </div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · watch-menu</figcaption>
+      <div class="chat"><div class="bubble">👁 <b>WATCH & ALERTS</b><br>Read-only. No wallet, no key.<br><br>Not watching anything yet.</div>
+      <div class="row"><span class="btn">👛 Watch Wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Position detail</span><b>actions live</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd dg">BTC long · 3.1% from being closed</span>
-          BTC is <span class="n">83,854.5</span>. At <span class="n">81,262.2</span> the exchange
-          closes this and you lose the <b class="m">2,810 AUSD</b> behind it.
-          <hr>
-          <div class="row"><span class="lbl">You hold free</span><span class="n ok"><b class="m">4,180 AUSD</b></span></div>
-          <span class="dim">Perpl will not use it to save this position. Each position's money is
-            kept separate.</span>
-          <hr>
-          Adding to it moves that closing price further down:
-          <div class="keys">
-            <div class="krow"><button class="key go">Add <b class="m">1,201 AUSD</b> → closes at 80,500</button></div>
-            <div class="krow">
-              <button class="key">Add custom amount</button>
-              <button class="key">Reduce 25%</button>
-            </div>
-            <div class="krow">
-              <button class="key warn">Close position</button>
-              <button class="key warn">Kill switch</button>
-            </div>
-            <div class="krow"><button class="key">← Back</button></div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · positions</figcaption>
+      <div class="chat"><div class="bubble"><b>Account #710</b> · 1 open<br><br>🔴 BTC long 0.5 BTC · <b>2.7%</b><br><br>Free balance at least <b>10,000 AUSD</b><br><i>The percentage is how far the price can move against you before the exchange closes the position.</i></div>
+      <div class="row"><span class="btn">BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Confirmation</span><b>second tap</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Add <b class="m">1,201 AUSD</b> to BTC long?</span>
-          <div class="row"><span class="lbl">Closes at, after</span><span class="n">80,500.4</span></div>
-          <div class="row"><span class="lbl">Room to fall, after</span><span class="n ok">4.0%</span></div>
-          <div class="row"><span class="lbl">Free balance left</span><span class="n"><b class="m">2,979 AUSD</b></span></div>
-          <hr>
-          <span class="dim">Nothing has been sent yet.</span>
-          <div class="keys">
-            <div class="krow"><button class="key go">✓ Send it</button></div>
-            <div class="krow"><button class="key">Cancel</button></div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · margin</figcaption>
+      <div class="chat"><div class="bubble">💰 <b>MARGIN</b><br>Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.<br><br>Free balance at least <b>10,000 AUSD</b><br><br>Choose a position:</div>
+      <div class="row"><span class="btn">BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-  </div>
-
-  <!-- ============ SETTINGS ============ -->
-  <h2>Settings<span class="tag set">State on the label</span></h2>
-  <p class="sub">Every button says what it is currently set to, so nothing has to be remembered.
-    “Warn me at” offers three plain choices rather than a number to invent.</p>
-  <div class="grid">
-
-    <div class="screen">
-      <div class="cap"><span>Settings</span><b>current state shown</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">Settings</span>
-          <span class="dim">Each button shows what it is set to now. Tap to change it.</span>
-          <div class="keys">
-            <div class="krow"><button class="key">⚠️ Warn me at: Normal (5%)</button></div>
-            <div class="krow">
-              <button class="key">🔕 Quiet hours: off</button>
-              <button class="key">📰 Daily summary: off</button>
-            </div>
-            <div class="krow"><button class="key">🔗 Disconnect account #710</button></div>
-            <div class="krow"><button class="key">← Back</button></div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · account</figcaption>
+      <div class="chat"><div class="bubble">🔐 <b>TRADING ACCOUNT</b><br><br>Account: <b>#710</b><br>Network: Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None</div>
+      <div class="row"><span class="btn">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Warn me at</span><b>three choices</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd">How early should I warn you?</span>
-          <span class="dim">How far the price still has to move against you when the first
-            warning arrives.</span>
-          <div class="keys">
-            <div class="krow"><button class="key">Early · 10% — most time to react</button></div>
-            <div class="krow"><button class="key go">Normal · 5% — currently set</button></div>
-            <div class="krow"><button class="key">Last minute · 3% — fewest messages</button></div>
-            <div class="krow"><button class="key">← Back</button></div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · settings</figcaption>
+      <div class="chat"><div class="bubble">⚙️ <b>SETTINGS</b> · account #710<br>Each button shows what it is set to now. Tap to change it.</div>
+      <div class="row"><span class="btn">⚠️ Warn me at: Normal (8%)</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-    <div class="screen">
-      <div class="cap"><span>Outcome</span><b>after reconciliation</b></div>
-      <div class="chat">
-        <div class="bub">
-          <span class="hd ok">✓ Added <b class="m">1,201 AUSD</b> to BTC long</span>
-          <div class="row"><span class="lbl">Closes at now</span><span class="n">80,500.4</span></div>
-          <div class="row"><span class="lbl">Room to fall</span><span class="n ok">3.1% → 4.0%</span></div>
-          <hr>
-          <span class="dim">Confirmed against the position itself, not only the exchange's reply.
-            The exchange reported a rejection on this one; the margin did apply, and the position
-            is what we checked.</span>
-          <div class="keys">
-            <div class="krow">
-              <button class="key">🛡 My positions</button>
-              <button class="key">← Back</button>
-            </div>
-          </div>
-        </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · watch-ask</figcaption>
+      <div class="chat"><div class="bubble">Send me an address or an account id.<br>Either works. You can paste one any time without pressing anything first.</div>
+      <div class="row"><span class="btn">← Back</span></div>
       </div>
-    </div>
-
-  </div>
-
-  <div class="note">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A48BFF" stroke-width="2.2" aria-hidden="true">
-      <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
-    <div><b>Commands that survive:</b> <span style="font-family:var(--data)">/start</span>,
-      <span style="font-family:var(--data)">/watch &lt;address&gt;</span>,
-      <span style="font-family:var(--data)">/link</span>,
-      <span style="font-family:var(--data)">/help</span>. Everything else is navigation and belongs
-      on a button — the handlers go, and the BotFather menu is trimmed to match, so nobody is
-      taught the slower way to use the bot.</div>
-  </div>
-
-  <footer>
-    Layout review only. The BTC figures — 3.1%, 83,854.5, 81,262.2, and the 1,201 and 7,808 top-ups —
-    are from a real alert the engine produced. The margin, free balance and the watched account's
-    numbers are illustrative and written by hand.
-  </footer>
-</div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · watchlist</figcaption>
+      <div class="chat"><div class="bubble">⭐ <b>WATCHLIST</b><br>You are not watching anything yet. Watch any Perpl account by its address or account id — no wallet needed.</div>
+      <div class="row"><span class="btn">👛 Watch Wallet</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · position</figcaption>
+      <div class="chat"><div class="bubble">🔴 <b>BTC long · 2.7% from being closed</b><br>BTC is 84,007.3. At 81,770.1 the exchange closes this and you lose the <b>2,810 AUSD</b> behind it.<br><br>You hold free at least <b>10,000 AUSD</b><br>Perpl will not use it to save this position. Each position's money is kept separate.<br><br>Adding to it moves that closing price further down:</div>
+      <div class="row"><span class="btn">Add 562 AUSD → closes at 80,647.1</span></div><div class="row"><span class="btn">Add 2,662 AUSD → closes at 76,446.7</span></div><div class="row"><span class="btn">Add custom amount</span></div><div class="row"><span class="btn">Reduce 25%</span></div><div class="row"><span class="btn">Close position</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · disconnect-ask</figcaption>
+      <div class="chat"><div class="bubble"><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
+      <div class="row"><span class="btn changes">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · warn-ask</figcaption>
+      <div class="chat"><div class="bubble"><b>How early should I warn you?</b><br>How far the price still has to move against you when the first warning arrives. The last warning, at 3%, comes whatever you pick.</div>
+      <div class="row"><span class="btn changes">Early · 10% — most time to react</span></div><div class="row"><span class="btn changes">Normal · 8% — currently set</span></div><div class="row"><span class="btn changes">Last minute · 3% — fewest messages</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure></div>
+</div></body></html>

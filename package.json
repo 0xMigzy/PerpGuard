@@ -22,6 +22,7 @@
     "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts",
     "watch:demo": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-e2e-demo.ts",
     "bot:account-demo": "node --env-file-if-exists=.env apps/backend/src/scripts/bot-account-demo.ts",
+    "bot:screens": "node apps/backend/src/scripts/bot-screens.ts",
     "registry:live": "node --env-file-if-exists=.env apps/backend/src/scripts/registry-live-run.ts",
     "verify:logs": "node --env-file-if-exists=.env apps/indexer/src/scripts/verify-logs.ts",
     "protocol:flows": "node --env-file-if-exists=.env apps/indexer/src/scripts/protocol-flows.ts",
