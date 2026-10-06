@@ -306,7 +306,10 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   "x of y", a share names what it is a share of, a window says which days it
   covers. A figure that cannot honour the section's timeframe says which
   window it used instead (fees: UTC days; trader windows: TraderDay buckets;
-  open interest and TVL: levels, now).
+  open interest and TVL: levels, now). VISIBLE LABELS SHOW THE WINDOW THE
+  READER PICKED ("30 days"); the exact whole-UTC-day span ("the 31 UTC days
+  from 2026-09-06") is on the label's hover (6 Oct 2026, owner's request).
+  A trader's "N UTC days" was the days it was ACTIVE, never the window.
 - SKEW IS MARGIN AT RISK OR HEADCOUNT, NEVER NOTIONAL. On an order-book perp
   notional skew is IDENTICALLY 50/50 BY CONSTRUCTION: every long lot was
   matched against a short lot, so open size per side is equal on every market

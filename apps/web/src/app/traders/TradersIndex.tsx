@@ -78,7 +78,9 @@ export function TradersIndex() {
   const window = data?.window ?? summary.data?.data.window;
   const period = dayPeriodLabel(t, start);
   // Day buckets: "24h" is today and yesterday so far, and the column says so.
-  const windowed = window === undefined || window.days === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
+  // The window the reader picked; the whole-UTC-day span is on each column's hover.
+  const windowed = period;
+  const spanNote = window?.days === undefined ? '' : ` Summed over whole UTC days: ${window.label}.`;
   const floor = data?.minRoundTripsForRatios ?? 10;
 
   const choose = (next: TraderRanking) => {
@@ -98,17 +100,17 @@ export function TradersIndex() {
 
   const flowColumns: readonly Column[] = [
     { key: 'account', label: 'Account (one wallet each)', sub: '', title: 'One Perpl account per row. Every account has its own owner wallet and no wallet holds two, so nothing is summed across accounts.' },
-    { key: 'deposits', label: 'Deposits', sub: windowed, title: 'Deposited into the account over the window, from the indexed deposit events.' },
-    { key: 'withdrawals', label: 'Withdrawals', sub: windowed, title: 'Withdrawn over the window, from the indexed withdrawal events.' },
-    { key: 'netFlow', label: 'Net flow', sub: windowed, title: 'Deposits − withdrawals. Never a change in balance, which also moves on PnL, funding, fees and liquidations.' },
+    { key: 'deposits', label: 'Deposits', sub: windowed, title: `Deposited into the account over the window, from the indexed deposit events.${spanNote}` },
+    { key: 'withdrawals', label: 'Withdrawals', sub: windowed, title: `Withdrawn over the window, from the indexed withdrawal events.${spanNote}` },
+    { key: 'netFlow', label: 'Net flow', sub: windowed, title: `Deposits − withdrawals. Never a change in balance, which also moves on PnL, funding, fees and liquidations.${spanNote}` },
   ];
 
   const tradeColumns: readonly Column[] = [
     { key: 'account', label: 'Account', sub: '' },
-    { key: 'netPnl', label: 'Net PnL', sub: windowed, title: 'Realised + funding − fees over the window.' },
-    { key: 'volume', label: 'Volume', sub: windowed, title: 'The account’s own traded volume.' },
-    { key: 'winRate', label: 'Win rate', sub: windowed, title: `Withheld below ${floor} round trips.` },
-    { key: 'liquidations', label: 'Liquidations', sub: windowed, title: 'Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.' },
+    { key: 'netPnl', label: 'Net PnL', sub: windowed, title: `Realised + funding − fees over the window.${spanNote}` },
+    { key: 'volume', label: 'Volume', sub: windowed, title: `The account’s own traded volume.${spanNote}` },
+    { key: 'winRate', label: 'Win rate', sub: windowed, title: `Withheld below ${floor} round trips.${spanNote}` },
+    { key: 'liquidations', label: 'Liquidations', sub: windowed, title: `Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.${spanNote}` },
   ];
   const columns = flows ? flowColumns : tradeColumns;
   /** Which Flows header is the active order, and which way it points. */

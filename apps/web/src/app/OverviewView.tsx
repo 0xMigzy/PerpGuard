@@ -159,13 +159,13 @@ export function OverviewView() {
               sparkline={tvlSpark}
             />
             <StatTile
-              label={`Fees · ${m.fees.days === 0 ? 'no day yet' : `${formatCount(m.fees.days)} UTC day${m.fees.days === 1 ? '' : 's'}`}`}
-              labelWarn={t !== 'all'}
+              label={`Fees · ${period}`}
+              labelTitle={m.fees.days === 0 ? 'No whole UTC day in the window yet.' : `Fees are summed over whole UTC days: ${m.fees.label}.`}
               value={formatMoney(m.fees.totalAusd)}
               exact={`${formatAusdExact(m.fees.totalAusd)} over ${m.fees.label}`}
               delta={deltaVsPrevious(m, (p) => p.fees.totalAusd, m.fees.totalAusd)}
-              deltaLabel={m.previous === undefined ? 'vs prev' : `vs ${formatCount(m.previous.fees.days)} days before`}
-              secondary={`AUSD, maker + taker, over ${m.fees.label} · maker ${formatMoney(m.makerFeesAusd)} exact`}
+              deltaLabel="vs prev"
+              secondary={`maker + taker · maker ${formatMoney(m.makerFeesAusd)}`}
               sparkline={days?.map((d) => d.feesAusd)}
             />
             <StatTile

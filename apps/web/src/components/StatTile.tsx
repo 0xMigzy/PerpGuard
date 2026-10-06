@@ -24,6 +24,8 @@ export interface StatTileProps {
   readonly sparklineNote?: string | undefined;
   /** Marks the label amber when the period is not the page's timeframe. */
   readonly labelWarn?: boolean;
+  /** A hover on the label: the exact span behind a window the label states plainly. */
+  readonly labelTitle?: string | undefined;
 }
 
 export function StatTile(props: StatTileProps) {
@@ -53,7 +55,7 @@ export function StatTile(props: StatTileProps) {
   }
   return (
     <div className="card stat-tile relative overflow-hidden px-[18px] pt-4 pb-[10px]">
-      <div className={`stat-label text-[12.5px] font-medium ${props.labelWarn ? 'text-watch' : 'text-muted'}`}>{props.label}</div>
+      <div className={`stat-label text-[12.5px] font-medium ${props.labelWarn ? 'text-watch' : 'text-muted'}`} title={props.labelTitle}>{props.label}</div>
       <div
         className="stat-value num mt-2 mb-[6px] text-[30px] leading-[1.1] font-bold tracking-[-0.035em]"
         style={props.valueColor === undefined ? undefined : { color: props.valueColor }}

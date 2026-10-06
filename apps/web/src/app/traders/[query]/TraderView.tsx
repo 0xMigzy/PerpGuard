@@ -148,7 +148,12 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
   const dayRows = days.data?.data;
   const window = useMemo(() => (dayRows === undefined ? undefined : sumDays(dayRows)), [dayRows]);
   const dayCurve = useMemo(() => (dayRows === undefined ? undefined : cumulativeDays(dayRows)), [dayRows]);
-  const windowLabel = t === 'all' ? periodLabel('all', start) : window === undefined ? period : `${formatCount(window.days)} UTC day${window.days === 1 ? '' : 's'}`;
+  // The window the reader picked; the whole-UTC-day span, and how many of those days the account traded, on hover.
+  const windowLabel = t === 'all' ? periodLabel('all', start) : period;
+  const windowTitle =
+    window === undefined
+      ? undefined
+      : `Summed over whole UTC days, ${t === '24h' ? 'yesterday and today so far' : 'from the day the window starts through today so far'}; this account traded on ${formatCount(window.days)} of those days.`;
 
   // ── the three non-profile outcomes ───────────────────────────────────────
   if (parsed.kind === 'invalid') {
@@ -244,6 +249,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
           <>
             <StatTile
               label={`Net PnL · ${windowLabel}`}
+              labelTitle={windowTitle}
               value={formatSignedMoney(t === 'all' ? p.netPnlAusd : window.netPnlAusd)}
               exact={t === 'all' ? `${formatSignedExact(p.netPnlAusd)} = realised ${formatSignedExact(p.realisedPnlAusd)} + funding ${formatSignedExact(p.fundingAusd)} − fees ${formatAusdExact(p.feesPaidAusd)}` : `${formatSignedExact(window.netPnlAusd)} = realised ${formatSignedExact(window.realisedPnlAusd)} + funding ${formatSignedExact(window.fundingAusd)} − fees ${formatAusdExact(window.feesAusd)}`}
               valueColor={(t === 'all' ? p.netPnlAusd : window.netPnlAusd) > 0 ? COLORS.safe : (t === 'all' ? p.netPnlAusd : window.netPnlAusd) < 0 ? COLORS.danger : undefined}
@@ -259,6 +265,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             />
             <StatTile
               label={`Volume · ${windowLabel}`}
+              labelTitle={windowTitle}
               value={formatMoney(t === 'all' ? p.volumeAusd : window.volumeAusd)}
               exact={`${formatAusdExact(t === 'all' ? p.volumeAusd : window.volumeAusd)} notional`}
               secondary={
@@ -272,6 +279,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             />
             <StatTile
               label={`Round trips · ${windowLabel}`}
+              labelTitle={windowTitle}
               value={formatCount(t === 'all' ? p.performance.roundTrips : window.roundTrips)}
               secondary={
                 <>
@@ -292,6 +300,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             />
             <StatTile
               label={`Liquidations · ${windowLabel}`}
+              labelTitle={windowTitle}
               value={formatCount(t === 'all' ? p.rescues.count : window.liquidationCount)}
               exact={`${formatCount(p.rescues.count)} forced exits lifetime, ${formatCount(p.rescues.judgeableCount)} judgeable`}
               valueColor={(t === 'all' ? p.rescues.count : window.liquidationCount) > 0 ? COLORS.danger : undefined}
