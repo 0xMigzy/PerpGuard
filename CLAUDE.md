@@ -463,6 +463,20 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   (`create index concurrently … on "Trade" (maker_id, timestamp desc)`, and the
   same for `taker_id`). A fill records the account's ROLE, never its side or
   action, and only the maker's fee; ~6% have no paired taker.
+  - DIRECTION ("Open long", "Add short", "Reduce long", "Close short", "Flip
+    to long") comes from the position event in the SAME TRANSACTION, read off
+    its receipt (`packages/shared/src/venues/perpl-fill-direction.ts`,
+    `apps/backend/src/server/fillDirections.ts`): the index keeps a
+    position's open and close transactions but not the adds and reduces
+    between. Exactly one event of the account on the market answers;
+    none or two leave it BLANK, never guessed. A flip is named by the side it
+    lands on (the event's side; measured on 10 flips). Checked: 55 of 55
+    opens/closes agree with the index. Receipts are cached; a page resolves
+    every fill, the CSV its newest 2,000 transactions.
+- HOT PROFILES ARE KEPT WARM (`apps/backend/src/server/hotProfiles.ts`): the
+  10 busiest accounts, the default leaderboard's top 50 (net PnL, 30 days)
+  and every bot-watched account, at boot and every 20 minutes, one at a time.
+  Saved wallets live in visitors' browsers; the server cannot see them.
 - COMPARE (`/compare?a=…`, up to 4): every figure is the profile's own, through
   the profile's helpers; each wallet is named by short address and id beside
   its colour; a loading wallet is named "loading…" in the legend.

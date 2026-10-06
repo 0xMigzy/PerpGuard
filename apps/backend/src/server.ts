@@ -103,6 +103,7 @@ import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts'
 import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
 import { OwnerDirectory } from './server/ownerDirectory.ts';
 import { FillDirections } from './server/fillDirections.ts';
+import { ProfileWarmer } from './server/hotProfiles.ts';
 import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
@@ -929,8 +930,11 @@ const app = createHealthApp({
 // deployment mistake, and with no sequence registered it would crash out with a
 // raw libuv stack trace, leaving the market-data socket open behind it.
 
-/** Profiles computed at boot so the heaviest accounts never make a first reader wait. */
+/** Profiles kept warm (hotProfiles.ts): the busiest, the default leaderboard's top, every watched account. */
 const BUSIEST_PROFILES_WARMED = 10;
+const LEADERBOARD_PROFILES_WARMED = 50;
+/** Under the cache's 30-minute idle eviction, so a warmed profile is never more than this old. */
+const HOT_PROFILE_INTERVAL_MS = 20 * 60_000;
 
 const shutdown = new ShutdownSequence({
   deadlineMs: SHUTDOWN_TIMEOUT_MS,
@@ -942,6 +946,7 @@ const shutdown = new ShutdownSequence({
 
 let indexerTimer: ReturnType<typeof setInterval> | undefined;
 let warmTimer: ReturnType<typeof setInterval> | undefined;
+let profileTimer: ReturnType<typeof setInterval> | undefined;
 
 shutdown
   // Stop producing work first. Everything below is then draining a queue that
@@ -951,6 +956,7 @@ shutdown
     watchLoop?.stop();
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
     if (warmTimer !== undefined) clearInterval(warmTimer);
+    if (profileTimer !== undefined) clearInterval(profileTimer);
   })
   .add('stop the bot', async () => {
     await bot?.stop();
@@ -1026,6 +1032,18 @@ if (analyticsReader !== undefined) {
   const defaults = defaultWarmEntries(reader);
   const loaderFor = new Map(defaults.map((entry) => [entry.key, entry.load]));
   let warming = false;
+  const profileWarmer = new ProfileWarmer({
+    sources: {
+      busiest: () => reader.busiestAccounts(BUSIEST_PROFILES_WARMED),
+      leaderboard: async () => (await reader.traders('30d', { ranking: 'pnl', limit: LEADERBOARD_PROFILES_WARMED })).rows.map((r) => r.accountId),
+      watched: () => watchStore.accountIds(),
+    },
+    warm: async (id) => {
+      const profile = analyticsLoaders(reader).profile(id);
+      await analyticsCache.warm(profile.key, profile.load);
+    },
+    stopped: () => shutdown.started,
+  });
   const warmCycle = async (): Promise<void> => {
     if (warming || shutdown.started) return;
     warming = true;
@@ -1064,19 +1082,15 @@ if (analyticsReader !== undefined) {
         warn(`analytics warm: ${baseline.key} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    // The busiest accounts' profiles, one at a time: account #10's takes ~19 s
-    // cold, and Compare, the profile and its positions all wait on it. After
-    // this the cache refreshes each one behind its readers.
-    try {
-      for (const id of await reader.busiestAccounts(BUSIEST_PROFILES_WARMED)) {
-        if (shutdown.started) break;
-        const profile = analyticsLoaders(reader).profile(id);
-        if (analyticsCache.ageOf(profile.key) === undefined) await analyticsCache.warm(profile.key, profile.load);
-      }
-    } catch (error) {
-      warn(`analytics warm: busiest profiles failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    // The hot profiles (hotProfiles.ts), one at a time, then every 20 minutes
+    // so none is ever more than that old for the first reader: account #10's
+    // takes ~19 s cold, and Compare, the profile and its positions all wait on it.
+    const started = Date.now();
+    const warmed = await profileWarmer.run();
+    log(`analytics warm: ${String(warmed)} hot profile(s) in ${Date.now() - started}ms`);
   });
+  profileTimer = setInterval(() => void profileWarmer.run(), HOT_PROFILE_INTERVAL_MS);
+  profileTimer.unref();
   warmTimer = setInterval(() => void warmCycle(), KEEP_WARM_MS);
   warmTimer.unref();
 }
