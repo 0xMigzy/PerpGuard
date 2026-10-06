@@ -48,6 +48,7 @@ import {
   loadPerplCredentials,
   lookupAccountByAddress,
   lookupAccountOwner,
+  positionEventsInTxs,
   type MarketRiskConfig,
   type NetworkConfig,
   type VenueMarket,
@@ -101,6 +102,7 @@ import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from 
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
 import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
 import { OwnerDirectory } from './server/ownerDirectory.ts';
+import { FillDirections } from './server/fillDirections.ts';
 import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
@@ -904,6 +906,10 @@ const app = createHealthApp({
             return buildVenueFundingPayload(markets, await store.read(markets.map((m) => m.symbol)));
           };
         })(),
+        // What each fill did to its position, from its transaction's receipt on the analytics network.
+        fillDirections: new FillDirections({
+          read: (txs) => positionEventsInTxs(txs, { rpcUrl: analyticsNetworkConfig!.rpcUrl, exchangeAddress: analyticsNetworkConfig!.exchangeAddress }),
+        }),
         // ONE NETWORK: configs and marks both come from the analytics venue, and
         // the positions from the analytics network's indexer. Nothing here can
         // reach the trading venue.

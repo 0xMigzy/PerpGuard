@@ -42,6 +42,7 @@ export interface HealthServerOptions {
   readonly riskSnapshot?: AnalyticsRouteOptions['riskSnapshot'];
   readonly venueFunding?: AnalyticsRouteOptions['venueFunding'];
   readonly protocolTreasuryDays?: AnalyticsRouteOptions['protocolTreasuryDays'];
+  readonly fillDirections?: AnalyticsRouteOptions['fillDirections'];
   /** The stale-while-revalidate cache for indexed answers, owned by the process so it can warm it. */
   readonly analyticsCache?: AnalyticsRouteOptions['cache'];
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
@@ -68,6 +69,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       ...(options.riskSnapshot === undefined ? {} : { riskSnapshot: options.riskSnapshot }),
       ...(options.venueFunding === undefined ? {} : { venueFunding: options.venueFunding }),
       ...(options.protocolTreasuryDays === undefined ? {} : { protocolTreasuryDays: options.protocolTreasuryDays }),
+      ...(options.fillDirections === undefined ? {} : { fillDirections: options.fillDirections }),
       ...(options.analyticsCache === undefined ? {} : { cache: options.analyticsCache }),
     });
   }

@@ -513,6 +513,12 @@ export interface AccountFill {
   readonly notionalAusd: number;
   /** The maker's fee; undefined for a taker fill, whose fee is not recorded per fill. */
   readonly makerFeeAusd: number | undefined;
+  /**
+   * What the fill did to this account's position, from the position event in
+   * the same transaction. Undefined where no single event of this account on
+   * this market is found (see `AccountFillsPage.directions`).
+   */
+  readonly direction?: { readonly action: 'open' | 'add' | 'reduce' | 'close' | 'flip'; readonly side: 'long' | 'short' } | undefined;
 }
 
 export interface AccountFillsPage {
@@ -520,6 +526,8 @@ export interface AccountFillsPage {
   readonly limit: number;
   readonly offset: number;
   readonly hasMore: boolean;
+  /** How directions were resolved: fills left blank, and whether a cap on transactions read stopped short. */
+  readonly directions?: { readonly blank: number; readonly cappedAtTxs: number | undefined } | undefined;
 }
 
 export interface DailyPoint {

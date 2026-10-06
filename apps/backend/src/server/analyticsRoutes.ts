@@ -52,6 +52,7 @@ import {
   type WalletMatch,
 } from '@perpguard/shared';
 import { SwrCache } from './responseCache.ts';
+import type { FillDirections } from './fillDirections.ts';
 
 export interface AnalyticsRouteOptions {
   readonly analytics: Analytics;
@@ -108,6 +109,8 @@ export interface AnalyticsRouteOptions {
    * collateral flows it rebuilds the exchange balance. Absent: no scan file.
    */
   readonly protocolTreasuryDays?: () => Promise<ProtocolTreasuryDays>;
+  /** Labels fills with what they did to the position, from their transactions' receipts. Absent: fills carry no direction. */
+  readonly fillDirections?: FillDirections;
   /** Mounted under this prefix. */
   readonly prefix?: string;
 }
@@ -150,6 +153,10 @@ const DEFAULT_CACHE_TTL_MS = 20_000;
 const HEALTH_TTL_MS = 2_000;
 
 /** The cross-account leverage baseline moves slowly and costs a full scan. */
+/** Transactions whose receipts one fills request may read: a page's worth, or an export's. */
+export const FILL_PAGE_DIRECTION_TXS = 500;
+export const FILL_EXPORT_DIRECTION_TXS = 2_000;
+
 export const LEVERAGE_BASELINE_TTL_MS = 60 * 60_000;
 
 /**
@@ -615,7 +622,13 @@ export function registerAnalyticsRoutes(
     }
     const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
     const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
-    return served(loaders.fills(accountId, limit === undefined || !Number.isFinite(limit) ? undefined : limit, offset === undefined || !Number.isFinite(offset) ? undefined : offset));
+    const entry = loaders.fills(accountId, limit === undefined || !Number.isFinite(limit) ? undefined : limit, offset === undefined || !Number.isFinite(offset) ? undefined : offset);
+    const hit = await cache.get(entry.key, ttlMs, entry.load);
+    if (options.fillDirections === undefined) return envelope(hit.value, hit);
+    // A page resolves every fill; an export, its newest transactions up to the cap.
+    const maxTxs = hit.value.limit > FILL_PAGE_DIRECTION_TXS ? FILL_EXPORT_DIRECTION_TXS : FILL_PAGE_DIRECTION_TXS;
+    const named = await options.fillDirections.annotate(accountId, hit.value.fills, maxTxs);
+    return envelope({ ...hit.value, fills: named.fills, directions: { blank: named.blank, cappedAtTxs: named.cappedAtTxs } }, hit);
   });
 
   /**

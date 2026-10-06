@@ -17,7 +17,18 @@ export const FILLS_CSV_CAP = 10_000;
 export const FILLS_STEP = 50;
 export const FILLS_LIST_CAP = 500;
 
-export const FILLS_CSV_HEADER = ['time_utc', 'account_id', 'market', 'role', 'size', 'price', 'notional_ausd', 'maker_fee_ausd', 'tx_hash'] as const;
+export const FILLS_CSV_HEADER = ['time_utc', 'account_id', 'market', 'direction', 'role', 'size', 'price', 'notional_ausd', 'maker_fee_ausd', 'tx_hash'] as const;
+
+/**
+ * "Open long", "Add short", "Reduce long", "Close short", "Flip to long". A
+ * flip's side is the side AFTER it: measured, the event names the opposite of
+ * the position it closed in all 10 flips checked against the index (6 Oct 2026).
+ */
+export function directionLabel(d: AccountFill['direction']): string | undefined {
+  if (d === undefined) return undefined;
+  if (d.action === 'flip') return `Flip to ${d.side}`;
+  return `${d.action[0]!.toUpperCase()}${d.action.slice(1)} ${d.side}`;
+}
 
 export function fillsCsv(accountId: number, fills: readonly AccountFill[]): string {
   const lines = [FILLS_CSV_HEADER.join(',')];
@@ -27,6 +38,7 @@ export function fillsCsv(accountId: number, fills: readonly AccountFill[]): stri
         new Date(f.atMs).toISOString(),
         accountId,
         marketName(f.market),
+        directionLabel(f.direction),
         f.role,
         f.sizeLots,
         f.price,
