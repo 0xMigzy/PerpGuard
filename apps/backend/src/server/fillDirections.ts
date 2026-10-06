@@ -27,6 +27,23 @@ export class FillDirections {
     this.#max = options.maxCached ?? 200_000;
   }
 
+  /**
+   * What one transaction did to one account's position on one market: for a
+   * large-trade alert, whose fills carry no side. Undefined when the receipt
+   * cannot be read, or holds no single answer: blank, never guessed.
+   */
+  async directionOf(txHash: string, accountId: number, marketId: number): Promise<{ readonly action: PositionEventDirection['action']; readonly side: PositionEventDirection['side'] } | undefined> {
+    const tx = txHash.toLowerCase();
+    if (!this.#cache.has(tx)) {
+      const found = await this.#read([tx]).catch(() => new Map<string, readonly PositionEventDirection[]>());
+      for (const [hash, events] of found) this.#cache.set(hash, events);
+      while (this.#cache.size > this.#max) this.#cache.delete(this.#cache.keys().next().value!);
+    }
+    const events = this.#cache.get(tx);
+    const d = events === undefined ? undefined : directionFor(events, accountId, marketId);
+    return d === undefined ? undefined : { action: d.action, side: d.side };
+  }
+
   async annotate(accountId: number, fills: readonly AccountFill[], maxTxs: number): Promise<{ readonly fills: readonly AccountFill[]; readonly blank: number; readonly cappedAtTxs: number | undefined }> {
     const txs = [...new Set(fills.map((f) => f.txHash.toLowerCase()))];
     const toRead = txs.filter((tx) => !this.#cache.has(tx)).slice(0, maxTxs);

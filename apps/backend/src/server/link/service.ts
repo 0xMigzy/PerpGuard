@@ -148,11 +148,17 @@ export class LinkService {
       const accountId = lookup.accountId;
       if (this.#deps.registry.get(accountId) !== undefined) {
         const bound = this.#bind(identity, accountId);
-        if (!bound.ok) return { kind: 'refused', reason: bound.reason };
+        if (!bound.ok) {
+          this.#deps.logger.info(`link: ${identity.userId} proved account ${accountId} by wallet but was refused: ${bound.reason}`);
+          return { kind: 'refused', reason: bound.reason };
+        }
         this.#deps.logger.info(`link: ${identity.userId} proved account ${accountId} by wallet; session already running`);
         await this.#notify(identity.chatId, `Linked to Perpl account ${accountId}: your wallet proved you own it. Alerts here now carry the buttons to act.`);
         return { kind: 'linked', accountId };
       }
+      // EVERY OUTCOME IS LOGGED. This one was silent until 6 Oct 2026, so a phone
+      // test that ended here left nothing to check it against.
+      this.#deps.logger.info(`link: ${identity.userId} proved account ${accountId} by wallet; no session for it yet, so it needs an API key (nothing linked)`);
       return {
         kind: 'proven-needs-key',
         accountId,

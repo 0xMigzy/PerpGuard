@@ -68,6 +68,7 @@ import {
   PendingAmountStore,
   RateLimiter,
   TelegramAlertTransport,
+  classifyTelegramError,
   createBot,
   loadBotConfig,
   InMemoryIdentityStore,
@@ -103,6 +104,11 @@ import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts'
 import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
 import { OwnerDirectory } from './server/ownerDirectory.ts';
 import { FillDirections } from './server/fillDirections.ts';
+import { EventEngine, type ChatSender } from './events/engine.ts';
+import { InMemoryLedger, PostgresLedger } from './events/ledger.ts';
+import { InMemoryPreferenceStore, SMALLEST_LARGE_TRADE_AUSD, type PreferenceStore } from './events/preferences.ts';
+import { PostgresPreferenceStore } from './events/preferences.pg.ts';
+import { FeedPoller, PositionChanges } from './events/sources.ts';
 import { ProfileWarmer } from './server/hotProfiles.ts';
 import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
@@ -343,6 +349,10 @@ const watchResolver: WatchResolver = {
       : watchResolverImpl.resolve(target),
 };
 let watchLoop: WatchLoop | undefined;
+/** The event engine's position source, bound once the engine exists (below the bot). */
+let positionChanges: PositionChanges | undefined;
+/** What each fill did to its position, from its receipt: shared by the trades page and the large-trade feed. */
+let fillDirections: FillDirections | undefined;
 
 // ── the web session: the bot's link, one step later ────────────────────────
 //
@@ -719,10 +729,84 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     marks: () => watchVenue.getOpenInterest(),
     configs: () => watchVenue.getRiskConfigs(),
     staleMs: appConfig.staleMs,
+    onPositions: (pass) => void positionChanges?.observe(pass).catch((error) => warn(`events: position changes failed: ${error instanceof Error ? error.message : String(error)}`)),
     logger: { info: log, warn },
+  });
+  fillDirections = new FillDirections({
+    read: (txs) => positionEventsInTxs(txs, { rpcUrl: analyticsNetwork.rpcUrl, exchangeAddress: analyticsNetwork.exchangeAddress }),
   });
 } else {
   log('INDEXER_DATABASE_URL is not set; indexer lag and the analytics API are both off');
+}
+
+// ── the event engine: one feed poller and the watch loop, fanned out per chat ──
+//
+// Liquidations and large taker orders from the index for every chat that has
+// started the bot (by its thresholds), and watched wallets' position changes
+// for their watchers. At most once per (event, chat), across restarts, by the
+// ledger. Links only: an event alert never carries an action.
+let eventEngine: EventEngine | undefined;
+let feedPoller: FeedPoller | undefined;
+let preferences: PreferenceStore = new InMemoryPreferenceStore();
+let ledgerPrune: ReturnType<typeof setInterval> | undefined;
+if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefined) {
+  const feed = analyticsReader;
+  let ledger: InMemoryLedger | PostgresLedger = new InMemoryLedger();
+  if (alertDb !== undefined) {
+    try {
+      ledger = await PostgresLedger.load(alertDb);
+      preferences = await PostgresPreferenceStore.load(alertDb);
+    } catch (error) {
+      warn(`events: the delivery ledger could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); deliveries are remembered in memory until the next restart`);
+    }
+  }
+  const telegram = bot.api;
+  const token = botConfig.token;
+  const sender: ChatSender = {
+    send: async (chatId, message) => {
+      try {
+        await telegram.sendMessage(chatId, message.html, {
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
+          ...(message.links.length === 0 ? {} : { reply_markup: { inline_keyboard: [message.links.map((l) => ({ text: l.text, url: l.url }))] } }),
+        });
+        return { ok: true };
+      } catch (error) {
+        const result = classifyTelegramError(error, token);
+        return result.ok ? { ok: true } : { ok: false, reason: result.reason ?? 'Telegram refused it' };
+      }
+    },
+  };
+  eventEngine = new EventEngine({
+    ledger,
+    match: {
+      watchersOf: (accountId) => watchStore.watchersOf(accountId).map((s) => s.chatId),
+      feedChats: () => [...new Set(identities.list().map((i) => i.chatId))],
+      preferencesFor: (chatId) => preferences.get(chatId),
+    },
+    sender,
+    render: { webUrl: /^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? undefined : PUBLIC_WEB_URL, watchEveryMs: 30_000 },
+    logger: { info: log, warn },
+  });
+  eventEngine.start();
+  positionChanges = new PositionChanges(eventEngine);
+  feedPoller = new FeedPoller({
+    feed,
+    cursor: ledger,
+    publisher: eventEngine,
+    freshness: async () => {
+      const h = await feed.health();
+      return { indexerBlock: h.latestProcessedBlock, blocksBehind: h.blocksBehind };
+    },
+    direction: (txHash, accountId, marketId) => fillDirections?.directionOf(txHash, accountId, marketId) ?? Promise.resolve(undefined),
+    minLargeTradeAusd: SMALLEST_LARGE_TRADE_AUSD,
+    logger: { info: log, warn },
+  });
+  feedPoller.start();
+  const ledgerRef = ledger;
+  ledgerPrune = setInterval(() => void ledgerRef.prune(Date.now() - 14 * 24 * 60 * 60_000).catch((error) => warn(`events: pruning the delivery ledger failed: ${error instanceof Error ? error.message : String(error)}`)), 6 * 60 * 60_000);
+  ledgerPrune.unref();
+  log(`event engine up: liquidations and large trades from the index every 15s, watched wallets' changes every watch pass (${alertDb === undefined ? 'in memory' : 'ledger in Postgres'})`);
 }
 
 /**
@@ -901,9 +985,7 @@ const app = createHealthApp({
           };
         })(),
         // What each fill did to its position, from its transaction's receipt on the analytics network.
-        fillDirections: new FillDirections({
-          read: (txs) => positionEventsInTxs(txs, { rpcUrl: analyticsNetworkConfig!.rpcUrl, exchangeAddress: analyticsNetworkConfig!.exchangeAddress }),
-        }),
+        fillDirections: fillDirections!,
         // ONE NETWORK: configs and marks both come from the analytics venue, and
         // the positions from the analytics network's indexer. Nothing here can
         // reach the trading venue.
@@ -947,6 +1029,9 @@ shutdown
   .add('stop the watch loop and timers', () => {
     treasuryScanner?.stop();
     watchLoop?.stop();
+    feedPoller?.stop();
+    eventEngine?.stop();
+    if (ledgerPrune !== undefined) clearInterval(ledgerPrune);
     if (indexerTimer !== undefined) clearInterval(indexerTimer);
     if (warmTimer !== undefined) clearInterval(warmTimer);
     if (profileTimer !== undefined) clearInterval(profileTimer);

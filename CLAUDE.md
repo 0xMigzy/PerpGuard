@@ -540,8 +540,9 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   watched assessment carries `watch: WatchedScope` with the indexer block and
   lag, the message says it in words, and while the index is not serving
   current figures the severity is HELD like a stale price.
-- A WATCHER CAN NEVER ACT. Watch alerts carry no keyboard at all, not disabled
-  buttons. That is enforced server-side in the bot's gate (`apps/bot/src/bot.ts`):
+- A WATCHER CAN NEVER ACT. Watch alerts carry no ACTION buttons, not even
+  disabled ones; event alerts carry LINK buttons only (the trader's page,
+  Monadscan), which open a page and call nothing back. That is enforced server-side in the bot's gate (`apps/bot/src/bot.ts`):
   every button tap from an unlinked chat is refused before any handler runs,
   whatever its payload, and the test "SERVER-SIDE: an unlinked chat sending a
   hand-crafted action payload is refused" pins it. The renderer dropping
@@ -563,6 +564,35 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   first-come. `/start` links only `TELEGRAM_OWNER_ID` to the environment
   account; everyone else links through `/link`, the proof-based page below.
   A linked chat gets the account's alerts with the buttons to act.
+
+## The event engine (`apps/backend/src/events/`)
+- ONE POLLER FOR THE WHOLE BOT, NEVER ONE PER USER. Two sources: the index
+  feed (`FeedPoller`, every 15 s: liquidations and taker fills since its
+  cursor) and the watch loop's passes (`PositionChanges`: each watched
+  account's open positions diffed against the last read). Normalized events
+  (`types.ts`) -> `recipientsFor` -> claim in the ledger -> render -> send.
+- AT MOST ONCE PER (EVENT, CHAT), ACROSS RESTARTS. Every event id is built
+  from the fact (`<txHash>-<logIndex>`, `<txHash>:<account>:<market>`,
+  `<account>:<market>:<openedAtMs>:<kind>`), and `event_deliveries` is
+  claimed BEFORE the send and kept whatever the send does. The feed cursor
+  (`event_cursor`) is in the index's own time; each poll re-reads a minute
+  behind it. First start begins NOW: history is not news. A watch pass's first
+  read of an account is a baseline, never "opened".
+- A LIQUIDATION IS NOT ALSO A "CLOSE": closes and reduces are held 20 s and
+  dropped if a liquidation of that account and market since the position
+  opened arrives. Watchers get their wallet's liquidations at ANY size.
+- THE INDEX HAS NO TAKER SIDE: `Trade.takerSide` is never written (empty on
+  every fill; `attributeTaker` copies the fill's own empty value). A fix needs
+  a full re-sync, so it stays. A large trade's side and action come from the
+  transaction's position event via `FillDirections.directionOf`, and stay
+  blank, said in words, when the receipt gives no single answer.
+- THRESHOLDS ARE PRESETS FITTED TO PERPL, not the spec's (owner, 6 Oct 2026):
+  liquidations $1K/$5K/$10K/$25K/off, default $10K; large taker orders
+  $10K/$20K/$25K/$50K/off, default $25K (`preferences.ts`, with the measured
+  frequencies). The feeds reach every chat that has started the bot, at most
+  10 a minute per chat, the rest counted in one line.
+- EVERY EVENT ALERT SAYS HOW FRESH IT IS: the index block and how far behind
+  the chain; position changes also say they are checked every 30 s.
 
 ## The Telegram bot: screens, not commands
 - THE MENU IS THE REBUILD SPEC'S (sections 18-30), and `docs/bot-screens.html`

@@ -31,3 +31,19 @@ test('an export resolves its newest transactions up to the cap and says it stopp
   assert.deepEqual(r.fills.map((f) => f.direction?.action), ['open', 'open', undefined]);
   assert.equal(r.cappedAtTxs, 2);
 });
+
+test('one transaction\'s direction for one account: read once and kept; ambiguous or unreadable is blank', async () => {
+  let reads = 0;
+  const dir = new FillDirections({
+    read: async (txs) => {
+      reads += 1;
+      if (txs[0] === '0xdead') throw new Error('rpc down');
+      return new Map([[txs[0]!, [{ marketId: 1, accountId: 7, action: 'open' as const, side: 'short' as const }, { marketId: 1, accountId: 8, action: 'close' as const, side: 'long' as const }]]]);
+    },
+  });
+  assert.deepEqual(await dir.directionOf('0xABC', 7, 1), { action: 'open', side: 'short' });
+  assert.deepEqual(await dir.directionOf('0xabc', 8, 1), { action: 'close', side: 'long' });
+  assert.equal(reads, 1, 'kept: a receipt never changes');
+  assert.equal(await dir.directionOf('0xabc', 9, 1), undefined, 'not in it: blank');
+  assert.equal(await dir.directionOf('0xdead', 7, 1), undefined, 'unreadable: blank, never a guess');
+});

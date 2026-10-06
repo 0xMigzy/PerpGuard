@@ -33,6 +33,7 @@ import {
   type IndexerHealth,
   type MarketOpenInterest,
   type MarketRiskConfig,
+  type OpenPosition,
   type Unsubscribe,
   type WalletProfile,
 } from '@perpguard/shared';
@@ -47,6 +48,17 @@ import {
   type WatchedScope,
 } from '../risk/types.ts';
 
+/** One pass's reading of every watched account's positions. */
+export interface PositionsPass {
+  readonly seenAtMs: number;
+  readonly indexerBlock: number | undefined;
+  readonly blocksBehind: number | undefined;
+  /** Every account watched at the time of the pass, read or not. */
+  readonly watched: readonly number[];
+  /** The accounts that were read, and what is open on each. */
+  readonly reads: ReadonlyMap<number, readonly OpenPosition[]>;
+}
+
 export interface WatchLoopOptions {
   /** Every account anybody is watching, asked on each pass. */
   readonly subscriptions: { accountIds(): readonly number[] };
@@ -58,6 +70,14 @@ export interface WatchLoopOptions {
   readonly configs: () => Promise<ReadonlyMap<number, MarketRiskConfig>>;
   /** A mark older than this is labelled old. Same STALE_MS as the owner's loop. */
   readonly staleMs: number;
+  /**
+   * Every account's open positions as this pass read them, for the event
+   * engine's position diff. Called once per pass, after it, and only when
+   * the index is usable: a halted index has nothing new to say, and diffing
+   * against it would report changes that did not happen. An account whose
+   * read failed is absent, so the diff waits rather than reports it closed.
+   */
+  readonly onPositions?: (pass: PositionsPass) => void;
   readonly thresholds?: Partial<RiskThresholds>;
   readonly now?: () => number;
   readonly logger?: { info(message: string): void; warn(message: string): void };
@@ -204,6 +224,7 @@ export class WatchLoop {
     // with nothing in it to say so: blind. Behind-but-moving is served, held.
     const indexUsable = health.state !== 'halted' && health.state !== 'unknown';
     const seen = new Set<string>();
+    const reads = new Map<number, readonly OpenPosition[]>();
 
     for (const accountId of accountIds) {
       let profile: WalletProfile | undefined;
@@ -225,6 +246,7 @@ export class WatchLoop {
         this.#accounts.set(accountId, { atMs: nowMs, found: false, openPositions: 0, unassessable: 0, freeBalanceAusd: undefined });
         continue;
       }
+      reads.set(accountId, profile.openPositions);
       this.#accounts.set(accountId, {
         atMs: nowMs,
         found: true,
@@ -360,6 +382,13 @@ export class WatchLoop {
     }
 
     this.#emit(changes);
+    if (indexUsable && this.#options.onPositions !== undefined) {
+      try {
+        this.#options.onPositions({ seenAtMs: nowMs, indexerBlock: health.latestProcessedBlock, blocksBehind: health.blocksBehind, watched: accountIds, reads });
+      } catch (error) {
+        this.#logger.warn(`watch: the position-change listener failed: ${describe(error)}`);
+      }
+    }
     return produced;
   }
 

@@ -112,6 +112,7 @@ test('a wallet that owns an account PerpGuard does not run proves ownership and 
   assert.equal(proof.kind, 'proven-needs-key');
   assert.equal(proof.kind === 'proven-needs-key' && proof.accountId, 900);
   assert.equal(r.links.byTelegramUserId(4242), undefined, 'not linked yet');
+  assert.match(r.logs.join('\n'), /proved account 900 by wallet; no session for it yet, so it needs an API key \(nothing linked\)/, 'every outcome leaves a line to check against');
   const none = await r.service.proveWallet(r.identity, ['0x' + '2'.repeat(40)]);
   assert.equal(none.kind, 'refused');
   assert.equal((await r.service.proveWallet(r.identity, [])).kind, 'refused');

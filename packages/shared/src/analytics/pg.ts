@@ -88,6 +88,7 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
+import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
 import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
@@ -404,6 +405,43 @@ select l.id, l.kind, l.market_id as market, m.name, m."priceDecimals", m."lotDec
  where ($1::timestamptz is null or l.timestamp >= $1::timestamptz)
  order by l.timestamp desc, l."logIndex" desc
  limit $2 offset $3
+`;
+
+/**
+ * The activity feed (see feed.ts). Oldest first, from a moment, bounded.
+ * Both use the timestamp indexes the index already has.
+ */
+const FEED_LIQUIDATIONS_SQL = `
+select l.id, l.kind, l.market_id as market, m.name, m."priceDecimals", m."lotDecimals",
+       l.trader_id as account, l.side, l."isFull",
+       l."markPricePNS"::text          as mark,
+       l."execPricePNS"::text          as exec,
+       l."lotLNS"::text                as lots,
+       l."notionalCNS"::text           as notional,
+       l."marginLostCNS"::text         as margin_lost,
+       l."badDebtCNS"::text            as bad_debt,
+       l."freeBalanceBeforeCNS"::text  as free_before,
+       l."marginToSurviveCNS"::text    as to_survive,
+       l."realizedPnlCNS"::text        as realized,
+       l."fundingCNS"::text            as funding,
+       l."wasRescuable", l.timestamp, l."txHash", l."blockNumber"::text as block, l."logIndex",
+       case when p."entryPriceKnown" then p."entryPricePNS"::text end as entry
+  from "Liquidation" l
+  join "Market" m on m.id = l.market_id
+  left join "Position" p on p.id = l.position_id
+ where l.timestamp >= $1::timestamptz
+ order by l.timestamp asc, l."blockNumber" asc, l."logIndex" asc
+ limit $2
+`;
+
+const FEED_TAKER_FILLS_SQL = `
+select t.id, t."txHash", t."blockNumber"::text as block, t.timestamp, t.market_id as market, m.name,
+       m."priceDecimals", m."lotDecimals", t.taker_id as taker,
+       t."lotLNS"::text as lots, t."pricePNS"::text as price, t."notionalCNS"::text as notional
+  from "Trade" t join "Market" m on m.id = t.market_id
+ where t.timestamp >= $1::timestamptz and t.taker_id is not null
+ order by t.timestamp asc, t."blockNumber" asc, t."logIndex" asc
+ limit $2
 `;
 
 const FUNDING_SQL = `
@@ -978,7 +1016,7 @@ const medianAusd = (raw: unknown, decimals: number): number | undefined => {
   return Number.isFinite(micros) ? micros / 10 ** decimals : undefined;
 };
 
-export class PostgresAnalytics implements Analytics {
+export class PostgresAnalytics implements Analytics, ActivityFeed {
   readonly #client: SqlClient;
   readonly #chainId: number;
   readonly #resolve: SymbolResolver;
@@ -1700,6 +1738,60 @@ export class PostgresAnalytics implements Analytics {
         // Null means unjudgeable, and stays a hole rather than becoming zero.
         marginToSurviveAusd: toSurvive === null || toSurvive === undefined ? undefined : toAusd(toSurvive, decimals),
         verdict: verdictFromRow(row['wasRescuable']),
+      };
+    });
+  }
+
+  async liquidationsSince(sinceMs: number, limit: number): Promise<readonly FeedLiquidation[]> {
+    const decimals = await this.#decimals();
+    const rows = await this.#rows(FEED_LIQUIDATIONS_SQL, [iso(sinceMs), Math.min(Math.max(1, limit), 1_000)]);
+    return rows.map((row): FeedLiquidation => {
+      const priceDecimals = count(row['priceDecimals']);
+      const lotDecimals = count(row['lotDecimals']);
+      const toSurvive = row['to_survive'];
+      return {
+        id: String(row['id']),
+        atMs: requireMs(row['timestamp']),
+        txHash: String(row['txHash']),
+        blockNumber: count(row['block']),
+        logIndex: count(row['logIndex']),
+        market: toMarketRef(row['market'], row['name'], this.#resolve),
+        accountId: count(row['account']),
+        side: sideFromRow(row['side']),
+        kind: forcedExitKindFromRow(row['kind']),
+        isFull: row['isFull'] === true,
+        sizeLots: toLots(row['lots'], lotDecimals),
+        markPrice: toPrice(row['mark'], priceDecimals),
+        execPrice: toPrice(row['exec'], priceDecimals),
+        entryPrice: toPrice(row['entry'], priceDecimals),
+        notionalAusd: toAusd(row['notional'], decimals),
+        marginLostAusd: toAusd(row['margin_lost'], decimals),
+        badDebtAusd: toAusd(row['bad_debt'], decimals),
+        freeBalanceBeforeAusd: toAusd(row['free_before'], decimals),
+        marginToSurviveAusd: toSurvive === null || toSurvive === undefined ? undefined : toAusd(toSurvive, decimals),
+        realizedPnlAusd: toAusd(row['realized'], decimals),
+        fundingAusd: toAusd(row['funding'], decimals),
+        verdict: verdictFromRow(row['wasRescuable']),
+      };
+    });
+  }
+
+  async takerFillsSince(sinceMs: number, limit: number): Promise<readonly TakerFill[]> {
+    const decimals = await this.#decimals();
+    const rows = await this.#rows(FEED_TAKER_FILLS_SQL, [iso(sinceMs), Math.min(Math.max(1, limit), 10_000)]);
+    return rows.map((row): TakerFill => {
+      const priceDecimals = count(row['priceDecimals']);
+      const lotDecimals = count(row['lotDecimals']);
+      return {
+        id: String(row['id']),
+        txHash: String(row['txHash']),
+        blockNumber: count(row['block']),
+        atMs: requireMs(row['timestamp']),
+        market: toMarketRef(row['market'], row['name'], this.#resolve),
+        takerAccountId: count(row['taker']),
+        sizeLots: toLots(row['lots'], lotDecimals),
+        price: toPrice(row['price'], priceDecimals),
+        notionalAusd: toAusd(row['notional'], decimals),
       };
     });
   }
