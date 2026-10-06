@@ -706,8 +706,10 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   not-applied. Reduce says the closing price does not move (proportional
   release). A top-up above the free-balance FLOOR is offered WITH a warning,
   not hidden: the floor can understate (warn, don't refuse). The `sr 32`
-  top-up's outcome says the exchange reported a rejection AND that the margin
-  applied, as the layout asks.
+  top-up's outcome (owner's wording, 6 Oct 2026) leads with the success, then
+  "The exchange's own report disagreed with what actually happened. The
+  margin applied — I checked the position itself, not the receipt. Do not
+  send it again." Never "failed", never "rejection".
 - THE CLOSE-ALL KILL SWITCH IS RETIRED (6 Oct 2026, owner's decision). It
   closed every position, Close All is cut, and the Kill Switch returns in
   Phase 20 as "stop automation, leave positions open". A button whose current

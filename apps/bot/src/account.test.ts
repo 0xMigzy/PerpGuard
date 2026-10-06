@@ -38,3 +38,13 @@ test(`PHASE 14: at most ${POSITIONS_SHOWN} cards, the rest counted; every positi
   assert.equal(s.buttons.length, 11 + 1);
   assert.ok(s.html.length < 4_096, `fits in one Telegram message (${s.html.length})`);
 });
+
+test('THE sr 32 OUTCOME: success first, then the disagreement in words, never "failed" or "rejection", and do not send it again', async () => {
+  const { outcomeScreen } = await import('./account.ts');
+  const market = CONFIGS.get(base.marketId)!;
+  const action = { type: 'add-margin' as const, intent: 'custom' as const, marketId: base.marketId, symbol: 'BTC', positionId: 1, amountCNS: 100_000_000n, label: 'x' };
+  const html = outcomeScreen({ action, market, assessment: base, outcome: { kind: 'applied', detail: 'done', venueRejected: true } } as never).html;
+  assert.match(html, /^✓ <b>Added 100 AUSD to BTC long<\/b>/);
+  assert.match(html, /\n\nThe exchange's own report disagreed with what actually happened\.\nThe margin applied — I checked the position itself, not the receipt\.\n<b>Do not send it again\.<\/b>$/);
+  assert.doesNotMatch(html, /failed|rejection|rejected/i);
+});

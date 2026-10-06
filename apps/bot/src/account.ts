@@ -425,8 +425,18 @@ export function outcomeScreen(input: OutcomeInput): Screen {
         if (action.resultingBufferPct !== undefined && action.resultingBufferPct >= 0) {
           lines.push(`Room to fall: ${action.fromBufferPct === undefined || action.fromBufferPct < 0 ? '' : `${pct(action.fromBufferPct)} → `}${pct(action.resultingBufferPct)}`);
         }
-        lines.push("<i>Confirmed against the position itself, not only the exchange's reply.</i>");
-        if (outcome.venueRejected === true) lines.push('<i>The exchange reported a rejection on this one; the margin did apply, and the position is what I checked. Do not send it again.</i>');
+        if (outcome.venueRejected === true) {
+          // THE sr 32 CASE (owner's wording, 6 Oct 2026): never "failed", never "rejection".
+          // What happened, how it was checked, and the one thing not to do.
+          lines.push(
+            '',
+            "The exchange's own report disagreed with what actually happened.",
+            'The margin applied — I checked the position itself, not the receipt.',
+            '<b>Do not send it again.</b>',
+          );
+        } else {
+          lines.push("<i>Confirmed against the position itself, not only the exchange's reply.</i>");
+        }
       } else {
         lines.push(`✓ <b>${esc(outcome.detail)}</b>`);
       }
