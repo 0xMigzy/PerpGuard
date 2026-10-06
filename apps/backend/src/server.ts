@@ -79,7 +79,13 @@ import {
   type WatchResolver,
   type WatchStore,
   type WatchTarget,
+  encodeNav,
 } from '@perpguard/bot';
+import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore } from './rescue/automation.ts';
+import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
+import { RescueControlService } from './rescue/control.ts';
+import { RescueEngine } from './rescue/engine.ts';
+import { renderRescue } from './rescue/render.ts';
 import {
   ActionsExecutor,
   InMemoryActionLog,
@@ -511,6 +517,23 @@ if (alertDb !== undefined) {
   }
 }
 
+// ── 🛟 automation: state per account, Rescue rules and attempts ──────────────
+// Postgres when there is one. Without it Rescue still runs, but its claims and
+// counts live in memory, so it SAYS so: a restart would forget what was used.
+let automation: AutomationStore = new InMemoryAutomationStore();
+let rescueStore: RescueStore = new InMemoryRescueStore();
+if (alertDb !== undefined) {
+  try {
+    automation = await PostgresAutomationStore.load(alertDb);
+    rescueStore = await PostgresRescueStore.load(alertDb);
+    log(`rescue: ${rescueStore.enabledRules().length} enabled rule(s) loaded from Postgres`);
+  } catch (error) {
+    warn(`rescue: automation state could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); rules and attempts are in memory until the next restart`);
+  }
+} else {
+  warn('rescue: no Postgres, so rules, attempts and the kill switch are in memory and a restart forgets them');
+}
+
 // MAINNET TRADING IS OFF unless switched on by name (owner, 6 Oct 2026: build
 // network-aware, ship testnet-only). Monitoring and alerts run either way;
 // with it off, no account session opens, so nothing can execute.
@@ -599,6 +622,13 @@ const traderFigures = {
     }),
 };
 
+const rescueControl = new RescueControlService({
+  store: rescueStore,
+  automation,
+  snapshot: (accountId) => registry.get(accountId)?.view.snapshot(),
+  log,
+});
+
 const bot =
   botConfig === undefined
     ? undefined
@@ -635,6 +665,7 @@ const bot =
           traders: traderFigures,
         },
         settings: accountSettings,
+        rescue: rescueControl,
         // Telegram refuses a URL button it cannot open, so a local-only
         // address is not offered as one.
         ...(/^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? {} : { webUrl: PUBLIC_WEB_URL }),
@@ -654,6 +685,50 @@ transport =
         executor: { availability: (symbol) => venue.getActionAvailability(symbol), execute: async () => ({ kind: 'refused', detail: 'the transport never executes' }) },
         logger: { warn },
       });
+
+// ── 🛟 the rescue engine: once a second, every enabled rule ─────────────────
+// Sends through the account's OWN executor (lock, feed gate, forwarding
+// pre-flight, action_log row, reconciliation on the position's margin). Its
+// messages go to the chats linked to that account, with buttons only into
+// that chat's own screens.
+const rescueEngine = new RescueEngine({
+  store: rescueStore,
+  automation,
+  account: (accountId) => {
+    const session = registry.get(accountId);
+    if (session === undefined) return undefined;
+    return {
+      snapshot: () => session.view.snapshot(),
+      feedConnected: () => session.view.feedStatus().state === 'connected',
+      positionsLive: () => session.view.positionsStatus().state === 'live',
+      freeFloorCNS: () => {
+        const b = session.balance.freeBalance();
+        return b.known ? b.floorCNS : undefined;
+      },
+      execute: (command) => session.executor.execute(command),
+    };
+  },
+  notify: async (accountId, notice) => {
+    const rendered = renderRescue(notice);
+    const keyboard = rendered.buttons.map((b) => ({
+      text: b.text,
+      // Fresh: a rescue report is the record of what happened to someone's money, never edited away.
+      callback_data: encodeNav(b.route === 'rescue' ? { to: 'rescue' } : b.route === 'position' ? { to: 'position', marketId: notice.rule.marketId } : { to: 'rescue-stop', marketId: notice.rule.marketId }, { fresh: true }),
+    }));
+    for (const link of links.byAccountId(accountId)) {
+      if (bot === undefined) break;
+      try {
+        await bot.api.sendMessage(link.chatId, rendered.html, { parse_mode: 'HTML', ...(keyboard.length === 0 ? {} : { reply_markup: { inline_keyboard: [keyboard] } }) });
+      } catch (error) {
+        warn(`rescue: the ${notice.kind} message to chat ${link.chatId} did not go: ${classifyTelegramError(error, botConfig?.token ?? '').reason ?? 'Telegram refused it'}`);
+      }
+    }
+    log(`rescue: told account ${accountId}'s ${links.byAccountId(accountId).length} chat(s): ${notice.kind} (rule ${notice.rule.id})`);
+  },
+  logger: { info: log, warn },
+});
+rescueEngine.start();
+log(`rescue engine up: ${rescueStore.enabledRules().length} enabled rule(s), judged every second`);
 
 // ── linking: proof on the page, sessions in the registry ───────────────────
 const linkService = new LinkService({
@@ -1125,6 +1200,7 @@ shutdown
   // Stop producing work first. Everything below is then draining a queue that
   // cannot grow, rather than racing one that still can.
   .add('stop the watch loop and timers', () => {
+    rescueEngine.stop();
     treasuryScanner?.stop();
     watchLoop?.stop();
     feedPoller?.stop();
@@ -1142,6 +1218,10 @@ shutdown
   .add('drain watch alert deliveries', async () => {
     watchEngine?.stop();
     await watchEngine?.drain();
+  })
+  // A rescue already sent is reconciled before its session's socket closes: never left unknown by a restart.
+  .add('settle rescues in flight', async () => {
+    await Promise.race([rescueEngine.settle(), new Promise<void>((r) => setTimeout(r, 30_000))]);
   })
   // Each session stops its loop, drains its alerts and closes its socket.
   .add('close account sessions', () => registry.closeAll())

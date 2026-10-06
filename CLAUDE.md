@@ -600,9 +600,9 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   from /start, as the owner and as a stranger. Regenerate it after any screen
   change. Home is "🛡 PERPGUARD / Analyse. Watch. Act." with a status block
   (Trading Account + network, Execution, Automation, Alerts) and the buttons
-  Watch & Alerts, My Positions, Margin, Trading Account, Settings, Open
-  PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON (owner, 6 Oct 2026): Rescue,
-  Copy Trading and the Kill Switch appear when their phase lands, never as a
+  Watch & Alerts, My Positions, Margin, Trading Account, Rescue (linked chats,
+  since Phase 17), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
+  (owner, 6 Oct 2026): Copy Trading and the Kill Switch appear when their phase lands, never as a
   dead button; the roadmap belongs in the README. A test walks every screen
   and fails on any label for an unbuilt feature.
 - 👁 WATCH & ALERTS (Phase 8, `apps/bot/src/watchScreens.ts`): Watch Wallet
@@ -725,6 +725,33 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   on change. Quiet hours and a daily summary are in the layout but NOT
   BUILT: they need a timezone Telegram does not give and a rule for DANGER
   during quiet hours.
+- 🛟 LIQUIDATION RESCUE (Phase 17, `apps/backend/src/rescue/`, bot half
+  `apps/bot/src/rescue.ts`). A rule is ONE POSITION (venue pid; a reopened
+  position is a new one and its rule ends) with a trigger, an amount and FOUR
+  LIMITS, each its own column: max rescues, MAX TOTAL (independent, never
+  count × amount once picked), minimum free balance never spent, cooldown.
+  `decide.ts` is pure: triggered on two looks ≥1 s apart at or below the
+  trigger; then kill switch -> feed/positions -> limits (exhausted) ->
+  cooldown -> free-balance FLOOR (hold, never a scaled-down amount). The
+  engine claims `rescue_attempts (rule, n)` with key
+  `rescue:<acct>:<pid>:<rule>:<n>` BEFORE sending, sends through the
+  account's own executor (the `sr 32` reconciliation is unchanged), and keeps
+  the RECEIPT and the VERIFIED OUTCOME in separate columns. Limits move by the
+  verified delta. UNKNOWN pauses the rule (counted as if landed) until the
+  person resumes; a refusal waits a minute; nothing loops.
+  - THE KILL SWITCH IS REAL: `automation_state.kill_switch_active`, read in
+    `decide`, before the claim, and by the executor right before the send
+    (`ActionCommand.stopCheck`, refusal `automation-stopped`). A person's own
+    tap carries no stopCheck: the switch stops automation, never the person.
+  - ONE AUTOMATION PER ACCOUNT: `automation_state.mode` moves NONE <->
+    LIQUIDATION_RESCUE by compare-and-set; COPY_TRADING refuses Rescue.
+  - Messages: rescued (spec 44, verified figures; the `sr 32` lines when the
+    receipt disagreed), not landed, paused, held (once per reason; transient
+    reasons only after 30 s), ended, and THE HANDOVER when limits are spent
+    and it is still falling: rescues used, total added, distance, PerpGuard
+    has stopped, what the trader can still do. Never "failed".
+  - ENABLE is re-validated server-side (`control.ts`) against the live
+    position; a second rule on a position replaces the first.
 - `pnpm watch:demo` (mainnet, read-only) and `pnpm bot:account-demo`
   (testnet, MOVES REAL TESTNET COLLATERAL; stop the backend first, two
   clients on one key collide on request ids) drive the real bot with only

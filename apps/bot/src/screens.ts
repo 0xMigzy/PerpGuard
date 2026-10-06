@@ -80,6 +80,8 @@ export interface HomeAccount {
   readonly execution: ExecutionState;
   /** "8%": where the first warning comes. */
   readonly warnAt: string;
+  /** The Automation line (HTML), when something runs or the kill switch is on. Undefined: None. */
+  readonly automation?: string | undefined;
 }
 
 export interface HomeInput {
@@ -94,6 +96,8 @@ export interface HomeInput {
   readonly assessments: readonly RiskAssessment[];
   /** The public web app, for the "Open PerpGuard" button. */
   readonly webUrl: string | undefined;
+  /** Rescue is built and wired, so a linked chat gets its button. */
+  readonly rescue?: boolean;
 }
 
 const TITLE = '🛡 <b>PERPGUARD</b>\nAnalyse. Watch. Act.';
@@ -144,7 +148,7 @@ export function homeScreen(input: HomeInput): Screen {
     '',
     `🔐 Trading Account: <b>#${a.accountId}</b> · ${networkLabel(a.network)}`,
     `Execution: ${a.execution.dot} ${esc(a.execution.label)}`,
-    'Automation: ⚪ None',
+    `Automation: ${a.automation ?? '⚪ None'}`,
     `Alerts: 🟢 ON · first warning at ${a.warnAt}`,
   ];
   if (watchingLine !== undefined) lines.push(watchingLine);
@@ -161,7 +165,7 @@ export function homeScreen(input: HomeInput): Screen {
       { text: '💰 Margin', route: { to: 'margin' } },
       { text: '🔐 Trading Account', route: { to: 'account' } },
     ],
-    [{ text: '⚙️ Settings', route: { to: 'settings' } }],
+    input.rescue === true ? [{ text: '🛟 Rescue', route: { to: 'rescue' } }, { text: '⚙️ Settings', route: { to: 'settings' } }] : [{ text: '⚙️ Settings', route: { to: 'settings' } }],
   ];
   if (open.length > 0) buttons.push(open);
   return { html: lines.join('\n'), buttons };

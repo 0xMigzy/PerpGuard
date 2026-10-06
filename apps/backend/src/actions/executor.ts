@@ -316,6 +316,16 @@ export class ActionsExecutor {
       );
     }
 
+    // THE LAST GATE BEFORE THE SEND, for automation: the kill switch is
+    // re-read here, after every await above, so a switch flipped while this
+    // action was in flight stops it. Settled on its row as a refusal.
+    const stopped = command.stopCheck?.();
+    if (stopped !== undefined) {
+      const outcome = this.#refuse(command, 'automation-stopped', `${stopped} Nothing was sent.`);
+      await this.#settle(command, outcome, undefined, undefined);
+      return outcome;
+    }
+
     this.#onProgress?.({ idempotencyKey: command.idempotencyKey, stage: 'sending' });
     const sent = await this.#send(command, position);
     if ('refused' in sent) {

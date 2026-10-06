@@ -90,7 +90,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -120,6 +120,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     webUrl: 'https://perpguard.example',
     ownerAccountId: OWNER_ACCOUNT,
     ...(options.settings === undefined ? {} : { settings: options.settings }),
+    ...(options.rescue === undefined ? {} : { rescue: options.rescue }),
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
@@ -1503,6 +1504,7 @@ async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat
 }
 
 import { decodeNav as decodeNavTapForTest } from './nav.ts';
+import type { RescueControl, RescueDraft, RescueRuleView } from './rescue.ts';
 
 /** Still unbuilt after Phase 8: these must not appear as buttons anywhere. */
 const UNBUILT = /rescue|copy|kill|close all|funding|remove margin/i;
@@ -1765,4 +1767,92 @@ test('PHASE 15: an amount over the free floor is offered WITH a warning; a blind
   blind.view.assessments = [{ ...dangerAssessment(), state: 'FEED_DOWN' }];
   await tapNav(blind, { to: 'margin-add', marketId });
   assert.match(answers(blind.telegram).at(-1)!, /cannot price that position right now/);
+});
+
+
+// ── 🛟 Rescue (Phase 17) ────────────────────────────────────────────────────
+
+class FakeRescue implements RescueControl {
+  enabled: Array<{ accountId: number; draft: RescueDraft }> = [];
+  ruleViews: RescueRuleView[] = [];
+  stoppedFlag = false;
+  rules(): readonly RescueRuleView[] {
+    return this.ruleViews;
+  }
+  stopped(): boolean {
+    return this.stoppedFlag;
+  }
+  otherAutomation(): string | undefined {
+    return undefined;
+  }
+  async enable(accountId: number, draft: RescueDraft) {
+    this.enabled.push({ accountId, draft });
+    this.ruleViews = [{ marketId: draft.marketId, symbol: 'BTC', positionId: draft.positionId, triggerPct: draft.triggerPct!, amountCNS: draft.amountCNS!, maxRescues: draft.maxRescues, maxTotalCNS: draft.maxTotalCNS!, minRemainingCNS: draft.minRemainingCNS, cooldownMs: draft.cooldownMs, rescueCount: 0, totalRescuedCNS: 0n, enabled: true, pausedReason: undefined }];
+    return { ok: true as const, text: 'Rescue is on for BTC.' };
+  }
+  async disable() {
+    this.ruleViews = this.ruleViews.map((r) => ({ ...r, enabled: false }));
+    return { ok: true as const, text: 'Rescue is off for BTC.' };
+  }
+  async resume() {
+    return { ok: true as const, text: 'Resumed.' };
+  }
+}
+
+test('RESCUE: home offers it to a linked chat; the owner sets 4% and 25 AUSD by typing, sees the four limits, and ENABLE hands the server one draft', async () => {
+  const rescue = new FakeRescue();
+  const h = harness({ rescue });
+  const a = dangerAssessment();
+  h.view.assessments = [a];
+
+  await h.bot.handleUpdate(messageUpdate('/start'));
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🛟 Rescue'), 'home has the Rescue button once it is built');
+
+  await tapNav(h, { to: 'rescue' });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /LIQUIDATION RESCUE[\s\S]*Account: <b>#710<\/b>[\s\S]*Execution: 🟢[\s\S]*Status: ⚪ OFF/);
+  await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
+  await tapNav(h, { to: 'rescue-cfg', marketId: a.marketId });
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['10%', '5%', '3%', '2%', '🎛 Custom', '← Back']);
+
+  await tapNav(h, { to: 'rescue-trig-custom' });
+  await h.bot.handleUpdate(messageUpdate('4'));
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['+100', '+250', '+500', '+1,000', '🎛 Custom', '← Back'], 'no "% of balance": not built, so no button');
+  await tapNav(h, { to: 'rescue-amt-custom' });
+  await h.bot.handleUpdate(messageUpdate('25'));
+  const review = String(lastScreen(h.telegram).payload['text']);
+  assert.match(review, /Trigger: ≤ <b>4\.0%<\/b>/);
+  assert.match(review, /Action: add <b>25 AUSD<\/b> margin/);
+  assert.match(review, /Maximum rescues: <b>2<\/b>/);
+  assert.match(review, /Maximum total: <b>50 AUSD<\/b>/);
+  assert.match(review, /Minimum remaining: <b>500 AUSD<\/b>/);
+  assert.match(review, /Cooldown: <b>15 minutes<\/b>/);
+
+  // MAX TOTAL is its own setting: pick 100 with 2 rescues of 25, and that is what is sent.
+  await tapNav(h, { to: 'rescue-limit', level: 1 });
+  await tapNav(h, { to: 'rescue-lim', level: 100 });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Maximum total: <b>100 AUSD<\/b>/);
+
+  assert.equal(rescue.enabled.length, 0, 'nothing turned on before ENABLE');
+  await tapNav(h, { to: 'rescue-on' });
+  assert.equal(rescue.enabled.length, 1);
+  const sent = rescue.enabled[0]!;
+  assert.equal(sent.accountId, 710);
+  assert.equal(sent.draft.triggerPct, 0.04);
+  assert.equal(sent.draft.amountCNS, 25_000_000n);
+  assert.equal(sent.draft.maxTotalCNS, 100_000_000n);
+  assert.equal(sent.draft.positionId, a.positionId);
+  assert.equal(h.executor.calls.length, 0, 'the bot sends nothing itself');
+
+  await tapNav(h, { to: 'rescue-stop', marketId: a.marketId });
+  assert.equal(rescue.ruleViews[0]?.enabled, false);
+});
+
+test('RESCUE: a stranger cannot reach any rescue screen', async () => {
+  const rescue = new FakeRescue();
+  const h = harness({ rescue });
+  for (const route of [{ to: 'rescue' }, { to: 'rescue-on' }, { to: 'rescue-stop', marketId: 1 }] as Route[]) {
+    await tapNav(h, route, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  }
+  assert.equal(rescue.enabled.length, 0);
+  assert.ok(answers(h.telegram).every((t) => t === REFUSAL_TEXT));
 });

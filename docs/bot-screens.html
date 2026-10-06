@@ -146,7 +146,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · /start</figcaption>
       <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>#710</b> · Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON · first warning at 8%<br>Closest to liquidation <b>2.7%</b></div>
-      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">💰 Margin</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
+      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">💰 Margin</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -171,6 +171,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       <figcaption>Owner · account</figcaption>
       <div class="chat"><div class="bubble">🔐 <b>TRADING ACCOUNT</b><br><br>Account: <b>#710</b><br>Network: Monad testnet<br>Wallet: None on record<br>Ownership: ⚪ Not verified: linked as this deployment's owner<br>Execution: 🟢 Authorized · this deployment's own key<br>Automation: ⚪ None</div>
       <div class="row"><span class="btn">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>LIQUIDATION RESCUE</b><br><br>Adds margin to your own position, automatically, when it gets close to liquidation. Never removes margin. Every rule has limits.<br><br>Account: <b>#710</b><br>Execution: 🟢 Authorized<br>Status: ⚪ OFF<br><br>Choose a position:</div>
+      <div class="row"><span class="btn">BTC · 2.7% · ⚪ OFF</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -240,6 +246,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · rescue-pos</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE</b><br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−11 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Rescue: ⚪ OFF</div>
+      <div class="row"><span class="btn">⚙️ Configure Rescue</span></div><div class="row"><span class="btn">➕ Add Margin Now</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · warn-ask</figcaption>
       <div class="chat"><div class="bubble"><b>How early should I warn you?</b><br>How far the price still has to move against you when the first warning arrives. The last warning, at 3%, comes whatever you pick.</div>
       <div class="row"><span class="btn changes">Early · 10% — most time to react</span></div><div class="row"><span class="btn changes">Normal · 8% — currently set</span></div><div class="row"><span class="btn changes">Last minute · 3% — fewest messages</span></div><div class="row"><span class="btn">← Back</span></div>
@@ -276,6 +288,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · rescue-cfg</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> is 2.7% from being closed.<br><br>Rescue when it gets this close to liquidation:</div>
+      <div class="row"><span class="btn">10%</span><span class="btn">5%</span><span class="btn">3%</span><span class="btn">2%</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · trader</figcaption>
       <div class="chat"><div class="bubble">👤 <b>TRADER #4886</b><br><br>30D PnL <b>+1,250 AUSD</b><br>ROI (all time) <b>+1,034%</b> on 2,045 AUSD deposited<br>Win rate (30D) 60% (25 of 42 round trips)<br>Trades (30D) <b>84</b><br>Open positions now <b>1</b><br><br><i>Past results do not predict future returns.</i></div>
       <div class="row"><span class="btn url">📊 Full analytics ↗</span></div><div class="row"><span class="btn changes">👁 Watch</span></div><div class="row"><span class="btn">← Back</span></div>
@@ -297,6 +315,96 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       <figcaption>Owner · trader</figcaption>
       <div class="chat"><div class="bubble">👤 <b>TRADER #2154</b><br><br>30D PnL <b>+1,250 AUSD</b><br>ROI (all time) <b>+1,034%</b> on 2,045 AUSD deposited<br>Win rate (30D) 60% (25 of 42 round trips)<br>Trades (30D) <b>84</b><br>Open positions now <b>1</b><br><br><i>Past results do not predict future returns.</i></div>
       <div class="row"><span class="btn url">📊 Full analytics ↗</span></div><div class="row"><span class="btn changes">👁 Watch</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-trig</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> · trigger ≤ <b>10.0%</b><br><br>Add this much margin each time:</div>
+      <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-trig</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> · trigger ≤ <b>5.0%</b><br><br>Add this much margin each time:</div>
+      <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-trig</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> · trigger ≤ <b>3.0%</b><br><br>Add this much margin each time:</div>
+      <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-trig</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> · trigger ≤ <b>2.0%</b><br><br>Add this much margin each time:</div>
+      <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-trig-custom</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>BTC</b> · trigger ≤ <b>2.0%</b><br><br>Add this much margin each time:</div>
+      <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>100 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>200 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>250 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>500 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>500 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>1,000 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>1,000 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt-custom</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>1,000 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-limit</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>Maximum rescues</b></div>
+      <div class="row"><span class="btn changes">1</span><span class="btn changes">2</span><span class="btn changes">3</span></div><div class="row"><span class="btn changes">5</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-limit</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>Maximum total</b></div>
+      <div class="row"><span class="btn changes">1,000 AUSD</span><span class="btn changes">2,500 AUSD</span><span class="btn changes">5,000 AUSD</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-limit</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>Minimum remaining</b></div>
+      <div class="row"><span class="btn changes">100 AUSD</span><span class="btn changes">250 AUSD</span><span class="btn changes">500 AUSD</span></div><div class="row"><span class="btn changes">1,000 AUSD</span><span class="btn changes">2,500 AUSD</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-limit</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>Cooldown</b></div>
+      <div class="row"><span class="btn changes">5 min</span><span class="btn changes">15 min</span><span class="btn changes">30 min</span></div><div class="row"><span class="btn changes">60 min</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-review</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE RULE</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Trigger: ≤ <b>2.0%</b> from liquidation, on two looks a second apart<br>Action: add <b>1,000 AUSD</b> margin<br><br>Maximum rescues: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (rescues × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.</div>
+      <div class="row"><span class="btn">🔢 Rescues</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 ENABLE RESCUE</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure></div>
 </div></body></html>

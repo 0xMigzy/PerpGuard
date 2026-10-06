@@ -74,6 +74,24 @@ import { DEFAULT_PREFERENCES, InMemoryPreferenceStore, LARGE_TRADE_PRESETS_AUSD,
 import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
 import {
+  applyLimit,
+  capOf,
+  freshDraft,
+  parseRescueAmount,
+  parseTriggerPct,
+  RESCUE_AMOUNTS_AUSD,
+  RESCUE_TRIGGERS_PCT,
+  RescueDraftStore,
+  rescueAmountScreen,
+  rescueLimitScreen,
+  rescueMenuScreen,
+  rescuePositionScreen,
+  rescueReviewScreen,
+  rescueTriggerScreen,
+  type RescueControl,
+  type RescueDraft,
+} from './rescue.ts';
+import {
   WATCH_PLACEHOLDER,
   WATCH_PROMPT,
   accountScreen,
@@ -191,6 +209,8 @@ export interface BotDeps {
   readonly questions?: PendingQuestionStore;
   /** Each linked account's own settings ("Warn me at"). Defaults to in memory. */
   readonly settings?: AccountSettingsStore;
+  /** 🛟 Liquidation Rescue: rules read and written through the backend, which re-validates them. Absent: no Rescue button. */
+  readonly rescue?: RescueControl;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -265,6 +285,7 @@ export function createBot(deps: BotDeps): Bot {
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
   const identities = deps.identities ?? new InMemoryIdentityStore();
   const questions = deps.questions ?? new PendingQuestionStore({ now });
+  const drafts = new RescueDraftStore(now);
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
   const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
   /** Taps whose screen opens as a new message, leaving the tapped one as it is. */
@@ -377,6 +398,16 @@ export function createBot(deps: BotDeps): Bot {
     return session === undefined ? EXECUTION_UNKNOWN : executionState({ session });
   };
 
+  /** The home screen's Automation line, from the rules as they are now. */
+  const automationLine = (accountId: number): string | undefined => {
+    if (deps.rescue === undefined) return undefined;
+    if (deps.rescue.stopped(accountId)) return '⛔ Stopped (kill switch)';
+    const on = deps.rescue.rules(accountId).filter((r) => r.enabled && r.pausedReason === undefined);
+    if (on.length > 0) return `🛟 Rescue ON · ${on.map((r) => esc(r.symbol)).join(', ')}`;
+    const other = deps.rescue.otherAutomation(accountId);
+    return other === undefined ? undefined : esc(other);
+  };
+
   const home = (chatId: number, telegramUserId: number | undefined): Screen => {
     const link = linkHere(telegramUserId, chatId);
     const subs = deps.watch?.store.byChat(chatId) ?? [];
@@ -393,7 +424,9 @@ export function createBot(deps: BotDeps): Bot {
               network: session?.view.network ?? deps.tradingNetwork,
               execution: executionFor(link),
               warnAt: pct(warnLevelInfo(settings.get(link.accountId).warnLevel).firstWarningPct).replace('.0%', '%'),
+              automation: automationLine(link.accountId),
             },
+      rescue: deps.rescue !== undefined && link !== undefined,
       tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
       webUrl: deps.webUrl,
@@ -655,6 +688,10 @@ export function createBot(deps: BotDeps): Bot {
     if (commandOf(text) !== undefined) return;
 
     const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'rescue-trigger' || question?.kind === 'rescue-amount') {
+      await handleRescueAnswer(ctx, question.kind, text);
+      return;
+    }
     if (question?.kind === 'warning-levels') {
       const parsed = parseCustomLevels(text);
       if ('error' in parsed) {
@@ -997,6 +1034,21 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, topUps, button: mint, bufferDecimals: alerts.bufferDecimals }));
         return;
       }
+      case 'rescue':
+      case 'rescue-pos':
+      case 'rescue-cfg':
+      case 'rescue-trig':
+      case 'rescue-trig-custom':
+      case 'rescue-amt':
+      case 'rescue-amt-custom':
+      case 'rescue-review':
+      case 'rescue-limit':
+      case 'rescue-lim':
+      case 'rescue-on':
+      case 'rescue-stop':
+      case 'rescue-resume':
+        await rescueNav(ctx, route, account, link);
+        return;
       case 'settings':
         await ctx.answerCallbackQuery();
         await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
@@ -1036,6 +1088,231 @@ export function createBot(deps: BotDeps): Bot {
       default:
         await answer(ctx, 'That screen is not available.');
     }
+  }
+
+  // ── 🛟 Liquidation Rescue (spec 38-42) ──────────────────────────────────
+  // A draft per chat and person collects trigger, amount and limits; ENABLE
+  // hands it to the backend, which re-validates everything against the live
+  // position. Stop is one tap: it is the safe direction.
+  function rescueMenu(account: AccountView, link: LinkRecord): Screen {
+    const control = deps.rescue!;
+    return rescueMenuScreen({
+      accountId: account.accountId,
+      execution: executionFor(link),
+      assessments: account.view.snapshot(),
+      rules: control.rules(account.accountId),
+      stopped: control.stopped(account.accountId),
+      otherAutomation: control.otherAutomation(account.accountId),
+    });
+  }
+
+  function rescuePosition(account: AccountView, marketId: number): Screen | undefined {
+    const a = account.view.snapshot().find((x) => x.marketId === marketId);
+    if (a === undefined) return undefined;
+    const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === marketId && r.positionId === a.positionId);
+    return rescuePositionScreen({ assessment: a, market: deps.configs.get(marketId), rule });
+  }
+
+  function rescueReview(account: AccountView, draft: RescueDraft): Screen | undefined {
+    const a = account.view.snapshot().find((x) => x.marketId === draft.marketId && x.positionId === draft.positionId);
+    if (a === undefined) return undefined;
+    const free = account.balance.freeBalance();
+    return rescueReviewScreen(a, draft, { stopped: deps.rescue!.stopped(account.accountId), free: free.known ? free.floorCNS : undefined });
+  }
+
+  async function rescueNav(ctx: Context, route: Route, account: AccountView, link: LinkRecord): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    const control = deps.rescue;
+    if (control === undefined) {
+      await answer(ctx, 'Rescue is not available here.');
+      return;
+    }
+    const draft = drafts.get(chatId, telegramUserId);
+    const gone = async (): Promise<void> => {
+      drafts.delete(chatId, telegramUserId);
+      await answer(ctx, 'That position is not open any more.');
+      await showScreen(ctx, rescueMenu(account, link));
+    };
+    const needDraft = async (): Promise<RescueDraft | undefined> => {
+      if (draft !== undefined) return draft;
+      await answer(ctx, 'That rule was not finished in time. Start again from the position.');
+      await showScreen(ctx, rescueMenu(account, link));
+      return undefined;
+    };
+    switch (route.to) {
+      case 'rescue':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, rescueMenu(account, link));
+        return;
+      case 'rescue-pos': {
+        const screen = rescuePosition(account, route.marketId);
+        if (screen === undefined) return gone();
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, screen);
+        return;
+      }
+      case 'rescue-cfg': {
+        const a = account.view.snapshot().find((x) => x.marketId === route.marketId);
+        if (a === undefined || a.positionId === undefined) return gone();
+        const rule = control.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
+        drafts.set(chatId, telegramUserId, freshDraft(a, rule));
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, rescueTriggerScreen(a));
+        return;
+      }
+      case 'rescue-trig': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        const p = RESCUE_TRIGGERS_PCT[route.level];
+        const a = account.view.snapshot().find((x) => x.marketId === d.marketId && x.positionId === d.positionId);
+        if (p === undefined) return answer(ctx, 'I do not know that trigger.');
+        if (a === undefined) return gone();
+        const next = { ...d, triggerPct: p / 100 };
+        drafts.set(chatId, telegramUserId, next);
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, rescueAmountScreen(a, next));
+        return;
+      }
+      case 'rescue-trig-custom':
+      case 'rescue-amt-custom': {
+        if ((await needDraft()) === undefined) return;
+        await ctx.answerCallbackQuery();
+        amounts.delete(telegramUserId);
+        const trigger = route.to === 'rescue-trig-custom';
+        questions.ask(chatId, telegramUserId, { kind: trigger ? 'rescue-trigger' : 'rescue-amount' });
+        await ctx.reply(trigger ? 'Rescue at what distance from liquidation? Send a percentage, like 4 or 3.5.' : 'How much margin each time? Send an amount in AUSD, like 25 or 150.', {
+          reply_markup: { force_reply: true, input_field_placeholder: trigger ? '4' : '150' },
+        });
+        return;
+      }
+      case 'rescue-amt': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        const n = RESCUE_AMOUNTS_AUSD[route.level];
+        if (n === undefined) return answer(ctx, 'I do not know that amount.');
+        const next = { ...d, amountCNS: BigInt(n) * 1_000_000n };
+        drafts.set(chatId, telegramUserId, next);
+        const screen = rescueReview(account, next);
+        if (screen === undefined) return gone();
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, screen);
+        return;
+      }
+      case 'rescue-review': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        const screen = rescueReview(account, d);
+        if (screen === undefined) return gone();
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, screen);
+        return;
+      }
+      case 'rescue-limit': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        const screen = rescueLimitScreen(route.level, d);
+        if (screen === undefined) return answer(ctx, 'I do not know that limit.');
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, screen);
+        return;
+      }
+      case 'rescue-lim': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        const next = applyLimit(d, route.level);
+        if (next === undefined) return answer(ctx, 'I do not know that setting.');
+        drafts.set(chatId, telegramUserId, next);
+        const screen = rescueReview(account, next);
+        if (screen === undefined) return gone();
+        await ctx.answerCallbackQuery({ text: 'Set.' });
+        await showScreen(ctx, screen);
+        return;
+      }
+      case 'rescue-on': {
+        const d = await needDraft();
+        if (d === undefined) return;
+        if (executionFor(link).dot !== '🟢') {
+          await answer(ctx, 'Execution is not authorized on this account, so Rescue could not act. Open the Trading Account to fix it first.');
+          return;
+        }
+        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) });
+        if (!result.ok) {
+          await answer(ctx, result.text);
+          return;
+        }
+        drafts.delete(chatId, telegramUserId);
+        await ctx.answerCallbackQuery({ text: 'Rescue is on.' });
+        const screen = rescuePosition(account, d.marketId) ?? rescueMenu(account, link);
+        await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
+        return;
+      }
+      case 'rescue-stop':
+      case 'rescue-resume': {
+        const result = route.to === 'rescue-stop' ? await control.disable(account.accountId, route.marketId) : await control.resume(account.accountId, route.marketId);
+        await ctx.answerCallbackQuery({ text: result.text.slice(0, 190) });
+        const screen = rescuePosition(account, route.marketId) ?? rescueMenu(account, link);
+        await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
+        return;
+      }
+      default:
+        await answer(ctx, 'That screen is not available.');
+    }
+  }
+
+  /** A typed trigger or amount for a rescue draft. Linked chat only; the link is resolved again. */
+  async function handleRescueAnswer(ctx: Context, kind: 'rescue-trigger' | 'rescue-amount', text: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    const verdict = authorise(deps.links, telegramUserId, chatId);
+    if (!verdict.ok) {
+      questions.close(chatId, telegramUserId);
+      await ctx.reply(verdict.text);
+      return;
+    }
+    const resolved = resolveAccount(telegramUserId);
+    if ('refusal' in resolved) {
+      questions.close(chatId, telegramUserId);
+      await ctx.reply(resolved.refusal);
+      return;
+    }
+    const draft = drafts.get(chatId, telegramUserId);
+    if (draft === undefined || deps.rescue === undefined) {
+      questions.close(chatId, telegramUserId);
+      await sendScreen(ctx, { html: 'That rule was not finished in time. Start again from the position.', buttons: [[{ text: '🛟 Rescue', route: { to: 'rescue' } }]] });
+      return;
+    }
+    const a = resolved.account.view.snapshot().find((x) => x.marketId === draft.marketId && x.positionId === draft.positionId);
+    if (a === undefined) {
+      questions.close(chatId, telegramUserId);
+      drafts.delete(chatId, telegramUserId);
+      await sendScreen(ctx, { html: 'That position is not open any more.', buttons: [[{ text: '🛟 Rescue', route: { to: 'rescue' } }]] });
+      return;
+    }
+    if (kind === 'rescue-trigger') {
+      const parsed = parseTriggerPct(text);
+      if ('error' in parsed) {
+        await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
+        return;
+      }
+      const next = { ...draft, triggerPct: parsed.pct };
+      drafts.set(chatId, telegramUserId, next);
+      questions.close(chatId, telegramUserId);
+      await sendScreen(ctx, rescueAmountScreen(a, next));
+      return;
+    }
+    const parsed = parseRescueAmount(text);
+    if ('error' in parsed) {
+      await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '150' } });
+      return;
+    }
+    const next = { ...draft, amountCNS: parsed.amountCNS };
+    drafts.set(chatId, telegramUserId, next);
+    questions.close(chatId, telegramUserId);
+    const screen = rescueReview(resolved.account, next);
+    if (screen !== undefined) await sendScreen(ctx, screen);
   }
 
   // ── button taps ───────────────────────────────────────────────────────────

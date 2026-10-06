@@ -701,3 +701,31 @@ test('a log row that cannot be opened REFUSES the action; nothing reaches the ve
   assert.equal(h.venue.sends.length, 0, 'certain: the send never happened');
   assert.equal(h.inFlight.held(MARKET), undefined, 'the lease is released');
 });
+
+// ── automation's last gate ──────────────────────────────────────────────────
+
+test('AUTOMATION: a stop raised while the action is in flight is honoured right before the send', async () => {
+  // The kill switch flips after the rescue was decided and claimed, while the
+  // executor is awaiting pre-flight. The stop check is read after every await,
+  // so nothing reaches the venue, and the row is settled as a refusal.
+  const h = harness();
+  let stopped = false;
+  h.venue.applyOnSend = () => h.positions.patch(MARKET, { marginCNS: 83_160n });
+  const pending = h.executor.execute(topUp({ idempotencyKey: 'rescue:710:4242:1:1', stopCheck: () => (stopped ? 'The kill switch is on.' : undefined) }));
+  stopped = true;
+  const outcome = await pending;
+
+  assert.equal(outcome.kind, 'refused');
+  assert.ok(outcome.kind === 'refused');
+  assert.equal(outcome.code, 'automation-stopped');
+  assert.match(outcome.detail, /kill switch is on\. Nothing was sent/);
+  assert.equal(h.venue.sends.length, 0);
+});
+
+test('AUTOMATION: a stop check that passes changes nothing about the send', async () => {
+  const h = harness();
+  h.venue.applyOnSend = () => h.positions.patch(MARKET, { marginCNS: 83_160n });
+  const outcome = await h.executor.execute(topUp({ stopCheck: () => undefined }));
+  assert.equal(outcome.kind, 'applied');
+  assert.equal(h.venue.sends.length, 1);
+});

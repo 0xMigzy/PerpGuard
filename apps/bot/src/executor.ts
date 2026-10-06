@@ -202,5 +202,7 @@ function refusedText(outcome: Extract<ActionOutcome, { kind: 'refused' }>): stri
       return `Not sent: ${outcome.detail}`;
     case 'invalid-command':
       return `Not sent: ${outcome.detail}`;
+    case 'automation-stopped':
+      return `Not sent: ${outcome.detail}`;
   }
 }

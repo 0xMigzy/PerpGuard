@@ -36,10 +36,13 @@ import {
 } from '@perpguard/bot/test-support';
 import type { IndexerHealth, TraderRow } from '@perpguard/shared';
 import { InMemoryPreferenceStore } from '../events/preferences.ts';
+import { InMemoryAutomationStore } from '../rescue/automation.ts';
+import { RescueControlService } from '../rescue/control.ts';
+import { InMemoryRescueStore } from '../rescue/store.ts';
 
 const OUT = resolve(import.meta.dirname, '../../../../docs/bot-screens.html');
 const STRANGER_CHAT = 7_777;
-const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts']);
+const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts', 'rescue-on', 'rescue-stop', 'rescue-resume', 'rescue-lim']);
 
 /** SAMPLE trader figures: the generator has no index. Labelled as samples on the page. */
 const sampleRow = (accountId: number, netPnlAusd: number, depositedAusd: number, roundTrips: number): TraderRow => ({
@@ -92,6 +95,8 @@ function build() {
       preferences: new InMemoryPreferenceStore(),
       traders: sampleTraders,
     },
+    // The real control over in-memory stores, so the document shows the real Rescue screens.
+    rescue: new RescueControlService({ store: new InMemoryRescueStore(), automation: new InMemoryAutomationStore(), snapshot: () => view.assessments }),
   });
   telegram.install(built.api);
   return { bot: built, telegram };

@@ -70,6 +70,14 @@ interface CommandBase {
    * flat and reopens is a new position with a new id.
    */
   readonly positionId: number | undefined;
+  /**
+   * AUTOMATION ONLY: asked IMMEDIATELY BEFORE THE ONE SEND, after every await
+   * of pre-flight. A reason means stop: the kill switch went on (or the rule
+   * was switched off) while this action was in flight, and nothing is sent.
+   * A person's own tap carries none: the kill switch stops automation, never
+   * the person.
+   */
+  readonly stopCheck?: () => string | undefined;
 }
 
 /**
@@ -168,7 +176,9 @@ export type RefusalCode =
    * be found afterwards; an action with no row would be exactly that action.
    * Refused, and certain: nothing reached the venue.
    */
-  | 'not-recorded';
+  | 'not-recorded'
+  /** Automation was stopped (kill switch, rule off) between the decision and the send. */
+  | 'automation-stopped';
 
 interface OutcomeBase {
   readonly command: ActionCommand;

@@ -61,6 +61,20 @@ export type Route =
   | { readonly to: 'margin-pos'; readonly marketId: number }
   | { readonly to: 'margin-add'; readonly marketId: number }
   | { readonly to: 'position'; readonly marketId: number }
+  /** 🛟 Liquidation Rescue (spec 38-42). Linked only; the rule is re-validated server-side on enable. */
+  | { readonly to: 'rescue' }
+  | { readonly to: 'rescue-pos'; readonly marketId: number }
+  | { readonly to: 'rescue-cfg'; readonly marketId: number }
+  | { readonly to: 'rescue-trig'; readonly level: number }
+  | { readonly to: 'rescue-trig-custom' }
+  | { readonly to: 'rescue-amt'; readonly level: number }
+  | { readonly to: 'rescue-amt-custom' }
+  | { readonly to: 'rescue-review' }
+  | { readonly to: 'rescue-limit'; readonly level: number }
+  | { readonly to: 'rescue-lim'; readonly level: number }
+  | { readonly to: 'rescue-on' }
+  | { readonly to: 'rescue-stop'; readonly marketId: number }
+  | { readonly to: 'rescue-resume'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
@@ -105,6 +119,19 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'margin-pos': 'mp',
   'margin-add': 'ma',
   position: 'pd',
+  rescue: 'r',
+  'rescue-pos': 'rp',
+  'rescue-cfg': 'rc',
+  'rescue-trig': 'rt',
+  'rescue-trig-custom': 'rtc',
+  'rescue-amt': 'ra',
+  'rescue-amt-custom': 'rac',
+  'rescue-review': 'rr',
+  'rescue-limit': 'rl',
+  'rescue-lim': 'rlv',
+  'rescue-on': 'ro',
+  'rescue-stop': 'rs',
+  'rescue-resume': 'rv',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
@@ -128,6 +155,14 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'margin-pos': 'marketId',
   'margin-add': 'marketId',
   'warn-set': 'level',
+  'rescue-pos': 'marketId',
+  'rescue-cfg': 'marketId',
+  'rescue-trig': 'level',
+  'rescue-amt': 'level',
+  'rescue-limit': 'level',
+  'rescue-lim': 'level',
+  'rescue-stop': 'marketId',
+  'rescue-resume': 'marketId',
 };
 
 /**
