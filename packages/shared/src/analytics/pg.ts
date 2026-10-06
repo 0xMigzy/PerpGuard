@@ -832,9 +832,9 @@ select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionC
 `;
 
 /**
- * The Traders cards. Binds: $1 window start (null for lifetime). Same source
- * as the list, so the counts agree with its total; volume from MARKET buckets,
- * counted once per match (the rows credit maker and taker both).
+ * The Traders cards' per-trader figures. Binds: $1 window start (null for
+ * lifetime). Same source as the list, so they agree with its rows. The cards'
+ * trader count and volume come from the Overview's rolling queries instead.
  */
 const traderSummarySql = (lifetime: boolean): string => `
 with w as (${lifetime ? TRADER_SOURCE_LIFETIME.replace('$3', '$1') : TRADER_SOURCE_WINDOW.replace('$3', '$1')}),
@@ -845,9 +845,7 @@ select count(*)                                                        as trader
        (percentile_cont(0.5) within group (order by net_pnl)
           filter (where round_trips > 0))::text                        as median_pnl,
        coalesce(sum(liquidations), 0)                                  as liquidations,
-       coalesce(sum(rescuable), 0)                                     as rescuable,
-       (select coalesce(sum("volumeCNS"), 0)::text from "MarketDay"
-         where ($1::timestamptz is null or day >= $1::timestamptz))    as market_volume
+       coalesce(sum(rescuable), 0)                                     as rescuable
   from a
 `;
 
@@ -1820,13 +1818,25 @@ export class PostgresAnalytics implements Analytics {
 
   async traderSummary(timeframe: Timeframe): Promise<TraderSummary> {
     const decimals = await this.#decimals();
-    const { window, start } = traderWindow(timeframe, this.#now());
-    const row = await this.#one(traderSummarySql(start === null), [start]);
+    const now = this.#now();
+    const { window, start } = traderWindow(timeframe, now);
+    // TRADERS AND VOLUME ON THE OVERVIEW'S OWN ROLLING WINDOW, by the same two
+    // queries: until 6 Oct 2026 these came from whole UTC days, so the 30-day
+    // volume here started at 00:00 UTC and ran 12.7 h longer than the
+    // Overview's ($1.56B against $1.43B, the gap being exactly the trades
+    // between midnight and the rolling start). The per-trader figures below
+    // stay in whole UTC days: the per-trader record is kept by day.
+    const { sinceMs } = windowFor(timeframe, now);
+    const [row, totals, traders] = await Promise.all([
+      this.#one(traderSummarySql(start === null), [start]),
+      this.#one(WINDOW_TOTALS_SQL, [iso(sinceMs), iso(now)]),
+      this.#one(ACTIVE_TRADERS_SQL, [iso(sinceMs), iso(now)]),
+    ]);
     const closed = count(row?.['closed']);
     return {
       window,
-      traders: count(row?.['traders']),
-      volumeAusd: toAusd(row?.['market_volume'], decimals),
+      traders: count(traders?.['traders']),
+      volumeAusd: toAusd(totals?.['volume'], decimals),
       closedTraders: closed,
       profitableTraders: count(row?.['profitable']),
       medianNetPnlAusd: closed >= MIN_TRADERS_FOR_DISTRIBUTION ? medianAusd(row?.['median_pnl'], decimals) : undefined,

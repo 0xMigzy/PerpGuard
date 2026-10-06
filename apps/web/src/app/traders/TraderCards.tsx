@@ -39,7 +39,7 @@ export function TraderCards({
       <StatTile
         label={`Traders · ${period}`}
         value={formatCount(summary.traders)}
-        exact={`${formatCount(summary.traders)} accounts with at least one trade`}
+        exact={`${formatCount(summary.traders)} accounts with at least one fill in the rolling window: the Overview's own figure, by the same query`}
         secondary={`${formatMoney(summary.volumeAusd)} traded, counted once per match`}
       />
       <StatTile

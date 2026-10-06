@@ -965,19 +965,23 @@ test('search: an address prefix is lowercased and compared lowercased; junk is n
   assert.deepEqual(parseTraderQuery(' 710 '), { kind: 'account', accountId: 710 });
 });
 
-test('the cards: traders who traded, a median over those with a closed trade, withheld below 10, market volume once per match', async () => {
-  const sql = new FakeSql().on(/percentile_cont/, [{ traders: '1108', closed: '1060', profitable: '571', median_pnl: '-1234567', liquidations: '601', rescuable: '448', market_volume: '1855650300000000' }]);
+test('the cards: traders and volume are the Overview\'s own rolling figures; the per-trader ones stay by UTC day', async () => {
+  const sql = new FakeSql().on(/percentile_cont/, [{ traders: '1108', closed: '1060', profitable: '571', median_pnl: '-1234567', liquidations: '601', rescuable: '448' }]);
+  sql.on(/as maker_fees/, [{ volume: '1425819885000000', maker_fees: '0', trades: '1' }]);
+  sql.on(/select count\(\*\)::text as traders from/, [{ traders: '1068' }]);
   sql.on(/from "Exchange"/, [exchangeRow]);
   const summary = await reader(sql).traderSummary('30d');
   const text = sql.touching('TraderDay')[0]!.sql;
   assert.match(text, /a as \(select \* from w where trades > 0\)/);
-  assert.match(text, /from "MarketDay"/, 'volume counted once per match, from market buckets');
-  assert.equal(summary.traders, 1108);
+  assert.doesNotMatch(text, /from "MarketDay"/, 'volume no longer from whole-day buckets');
+  const rolling = sql.calls.find((c) => /as maker_fees/.test(c.sql))!;
+  assert.equal(rolling.values[0], new Date(NOW - 30 * 86_400_000).toISOString(), 'the rolling start, not 00:00 UTC');
+  assert.equal(summary.traders, 1068, 'the Overview\'s distinct-trader count');
+  assert.equal(summary.volumeAusd, 1_425_819_885, 'the Overview\'s volume: the same query, the same window');
   assert.equal(summary.closedTraders, 1060);
   assert.equal(summary.profitableTraders, 571);
   assert.equal(summary.medianNetPnlAusd, -1.234567);
-  assert.equal(summary.volumeAusd, 1_855_650_300);
-  const few = new FakeSql().on(/percentile_cont/, [{ traders: '9', closed: '4', profitable: '3', median_pnl: '5000000', liquidations: '0', rescuable: '0', market_volume: '0' }]);
+  const few = new FakeSql().on(/percentile_cont/, [{ traders: '9', closed: '4', profitable: '3', median_pnl: '5000000', liquidations: '0', rescuable: '0' }]);
   few.on(/from "Exchange"/, [exchangeRow]);
   assert.equal((await reader(few).traderSummary('24h')).medianNetPnlAusd, undefined, 'a median of four accounts describes nobody');
 });

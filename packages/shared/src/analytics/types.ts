@@ -1028,13 +1028,14 @@ export interface TraderList {
  * same UTC-day buckets as the table, so the two always agree.
  */
 export interface TraderSummary {
+  /** The whole-UTC-day window of the per-trader figures (closed, profitable, median, liquidations). */
   readonly window: TraderWindow;
-  /** Accounts with at least one trade in the window. */
+  /** Accounts with at least one fill in the ROLLING window: the Overview's own figure and query. */
   readonly traders: number;
   /**
-   * Traded notional in the window counted ONCE PER MATCH (market buckets). Not
-   * the sum of the rows' volume, which credits maker and taker both and runs
-   * at about twice this.
+   * Traded notional in the ROLLING window, counted ONCE PER MATCH: the
+   * Overview's own figure and query. Not the sum of the rows' volume, which
+   * credits maker and taker both and runs at about twice this.
    */
   readonly volumeAusd: number;
   /** Accounts with at least one closed round trip: the denominator below. */
