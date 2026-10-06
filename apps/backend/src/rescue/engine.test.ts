@@ -33,6 +33,8 @@ class FakeAccount implements RescueAccount {
   respond: (c: ActionCommand) => ActionOutcome = (c) => applied(c, this);
   /** Lets a test act while the executor is "awaiting". */
   during: (c: ActionCommand) => void = () => {};
+  /** Moves the test clock inside the executor, as pre-flight's awaits would. */
+  clockStep: (() => void) | undefined;
   snapshot(): readonly RiskAssessment[] {
     return [{ marketId: 16, symbol: 'BTC', side: 'long', positionId: PID, state: 'DANGER', liqBufferPct: this.buffer, marginCNS: this.margin, markPricePNS: 855_952n } as unknown as RiskAssessment];
   }
@@ -48,6 +50,7 @@ class FakeAccount implements RescueAccount {
   async execute(c: ActionCommand): Promise<ActionOutcome> {
     this.commands.push(c);
     this.during(c);
+    this.clockStep?.();
     const stop = c.stopCheck?.();
     if (stop !== undefined) return { kind: 'refused', command: c, at: 0, code: 'automation-stopped', detail: `${stop} Nothing was sent.` };
     return this.respond(c);
@@ -75,6 +78,9 @@ function rig(o: { clock?: { t: number } } = {}) {
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore(() => clock.t);
   const acct = new FakeAccount();
+  acct.clockStep = () => {
+    clock.t += 5;
+  };
   const notices: RescueNotice[] = [];
   const logs: string[] = [];
   const engine = new RescueEngine({
@@ -119,6 +125,7 @@ test('THE LIVE-FIRE SHAPE: 25 AUSD at a 4% trigger, sr 32, one send, applied off
   assert.ok(a);
   assert.equal(a.attemptNo, 1);
   assert.equal(a.triggerDistancePct, 0.0316);
+  assert.ok(a.sentAtMs !== undefined && a.sentAtMs > a.triggeredAtMs, 'sent_at is the moment of the send, after the trigger and the claim');
   assert.equal(a.amountCNS, 25n * AUSD);
   // RECEIPT and VERIFIED OUTCOME, separate, and they disagree.
   assert.equal(a.receiptStatus, 'rejected');

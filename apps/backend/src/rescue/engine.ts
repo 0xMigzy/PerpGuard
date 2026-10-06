@@ -206,6 +206,8 @@ export class RescueEngine {
     await store.update(rule.id, { lastAttemptAtMs: triggeredAtMs });
     logger.info(`rescue ${idempotencyKey}: triggered at ${((trigger.liqBufferPct ?? 0) * 100).toFixed(2)}% (trigger ${(rule.triggerPct * 100).toFixed(2)}%), sending ${amountCNS}`);
 
+    /** Stamped by the executor's last gate, which runs immediately before the one send. Undefined: never sent. */
+    let sentAtMs: number | undefined;
     let outcome: ActionOutcome;
     try {
       outcome = await account.execute({
@@ -222,13 +224,14 @@ export class RescueEngine {
           if (automation.automationStopped(rule.accountId)) return 'Automation was stopped (the kill switch is on) while this rescue was being prepared.';
           const now = store.rule(rule.id);
           if (now === undefined || !now.enabled) return 'Rescue was switched off for this position while this rescue was being prepared.';
+          sentAtMs = this.#now();
           return undefined;
         },
       });
     } catch (error) {
       // The executor reports rather than throws; a throw is a bug, and we cannot say what reached the venue.
       const detail = `the executor threw: ${error instanceof Error ? error.message : String(error)}`;
-      await store.record(rule.id, attemptNo, { outcome: 'unknown', detail, verifiedAtMs: this.#now() });
+      await store.record(rule.id, attemptNo, { sentAtMs, outcome: 'unknown', detail, verifiedAtMs: this.#now() });
       const paused = await store.update(rule.id, { pausedReason: 'unknown outcome', lastNotice: 'paused' });
       await this.#o.notify(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail });
       return;
@@ -248,7 +251,7 @@ export class RescueEngine {
 
     const rec = outcome.reconciliation;
     await store.record(rule.id, attemptNo, {
-      sentAtMs: triggeredAtMs,
+      sentAtMs,
       receiptStatus: outcome.reported.status,
       receiptReason: outcome.reported.reason,
       venueRef: outcome.reported.venueRef,
