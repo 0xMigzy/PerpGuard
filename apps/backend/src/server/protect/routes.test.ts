@@ -350,3 +350,14 @@ test('an anonymous demo session needs demo mode on, may look, and may never act'
   await off.app.close();
   await on.app.close();
 });
+
+test('SECURITY: a code minted for another identity (a /link code) opens no session here, and is used up', async () => {
+  const h = harness();
+  h.codes.mint('tg:4242');
+  const r = await h.app.inject({ method: 'POST', url: '/api/protect/session', payload: { code: 'abcd-efgh' } });
+  assert.equal(r.statusCode, 401);
+  assert.equal(r.headers['set-cookie'], undefined);
+  const gated = await h.app.inject({ method: 'GET', url: '/api/protect/positions' });
+  assert.equal(gated.statusCode, 401);
+  assert.equal(h.codes.redeem('abcd-efgh'), undefined, 'consumed: it cannot then be redeemed on /link');
+});

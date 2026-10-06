@@ -165,7 +165,13 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
     }
 
     const code = typeof body.code === 'string' ? body.code : '';
-    const redeemed = code === '' ? undefined : options.linkCodes.redeem(code);
+    // A CODE MINTED FOR ANYONE ELSE OPENS NOTHING HERE. The store is shared
+    // with /link, whose codes any Telegram user can mint for their own
+    // identity; without this check one of those, posted here instead, was an
+    // OWNER session on the environment account (found 6 Oct 2026). It is
+    // consumed either way, so it cannot be tried here and then on /link.
+    const minted = code === '' ? undefined : options.linkCodes.redeem(code);
+    const redeemed = minted !== undefined && minted.userId === options.userId ? minted : undefined;
     if (redeemed === undefined) {
       // Flat, whatever the cause: a wrong, expired and already-used code all
       // read the same to someone probing.
