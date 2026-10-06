@@ -161,7 +161,8 @@ export interface LinkMe {
   readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
-  readonly dynamicConfigured: boolean;
+  /** Wallet ownership by signed challenge is available on this page. */
+  readonly walletSignIn: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: string;
 }
@@ -181,7 +182,10 @@ export const link = {
   session: (code: string) => postJson<LinkMe>(`${L}/session`, { code }),
   signOut: () => postJson<{ signedOut: boolean }>(`${L}/session`, undefined, 'DELETE'),
   me: () => getJson<LinkMe>(`${L}/me`),
-  wallet: (dynamicToken: string) => postJson<{ proof: WalletProof; me: LinkMe }>(`${L}/wallet`, { dynamicToken }),
+  /** A Sign-In with Ethereum challenge for the connected address. */
+  challenge: (address: string) => postJson<{ message: string }>(`${L}/challenge`, { address }),
+  /** The signed challenge: proves ownership only. */
+  wallet: (message: string, signature: string) => postJson<{ proof: WalletProof; me: LinkMe }>(`${L}/wallet`, { message, signature }),
   /** The key goes to this origin's backend and nowhere else, and is never read back. */
   key: (apiKey: string, secret: string) => postJson<{ proof: KeyProof; me: LinkMe }>(`${L}/key`, { apiKey, secret }),
   unlink: () => postJson<{ ok: boolean; text: string; me: LinkMe }>(`${L}/unlink`, {}),

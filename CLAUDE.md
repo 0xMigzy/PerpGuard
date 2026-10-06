@@ -5,7 +5,8 @@ stress tests, and a kill switch.
 
 Hackathon deadline: Oct 14 2026, 04:59 GMT+1. Submit by the evening of Oct 13.
 Primary track: Onchain Finance & Trading.
-Bounties: Perpl API, Perpl Analytics/Risk, Envio, Dynamic, Kimi.
+Bounties: Perpl API, Perpl Analytics/Risk, Envio, Kimi. (Dynamic was dropped
+for RainbowKit on 6 Oct 2026: no Dynamic origin could be set for perpguard.app.)
 
 ## The problem we solve
 Perpl uses ISOLATED MARGIN. Every position has its own collateral, and free
@@ -509,7 +510,7 @@ TypeScript everywhere, pnpm workspaces.
 - `apps/bot`      — Telegram bot (grammY)
 - `apps/web`      — Next.js App Router, Tailwind, dark mode
 - `packages/shared` — config, types, units, Perpl client, venue adapters
-Postgres. Kimi API for AI. Dynamic SDK for login.
+Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /link.
 
 ## The Telegram bot: two tiers
 - PUBLIC WATCH TIER: anyone, any chat, no wallet, no link. `/watch <address or
@@ -637,8 +638,10 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   mints a one-time five-minute code whose URL opens the web page `/link`
   (`PUBLIC_WEB_URL`); redeeming it gives the page a 30-minute cookie session
   for that Telegram identity and LINKS NOTHING. The proof is one of two
-  things collected on that page: a Dynamic wallet signature, verified
-  server-side and mapped to an account by the Exchange contract, or a Perpl
+  things collected on that page: a wallet signature over a Sign-In with
+  Ethereum challenge the backend issued (`walletChallenge.ts`: this site,
+  the trading chain, one-time nonce, five minutes, consumed before it is
+  checked), verified server-side and mapped to an account by the Exchange contract, or a Perpl
   API key pasted there, used once to sign in and learn its account. A wallet
   that owns the environment account links at once; a wallet that owns any
   other account proves ownership and still needs a key for it, and a key for
@@ -657,11 +660,12 @@ Postgres. Kimi API for AI. Dynamic SDK for login.
   clear.
 - `/unlink` (bot or page) removes the link, DELETES the key and closes the
   session at once; the environment account's session is never closed by an
-  unlink. The web app has exactly ONE route with a session and ONE provider:
-  Dynamic lives in `apps/web/src/app/link/layout.tsx`, the root layout knows
-  nothing of it, and every other page is public and read-only. The Dynamic id
-  is inlined at BUILD time, so `apps/web/scripts/build-web.sh` lifts
-  `NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID` from the shared `.env`.
+  unlink. The web app has exactly ONE route with a session and ONE provider
+  stack: wagmi + RainbowKit live in `apps/web/src/app/link/layout.tsx`, the
+  root layout knows nothing of them, and every other page is public and
+  read-only. The WalletConnect project id is OPTIONAL and inlined at BUILD
+  time (`build-web.sh` lifts `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` from the
+  shared `.env`); without it the page lists extension wallets only, no QR.
 
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk

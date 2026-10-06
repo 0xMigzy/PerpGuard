@@ -1,61 +1,71 @@
 'use client';
 
 /**
- * The wallet proof: Dynamic's widget, and the one token exchange this page
- * makes. When the SDK holds a login, its JWT is posted to this origin's
- * backend, which verifies it against Dynamic's keys and asks the Exchange
- * contract which account the wallet owns. The token is read here and sent
- * there, and nowhere else.
+ * The wallet proof: connect with RainbowKit, then sign one message.
+ *
+ * The backend issues a Sign-In with Ethereum challenge for the connected
+ * address (this site, the trading network's chain, a one-time nonce, five
+ * minutes), the wallet signs it, and the backend verifies the signature and
+ * asks the Exchange contract which Perpl account the wallet owns. The
+ * signature proves ownership and nothing else: it moves no funds, places no
+ * trade, and authorises no future action. The API key does that, separately.
  */
-import { useEffect, useRef, useState } from 'react';
-import { DynamicWidget, getAuthToken, useDynamicContext, useIsLoggedIn } from '@dynamic-labs/sdk-react-core';
+import { useState } from 'react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useDisconnect, useSignMessage } from 'wagmi';
 import { describeError, link, type LinkMe, type WalletProof } from '@/lib/api.ts';
 
+const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;
+
 export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (proof: WalletProof, me: LinkMe) => void; readonly onProblem: (text: string) => void }) {
-  const loggedIn = useIsLoggedIn();
-  const { sdkHasLoaded, primaryWallet } = useDynamicContext();
-  const [busy, setBusy] = useState(false);
-  const sent = useRef<string | undefined>(undefined);
+  const { address, isConnected } = useAccount();
+  const { disconnect } = useDisconnect();
+  const { signMessageAsync } = useSignMessage();
+  const [busy, setBusy] = useState<'idle' | 'signing' | 'checking'>('idle');
 
   const prove = async () => {
-    const token = getAuthToken();
-    if (token === undefined) {
-      onProblem('Sign in with your wallet first.');
-      return;
-    }
-    if (sent.current === token) return;
-    sent.current = token;
-    setBusy(true);
+    if (address === undefined) return;
+    setBusy('signing');
     try {
-      const r = await link.wallet(token);
+      const { message } = await link.challenge(address);
+      const signature = await signMessageAsync({ message });
+      setBusy('checking');
+      const r = await link.wallet(message, signature);
       onProof(r.proof, r.me);
     } catch (error) {
-      sent.current = undefined;
-      onProblem(describeError(error));
+      // A wallet that declined to sign is not a problem with the page.
+      const text = error instanceof Error && /reject|denied|cancel/i.test(error.message) ? 'The signature was declined in the wallet. Nothing was linked.' : describeError(error);
+      onProblem(text);
     } finally {
-      setBusy(false);
+      setBusy('idle');
     }
   };
 
-  // A login completed while this card is mounted is proved automatically, once.
-  useEffect(() => {
-    if (sdkHasLoaded && loggedIn) void prove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sdkHasLoaded, loggedIn]);
-
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <DynamicWidget />
-      {loggedIn && primaryWallet !== null && (
-        <>
-          <span className="num text-[12.5px] text-muted">
-            {primaryWallet.address.slice(0, 6)}…{primaryWallet.address.slice(-4)}
-          </span>
-          <button type="button" className="btn" disabled={busy} onClick={() => void prove()}>
-            {busy ? 'Looking up your account…' : 'Use this wallet'}
-          </button>
-        </>
-      )}
-    </div>
+    <ConnectButton.Custom>
+      {({ openConnectModal, openAccountModal, mounted }) => {
+        if (!mounted) return <div className="h-[34px]" aria-hidden="true" />;
+        if (!isConnected || address === undefined) {
+          return (
+            <button type="button" className="btn" onClick={openConnectModal}>
+              Connect Wallet
+            </button>
+          );
+        }
+        return (
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={openAccountModal} className="num inline-flex items-center gap-2 rounded-[8px] border border-border2 bg-card px-3 py-[7px] text-[12.5px] text-text" title="Switch or disconnect">
+              <span aria-hidden="true">🟢</span> Connected <span className="text-muted">{short(address)}</span>
+            </button>
+            <button type="button" className="btn" disabled={busy !== 'idle'} onClick={() => void prove()}>
+              {busy === 'signing' ? 'Sign in your wallet…' : busy === 'checking' ? 'Looking up your account…' : 'Sign to prove ownership'}
+            </button>
+            <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" onClick={() => disconnect()}>
+              Disconnect
+            </button>
+          </div>
+        );
+      }}
+    </ConnectButton.Custom>
   );
 }

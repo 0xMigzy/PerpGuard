@@ -56,8 +56,6 @@ import {
 } from './session.ts';
 import { renderCloseConfirmation, renderKillSwitchConfirmation, toProtectKillSwitch, toProtectOutcome, toProtectPosition, toProtectStress } from './dto.ts';
 import type { PrepareRequest, Prepared, ProtectAlerts, ProtectConfig, ProtectFreeBalance, ProtectSession, ProtectSnapshot } from './types.ts';
-import type { DynamicIdentity } from './dynamic.ts';
-import type { AccountLookup } from '@perpguard/shared';
 import type { Session } from './session.ts';
 import type { AlertHistory, AlertLogEntry } from '../../alerts/types.ts';
 import type { AlertDeliveryStatus } from '../health.ts';
@@ -99,18 +97,6 @@ export interface ProtectRouteOptions {
     botUsername(): string | undefined;
     historyFor(marketId: number): AlertHistory | undefined;
   };
-  /**
-   * Dynamic, when configured. Absent means the sign-in card offers no wallet
-   * login and says so. The verifier is injected so the tests sign their own
-   * tokens.
-   */
-  readonly dynamic?: { verify(token: string): Promise<DynamicIdentity> };
-  /**
-   * Wallet -> account, on the TRADING network (decides ownership of the
-   * monitored account) and, when there is one, the analytics network (for a
-   * profile link). Both are chain reads through the venue layer.
-   */
-  readonly resolveAccount?: (wallet: string) => Promise<{ readonly trading: AccountLookup; readonly analytics: AccountLookup | undefined }>;
   /** Lets anyone open a READ-ONLY session on the monitored account. Judge-facing; off unless said so. */
   readonly demoEnabled?: boolean;
   /** DEV ONLY: mint a code from the loopback interface. Never on by default. */
@@ -144,7 +130,6 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
 
   // ── what the sign-in card may know before anyone is signed in ─────────────
   app.get(`${prefix}/config`, async (): Promise<ProtectConfig> => ({
-    dynamicConfigured: options.dynamic !== undefined,
     demoEnabled: options.demoEnabled === true,
     network: options.view.network,
   }));
@@ -167,51 +152,12 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
 
   // ── sign in / out ─────────────────────────────────────────────────────────
   //
-  // THREE WAYS IN, ONE SHAPE OUT. A Dynamic token proves a wallet and the
-  // account is read off the chain from it; a bot code proves the linked person;
-  // a demo request proves nothing and gets a read-only look at the monitored
-  // account, only where the operator has allowed that.
-  app.post<{ Body: { code?: unknown; dynamicToken?: unknown; demo?: unknown } }>(`${prefix}/session`, async (request, reply) => {
+  // TWO WAYS IN, ONE SHAPE OUT. A bot code proves the linked person; a demo
+  // request proves nothing and gets a read-only look at the monitored account,
+  // only where the operator has allowed that. (Wallet sign-in moved to /link,
+  // which proves ownership with a signed challenge; no page calls these routes.)
+  app.post<{ Body: { code?: unknown; demo?: unknown } }>(`${prefix}/session`, async (request, reply) => {
     const body = request.body ?? {};
-
-    if (typeof body.dynamicToken === 'string' && body.dynamicToken !== '') {
-      if (options.dynamic === undefined) return reply.code(503).send({ error: 'Dynamic sign-in is not configured on this backend.' });
-      let identity: DynamicIdentity;
-      try {
-        identity = await options.dynamic.verify(body.dynamicToken);
-      } catch (error) {
-        return reply.code(401).send({ error: `That sign-in could not be verified: ${error instanceof Error ? error.message : String(error)}` });
-      }
-      // The wallet decides. PerpGuard reads the account FROM the address; the
-      // user hands over nothing else.
-      const monitored = options.accountId();
-      let wallet: string | undefined;
-      let ownAccountId: number | undefined;
-      let owner = false;
-      for (const candidate of identity.wallets) {
-        wallet ??= candidate;
-        const resolved = options.resolveAccount === undefined ? undefined : await options.resolveAccount(candidate);
-        if (resolved?.trading.found && monitored !== undefined && resolved.trading.accountId === monitored) {
-          wallet = candidate;
-          owner = true;
-        }
-        if (resolved?.analytics?.found && ownAccountId === undefined) ownAccountId = resolved.analytics.accountId;
-      }
-      if (owner) {
-        log.info(`web sign-in: the owner of account ${monitored} signed in with Dynamic`);
-        return open(reply, request, options.sessions.create(options.userId, { role: 'owner', method: 'dynamic', wallet, ownAccountId }));
-      }
-      if (options.demoEnabled === true) {
-        log.info('web sign-in: a Dynamic user who does not own the monitored account got a demo session');
-        return open(reply, request, options.sessions.create('demo', { role: 'demo', method: 'dynamic', wallet, ownAccountId }));
-      }
-      return reply.code(403).send({
-        error:
-          identity.wallets.length === 0
-            ? 'You signed in without a wallet, so there is no Perpl account to read. Connect a wallet that owns the account this PerpGuard watches.'
-            : `The wallet you signed in with does not own the Perpl account this PerpGuard watches${ownAccountId === undefined ? '' : `, though it owns account ${ownAccountId} on the analytics network`}. Nothing here is shown to anyone but the owner.`,
-      });
-    }
 
     if (body.demo === true) {
       if (options.demoEnabled !== true) return reply.code(403).send({ error: 'Demo mode is off on this backend.' });

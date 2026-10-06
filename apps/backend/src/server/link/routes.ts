@@ -5,8 +5,9 @@
  * the chat and opens an HttpOnly cookie session for that Telegram identity.
  * Everything else here needs that cookie. The code is transport: it says who
  * is sitting at the page, and nothing about what they own. The proof comes
- * from `/wallet` (a Dynamic JWT, verified here) or `/key` (an API key, used
- * once to sign in, then sealed).
+ * from `/challenge` + `/wallet` (a signed Sign-In with Ethereum challenge,
+ * verified here: walletChallenge.ts) or `/key` (an API key, used once to sign
+ * in, then sealed). A wallet proves ownership only; the key executes.
  *
  * THE KEY NEVER COMES BACK OUT. `/key` answers with the account it linked and
  * nothing of what was pasted; `/me` says a key is stored, never what it is;
@@ -18,14 +19,14 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { NetworkName } from '@perpguard/shared';
 import type { TelegramIdentity } from '@perpguard/bot';
-import type { DynamicIdentity } from '../protect/dynamic.ts';
+import type { ChallengeHolder, WalletChallenger } from './walletChallenge.ts';
 import { parseCookies } from '../protect/session.ts';
 import type { LinkService, LinkStatus } from './service.ts';
 
 export const LINK_COOKIE = 'pg_link';
 export const LINK_SESSION_TTL_MS = 30 * 60_000;
 
-export interface LinkSession {
+export interface LinkSession extends ChallengeHolder {
   readonly token: string;
   readonly identity: TelegramIdentity;
   /** How the person appears in Telegram, carried from the code. Display only. */
@@ -50,7 +51,7 @@ export class LinkSessionStore {
 
   create(identity: TelegramIdentity, telegramName?: string): LinkSession {
     this.#sweep();
-    const session: LinkSession = { token: this.#nextToken(), identity, telegramName, provenAccountId: undefined, expiresAtMs: this.#now() + this.#ttlMs };
+    const session: LinkSession = { token: this.#nextToken(), identity, telegramName, provenAccountId: undefined, challenge: undefined, expiresAtMs: this.#now() + this.#ttlMs };
     this.#sessions.set(session.token, session);
     return session;
   }
@@ -72,8 +73,8 @@ export class LinkSessionStore {
 
 export interface LinkRouteOptions {
   readonly service: LinkService;
-  /** Dynamic, when configured. Absent means the page offers the key path only. */
-  readonly dynamic?: { verify(token: string): Promise<DynamicIdentity> };
+  /** Wallet ownership by signed challenge. Absent means the page offers the key path only. */
+  readonly wallet?: WalletChallenger;
   readonly network: NetworkName;
   readonly envAccountId?: number;
   readonly keyStorageConfigured: boolean;
@@ -92,7 +93,8 @@ export interface LinkMe {
   readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
-  readonly dynamicConfigured: boolean;
+  /** Whether the page can prove a wallet (signed challenge). */
+  readonly walletSignIn: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: NetworkName;
 }
@@ -116,7 +118,7 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
     telegram: { name: session.telegramName ?? null },
     link: service.status(session.identity.userId) ?? null,
     provenAccountId: session.provenAccountId ?? null,
-    dynamicConfigured: options.dynamic !== undefined,
+    walletSignIn: options.wallet !== undefined,
     keyStorageConfigured: options.keyStorageConfigured,
     network: options.network,
   });
@@ -150,18 +152,25 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
 
     scope.get(`${prefix}/me`, async (request) => me(sessionOf(request)));
 
-    scope.post<{ Body: { dynamicToken?: unknown } }>(`${prefix}/wallet`, async (request, reply) => {
+    // A challenge for the connected wallet: one outstanding per session, five minutes.
+    scope.post<{ Body: { address?: unknown } }>(`${prefix}/challenge`, async (request, reply) => {
       const session = sessionOf(request);
-      if (options.dynamic === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
-      const token = typeof request.body?.dynamicToken === 'string' ? request.body.dynamicToken : '';
-      let identity: DynamicIdentity;
-      try {
-        identity = await options.dynamic.verify(token);
-      } catch (error) {
-        request.log?.info?.(`link: wallet sign-in not verified: ${error instanceof Error ? error.message : String(error)}`);
-        return reply.code(401).send({ error: 'That wallet sign-in couldn\'t be confirmed. Sign in again.' });
+      if (options.wallet === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
+      const issued = options.wallet.issue(session, typeof request.body?.address === 'string' ? request.body.address : '', session.telegramName);
+      if ('error' in issued) return reply.code(400).send({ error: issued.error });
+      return { message: issued.message };
+    });
+
+    scope.post<{ Body: { message?: unknown; signature?: unknown } }>(`${prefix}/wallet`, async (request, reply) => {
+      const session = sessionOf(request);
+      if (options.wallet === undefined) return reply.code(503).send({ error: 'Wallet sign-in isn\'t available right now. Paste an API key instead.' });
+      const checked = await options.wallet.verify(session, request.body?.message, request.body?.signature);
+      if (!checked.ok) {
+        // One sentence whatever the cause; the challenge is spent either way.
+        return reply.code(401).send({ error: checked.reason === 'expired' ? 'That signature request expired. Connect and sign again.' : 'That signature couldn\'t be confirmed for this page. Connect and sign again.' });
       }
-      const proof = await service.proveWallet(session.identity, identity.wallets);
+      // The verified address, never a body field.
+      const proof = await service.proveWallet(session.identity, [checked.address]);
       if (proof.kind === 'proven-needs-key') session.provenAccountId = proof.accountId;
       if (proof.kind === 'linked') session.provenAccountId = undefined;
       return { proof, me: me(session) };

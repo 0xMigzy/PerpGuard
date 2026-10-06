@@ -96,12 +96,12 @@ export class LinkCodeStore {
  */
 export type SessionRole = 'owner' | 'demo';
 /** How the session was opened. Recorded so the page can say so. */
-export type SessionMethod = 'dynamic' | 'code' | 'demo';
+export type SessionMethod = 'code' | 'demo';
 
 export interface SessionDetails {
   readonly role: SessionRole;
   readonly method: SessionMethod;
-  /** The signed-in wallet, lowercased, when Dynamic supplied one. */
+  /** The signed-in wallet, lowercased, when one was proven. */
   readonly wallet?: string | undefined;
   /** The account THIS wallet owns on the analytics network, for a profile link. */
   readonly ownAccountId?: number | undefined;

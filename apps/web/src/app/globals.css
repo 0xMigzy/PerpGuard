@@ -107,6 +107,29 @@ table th {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.input {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--color-border2);
+  background: var(--color-page);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 8px;
+}
+.input::placeholder {
+  color: var(--color-muted2);
+}
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .btn:focus-visible,
 .pill:focus-visible,
 .tab:focus-visible {

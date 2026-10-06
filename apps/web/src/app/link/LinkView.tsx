@@ -7,7 +7,7 @@
  *
  * Arrives with `?code=` from the bot's /link. The code opens a session for
  * the Telegram identity that asked — transport, not proof. The proof is one
- * of two things collected here: a wallet signature through Dynamic, or an
+ * of two things collected here: a signed wallet challenge (RainbowKit), or an
  * API key pasted into a form that posts to this origin's backend and nowhere
  * else. The key is never shown again, by this page or any route.
  */
@@ -15,7 +15,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ApiError, describeError, link, type KeyProof, type LinkMe, type WalletProof } from '@/lib/api.ts';
 import { PageHeader } from '@/components/PageHeader.tsx';
-import { DYNAMIC_ENVIRONMENT_ID } from './dynamicEnv.ts';
 import { WalletProofCard } from './WalletProofCard.tsx';
 
 type Phase = { kind: 'opening' } | { kind: 'no-session'; reason: string } | { kind: 'ready'; me: LinkMe };
@@ -147,7 +146,7 @@ export function LinkView() {
           <p className="mt-2 mb-3 text-[13px] text-muted">
             Signing in shows which wallet you hold; PerpGuard then looks up the Perpl account it owns. No funds move and nothing is approved or spent.
           </p>
-          {DYNAMIC_ENVIRONMENT_ID !== undefined && me.dynamicConfigured ? (
+          {me.walletSignIn ? (
             <WalletProofCard
               onProof={(proof: WalletProof, next: LinkMe) => {
                 setPhase({ kind: 'ready', me: next });

@@ -69,7 +69,6 @@ function harness(options: {
   blind?: boolean;
   devLinkMint?: boolean;
   demoEnabled?: boolean;
-  dynamic?: { verify(token: string): Promise<{ sub: string; wallets: readonly string[]; email: string | undefined; expiresAtMs: number }> };
 } = {}): Harness {
   const app = Fastify({ logger: false });
   const progress = new ActionProgressTracker({ now: () => NOW });
@@ -116,11 +115,6 @@ function harness(options: {
     forwardingAllowed: () => true,
     devLinkMint: options.devLinkMint ?? false,
     demoEnabled: options.demoEnabled ?? false,
-    ...(options.dynamic === undefined ? {} : { dynamic: options.dynamic }),
-    resolveAccount: async (wallet) => {
-      const owner = wallet === '0x829114000000000000000000000000000000abcd';
-      return { trading: owner ? { found: true, accountId: 710, address: wallet } : { found: false, address: wallet, reason: 'no account' }, analytics: owner ? { found: true, accountId: 5201, address: wallet } : { found: false, address: wallet, reason: 'no account' } };
-    },
     alertsView: {
       recent: async () => [
         { alertKey: '16:DANGER:1', userId: 'trader-1', marketId: 16, symbol: 'BTC', kind: 'danger', state: 'DANGER', previousState: 'WATCH', text: 'DANGER · BTC long', actions: [{ type: 'add-margin', intent: 'clear-danger', marketId: 16, symbol: 'BTC', positionId: 4242, amountCNS: 562_000_000n, label: 'Add 562 → buffer 4.0%, liquidation 80,647.1' }], attempts: 1, outcome: 'delivered', lastError: undefined, createdAtMs: NOW - 10_000, deliveredAtMs: NOW - 9_000 },
@@ -328,68 +322,31 @@ test('the dev mint is 404 unless enabled, and loopback only when it is', async (
   await on.app.close();
 });
 
-// ── Dynamic and demo sessions ───────────────────────────────────────────────
-
-const identity = (wallets: readonly string[]) => ({ verify: async (token: string) => { if (token !== 'good') throw new Error('bad token'); return { sub: 'dyn-1', wallets, email: 'judge@example.com', expiresAtMs: NOW + 3_600_000 }; } });
+// ── demo sessions ───────────────────────────────────────────────────────────
 
 test('the public config says what the card may offer and nothing about the account', async () => {
-  const h = harness({ demoEnabled: true, dynamic: identity([]) });
+  const h = harness({ demoEnabled: true });
   const r = await h.app.inject({ method: 'GET', url: '/api/protect/config' });
-  assert.deepEqual(r.json(), { dynamicConfigured: true, demoEnabled: true, network: 'testnet' });
-  assert.equal((await harness().app.inject({ method: 'GET', url: '/api/protect/config' })).json().dynamicConfigured, false);
+  assert.deepEqual(r.json(), { demoEnabled: true, network: 'testnet' });
   await h.app.close();
 });
 
-test('a Dynamic token whose wallet owns the monitored account opens an OWNER session; the account is read from the chain', async () => {
-  const h = harness({ dynamic: identity(['0x829114000000000000000000000000000000abcd']) });
-  const r = await h.app.inject({ method: 'POST', url: '/api/protect/session', payload: { dynamicToken: 'good' } });
-  assert.equal(r.statusCode, 200);
-  const s = r.json() as { role: string; method: string; wallet: string; accountId: number; ownAccountId: number; userId: string };
-  assert.equal(s.role, 'owner');
-  assert.equal(s.method, 'dynamic');
-  assert.equal(s.wallet, '0x829114000000000000000000000000000000abcd');
-  assert.equal(s.accountId, 710);
-  assert.equal(s.ownAccountId, 5201);
-  assert.equal(s.userId, 'trader-1', 'the app user the bot alerts, so actions and alerts stay one account');
-  const prep = await h.app.inject({ method: 'POST', url: '/api/protect/prepare', headers: { cookie: COOKIE }, payload: { kind: 'add-margin', marketId: 16, intent: 'clear-danger' } });
-  assert.equal(prep.statusCode, 200, 'an owner may act');
-  await h.app.close();
-});
-
-test('a Dynamic wallet that does not own the account is refused unless demo mode is on, and then may only look', async () => {
-  const closed = harness({ dynamic: identity(['0x0000000000000000000000000000000000000002']) });
-  const refused = await closed.app.inject({ method: 'POST', url: '/api/protect/session', payload: { dynamicToken: 'good' } });
-  assert.equal(refused.statusCode, 403);
-  assert.match((refused.json() as { error: string }).error, /does not own/);
-  assert.equal(refused.headers['set-cookie'], undefined, 'no session');
-  const bad = await closed.app.inject({ method: 'POST', url: '/api/protect/session', payload: { dynamicToken: 'forged' } });
-  assert.equal(bad.statusCode, 401);
-
-  const open = harness({ dynamic: identity(['0x0000000000000000000000000000000000000002']), demoEnabled: true });
-  const demo = await open.app.inject({ method: 'POST', url: '/api/protect/session', payload: { dynamicToken: 'good' } });
-  assert.equal(demo.statusCode, 200);
-  assert.equal((demo.json() as { role: string }).role, 'demo');
-  const look = await open.app.inject({ method: 'GET', url: '/api/protect/positions', headers: { cookie: COOKIE } });
-  assert.equal(look.statusCode, 200, 'a demo may look');
-  const act = await open.app.inject({ method: 'POST', url: '/api/protect/prepare', headers: { cookie: COOKIE }, payload: { kind: 'add-margin', marketId: 16, intent: 'clear-danger' } });
-  assert.equal(act.statusCode, 403, 'a demo may not act');
-  assert.match((act.json() as { error: string }).error, /read-only demo/);
-  const exec = await open.app.inject({ method: 'POST', url: '/api/protect/execute', headers: { cookie: COOKIE }, payload: { token: 'anything' } });
-  assert.equal(exec.statusCode, 403);
-  await closed.app.close();
-  await open.app.close();
-});
-
-test('an anonymous demo session needs demo mode on, and a Dynamic token needs Dynamic configured', async () => {
+test('an anonymous demo session needs demo mode on, may look, and may never act', async () => {
   const off = harness();
   assert.equal((await off.app.inject({ method: 'POST', url: '/api/protect/session', payload: { demo: true } })).statusCode, 403);
-  assert.equal((await off.app.inject({ method: 'POST', url: '/api/protect/session', payload: { dynamicToken: 'good' } })).statusCode, 503);
   const on = harness({ demoEnabled: true });
   const r = await on.app.inject({ method: 'POST', url: '/api/protect/session', payload: { demo: true } });
   assert.equal(r.statusCode, 200);
   assert.deepEqual((({ role, method, userId }) => ({ role, method, userId }))(r.json() as { role: string; method: string; userId: string }), { role: 'demo', method: 'demo', userId: 'demo' });
   const me = await on.app.inject({ method: 'GET', url: '/api/protect/me', headers: { cookie: COOKIE } });
   assert.equal((me.json() as { role: string }).role, 'demo');
+  const look = await on.app.inject({ method: 'GET', url: '/api/protect/positions', headers: { cookie: COOKIE } });
+  assert.equal(look.statusCode, 200, 'a demo may look');
+  const act = await on.app.inject({ method: 'POST', url: '/api/protect/prepare', headers: { cookie: COOKIE }, payload: { kind: 'add-margin', marketId: 16, intent: 'clear-danger' } });
+  assert.equal(act.statusCode, 403, 'a demo may not act');
+  assert.match((act.json() as { error: string }).error, /read-only demo/);
+  const exec = await on.app.inject({ method: 'POST', url: '/api/protect/execute', headers: { cookie: COOKIE }, payload: { token: 'anything' } });
+  assert.equal(exec.statusCode, 403);
   await off.app.close();
   await on.app.close();
 });

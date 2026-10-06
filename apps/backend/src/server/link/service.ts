@@ -6,8 +6,9 @@
  * redeeming it opens a page session for the identity that asked, and nothing
  * more. The PROOF is one of two things the page then collects:
  *
- *   A WALLET SIGNATURE, through Dynamic. The backend verifies the JWT, reads
- *   the wallet off it, and asks the Exchange contract on the TRADING network
+ *   A WALLET SIGNATURE: a Sign-In with Ethereum challenge this backend issued
+ *   (walletChallenge.ts), signed in the browser through RainbowKit and
+ *   verified here. The backend then asks the Exchange contract on the TRADING network
  *   which account that wallet owns. That proves ownership. It does NOT give
  *   PerpGuard the ability to act: acting needs an API key signing on the
  *   trading socket. So a wallet proof links the chat only when a session for

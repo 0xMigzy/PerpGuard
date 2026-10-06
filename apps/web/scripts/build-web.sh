@@ -1,14 +1,15 @@
 #!/bin/sh
 # The production build. `NEXT_PUBLIC_*` values are INLINED AT BUILD TIME, and
 # Next reads them from apps/web/.env*, not from the repository's shared .env —
-# so the Dynamic environment id (the ONE public value the link page needs) is
-# lifted from the shared .env here when the shell does not already carry it.
-# A missing id is not an error: the page then offers the key path only.
+# so the WalletConnect project id (the ONE public value the link page needs)
+# is lifted from the shared .env here when the shell does not already carry it.
+# A missing id is not an error: the page then lists installed (extension)
+# wallets only, with no QR code.
 set -eu
 cd "$(dirname "$0")/.."
-if [ -z "${NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID:-}" ] && [ -f ../../.env ]; then
-  NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID="$(sed -n 's/^NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID=//p' ../../.env | tail -n 1 | tr -d '"'"'"' \r')"
-  export NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
+if [ -z "${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}" ] && [ -f ../../.env ]; then
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="$(sed -n 's/^NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=//p' ../../.env | tail -n 1 | tr -d '"'"'"' \r')"
+  export NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 fi
 # The public site URL, for absolute link-preview image URLs (metadataBase).
 if [ -z "${PUBLIC_WEB_URL:-}" ] && [ -f ../../.env ]; then

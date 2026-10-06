@@ -13,14 +13,23 @@ import { KeyVault } from './crypto.ts';
 import { registerLinkRoutes, LINK_COOKIE } from './routes.ts';
 import { LinkService } from './service.ts';
 import { InMemoryKeyStore } from './stores.ts';
+import { verifyMessage } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { CHALLENGE_TTL_MS, WalletChallenger } from './walletChallenge.ts';
 
 const SECRET_HEX = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
 const API_KEY = 'pasted-api-key-that-must-never-come-back';
-const OWNER = '0xb7854953a71e45d1033b3d619e76d56391291765';
+// Throwaway keys, test-only: the OWNER wallet owns account 710; STRANGER owns nothing.
+const OWNER_KEY = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+const STRANGER_KEY = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
+const OWNER = OWNER_KEY.address.toLowerCase();
+const T0 = Date.parse('2026-10-06T12:00:00Z');
 
-function rig(options: { dynamic?: boolean; probeAccount?: number | undefined } = {}) {
+function rig(options: { wallet?: boolean; probeAccount?: number | undefined; chainId?: number; site?: string } = {}) {
+  const clock = { t: T0 };
   const identities = new InMemoryIdentityStore();
   identities.register(4242, 5150, 1_000);
+  identities.register(4343, 5151, 1_000);
   const links = new InMemoryLinkStore({ capacity: 5 });
   const keys = new InMemoryKeyStore();
   const running = new Set<number>([710]);
@@ -61,9 +70,11 @@ function rig(options: { dynamic?: boolean; probeAccount?: number | undefined } =
     envAccountId: 710,
     keyStorageConfigured: true,
     now: () => 2_000,
-    ...(options.dynamic ? { dynamic: { verify: async (token: string) => (token === 'good-jwt' ? { sub: 'dyn', email: undefined, wallets: [OWNER], expiresAtMs: 9_999_999_999_999 } : Promise.reject(new Error('bad signature'))) } } : {}),
+    ...(options.wallet
+      ? { wallet: new WalletChallenger({ publicWebUrl: options.site ?? 'https://perpguard.example', chainId: options.chainId ?? 10143, verifyMessage: (a) => verifyMessage(a), now: () => clock.t }) }
+      : {}),
   });
-  return { app, service, links, keys, logs, closed, running };
+  return { app, service, links, keys, logs, closed, running, clock };
 }
 
 const cookieOf = (setCookie: string | string[] | undefined): string => {
@@ -83,7 +94,7 @@ test('a code opens a cookie session that says who is here and that nothing is li
   assert.ok(!opened.body.includes('tg:4242') && !opened.body.includes('710'), opened.body);
   assert.equal(body.link, null, 'the token alone links nothing');
   assert.equal(body.provenAccountId, null);
-  assert.equal(body.dynamicConfigured, false);
+  assert.equal(body.walletSignIn, false);
   const setCookie = opened.headers['set-cookie'];
   assert.match(cookieOf(setCookie), new RegExp(`^${LINK_COOKIE}=[0-9a-f]{64}$`));
   assert.match(String(setCookie), /HttpOnly; SameSite=Lax/);
@@ -98,9 +109,9 @@ test('a code opens a cookie session that says who is here and that nothing is li
 });
 
 test('every proof route needs the cookie', async () => {
-  const r = rig({ dynamic: true });
-  for (const [method, url] of [['GET', '/api/link/me'], ['POST', '/api/link/wallet'], ['POST', '/api/link/key'], ['POST', '/api/link/unlink']] as const) {
-    const res = await r.app.inject(method === 'POST' ? { method, url, payload: { apiKey: API_KEY, secret: SECRET_HEX, dynamicToken: 'good-jwt' } } : { method, url });
+  const r = rig({ wallet: true });
+  for (const [method, url] of [['GET', '/api/link/me'], ['POST', '/api/link/challenge'], ['POST', '/api/link/wallet'], ['POST', '/api/link/key'], ['POST', '/api/link/unlink']] as const) {
+    const res = await r.app.inject(method === 'POST' ? { method, url, payload: { apiKey: API_KEY, secret: SECRET_HEX, address: OWNER, message: 'x', signature: '0x00' } } : { method, url });
     assert.equal(res.statusCode, 401, `${method} ${url}`);
     assert.ok(!JSON.stringify(res.json()).includes(API_KEY));
   }
@@ -149,29 +160,103 @@ test('a server error in the key path answers with a fixed sentence and nothing p
   assert.match(res.json().error, /Nothing you pasted was stored or shown anywhere/);
 });
 
-test('the wallet path verifies the Dynamic token server-side; a rejected token is a 401; the owner of the env account links at once', async () => {
-  const r = rig({ dynamic: true });
-  const { code } = r.service.mint('tg:4242');
+/** A page session for Telegram user 4242, and a helper that gets a challenge for `address`. */
+async function page(r: ReturnType<typeof rig>, telegram = 'tg:4242') {
+  const { code } = r.service.mint(telegram, '@maxwell');
   const opened = await r.app.inject({ method: 'POST', url: '/api/link/session', payload: { code } });
   const cookie = cookieOf(opened.headers['set-cookie']);
-  assert.equal(opened.json().dynamicConfigured, true);
+  const challenge = async (address: string) => (await r.app.inject({ method: 'POST', url: '/api/link/challenge', headers: { cookie }, payload: { address } })).json().message as string;
+  const submit = (message: string, signature: string) => r.app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie }, payload: { message, signature } });
+  return { cookie, opened, challenge, submit };
+}
 
-  const forged = await r.app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie }, payload: { dynamicToken: 'forged' } });
-  assert.equal(forged.statusCode, 401);
-  assert.equal(r.links.byTelegramUserId(4242), undefined);
-
-  const good = await r.app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie }, payload: { dynamicToken: 'good-jwt' } });
-  assert.equal(good.statusCode, 200);
-  assert.deepEqual(good.json().proof, { kind: 'linked', accountId: 710 });
+test('a signed challenge from the owner of the env account links at once; the message says it moves no funds', async () => {
+  const r = rig({ wallet: true });
+  const p = await page(r);
+  assert.equal(p.opened.json().walletSignIn, true);
+  const message = await p.challenge(OWNER);
+  assert.match(message, /^perpguard\.example wants you to sign in with your Ethereum account:/);
+  assert.match(message, /moves no funds and places no trade/);
+  assert.match(message, /Chain ID: 10143/);
+  assert.match(message, /URI: https:\/\/perpguard\.example\/link/);
+  const res = await p.submit(message, await OWNER_KEY.signMessage({ message }));
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().proof, { kind: 'linked', accountId: 710 });
   assert.equal(r.links.byTelegramUserId(4242)?.accountId, 710);
 });
 
-test('wallet route without Dynamic configured is a 503, not a silent pass', async () => {
+test('ATTACK 1, replay: the same message and signature posted twice; the second is refused', async () => {
+  const r = rig({ wallet: true });
+  const p = await page(r);
+  const message = await p.challenge(OWNER);
+  const signature = await OWNER_KEY.signMessage({ message });
+  assert.equal((await p.submit(message, signature)).statusCode, 200);
+  const again = await p.submit(message, signature);
+  assert.equal(again.statusCode, 401, 'the challenge was consumed by the first use');
+});
+
+test('ATTACK 2, cross-session: a challenge minted for user A, signed, and posted with user B\'s cookie links nobody', async () => {
+  const r = rig({ wallet: true });
+  const a = await page(r, 'tg:4242');
+  const b = await page(r, 'tg:4343');
+  const message = await a.challenge(OWNER);
+  await b.challenge(OWNER); // B holds an outstanding challenge of its own, for the same wallet
+  const res = await b.submit(message, await OWNER_KEY.signMessage({ message }));
+  assert.equal(res.statusCode, 401, 'A\'s message is not B\'s challenge');
+  assert.equal(r.links.byTelegramUserId(4343), undefined, 'B linked nothing');
+  assert.equal(r.links.byTelegramUserId(4242), undefined, 'and neither did A, yet');
+  const stillA = await a.submit(message, await OWNER_KEY.signMessage({ message }));
+  assert.equal(stillA.statusCode, 200, 'and A\'s own challenge was untouched by B\'s attempt');
+});
+
+test('ATTACK 3, expired: a valid signature on the right nonce, posted after five minutes, is refused', async () => {
+  const r = rig({ wallet: true });
+  const p = await page(r);
+  const message = await p.challenge(OWNER);
+  const signature = await OWNER_KEY.signMessage({ message });
+  r.clock.t += CHALLENGE_TTL_MS + 1;
+  const res = await p.submit(message, signature);
+  assert.equal(res.statusCode, 401);
+  assert.match(res.json().error, /expired/);
+  assert.equal(r.links.byTelegramUserId(4242), undefined);
+});
+
+test('ATTACK 4, phishing reuse: a correctly signed message for another site or another chain is refused', async () => {
+  // The victim signed a challenge on evil.example (or for chain 143); it is posted here.
+  for (const other of [rig({ wallet: true, site: 'https://evil.example' }), rig({ wallet: true, chainId: 143 })]) {
+    const elsewhere = await page(other);
+    const foreign = await elsewhere.challenge(OWNER);
+    const signature = await OWNER_KEY.signMessage({ message: foreign });
+    const r = rig({ wallet: true });
+    const p = await page(r);
+    await p.challenge(OWNER); // this session has its own outstanding challenge
+    const res = await p.submit(foreign, signature);
+    assert.equal(res.statusCode, 401);
+    assert.equal(r.links.byTelegramUserId(4242), undefined);
+  }
+});
+
+test('ATTACK 5, forged signer: a challenge for the owner, signed by someone else, or garbage, is refused; the address used is never a body field', async () => {
+  const r = rig({ wallet: true });
+  const p = await page(r);
+  let message = await p.challenge(OWNER);
+  assert.equal((await p.submit(message, await STRANGER_KEY.signMessage({ message }))).statusCode, 401, 'signature recovers to another wallet');
+  message = await p.challenge(OWNER);
+  assert.equal((await p.submit(message, 'not-hex')).statusCode, 401, 'malformed');
+  // A stranger proving their own wallet gets an honest "owns no account", never the owner's account.
+  message = await p.challenge(STRANGER_KEY.address);
+  const res = await p.submit(message, await STRANGER_KEY.signMessage({ message }));
+  assert.equal(res.statusCode, 200);
+  assert.notEqual(res.json().proof.kind, 'linked');
+  assert.equal(r.links.byTelegramUserId(4242), undefined);
+});
+
+test('wallet routes without wallet sign-in configured are a 503, not a silent pass', async () => {
   const r = rig();
-  const { code } = r.service.mint('tg:4242');
-  const opened = await r.app.inject({ method: 'POST', url: '/api/link/session', payload: { code } });
-  const res = await r.app.inject({ method: 'POST', url: '/api/link/wallet', headers: { cookie: cookieOf(opened.headers['set-cookie']) }, payload: { dynamicToken: 'good-jwt' } });
+  const p = await page(r);
+  const res = await r.app.inject({ method: 'POST', url: '/api/link/challenge', headers: { cookie: p.cookie }, payload: { address: OWNER } });
   assert.equal(res.statusCode, 503);
+  assert.equal((await p.submit('m', '0x00')).statusCode, 503);
   assert.equal(r.links.byTelegramUserId(4242), undefined);
 });
 

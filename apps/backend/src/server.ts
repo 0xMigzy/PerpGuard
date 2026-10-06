@@ -108,7 +108,8 @@ import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
-import { DynamicVerifier } from './server/protect/dynamic.ts';
+import { WalletChallenger } from './server/link/walletChallenge.ts';
+import { createPublicClient, http } from 'viem';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { AccountRegistry, DEFAULT_MAX_SESSIONS } from './sessions/registry.ts';
 import { KeyVault } from './server/link/crypto.ts';
@@ -359,12 +360,14 @@ const devLinkMint = process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1' && pro
 if (devLinkMint) warn('PERPGUARD_WEB_DEV_LINK=1: web sign-in codes can be minted from localhost. Dev only.');
 if (process.env['PERPGUARD_WEB_DEV_LINK']?.trim() === '1' && !devLinkMint) warn('PERPGUARD_WEB_DEV_LINK is set but ignored: NODE_ENV is production.');
 
-// Dynamic sign-in: the environment id is the only configuration, and the
-// verifier fetches that environment's public keys itself. Without it the
-// sign-in card offers the bot code and, when enabled, the demo.
-const dynamicEnvironmentId = process.env['DYNAMIC_ENVIRONMENT_ID']?.trim();
-const dynamicVerifier = dynamicEnvironmentId === undefined || dynamicEnvironmentId === '' ? undefined : new DynamicVerifier({ environmentId: dynamicEnvironmentId });
-log(dynamicVerifier === undefined ? 'DYNAMIC_ENVIRONMENT_ID is not set; wallet sign-in is off' : 'Dynamic sign-in configured');
+// Wallet ownership on /link: a Sign-In with Ethereum challenge for this site
+// and the TRADING network, verified here against that network (EOAs and
+// smart-contract wallets alike). Proves ownership only; the API key executes.
+const walletChallenger = new WalletChallenger({
+  publicWebUrl: PUBLIC_WEB_URL,
+  chainId: network.chainId,
+  verifyMessage: (args) => createPublicClient({ transport: http(network.rpcUrl) }).verifyMessage(args),
+});
 // Demo mode: anyone may open a READ-ONLY session on the monitored account.
 // For the judge-facing deployment of PerpGuard's own test account, and for
 // nothing else — a real trader's deployment leaves it off.
@@ -833,25 +836,12 @@ const app = createHealthApp({
     },
     devLinkMint,
     demoEnabled,
-    ...(dynamicVerifier === undefined ? {} : { dynamic: dynamicVerifier }),
-    // ONE eth_call per network, through the venue layer. The trading network
-    // decides ownership of the monitored account; the analytics network, when
-    // it is a different one, only supplies a profile link.
-    resolveAccount: async (wallet) => {
-      const trading = await lookupAccountByAddress(wallet, { rpcUrl: network.rpcUrl, exchangeAddress: network.exchangeAddress });
-      const analyticsNet = analyticsVenue?.network;
-      const analytics =
-        analyticsNet === undefined || analyticsNet.name === network.name
-          ? trading
-          : await lookupAccountByAddress(wallet, { rpcUrl: analyticsNet.rpcUrl, exchangeAddress: analyticsNet.exchangeAddress });
-      return { trading, analytics };
-    },
     logger: { info: log, warn },
   } }),
   // The linking page's API: the one session in the web app.
   link: {
     service: linkService,
-    ...(dynamicVerifier === undefined ? {} : { dynamic: dynamicVerifier }),
+    wallet: walletChallenger,
     network: network.name,
     ...(envAccountId === undefined ? {} : { envAccountId }),
     keyStorageConfigured: vault !== undefined,

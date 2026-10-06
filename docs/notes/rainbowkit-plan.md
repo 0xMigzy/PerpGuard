@@ -1,9 +1,7 @@
 # RainbowKit swap: plan (raw notes, 2026-10-05)
 
-Status: ON HOLD by the owner. Dynamic stays in place until the bot and
-linking flow are done in one go. /link's wallet sign-in is broken meanwhile
-(no Dynamic origin for perpguard.app; the owner is closing the account).
-Nothing below is built.
+Status: BUILT 6 Oct 2026 (bot rebuild, Phase 4). Dynamic is gone; the notes
+below are the plan as written on 5 Oct, kept for the record.
 
 ## Blast radius: every Dynamic reference (grep, 5 Oct)
 
