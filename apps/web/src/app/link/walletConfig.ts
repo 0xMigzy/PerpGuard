@@ -13,6 +13,10 @@
  * its QR code for phone wallets. Without it, only injected wallets are listed
  * (wagmi still discovers every installed extension via EIP-6963), and nothing
  * that needs a project id is offered: no QR, no broken button.
+ *
+ * Changing the id needs a NEW BUILD on Vercel, and Vercel skips any commit
+ * that does not touch apps/web ("Skipped - Not affected"): an empty commit
+ * does not redeploy. Redeploy from the dashboard or with a web change.
  */
 import { connectorsForWallets } from '@rainbow-me/rainbowkit';
 import { coinbaseWallet, injectedWallet, metaMaskWallet, rabbyWallet, rainbowWallet, walletConnectWallet } from '@rainbow-me/rainbowkit/wallets';
