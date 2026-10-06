@@ -23,35 +23,47 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Client } from "pg";
-import { decodeEventLog, toEventSelector, type Abi, type AbiEvent, type Hex } from "viem";
+import { decodeEventLog, parseAbi, toEventSelector, type AbiEvent, type Hex } from "viem";
 
 const DEPLOY_BLOCK = 54_773_010;
 const PROXY = "0x34B6552d57a35a1D042CcAe1951BD1C370112a6F";
 const PAGE = 1_000;
 const OUT = new URL("../../../../fixtures/protocol-flows-mainnet.json", import.meta.url);
 
-/** The nine events that move money between the protocol treasury and anything else. */
-const EVENTS = [
-  "ProtocolBalanceDeposit",
-  "ProtocolBalanceWithdraw",
-  "TransferAccountToProtocol",
-  "TransferProtocolToAccount",
-  "TransferPerpInsToProtocol",
-  "TransferPerpPosToProtocol",
-  "TransferProtocolToPerp",
-  "TransferProtocolToRecycleBal",
-  "RecycleFeeToProtocol",
-] as const;
+/**
+ * The nine events that move money between the protocol treasury and anything
+ * else, as a CONST ABI: viem then types each decoded log exactly (its event
+ * name and its named arguments), so nothing below needs a cast. Checked
+ * against the saved ABI at start-up, so a drift there fails loudly.
+ */
+const abi = parseAbi([
+  "event ProtocolBalanceDeposit(uint256 amountCNS)",
+  "event ProtocolBalanceWithdraw(uint256 amountCNS)",
+  "event TransferAccountToProtocol(uint256 accountId, uint256 amountCNS, uint256 balanceCNS)",
+  "event TransferProtocolToAccount(uint256 accountId, uint256 amountCNS, uint256 balanceCNS)",
+  "event TransferPerpInsToProtocol(uint256 perpId, uint256 amountCNS)",
+  "event TransferPerpPosToProtocol(uint256 perpId, uint256 amountCNS)",
+  "event TransferProtocolToPerp(uint256 perpId, uint256 amountCNS, bool toInsuranceFund)",
+  "event TransferProtocolToRecycleBal(uint256 amountCNS)",
+  "event RecycleFeeToProtocol(uint256 perpId, uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS)",
+]);
+const EVENTS = abi.map((e) => e.name);
+type TreasuryEvent = (typeof abi)[number]["name"];
 
 const { values: args } = parseArgs({ options: { concurrency: { type: "string", default: "6" }, to: { type: "string" } } });
 const CONCURRENCY = Number(args.concurrency);
 
 const rpcUrl = process.env.PERPL_MAINNET_RPC_URL?.trim() || process.env.ENVIO_PERPL_RPC_URL?.trim() || "https://rpc.monad.xyz";
-const abiFile = JSON.parse(readFileSync(new URL("../../abis/Exchange.json", import.meta.url), "utf8"));
-const abi = (abiFile.abi ?? abiFile) as Abi;
-const wanted = (abi.filter((i) => i.type === "event") as AbiEvent[]).filter((e) => (EVENTS as readonly string[]).includes(e.name));
-if (wanted.length !== EVENTS.length) throw new Error(`ABI is missing some of: ${EVENTS.join(", ")}`);
-const TOPICS = wanted.map((e) => toEventSelector(e));
+const savedAbi = JSON.parse(readFileSync(new URL("../../abis/Exchange.json", import.meta.url), "utf8"));
+const saved = new Map(
+  ((savedAbi.abi ?? savedAbi) as readonly { readonly type: string }[])
+    .filter((i): i is AbiEvent => i.type === "event")
+    .map((e) => [e.name, toEventSelector(e)]),
+);
+for (const e of abi) {
+  if (saved.get(e.name) !== toEventSelector(e)) throw new Error(`${e.name} here does not match abis/Exchange.json: the event's signature has changed`);
+}
+const TOPICS = abi.map((e) => toEventSelector(e));
 
 interface RpcLog {
   readonly blockNumber: Hex;
@@ -62,7 +74,7 @@ interface RpcLog {
 }
 
 export interface ProtocolFlowLog {
-  readonly event: (typeof EVENTS)[number];
+  readonly event: TreasuryEvent;
   readonly block: number;
   readonly timestampMs: number;
   readonly txHash: string;
@@ -141,9 +153,9 @@ async function decode(log: RpcLog): Promise<ProtocolFlowLog> {
   const decoded = decodeEventLog({ abi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
   const block = Number(BigInt(log.blockNumber));
   const out: Record<string, string | boolean> = {};
-  for (const [k, v] of Object.entries(decoded.args as Record<string, unknown>)) out[k] = typeof v === "boolean" ? v : String(v);
+  for (const [k, v] of Object.entries(decoded.args)) out[k] = typeof v === "boolean" ? v : String(v);
   return {
-    event: decoded.eventName as ProtocolFlowLog["event"],
+    event: decoded.eventName,
     block,
     timestampMs: blockTimeMs(block),
     txHash: log.transactionHash.toLowerCase(),
@@ -170,7 +182,7 @@ for (const l of state.logs.filter((x) => x.event === "RecycleFeeToProtocol")) {
   state.recycleFeeToProtocol.totalCNS = (BigInt(state.recycleFeeToProtocol.totalCNS) + BigInt(String(l.args.recycleFeeCNS))).toString();
 }
 state.logs = state.logs.filter((x) => x.event !== "RecycleFeeToProtocol");
-const RECYCLE_TOPIC = toEventSelector(wanted.find((e) => e.name === "RecycleFeeToProtocol")!).toLowerCase();
+const RECYCLE_TOPIC = toEventSelector(abi.find((e) => e.name === "RecycleFeeToProtocol")!).toLowerCase();
 
 const save = () => {
   state.logs.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
@@ -203,7 +215,7 @@ while (next <= head) {
   for (const logs of results)
     for (const log of logs) {
       if (log.topics[0]?.toLowerCase() === RECYCLE_TOPIC) {
-        const { args: a } = decodeEventLog({ abi, data: log.data, topics: log.topics as [Hex, ...Hex[]] }) as { args: { recycleFeeCNS: bigint } };
+        const { args: a } = decodeEventLog({ abi, eventName: "RecycleFeeToProtocol", data: log.data, topics: log.topics as [Hex, ...Hex[]] });
         state.recycleFeeToProtocol.count += 1;
         state.recycleFeeToProtocol.totalCNS = (BigInt(state.recycleFeeToProtocol.totalCNS) + a.recycleFeeCNS).toString();
       } else state.logs.push(await decode(log));
