@@ -35,6 +35,7 @@ import { TimeframePills, useTimeframe } from '@/components/TimeframePills.tsx';
 import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
 import { AccountSummary } from './AccountSummary.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
+import { FillsPanel } from './FillsPanel.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 import { compareHref } from '@/lib/compare.ts';
@@ -139,6 +140,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
   const found = lookup.data?.data.kind === 'found' ? lookup.data.data.profile : undefined;
   const accountId = found?.accountId;
   const [limit, setLimit] = useState(LIST_STEP);
+  const [history, setHistory] = useState<'trips' | 'trades'>('trips');
   const positions = usePoll(
     () => (accountId === undefined ? Promise.reject(new Error('no account yet')) : api.accountPositions(accountId)),
     POLL_MS,
@@ -222,7 +224,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
           ) : (
             <>
               Account {p.accountId}
-              {p.address !== '' && <> · <span className="num" title={p.address}>{p.address}</span></>}
+              {p.address !== '' && <> · <span className="num break-all" title={p.address}>{p.address}</span></>}
               {p.firstTradeAtMs !== undefined && <> · first trade {formatDayLong(p.firstTradeAtMs)}</>}
               {' · '}last active {formatAge(Date.now() - p.lastActiveAtMs)} ago · {formatCount(p.performance.roundTrips)} round trips lifetime
               {resolvedBy === 'chain' && ' · owner resolved by the Exchange contract'}
@@ -372,10 +374,23 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
 
       {/* ── round trips ─────────────────────────────────────────────────── */}
       <section>
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-[10px]">
-          <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Round trips</h2>
-          <span className="text-[12.5px] text-muted">One position from open to flat, most recent first. A forced exit is a loss whatever the maths.</span>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-[10px]">
+          <div className="flex items-center gap-2" role="group" aria-label="History">
+            <button type="button" className="seg" aria-pressed={history === 'trips'} onClick={() => setHistory('trips')}>
+              Round trips
+            </button>
+            <button type="button" className="seg" aria-pressed={history === 'trades'} onClick={() => setHistory('trades')}>
+              Trades
+            </button>
+          </div>
+          <span className="text-[12.5px] text-muted">
+            {history === 'trips' ? 'One position from open to flat, most recent first. A forced exit is a loss whatever the maths.' : 'Each fill, newest first: the trades behind the round trips.'}
+          </span>
         </div>
+        {history === 'trades' ? (
+          accountId === undefined ? <Skeleton className="h-[200px] w-full" /> : <FillsPanel accountId={accountId} />
+        ) : (
+          <>
         <ErrorNote error={accountId === undefined ? undefined : trips.error} what="Round trips" />
         <TripsTable rows={rows} />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11.5px] text-muted2">
@@ -387,6 +402,8 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
           )}
           {rows !== undefined && rows.length >= LIST_CAP && <span>Showing the most recent {formatCount(LIST_CAP)}.</span>}
         </div>
+          </>
+        )}
       </section>
     </>
   );

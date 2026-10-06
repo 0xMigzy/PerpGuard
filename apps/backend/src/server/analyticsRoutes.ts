@@ -194,6 +194,10 @@ export function analyticsLoaders(analytics: Analytics) {
       ),
     traderSummary: (t: Timeframe) => entry(`trader-summary:${t}`, () => analytics.traderSummary(t)),
     profile: (accountId: number) => entry(`account:${accountId}`, () => analytics.walletByAccountId(accountId)),
+    fills: (accountId: number, limit: number | undefined, offset: number | undefined) =>
+      entry(`fills:${accountId}:${limit ?? ''}:${offset ?? ''}`, () =>
+        analytics.accountFills(accountId, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
+      ),
     roundTrips: (accountId: number, limit: number | undefined, offset: number | undefined) =>
       entry(`round-trips:${accountId}:${limit ?? ''}:${offset ?? ''}`, () =>
         analytics.roundTrips(accountId, { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }),
@@ -603,6 +607,17 @@ export function registerAnalyticsRoutes(
     },
   );
 
+  /** One account's fills, newest first, paged; the reader clamps the page (at most 10,000, for a CSV). */
+  scope.get<{ Params: { accountId: string }; Querystring: { limit?: string; offset?: string } }>(`${prefix}/account/:accountId/fills`, async (request, reply) => {
+    const accountId = Number(request.params.accountId);
+    if (!Number.isSafeInteger(accountId) || accountId < 0) {
+      return reply.code(400).send({ error: `${JSON.stringify(request.params.accountId)} is not an account id` });
+    }
+    const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+    const offset = request.query.offset === undefined ? undefined : Number(request.query.offset);
+    return served(loaders.fills(accountId, limit === undefined || !Number.isFinite(limit) ? undefined : limit, offset === undefined || !Number.isFinite(offset) ? undefined : offset));
+  });
+
   /**
    * The Traders list: sorted and paged in SQL. Sort keys are whitelisted here
    * AND in the reader; a typo is a 400, never a default, for the same reason a
@@ -732,6 +747,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/account/:accountId`,
       `${prefix}/account/:accountId/positions`,
       `${prefix}/account/:accountId/round-trips?limit=50&offset=0`,
+      `${prefix}/account/:accountId/fills?limit=50&offset=0`,
       `${prefix}/account/:accountId/days?timeframe=30d`,
       `${prefix}/risk`,
     ],

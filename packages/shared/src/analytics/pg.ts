@@ -87,8 +87,8 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
-import type { LeverageBaseline, WalletInsightFacts } from './types.ts';
-import { FLOW_SORT_KEYS, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
+import type { AccountFill, AccountFillsPage, LeverageBaseline, WalletInsightFacts } from './types.ts';
+import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -540,6 +540,30 @@ select count(*)::text                                                           
 `;
 
 /** The median account's mean leverage at open, over accounts with at least the ratio floor of round trips. */
+/**
+ * One account's fills, newest first. Each side reads its own index
+ * (Trade_maker_id_timestamp_pg, Trade_taker_id_timestamp_pg: created
+ * CONCURRENTLY on 6 Oct 2026, outside Envio, so the schema never re-synced),
+ * takes only the rows the page can need, and the two are merged. An account
+ * that is maker and taker of one fill appears twice, once per role. Without
+ * the indexes a quiet account's first page ran past 60 s; with them, 0.07 s.
+ */
+const ACCOUNT_FILLS_SQL = `
+with f as (
+  (select t.id, 'maker' as role, t.timestamp, t."logIndex", t."txHash", t.market_id, t."pricePNS", t."lotLNS", t."notionalCNS", t."makerFeeCNS"
+     from "Trade" t where t.maker_id = $1 order by t.timestamp desc limit $2)
+  union all
+  (select t.id, 'taker' as role, t.timestamp, t."logIndex", t."txHash", t.market_id, t."pricePNS", t."lotLNS", t."notionalCNS", null
+     from "Trade" t where t.taker_id = $1 order by t.timestamp desc limit $2)
+)
+select f.id, f.role, f.timestamp, f."txHash",
+       f."pricePNS"::text as price, f."lotLNS"::text as lots, f."notionalCNS"::text as notional, f."makerFeeCNS"::text as maker_fee,
+       m.id as market, m.name, m."priceDecimals", m."lotDecimals"
+  from f join "Market" m on m.id = f.market_id
+ order by f.timestamp desc, f."logIndex" desc, f.role
+ limit $3 offset $4
+`;
+
 /** Busiest accounts by fills since launch, from the day buckets (~0.3 s, not a scan of Trade). */
 const BUSIEST_ACCOUNTS_SQL = `
 select trader_id as id from "TraderDay"
@@ -1256,6 +1280,29 @@ export class PostgresAnalytics implements Analytics {
       longNetPnlAusd: toAusd(row?.['long_net'], decimals),
       shortNetPnlAusd: toAusd(row?.['short_net'], decimals),
     };
+  }
+
+  async accountFills(accountId: number, options: { readonly limit?: number; readonly offset?: number } = {}): Promise<AccountFillsPage> {
+    const decimals = await this.#decimals();
+    const limit = Math.min(Math.max(1, Math.floor(options.limit ?? 50)), MAX_FILLS_PER_REQUEST);
+    const offset = Math.min(Math.max(0, Math.floor(options.offset ?? 0)), 1_000_000);
+    // One row past the page says whether there is more; each side needs at most offset + limit + 1.
+    const rows = await this.#rows(ACCOUNT_FILLS_SQL, [String(accountId), offset + limit + 1, limit + 1, offset]);
+    const fills = rows.slice(0, limit).map((row): AccountFill => {
+      const role = row['role'] === 'taker' ? 'taker' : 'maker';
+      return {
+        id: String(row['id']),
+        atMs: requireMs(row['timestamp']),
+        txHash: String(row['txHash']),
+        market: toMarketRef(row['market'], row['name'], this.#resolve),
+        role,
+        sizeLots: toLots(row['lots'], count(row['lotDecimals'])),
+        price: toPrice(row['price'], count(row['priceDecimals'])),
+        notionalAusd: toAusd(row['notional'], decimals),
+        makerFeeAusd: role === 'maker' ? toAusd(row['maker_fee'], decimals) : undefined,
+      };
+    });
+    return { fills, limit, offset, hasMore: rows.length > limit };
   }
 
   async busiestAccounts(limit: number): Promise<readonly number[]> {

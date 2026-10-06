@@ -452,6 +452,38 @@ export interface ProtocolTreasuryDays {
   readonly lastEventAtMs: number | undefined;
 }
 
+/** Most fills one request may return: a page, or a CSV export. */
+export const MAX_FILLS_PER_REQUEST = 10_000;
+
+/**
+ * One fill an account took part in. The index records the MAKER of every fill
+ * and pairs the taker within its transaction (94% of fills; the rest have no
+ * taker and so cannot appear in a taker's list). A fill records neither side
+ * nor action, and only the maker's fee: the taker's fee and realised PnL exist
+ * per position, on the round trip, not per fill.
+ */
+export interface AccountFill {
+  /** "<txHash>-<logIndex>" of the maker fill. */
+  readonly id: string;
+  readonly atMs: number;
+  readonly txHash: string;
+  readonly market: MarketRef;
+  /** This account's part in the fill. */
+  readonly role: 'maker' | 'taker';
+  readonly sizeLots: number;
+  readonly price: number | undefined;
+  readonly notionalAusd: number;
+  /** The maker's fee; undefined for a taker fill, whose fee is not recorded per fill. */
+  readonly makerFeeAusd: number | undefined;
+}
+
+export interface AccountFillsPage {
+  readonly fills: readonly AccountFill[];
+  readonly limit: number;
+  readonly offset: number;
+  readonly hasMore: boolean;
+}
+
 export interface DailyPoint {
   /** UTC midnight of the day. */
   readonly dayMs: number;
@@ -1087,6 +1119,8 @@ export interface Analytics {
   walletInsightFacts(accountId: number): Promise<WalletInsightFacts | undefined>;
   /** The cross-account leverage baseline. Heavy: one pass over every position. */
   leverageBaseline(): Promise<LeverageBaseline>;
+  /** One account's fills, newest first, as maker and as taker. */
+  accountFills(accountId: number, options?: { readonly limit?: number; readonly offset?: number }): Promise<AccountFillsPage>;
   /** The account ids with the most fills since launch, busiest first: the profiles worth computing ahead of a reader. */
   busiestAccounts(limit: number): Promise<readonly number[]>;
   /**

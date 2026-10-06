@@ -265,7 +265,7 @@ export const TRADERS_CSV_HEADER = [
   'window',
 ] as const;
 
-function csvField(value: string | number | undefined): string {
+export function csvField(value: string | number | undefined): string {
   if (value === undefined) return '';
   const text = String(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

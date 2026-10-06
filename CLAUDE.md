@@ -432,6 +432,14 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   block shows as a growing gap, never silently.
 - DAILY ACTIVE TRADERS ARE DISTINCT ACCOUNTS from `TraderDay` (tradeCount > 0),
   never `MarketDay.activeTraderCount`, which is per market.
+- THE TRADES TAB READS TWO INDEXES ENVIO DOES NOT KNOW ABOUT:
+  `Trade_maker_id_timestamp_pg` and `Trade_taker_id_timestamp_pg` on
+  `perpguard_full."Trade"`, created CONCURRENTLY on 6 Oct 2026 (577 + 637 MB)
+  so the schema never re-synced. Without them a quiet account's first page ran
+  past 60 s; with them, 0.07 s. IF THE SCHEMA IS EVER REBUILT, RECREATE THEM
+  (`create index concurrently … on "Trade" (maker_id, timestamp desc)`, and the
+  same for `taker_id`). A fill records the account's ROLE, never its side or
+  action, and only the maker's fee; ~6% have no paired taker.
 - COMPARE (`/compare?a=…`, up to 4): every figure is the profile's own, through
   the profile's helpers; each wallet is named by short address and id beside
   its colour; a loading wallet is named "loading…" in the legend.

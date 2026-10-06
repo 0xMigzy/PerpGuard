@@ -1050,3 +1050,27 @@ test('the busiest accounts come off the day buckets, busiest first, with a bound
   const call = sql.calls.find((c) => /from "TraderDay"/.test(c.sql))!;
   assert.equal(call.values[0], 100, 'never more than 100 profiles warmed');
 });
+
+test('an account\'s fills: both roles off their own indexes, newest first, one row past the page says there is more', async () => {
+  const sql = new FakeSql();
+  const row = (id: string, role: string, at: string) => ({
+    id, role, timestamp: new Date(at), txHash: '0xabc', price: '848050', lots: '50000', notional: '4240250000', maker_fee: role === 'maker' ? '424025' : null,
+    market: '1', name: 'BTC Perp', priceDecimals: 1, lotDecimals: 5,
+  });
+  sql.on(/with f as \(/, [row('0xa-2', 'taker', '2026-10-06T10:00:00Z'), row('0xa-1', 'maker', '2026-10-06T09:00:00Z'), row('0xa-0', 'maker', '2026-10-06T08:00:00Z')]);
+  const page = await reader(sql).accountFills(4734, { limit: 2, offset: 10 });
+  const call = sql.calls.find((c) => /with f as \(/.test(c.sql))!;
+  assert.deepEqual(call.values, ['4734', 13, 3, 10], 'each side needs offset + limit + 1 rows; the page asks one extra');
+  assert.match(call.sql, /where t\.maker_id = \$1 order by t\.timestamp desc limit \$2/);
+  assert.match(call.sql, /where t\.taker_id = \$1 order by t\.timestamp desc limit \$2/);
+  assert.equal(page.fills.length, 2);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.fills[0]!.role, 'taker');
+  assert.equal(page.fills[0]!.makerFeeAusd, undefined, 'a taker fill carries no fee of its own');
+  assert.equal(page.fills[1]!.makerFeeAusd, 0.424025);
+  assert.equal(page.fills[1]!.sizeLots, 0.5);
+  assert.equal(page.fills[1]!.price, 84805);
+  assert.equal(page.fills[1]!.notionalAusd, 4240.25);
+  const capped = await reader(sql).accountFills(1, { limit: 1e9 });
+  assert.equal(capped.limit, 10_000);
+});

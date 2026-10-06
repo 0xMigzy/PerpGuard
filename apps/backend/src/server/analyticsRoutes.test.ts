@@ -139,6 +139,12 @@ class FakeAnalytics implements Analytics {
     return { accountId, roundTrips: 12, averageLeverage: 9, holdThresholdHours: 48, losingTrips: 5, losingTripsHeldOver: 2, tripsHeldOver: 3, longTrips: 8, shortTrips: 4, longNetPnlAusd: -10, shortNetPnlAusd: 4 };
   }
 
+  fillsAsked: { accountId: number; options: unknown }[] = [];
+  async accountFills(accountId: number, options: { limit?: number; offset?: number } = {}) {
+    this.fillsAsked.push({ accountId, options });
+    return { fills: [], limit: options.limit ?? 50, offset: options.offset ?? 0, hasMore: false };
+  }
+
   async busiestAccounts() {
     return [10];
   }
@@ -680,6 +686,17 @@ test('protocol treasury days: 503 without a scan, enveloped with one', async () 
   const r = await wired.instance.inject({ method: 'GET', url: '/api/analytics/exchange-balance/protocol-days' });
   assert.equal(r.statusCode, 200);
   assert.equal((body(r.payload)['data'] as { throughBlock: number }).throughBlock, 5);
+});
+
+test('fills: a bad account id is a 400; limit and offset pass through for the reader to clamp', async () => {
+  const analytics = new FakeAnalytics();
+  const { instance } = app(analytics, {});
+  assert.equal((await instance.inject({ method: 'GET', url: '/api/analytics/account/nope/fills' })).statusCode, 400);
+  const ok = await instance.inject({ method: 'GET', url: '/api/analytics/account/4734/fills?limit=50&offset=100' });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(analytics.fillsAsked.at(-1), { accountId: 4734, options: { limit: 50, offset: 100 } });
+  await instance.inject({ method: 'GET', url: '/api/analytics/account/4734/fills?limit=abc' });
+  assert.deepEqual(analytics.fillsAsked.at(-1), { accountId: 4734, options: {} }, 'a non-number is the default, not NaN');
 });
 
 // ── other venues' funding: a backend read, enveloped, never a fake ──────────

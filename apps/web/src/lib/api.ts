@@ -11,6 +11,7 @@
  * exist and are never called from a page — actions live in Telegram.
  */
 import type {
+  AccountFillsPage,
   ProtocolTreasuryDays,
   VenueFundingPayload,
   AssessedPositions,
@@ -219,6 +220,8 @@ export const api = {
   roundTrips: (accountId: number, limit: number, offset = 0) =>
     getJson<Envelope<readonly RoundTrip[]>>(`${A}/account/${accountId}/round-trips?limit=${limit}&offset=${offset}`),
   /** The account's UTC days in the window, oldest first. */
+  /** One account's fills, newest first. `limit` up to 10,000 (the CSV export). */
+  accountFills: (accountId: number, limit: number, offset = 0) => getJson<Envelope<AccountFillsPage>>(`${A}/account/${accountId}/fills?limit=${limit}&offset=${offset}`),
   accountDays: (accountId: number, t: Timeframe) => getJson<Envelope<readonly TraderDayPoint[]>>(`${A}/account/${accountId}/days?timeframe=${t}`),
   /** The computed-insight facts for one account, with the cross-account leverage baseline. */
   accountInsights: (accountId: number) =>
