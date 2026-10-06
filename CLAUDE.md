@@ -343,10 +343,7 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   other window pays its scan once.
 - PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
   reduce, close or kill switch from the web; every action happens in Telegram.
-  The backend's `/api/protect/*` routes still exist and no page calls them; a
-  protect session opens ONLY for a code minted for the protect user (a /link
-  code, from the same store, opened an owner session on the environment
-  account until 6 Oct 2026) —
+  The backend's `/api/protect/*` routes still exist and no page calls them —
   `apps/web/src/lib/api.ts` has GETs against `/api/analytics/*` and nothing
   else, no session, no provider, no sign-in. Everything reads the mainnet
   indexer, so there is ONE network and NO network labelling anywhere on a page.
@@ -490,6 +487,24 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   2026 at the owner's request, to come back later. `docs/methodology.md` and
   `apps/web/src/lib/methodology.ts` stay; the section's markup is in git at
   `11e3eec`. Do not re-add it unasked.
+- ONE CODE STORE PER PURPOSE, CHECKED (`CodePurpose` in
+  `apps/backend/src/server/protect/session.ts`). /link and the protect API
+  each get their own `LinkCodeStore`, and each refuses at construction a
+  store made for the other (`codePurpose.test.ts`). Until 6 Oct 2026 they
+  shared one, and a /link code, which any Telegram user can mint, opened an
+  OWNER session on the environment account through `/api/protect/session`.
+  The protect route also checks the code was minted for the protect user.
+- "FROM THIS MACHINE" MEANS A LOOPBACK SOCKET AND NO PROXY HEADER
+  (`apps/backend/src/server/origin.ts`). Behind Caddy, and the web app's
+  rewrite, every request arrives from 127.0.0.1, so a loopback check alone
+  lets the internet in. Used by the dev code mint (which `NODE_ENV=production`
+  also refuses; the flag is not in `.env`) and by `/health`.
+- PUBLIC `/health` IS THE VERDICT ONLY: status code, each component's state
+  and the session count. Nothing that names an account: the full report
+  lists every linked account, and "this account gave PerpGuard its key" is
+  not public even though account ids are. The full report goes only to a
+  request made on the box (`curl localhost:8080/health`). The code is the
+  same either way, so monitors are unaffected.
 - EMPTY STATES ARE DESIGNED. The likeliest first visit is someone with no
   account and no positions; every table and panel has a sentence for that.
 
@@ -693,6 +708,13 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   read-only. The WalletConnect project id is OPTIONAL and inlined at BUILD
   time (`build-web.sh` lifts `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` from the
   shared `.env`); without it the page lists extension wallets only, no QR.
+- THE WALLET LIST IS DELIBERATE (`apps/web/src/app/link/walletConfig.ts`),
+  the same on desktop and phones: MetaMask, Rabby, Rainbow, Coinbase, then
+  WalletConnect as the catch-all. EIP-6963 auto-discovery is OFF, so no
+  installed extension adds itself; Phantom ended Monad support in August 2026
+  and must never be offered. Rabby reaches phones through its registered
+  WalletConnect deep link (`rabby://`, from the WalletConnect registry), not
+  RainbowKit's extension-only entry.
 
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk

@@ -49,7 +49,7 @@ function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: I
     logs: [] as string[],
   };
   const service = new LinkService({
-    codes: new LinkCodeStore({ now: () => 1_000 }),
+    codes: new LinkCodeStore({ purpose: 'link', now: () => 1_000 }),
     identities,
     links,
     keys,

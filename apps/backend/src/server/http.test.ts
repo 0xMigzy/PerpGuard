@@ -93,3 +93,25 @@ test('GET / points at the health endpoint and carries the same verdict', async (
     await app.close();
   }
 });
+
+test('SECURITY: through a proxy /health gives the verdict and counts, never an account id; on the box, the detail', async () => {
+  const report = buildHealth(base);
+  const withSessions: HealthReport = {
+    ...report,
+    reasons: ['account 4242: socket dropped'],
+    components: {
+      ...report.components,
+      trading: { ...report.components.trading, accountId: 710, forwardingAllowed: true },
+      sessions: { state: 'degraded', count: 2, accounts: { '710': { state: 'ok' }, '4242': { state: 'degraded' } }, detail: 'account 4242: socket dropped' },
+    },
+  };
+  const app = createHealthApp({ health: () => withSessions });
+  for (const headers of [{ 'x-forwarded-for': '203.0.113.9' }, { 'x-forwarded-proto': 'https' }, { via: '1.1 Caddy' }, { forwarded: 'for=203.0.113.9' }]) {
+    const r = await app.inject({ method: 'GET', url: '/health', headers });
+    assert.equal(r.statusCode, 200, 'the code is the same verdict either way');
+    assert.doesNotMatch(r.body, /710|4242|forwardingAllowed|accounts|reasons/, JSON.stringify(headers));
+    assert.deepEqual(r.json().components.sessions, { state: 'degraded', count: 2 });
+  }
+  const local = await app.inject({ method: 'GET', url: '/health' });
+  assert.match(local.body, /"4242"/, 'straight to the port on the box: the full report');
+});

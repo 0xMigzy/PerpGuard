@@ -16,6 +16,7 @@
  * from the engine, confirmation text from the renderers.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { isFromThisMachine } from '../origin.ts';
 import {
   killSwitchPlan,
   stressTest,
@@ -106,9 +107,9 @@ export interface ProtectRouteOptions {
   readonly prefix?: string;
 }
 
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 export function registerProtectRoutes(app: FastifyInstance, options: ProtectRouteOptions): FastifyInstance {
+  if (options.linkCodes.purpose !== 'protect') throw new Error(`the protect routes need a code store made for 'protect', not '${options.linkCodes.purpose}': a code minted for one purpose must never open another`);
   const prefix = options.prefix ?? '/api/protect';
   const alerts = options.alerts ?? DEFAULT_ALERT_CONFIG;
   const now = options.now ?? Date.now;
@@ -122,7 +123,11 @@ export function registerProtectRoutes(app: FastifyInstance, options: ProtectRout
   // ── dev mint, off the API prefix so the browser's proxy cannot reach it ───
   app.get('/dev/link-code', async (request, reply) => {
     if (options.devLinkMint !== true) return reply.code(404).send({ error: 'not found' });
-    if (!LOOPBACK.has(request.ip)) return reply.code(403).send({ error: 'loopback only' });
+    // ON THIS MACHINE, not merely from a loopback socket: behind Caddy every
+    // request arrives from 127.0.0.1, so the socket alone let the internet in
+    // whenever the flag was honoured (found 6 Oct 2026; NODE_ENV was all that
+    // held it shut).
+    if (!isFromThisMachine(request)) return reply.code(403).send({ error: 'this machine only' });
     const minted = options.linkCodes.mint(options.userId);
     log.info('dev link code minted for the web app');
     return { code: minted.code, expiresAtMs: minted.expiresAtMs, ttlMs: LINK_CODE_TTL_MS };

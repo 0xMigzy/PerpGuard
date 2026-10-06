@@ -36,7 +36,7 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
   const logs: string[] = [];
   const closed: number[] = [];
   const service = new LinkService({
-    codes: new LinkCodeStore({ now: () => 1_000 }),
+    codes: new LinkCodeStore({ purpose: 'link', now: () => 1_000 }),
     identities,
     links,
     keys,

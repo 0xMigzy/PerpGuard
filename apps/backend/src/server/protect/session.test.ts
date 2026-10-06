@@ -4,7 +4,7 @@ import { LinkCodeStore, SessionStore, WebPendingActionStore, clearSessionCookie,
 
 test('a link code redeems ONCE, in any case and with or without its dash, and expires', () => {
   let now = 1_000_000;
-  const codes = new LinkCodeStore({ now: () => now, nextCode: () => 'ABCD-EFGH' });
+  const codes = new LinkCodeStore({ purpose: 'protect', now: () => now, nextCode: () => 'ABCD-EFGH' });
   const minted = codes.mint('trader-1');
   assert.equal(minted.code, 'ABCD-EFGH');
   assert.equal(codes.redeem(' abcdefgh ')?.userId, 'trader-1');

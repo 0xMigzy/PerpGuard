@@ -46,13 +46,24 @@ export interface LinkCode {
   readonly telegramName?: string;
 }
 
+/**
+ * What a code store's codes are FOR. Each purpose gets its own store, and each
+ * consumer refuses, at construction, a store made for another purpose: until
+ * 6 Oct 2026 the protect API and /link shared one, and a /link code (which any
+ * Telegram user can mint) opened an owner session on the protect API.
+ */
+export type CodePurpose = 'link' | 'protect';
+
 export class LinkCodeStore {
+  /** Checked by every consumer at construction; see `CodePurpose`. */
+  readonly purpose: CodePurpose;
   readonly #codes = new Map<string, LinkCode>();
   readonly #now: () => number;
   readonly #ttlMs: number;
   readonly #nextCode: () => string;
 
-  constructor(options: { now?: () => number; ttlMs?: number; nextCode?: () => string } = {}) {
+  constructor(options: { readonly purpose: CodePurpose; now?: () => number; ttlMs?: number; nextCode?: () => string }) {
+    this.purpose = options.purpose;
     this.#now = options.now ?? Date.now;
     this.#ttlMs = options.ttlMs ?? LINK_CODE_TTL_MS;
     this.#nextCode = options.nextCode ?? randomCode;

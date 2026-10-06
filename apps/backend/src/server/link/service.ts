@@ -97,6 +97,7 @@ export class LinkService {
   readonly #needsRelink = new Map<string, string>();
 
   constructor(deps: LinkServiceDeps) {
+    if (deps.codes.purpose !== 'link') throw new Error(`the link service needs a code store made for 'link', not '${deps.codes.purpose}': a code minted for one purpose must never open another`);
     this.#deps = deps;
     this.#now = deps.now ?? Date.now;
   }

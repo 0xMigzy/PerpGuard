@@ -72,7 +72,7 @@ function harness(options: {
 } = {}): Harness {
   const app = Fastify({ logger: false });
   const progress = new ActionProgressTracker({ now: () => NOW });
-  const codes = new LinkCodeStore({ now: () => NOW, nextCode: () => 'ABCD-EFGH' });
+  const codes = new LinkCodeStore({ purpose: 'protect', now: () => NOW, nextCode: () => 'ABCD-EFGH' });
   const executed: ActionCommand[] = [];
   const assessments = options.assessments ?? [assessment()];
   const view: ProtectView = {
@@ -310,11 +310,16 @@ test('the stress test comes from the engine, and refuses while blind', async () 
   await blind.app.close();
 });
 
-test('the dev mint is 404 unless enabled, and loopback only when it is', async () => {
+test('the dev mint is 404 unless enabled, and only for a request made on this machine when it is', async () => {
   const off = harness();
   assert.equal((await off.app.inject({ method: 'GET', url: '/dev/link-code' })).statusCode, 404);
   const on = harness({ devLinkMint: true });
   assert.equal((await on.app.inject({ method: 'GET', url: '/dev/link-code', remoteAddress: '10.0.0.7' })).statusCode, 403);
+  // SECURITY: a loopback socket is not enough. Through Caddy every request is
+  // from 127.0.0.1; any proxy header means the internet, and is refused.
+  for (const headers of [{ 'x-forwarded-for': '203.0.113.9' }, { 'x-forwarded-proto': 'https' }, { via: '1.1 Caddy' }]) {
+    assert.equal((await on.app.inject({ method: 'GET', url: '/dev/link-code', remoteAddress: '127.0.0.1', headers })).statusCode, 403, JSON.stringify(headers));
+  }
   const minted = await on.app.inject({ method: 'GET', url: '/dev/link-code', remoteAddress: '127.0.0.1' });
   assert.equal(minted.statusCode, 200);
   assert.equal((minted.json() as { code: string }).code, 'ABCD-EFGH');

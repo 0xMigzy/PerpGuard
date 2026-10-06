@@ -351,7 +351,9 @@ let watchLoop: WatchLoop | undefined;
 // trusts. `PERPGUARD_WEB_DEV_LINK=1` additionally lets the operator mint one
 // from the loopback interface for local work; it is off unless said so.
 const webSessions = new SessionStore();
-const webLinkCodes = new LinkCodeStore();
+// ONE STORE PER PURPOSE. Each consumer refuses a store made for the other.
+const protectCodes = new LinkCodeStore({ purpose: 'protect' });
+const linkCodes = new LinkCodeStore({ purpose: 'link' });
 const webPending = new WebPendingActionStore();
 const actionProgress = new ActionProgressTracker();
 // REFUSED IN PRODUCTION regardless of the flag: a loopback mint on a host that
@@ -571,7 +573,7 @@ transport =
 
 // ── linking: proof on the page, sessions in the registry ───────────────────
 const linkService = new LinkService({
-  codes: webLinkCodes,
+  codes: linkCodes,
   identities,
   links,
   keys: keyStore,
@@ -816,7 +818,7 @@ const app = createHealthApp({
     },
     configs: riskConfigs,
     sessions: webSessions,
-    linkCodes: webLinkCodes,
+    linkCodes: protectCodes,
     pending: webPending,
     progress: actionProgress,
     freeBalance: () => envSession.balance.freeBalance(),

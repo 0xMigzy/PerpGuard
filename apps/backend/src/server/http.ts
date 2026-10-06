@@ -11,8 +11,18 @@
  * The report is REBUILT PER REQUEST from a supplied function. Caching it would
  * mean serving a snapshot of how things were, which is the same mistake as
  * serving a frozen price.
+ *
+ * THE PUBLIC GETS THE VERDICT, THE BOX GETS THE DETAIL. The full report names
+ * every linked account ("this account gave PerpGuard its key"), the trading
+ * account and its forwarding flag, and that list grows with every user. So a
+ * request that came through a proxy (Caddy, or the web app's rewrite) gets the
+ * status code, each component's state and the session count, and nothing that
+ * names an account. Only a request made on this machine, straight to the
+ * port, gets the detail. The status code is identical either way, so a
+ * monitor reading only the code is unaffected.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
+import { isFromThisMachine } from './origin.ts';
 import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
 import type { HealthReport } from './health.ts';
 import { registerAnalyticsRoutes, type AnalyticsRouteOptions } from './analyticsRoutes.ts';
@@ -51,13 +61,32 @@ export interface HealthServerOptions {
   readonly link?: LinkRouteOptions;
 }
 
+/** The report with everything that names an account removed: verdict, component states, session count. */
+export function publicHealth(report: HealthReport): PublicHealthReport {
+  const components: Record<string, { readonly state: string; readonly count?: number }> = {};
+  for (const [name, c] of Object.entries(report.components)) {
+    if (c === undefined) continue;
+    components[name] = name === 'sessions' && typeof c['count'] === 'number' ? { state: c.state, count: c['count'] } : { state: c.state };
+  }
+  return { status: report.status, network: report.network, uptimeMs: report.uptimeMs, startedAt: report.startedAt, at: report.at, components };
+}
+
+export interface PublicHealthReport {
+  readonly status: HealthReport['status'];
+  readonly network: HealthReport['network'];
+  readonly uptimeMs: number;
+  readonly startedAt: string;
+  readonly at: string;
+  readonly components: Readonly<Record<string, { readonly state: string; readonly count?: number }>>;
+}
+
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
 
-  app.get('/health', async (_request, reply) => {
+  app.get('/health', async (request, reply) => {
     const report = options.health();
     // 503 rather than 200-with-a-field. See the note at the top.
-    return reply.code(report.status === 'OK' ? 200 : 503).send(report);
+    return reply.code(report.status === 'OK' ? 200 : 503).send(isFromThisMachine(request) ? report : publicHealth(report));
   });
 
   if (options.analytics !== undefined) {
