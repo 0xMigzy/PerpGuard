@@ -66,3 +66,42 @@ export function decodeAccountLookup(result: unknown, address: string): AccountLo
   if (id > BigInt(Number.MAX_SAFE_INTEGER)) return { found: false, address, reason: `account id ${id} is out of range` };
   return { found: true, accountId: Number(id), address };
 }
+
+/** keccak256("getAccountById(uint256)")[0..4]. Checked against the signature in the test. */
+export const GET_ACCOUNT_BY_ID_SELECTOR = '0x05aca141';
+/** Word 4 of the nine-word account struct (id, balance, locked, frozen, OWNER, ...): measured on 5 mainnet accounts. */
+const OWNER_WORD = 4;
+
+/**
+ * Account id -> the wallet that owns it, off the Exchange contract. Lowercased.
+ * Undefined when the account does not exist or the RPC cannot answer: an
+ * unknown owner is shown as the account id alone, never guessed.
+ */
+export async function lookupAccountOwner(accountId: number, options: AccountLookupOptions): Promise<string | undefined> {
+  if (!Number.isSafeInteger(accountId) || accountId <= 0) return undefined;
+  const data = `${GET_ACCOUNT_BY_ID_SELECTOR}${accountId.toString(16).padStart(64, '0')}`;
+  const doFetch = options.fetchImpl ?? fetch;
+  try {
+    const response = await doFetch(options.rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: options.exchangeAddress, data }, 'latest'] }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 8_000),
+    });
+    if (!response.ok) return undefined;
+    const json = (await response.json()) as { result?: unknown };
+    return decodeAccountOwner(json.result, accountId);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The owner word, if the struct is for this account and the owner is not zero. Exported for the tests. */
+export function decodeAccountOwner(result: unknown, accountId: number): string | undefined {
+  if (typeof result !== 'string' || !/^0x[0-9a-fA-F]*$/.test(result)) return undefined;
+  const body = result.slice(2);
+  if (body.length < (OWNER_WORD + 1) * 64) return undefined;
+  if (BigInt(`0x${body.slice(0, 64)}`) !== BigInt(accountId)) return undefined;
+  const owner = `0x${body.slice(OWNER_WORD * 64 + 24, OWNER_WORD * 64 + 64)}`.toLowerCase();
+  return /^0x0{40}$/.test(owner) ? undefined : owner;
+}

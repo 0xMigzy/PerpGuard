@@ -34,3 +34,16 @@ test('the call is made once, lowercased, and a revert reads as "no account"', as
   assert.match((none as { reason: string }).reason, /no account/);
   assert.equal((await lookupAccountByAddress('nope', { rpcUrl: 'http://rpc', exchangeAddress: '0xex', fetchImpl })).found, false);
 });
+
+test('account id -> owner: the selector is the signature, the owner is word 4, lowercased', async () => {
+  const { toFunctionSelector } = await import('viem');
+  const { GET_ACCOUNT_BY_ID_SELECTOR, decodeAccountOwner } = await import('./perpl-account-lookup.ts');
+  assert.equal(GET_ACCOUNT_BY_ID_SELECTOR, toFunctionSelector('function getAccountById(uint256)'));
+  const word = (v: string) => v.replace(/^0x/, '').padStart(64, '0');
+  // Captured shape, account 4908 (6 Oct 2026): id, balance, locked, frozen, owner, then four more words.
+  const reply = `0x${word((4908).toString(16))}${word('1')}${word('0')}${word('0')}${word('0Ca98e367cf05477AD694084656B8d04a7c7C4A6')}${word('0').repeat(4)}`;
+  assert.equal(decodeAccountOwner(reply, 4908), '0x0ca98e367cf05477ad694084656b8d04a7c7c4a6');
+  assert.equal(decodeAccountOwner(reply, 4909), undefined, 'a struct for another account is not this one');
+  assert.equal(decodeAccountOwner(`0x${word('1')}${word('0').repeat(8)}`, 1), undefined, 'a zero owner is no owner');
+  assert.equal(decodeAccountOwner('0x', 1), undefined);
+});

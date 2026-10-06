@@ -47,6 +47,7 @@ import {
   loadNetworkConfig,
   loadPerplCredentials,
   lookupAccountByAddress,
+  lookupAccountOwner,
   type MarketRiskConfig,
   type NetworkConfig,
   type VenueMarket,
@@ -99,6 +100,7 @@ import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.t
 import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
 import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
+import { OwnerDirectory } from './server/ownerDirectory.ts';
 import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
@@ -875,11 +877,17 @@ const app = createHealthApp({
         // ONE NETWORK: positions from the analytics indexer, marks and configs
         // from the analytics venue, insurance from the analytics chain.
         riskSnapshot: (() => {
+          // Owners for the Risk tables: the index's, else the Exchange contract's, kept for the process's life.
+          const owners = new OwnerDirectory({
+            fromIndex: (ids) => analyticsReader.knownOwners(ids),
+            fromChain: (id) => lookupAccountOwner(id, { rpcUrl: analyticsNetworkConfig!.rpcUrl, exchangeAddress: analyticsNetworkConfig!.exchangeAddress }),
+          });
           const source = new RiskSnapshotSource({
             analytics: analyticsReader,
             network: analyticsNetworkConfig,
             riskConfigs: () => analyticsVenue!.getRiskConfigs(),
             openInterest: () => analyticsVenue!.getOpenInterest(),
+            owners: (ids) => owners.ownersOf(ids),
           });
           return () => source.read();
         })(),

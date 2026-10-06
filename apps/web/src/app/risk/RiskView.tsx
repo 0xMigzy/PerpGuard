@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { DirectionalExposure, ExposedPosition, MarketExposure } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusdExact, formatCount, formatMoney, formatPct, formatPriceAsServed, formatSignedMoney, formatWhen } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatMoney, formatPct, formatPriceAsServed, formatSignedMoney, formatWhen, shortAddress } from '@/lib/format.ts';
 import { chartRungs, exposedAt, formatMove, hasShortfall, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
 import { VAR } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
@@ -263,8 +263,10 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
                 return (
                   <tr key={`${p.accountId}-${p.market.marketId}-${p.openedAtMs}`} >
                     <td className="sticky left-0 z-[1] bg-card whitespace-nowrap">
-                      <Link href={`/traders/${p.accountId}`} className="num font-semibold text-text no-underline hover:text-accent-hi">
-                        #{p.accountId}
+                      {/* The owner's short address and the account id, both: an address is how a reader recognises a wallet; the id is the venue's key. */}
+                      <Link href={`/traders/${p.address ?? p.accountId}`} className="no-underline hover:text-accent-hi" title={p.address ?? 'owner not known'}>
+                        {p.address !== undefined && <span className="num block font-semibold text-text">{shortAddress(p.address)}</span>}
+                        <span className={`num block ${p.address === undefined ? 'font-semibold text-text' : 'text-[11px] text-muted2'}`}>#{p.accountId}</span>
                       </Link>
                     </td>
                     <td className="font-semibold whitespace-nowrap">

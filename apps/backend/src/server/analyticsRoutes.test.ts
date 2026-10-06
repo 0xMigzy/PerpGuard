@@ -149,6 +149,10 @@ class FakeAnalytics implements Analytics {
     return { block: 1, collateralToken: '0x0', depositedCNS: 0n, withdrawnCNS: 0n, collateralDecimals: 6 };
   }
 
+  async knownOwners() {
+    return new Map<number, string>();
+  }
+
   async busiestAccounts() {
     return [10];
   }

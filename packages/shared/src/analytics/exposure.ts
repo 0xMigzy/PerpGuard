@@ -108,6 +108,8 @@ export interface MarketCover {
 
 export interface ExposedPosition {
   readonly accountId: number;
+  /** The owner's wallet, lowercased, when known (index, else the Exchange contract). Set after the build. */
+  readonly address?: string | undefined;
   readonly market: MarketRef;
   readonly side: Side;
   readonly sizeLots: number;

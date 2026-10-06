@@ -1088,3 +1088,13 @@ test('collateral totals are summed up to the index\'s own latest block, exactly,
   assert.equal(t.withdrawnCNS, 12_219_694_570_773n);
   assert.match(sql.calls.find((c) => /with head as/.test(c.sql))!.sql, /f\."blockNumber" <= head\.block/);
 });
+
+test('known owners: lowercased, only accounts the index saw created, asked by id as text', async () => {
+  const sql = new FakeSql();
+  sql.on(/lower\(owner\) as owner from "Trader"/, [{ id: '4908', owner: '0x0ca98e367cf05477ad694084656b8d04a7c7c4a6' }]);
+  const owners = await reader(sql).knownOwners([4908, 5303]);
+  assert.equal(owners.get(4908), '0x0ca98e367cf05477ad694084656b8d04a7c7c4a6');
+  assert.equal(owners.has(5303), false);
+  assert.deepEqual(sql.calls.find((c) => /from "Trader"/.test(c.sql))!.values[0], ['4908', '5303']);
+  assert.equal((await reader(new FakeSql()).knownOwners([])).size, 0);
+});

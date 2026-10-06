@@ -1328,6 +1328,12 @@ export class PostgresAnalytics implements Analytics {
     return { fills, limit, offset, hasMore: rows.length > limit };
   }
 
+  async knownOwners(accountIds: readonly number[]): Promise<ReadonlyMap<number, string>> {
+    if (accountIds.length === 0) return new Map();
+    const rows = await this.#rows('select id, lower(owner) as owner from "Trader" where id = any($1::text[]) and owner is not null', [accountIds.map(String)]);
+    return new Map(rows.map((r) => [count(r['id']), String(r['owner'])]));
+  }
+
   async busiestAccounts(limit: number): Promise<readonly number[]> {
     const rows = await this.#rows(BUSIEST_ACCOUNTS_SQL, [Math.max(1, Math.min(100, Math.floor(limit)))]);
     return rows.map((row) => count(row['id']));

@@ -29,6 +29,8 @@ export interface RiskSnapshotOptions {
   readonly network: NetworkConfig;
   readonly riskConfigs: () => Promise<ReadonlyMap<number, MarketRiskConfig>>;
   readonly openInterest: () => Promise<readonly MarketOpenInterest[]>;
+  /** Owner wallets for the listed accounts. Optional; a failure leaves the ids alone, never the snapshot. */
+  readonly owners?: (accountIds: readonly number[]) => Promise<ReadonlyMap<number, string>>;
   readonly ttlMs?: number;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
@@ -107,8 +109,10 @@ export class RiskSnapshotSource {
       backstop,
       nowMs: this.#now(),
     });
-    this.#cached = { snapshot, atMs: this.#now() };
-    return snapshot;
+    const owners = this.#options.owners === undefined ? undefined : await this.#options.owners([...new Set(snapshot.positions.map((p) => p.accountId))]).catch(() => undefined);
+    const named = owners === undefined ? snapshot : { ...snapshot, positions: snapshot.positions.map((p) => ({ ...p, address: owners.get(p.accountId) })) };
+    this.#cached = { snapshot: named, atMs: this.#now() };
+    return named;
   }
 
   /** The block's own timestamp from the chain, so the page can say when "this block" was. Undefined on any failure. */

@@ -1262,4 +1262,6 @@ export interface Analytics {
    * them would be a stress test of nothing.
    */
   openPositions(): Promise<readonly IndexedOpenPosition[]>;
+  /** The owners the index recorded (AccountCreated), lowercased; an account it never saw created is absent. */
+  knownOwners(accountIds: readonly number[]): Promise<ReadonlyMap<number, string>>;
 }
