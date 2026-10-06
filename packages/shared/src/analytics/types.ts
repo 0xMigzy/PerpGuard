@@ -1073,6 +1073,8 @@ export interface Analytics {
   walletInsightFacts(accountId: number): Promise<WalletInsightFacts | undefined>;
   /** The cross-account leverage baseline. Heavy: one pass over every position. */
   leverageBaseline(): Promise<LeverageBaseline>;
+  /** The account ids with the most fills since launch, busiest first: the profiles worth computing ahead of a reader. */
+  busiestAccounts(limit: number): Promise<readonly number[]>;
   /**
    * Whether the insurance funds have ever been drawn on: liquidations the fund
    * topped up (`PositionLiquidationCredit`) and liquidations that left bad

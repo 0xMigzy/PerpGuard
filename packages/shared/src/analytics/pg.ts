@@ -540,6 +540,14 @@ select count(*)::text                                                           
 `;
 
 /** The median account's mean leverage at open, over accounts with at least the ratio floor of round trips. */
+/** Busiest accounts by fills since launch, from the day buckets (~0.3 s, not a scan of Trade). */
+const BUSIEST_ACCOUNTS_SQL = `
+select trader_id as id from "TraderDay"
+ group by trader_id
+ order by sum("tradeCount") desc, trader_id
+ limit $1
+`;
+
 const LEVERAGE_BASELINE_SQL = `
 select (percentile_cont(0.5) within group (order by avg_lev))::text as median_hdths,
        count(*)::text                                              as accounts
@@ -1248,6 +1256,11 @@ export class PostgresAnalytics implements Analytics {
       longNetPnlAusd: toAusd(row?.['long_net'], decimals),
       shortNetPnlAusd: toAusd(row?.['short_net'], decimals),
     };
+  }
+
+  async busiestAccounts(limit: number): Promise<readonly number[]> {
+    const rows = await this.#rows(BUSIEST_ACCOUNTS_SQL, [Math.max(1, Math.min(100, Math.floor(limit)))]);
+    return rows.map((row) => count(row['id']));
   }
 
   async leverageBaseline(): Promise<LeverageBaseline> {

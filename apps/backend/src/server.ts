@@ -888,6 +888,9 @@ const app = createHealthApp({
 // deployment mistake, and with no sequence registered it would crash out with a
 // raw libuv stack trace, leaving the market-data socket open behind it.
 
+/** Profiles computed at boot so the heaviest accounts never make a first reader wait. */
+const BUSIEST_PROFILES_WARMED = 10;
+
 const shutdown = new ShutdownSequence({
   deadlineMs: SHUTDOWN_TIMEOUT_MS,
   onStep: (step) =>
@@ -1012,11 +1015,24 @@ if (analyticsReader !== undefined) {
   void warmCycle().then(async () => {
     const baseline = analyticsLoaders(reader).leverageBaseline();
     // A reader may already have started it behind an early insights request.
-    if (analyticsCache.ageOf(baseline.key) !== undefined) return;
+    if (analyticsCache.ageOf(baseline.key) === undefined) {
+      try {
+        await analyticsCache.warm(baseline.key, baseline.load);
+      } catch (error) {
+        warn(`analytics warm: ${baseline.key} failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // The busiest accounts' profiles, one at a time: account #10's takes ~19 s
+    // cold, and Compare, the profile and its positions all wait on it. After
+    // this the cache refreshes each one behind its readers.
     try {
-      await analyticsCache.warm(baseline.key, baseline.load);
+      for (const id of await reader.busiestAccounts(BUSIEST_PROFILES_WARMED)) {
+        if (shutdown.started) break;
+        const profile = analyticsLoaders(reader).profile(id);
+        if (analyticsCache.ageOf(profile.key) === undefined) await analyticsCache.warm(profile.key, profile.load);
+      }
     } catch (error) {
-      warn(`analytics warm: ${baseline.key} failed: ${error instanceof Error ? error.message : String(error)}`);
+      warn(`analytics warm: busiest profiles failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
   warmTimer = setInterval(() => void warmCycle(), KEEP_WARM_MS);

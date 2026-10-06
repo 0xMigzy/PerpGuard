@@ -1042,3 +1042,11 @@ test('the leverage baseline is the median per-account mean over accounts at the 
   assert.deepEqual(b, { medianLeverage: 10.21, accounts: 3231, minRoundTrips: 10 });
   assert.deepEqual(sql.calls[0]!.values, [10]);
 });
+
+test('the busiest accounts come off the day buckets, busiest first, with a bounded limit', async () => {
+  const sql = new FakeSql();
+  sql.on(/order by sum\("tradeCount"\) desc/, [{ id: '10' }, { id: '4638' }]);
+  assert.deepEqual(await reader(sql).busiestAccounts(500), [10, 4638]);
+  const call = sql.calls.find((c) => /from "TraderDay"/.test(c.sql))!;
+  assert.equal(call.values[0], 100, 'never more than 100 profiles warmed');
+});

@@ -556,7 +556,11 @@ export function registerAnalyticsRoutes(
         error: 'no venue is wired on the analytics network, so open positions cannot be priced or given a liquidation price.',
       });
     }
-    const profile = await analytics.walletByAccountId(accountId);
+    // The CACHED profile, the one /account/:id serves: rebuilding it per call
+    // cost account #10 (a million round trips) 17-22 s every time, to learn
+    // which positions are open. The prices are still read fresh on every call.
+    const hit = await cache.get(loaders.profile(accountId).key, ttlMs, loaders.profile(accountId).load);
+    const profile = hit.value;
     if (profile === undefined) {
       return reply.code(404).send({ error: `no account ${accountId} in the index` });
     }

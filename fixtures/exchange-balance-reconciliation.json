@@ -1,0 +1,21 @@
+{
+ "note": "Written by apps/indexer/src/scripts/exchange-balance-reconcile.ts. All figures AUSD at one block.",
+ "atBlock": 110989971,
+ "collateralDeposited": 16236661.561042,
+ "collateralWithdrawn": 12219694.570773,
+ "protocolBalanceDeposit": 130250,
+ "protocolBalanceWithdraw": 308867.777932,
+ "rebuilt": 3838349.212337,
+ "contractBalance": 3838376.912802,
+ "gap": 27.700465,
+ "gapCNS": "27700465",
+ "internalMovementsNotCounted": {
+  "TransferProtocolToAccount": 426324.413173,
+  "TransferAccountToProtocol": 152663.74671,
+  "TransferProtocolToPerp": 5100,
+  "TransferPerpInsToProtocol": 0,
+  "TransferPerpPosToProtocol": 0,
+  "TransferProtocolToRecycleBal": 0,
+  "RecycleFeeToProtocol": 388.6
+ }
+}

@@ -139,6 +139,10 @@ class FakeAnalytics implements Analytics {
     return { accountId, roundTrips: 12, averageLeverage: 9, holdThresholdHours: 48, losingTrips: 5, losingTripsHeldOver: 2, tripsHeldOver: 3, longTrips: 8, shortTrips: 4, longNetPnlAusd: -10, shortNetPnlAusd: 4 };
   }
 
+  async busiestAccounts() {
+    return [10];
+  }
+
   async leverageBaseline() {
     this.asked.push('leverage-baseline');
     return { medianLeverage: 10.2, accounts: 3231, minRoundTrips: 10 };
@@ -635,6 +639,31 @@ test('assessed positions need a venue: 503 without one, the profile\'s rows thro
 
   const missing = await wired.instance.inject({ method: 'GET', url: '/api/analytics/account/99/positions' });
   assert.equal(missing.statusCode, 404);
+});
+
+test('assessed positions read the CACHED profile: two calls rebuild it once, and still price both times', async () => {
+  const analytics = new FakeAnalytics();
+  analytics.profileValue = { ...PROFILE, accountId: 10 };
+  let built = 0;
+  const original = analytics.walletByAccountId.bind(analytics);
+  analytics.walletByAccountId = async (id: number) => {
+    built += 1;
+    return original(id);
+  };
+  let priced = 0;
+  const { instance } = app(analytics, {
+    assessPositions: async (positions) => {
+      priced += 1;
+      return { positions: positions.map((position) => ({ position })), asOfMs: 1 };
+    },
+  });
+  await instance.inject({ method: 'GET', url: '/api/analytics/account/10' });
+  const a = await instance.inject({ method: 'GET', url: '/api/analytics/account/10/positions' });
+  const b = await instance.inject({ method: 'GET', url: '/api/analytics/account/10/positions' });
+  assert.equal(a.statusCode, 200);
+  assert.equal(b.statusCode, 200);
+  assert.equal(built, 1, 'the profile and both position reads share one build');
+  assert.equal(priced, 2, 'prices are read fresh on every call');
 });
 
 test('without a venue, open interest is a 503 and never the indexer delta in disguise', async () => {
