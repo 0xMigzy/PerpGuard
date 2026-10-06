@@ -8,6 +8,9 @@ const ALL: Route[] = [
   { to: 'wallet', accountId: 3388 }, { to: 'unwatch', accountId: 3388 }, { to: 'account' }, { to: 'connect' }, { to: 'connect-go' },
   { to: 'positions' }, { to: 'margin' }, { to: 'position', marketId: 16 }, { to: 'settings' }, { to: 'warn-ask' },
   { to: 'warn-set', level: 5 }, { to: 'disconnect-ask' }, { to: 'disconnect' },
+  { to: 'wallets' }, { to: 'star', accountId: 4088 }, { to: 'unstar', accountId: 4088 }, { to: 'top' }, { to: 'top-pnl' }, { to: 'top-roi' },
+  { to: 'trader', accountId: 987 }, { to: 'liq' }, { to: 'liq-set', level: 2 }, { to: 'big' }, { to: 'big-set', level: 9 },
+  { to: 'warn-levels' }, { to: 'warn-preset', level: 0 }, { to: 'warn-custom' }, { to: 'alert-settings' }, { to: 'wallet-alerts' },
 ];
 
 test('every route round-trips, fits in 64 bytes, and is never readable as an action button', () => {
@@ -20,7 +23,12 @@ test('every route round-trips, fits in 64 bytes, and is never readable as an act
 });
 
 test('the public set is exactly the screens a watcher needs, and nothing that reads an account', () => {
-  assert.deepEqual(ALL.filter(isPublicRoute).map((r) => r.to), ['home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go']);
+  assert.deepEqual(ALL.filter(isPublicRoute).map((r) => r.to), [
+    'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go',
+    'wallets', 'star', 'unstar', 'top', 'top-pnl', 'top-roi', 'trader', 'liq', 'liq-set', 'big', 'big-set',
+    'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
+  ]);
+  for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'margin', 'position', 'settings', 'warn-ask', 'warn-set', 'disconnect-ask', 'disconnect'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
 });
 
 test('the decoder rejects anything it did not write', () => {

@@ -27,7 +27,8 @@ create table if not exists watch_subscriptions (
   label      text        not null,
   added_at   timestamptz not null,
   primary key (chat_id, account_id)
-)`;
+);
+alter table watch_subscriptions add column if not exists starred boolean not null default false`;
 
 export class PostgresWatchStore implements WatchStore {
   readonly #inner: InMemoryWatchStore;
@@ -44,12 +45,13 @@ export class PostgresWatchStore implements WatchStore {
   /** Create the table if needed and load every subscription. */
   static async load(options: PostgresWatchStoreOptions): Promise<PostgresWatchStore> {
     await options.pool.query(MIGRATE_SQL);
-    const result = await options.pool.query('select chat_id, account_id, label, added_at from watch_subscriptions');
+    const result = await options.pool.query('select chat_id, account_id, label, added_at, starred from watch_subscriptions');
     const seed: WatchSubscription[] = (result.rows as Array<Record<string, unknown>>).map((row) => ({
       chatId: Number(row['chat_id']),
       accountId: Number(row['account_id']),
       label: String(row['label']),
       addedAtMs: new Date(row['added_at'] as string | Date).getTime(),
+      starred: row['starred'] === true,
     }));
     const inner = new InMemoryWatchStore({ ...options, seed: [...(options.seed ?? []), ...seed] });
     return new PostgresWatchStore(inner, options);
@@ -78,6 +80,12 @@ export class PostgresWatchStore implements WatchStore {
     const removed = this.#inner.remove(chatId, accountId);
     if (removed) this.#write('delete from watch_subscriptions where chat_id = $1 and account_id = $2', [chatId, accountId]);
     return removed;
+  }
+
+  star(chatId: number, accountId: number, starred: boolean): boolean {
+    const changed = this.#inner.star(chatId, accountId, starred);
+    if (changed) this.#write('update watch_subscriptions set starred = $3 where chat_id = $1 and account_id = $2', [chatId, accountId, starred]);
+    return changed;
   }
 
   byChat(chatId: number): readonly WatchSubscription[] {

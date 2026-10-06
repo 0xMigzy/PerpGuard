@@ -57,6 +57,10 @@ export interface PositionsPass {
   readonly watched: readonly number[];
   /** The accounts that were read, and what is open on each. */
   readonly reads: ReadonlyMap<number, readonly OpenPosition[]>;
+  /** Every assessment this pass produced, blind ones included. */
+  readonly assessments: readonly RiskAssessment[];
+  /** The market configs it priced with, for wording a warning. */
+  readonly configs: ReadonlyMap<number, MarketRiskConfig>;
 }
 
 export interface WatchLoopOptions {
@@ -384,7 +388,7 @@ export class WatchLoop {
     this.#emit(changes);
     if (indexUsable && this.#options.onPositions !== undefined) {
       try {
-        this.#options.onPositions({ seenAtMs: nowMs, indexerBlock: health.latestProcessedBlock, blocksBehind: health.blocksBehind, watched: accountIds, reads });
+        this.#options.onPositions({ seenAtMs: nowMs, indexerBlock: health.latestProcessedBlock, blocksBehind: health.blocksBehind, watched: accountIds, reads, assessments: produced, configs });
       } catch (error) {
         this.#logger.warn(`watch: the position-change listener failed: ${describe(error)}`);
       }

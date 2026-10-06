@@ -23,6 +23,8 @@ import { InMemoryWatchStore, RateLimiter, type ResolvedWatchTarget, type WatchRe
 import { encodeNav, type Route } from './nav.ts';
 import { InMemoryAccountSettingsStore } from './settings.ts';
 import { StaticSessionRouter } from './sessions.ts';
+import { InMemoryPreferenceStore } from '@perpguard/backend/events/preferences';
+import type { TraderRow } from '@perpguard/shared';
 import {
   CONFIGS,
   FakeBalance,
@@ -55,6 +57,7 @@ interface Harness {
   readonly balance: FakeBalance;
   readonly links: InMemoryLinkStore;
   readonly watchStore: InMemoryWatchStore;
+  readonly prefs: InMemoryPreferenceStore;
   readonly resolver: FakeResolver;
   nowMs: number;
   /** What the owner's session reports about its trading socket. */
@@ -71,6 +74,20 @@ class FakeResolver implements WatchResolver {
     return this.answers.get(key) ?? { error: `nothing is known about ${key}` };
   }
 }
+
+/** Two traders the index "knows": #987 (big, lifetime ROI) and #1876 (under the ROI floor). */
+const traderRow = (over: Partial<TraderRow>): TraderRow => ({
+  accountId: 987, address: '0xabc', netPnlAusd: 21_147.9, volumeAusd: 1, tradeCount: 1_240, roundTrips: 24_944, wins: 17_960, losses: 6_984, winRate: 0.72,
+  liquidationCount: 0, rescuableLiquidationCount: 0, marginLostAusd: 0, maxSpareHeldAusd: undefined, depositedAusd: 2_045, withdrawnAusd: 0, netFlowAusd: 0,
+  freeBalanceAusd: 0, openPositionCount: 2, lastActiveAtMs: 0, roiPct: 1_034.1, ...over,
+});
+const fakeTraders = {
+  top: async (kind: 'pnl' | 'roi') => ({ rows: kind === 'pnl' ? [traderRow({ roiPct: undefined })] : [traderRow({})], label: kind === 'pnl' ? 'the 31 UTC days from 2026-09-06' : 'since Feb 11, 2026' }),
+  stats: async (accountId: number) =>
+    accountId === 1876
+      ? { accountId, month: traderRow({ accountId, roundTrips: 4, wins: 3, winRate: undefined, roiPct: undefined }), lifetime: traderRow({ accountId, depositedAusd: 99, roiPct: undefined }) }
+      : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
+};
 
 function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore } = {}): Harness {
   const { bot, telegram } = fakeBot();
@@ -90,6 +107,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
   const resolver = new FakeResolver();
   const limiter = new RateLimiter({ limit: options.rateLimit ?? 100, windowMs: 60_000, now: () => state.nowMs });
   const indexer = { state: 'synced', blocksBehind: 7, latestProcessedBlock: 109_000_000, serveAsCurrent: true } as unknown as IndexerHealth;
+  const prefs = new InMemoryPreferenceStore();
 
   const built = createBot({
     config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: options.owner },
@@ -104,7 +122,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
-    ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer } }),
+    ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer, preferences: prefs, traders: fakeTraders } }),
     ...(options.link === undefined ? {} : { link: options.link }),
   });
   // The bot under test must talk to the fake, not to Telegram.
@@ -121,6 +139,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     links,
     watchStore,
     resolver,
+    prefs,
     get nowMs() {
       return state.nowMs;
     },
@@ -1059,7 +1078,8 @@ test('a stranger can /watch a checksummed address: it resolves, is stored, and t
 
   assert.deepEqual(h.resolver.asked, [{ kind: 'address', address: OWNER_ADDRESS.toLowerCase() }], 'lowercased before lookup');
   const reply = texts(h.telegram).at(-1)!;
-  assert.match(reply, /^Now watching <b>#5293<\/b> \(found through the Exchange contract\)\./);
+  assert.match(reply, /^✅ <b>WALLET ADDED<\/b> · #5293 \(found through the Exchange contract\)/);
+  assert.match(reply, /From the mainnet index, re-read every 30 seconds/);
   assert.match(reply, /No buttons\. You are watching this account, not holding it\./);
   assert.deepEqual(h.watchStore.watchersOf(5293).map((s) => s.chatId), [STRANGER_CHAT]);
   assert.equal(h.telegram.last('sendMessage').payload['parse_mode'], 'HTML');
@@ -1074,7 +1094,7 @@ test('THE BUG: /watch with nothing after it ASKS with force_reply, and the "710"
   assert.deepEqual(ask.payload['reply_markup'], { force_reply: true, input_field_placeholder: '0x… or 710' });
 
   await h.bot.handleUpdate(stranger('710'));
-  assert.match(texts(h.telegram).at(-1)!, /^Now watching <b>#710<\/b>\./);
+  assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #710/);
   assert.deepEqual(h.watchStore.watchersOf(710).map((s) => s.chatId), [STRANGER_CHAT]);
   // The question is closed: the next number is a fresh paste, offered rather than acted on.
   await h.bot.handleUpdate(stranger('711'));
@@ -1092,7 +1112,7 @@ test('a bad answer re-asks with force_reply and keeps the question open; a good 
   assert.match(texts(h.telegram).at(-2)!, /^I cannot watch that: nothing is known about 999999/);
   assert.equal((h.telegram.last('sendMessage').payload['reply_markup'] as { force_reply: boolean }).force_reply, true, 'asked again');
   await h.bot.handleUpdate(stranger('5293'));
-  assert.match(texts(h.telegram).at(-1)!, /^Now watching <b>#5293<\/b>/);
+  assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #5293/);
 });
 
 test('a pasted address is watched without pressing anything first; a bare number is only offered, and the tap watches it', async () => {
@@ -1100,13 +1120,13 @@ test('a pasted address is watched without pressing anything first; a bare number
   h.resolver.answers.set(OWNER_ADDRESS.toLowerCase(), { accountId: 5293, address: OWNER_ADDRESS.toLowerCase(), resolvedBy: 'index' });
   h.resolver.answers.set('710', { accountId: 710, address: undefined, resolvedBy: 'index' });
   await h.bot.handleUpdate(stranger(OWNER_ADDRESS));
-  assert.match(texts(h.telegram).at(-1)!, /^Now watching <b>#5293<\/b>/);
+  assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #5293/);
   await h.bot.handleUpdate(stranger('710'));
   assert.equal(texts(h.telegram).at(-1), 'Watch account <b>#710</b>?');
   assert.equal(h.watchStore.watchersOf(710).length, 0);
   const offer = keyboardOf(h.telegram.last('sendMessage'))[0]!;
   await h.bot.handleUpdate(callbackUpdate(offer.callback_data, { from: STRANGER_ID, chat: STRANGER_CHAT }));
-  assert.match(texts(h.telegram).at(-1)!, /^Now watching <b>#710<\/b>/);
+  assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #710/);
   await h.bot.handleUpdate(stranger('#711'));
   assert.match(texts(h.telegram).at(-1)!, /^I cannot watch that/, 'a #id paste is unambiguous and goes straight to the lookup');
 });
@@ -1122,25 +1142,26 @@ test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, 
   await tap({ to: 'watch-menu' });
   const menu = h.telegram.last('editMessageText');
   assert.match(String(menu.payload['text']), /^👁 <b>WATCH & ALERTS<\/b>\nRead-only\. No wallet, no key\./);
-  assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch Wallet', '⭐ Watchlist', '← Back']);
+  assert.match(String(menu.payload['text']), /Read off the mainnet index, 7 blocks behind the chain\. Watched wallets are re-read every 30 seconds\./, 'the menu states its own latency');
+  assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch Wallet', '⭐ Watchlist', '🏆 Top Traders', '💥 Liquidations', '🐋 Large Trades', '⚠️ Warning Levels', '⚙️ Alert Settings', '← Back']);
 
   await tap({ to: 'watch-ask' });
   const edit = h.telegram.last('editMessageText');
   assert.match(String(edit.payload['text']), /^Send me an address or an account id\./);
   assert.equal((h.telegram.last('sendMessage').payload['reply_markup'] as { force_reply: boolean }).force_reply, true);
   await h.bot.handleUpdate(stranger('5293'));
-  assert.match(texts(h.telegram).at(-1)!, /^Now watching <b>#5293<\/b>/);
+  assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #5293/);
 
-  await tap({ to: 'watchlist' });
+  await tap({ to: 'wallets' });
   const list = String(h.telegram.last('editMessageText').payload['text']);
-  assert.match(list, /^⭐ <b>WATCHLIST<\/b> · 1 of 5/);
+  assert.match(list, /^👛 <b>WATCHED WALLETS<\/b> · 1 of 5/);
   assert.match(list, /The percentage is how far the price can move against them before the exchange closes it\./);
 
   await tap({ to: 'wallet', accountId: 5293 });
   assert.match(String(h.telegram.last('editMessageText').payload['text']), /<b>Account #5293<\/b>/);
 
   await tap({ to: 'unwatch', accountId: 5293 });
-  assert.match(String(h.telegram.last('editMessageText').payload['text']), /^Stopped watching <b>#5293<\/b>\.[\s\S]*You are not watching anything yet\./);
+  assert.match(String(h.telegram.last('editMessageText').payload['text']), /^Stopped watching <b>#5293<\/b>\.[\s\S]*👛 <b>WATCHED WALLETS<\/b>\nNone yet\./);
   assert.equal(h.watchStore.watchersOf(5293).length, 0);
   assert.equal(h.executor.calls.length, 0);
 });
@@ -1430,7 +1451,7 @@ test('navigating on from an outcome opens a new message: the outcome stays in th
  * recorded, and covered by their own tests.
  */
 async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat?: number }): Promise<Map<string, { html: string; labels: string[]; routes: Route[]; urls: string[] }>> {
-  const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id']);
+  const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts']);
   const seen = new Map<string, { html: string; labels: string[]; routes: Route[]; urls: string[] }>();
   const read = (call: FakeTelegram['calls'][number]) => {
     const markup = call.payload['reply_markup'] as InlineKeyboard | undefined;
@@ -1466,19 +1487,21 @@ async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat
 
 import { decodeNav as decodeNavTapForTest } from './nav.ts';
 
-const UNBUILT = /rescue|copy|kill|close all|top traders|liquidations|large trades|funding|alert settings|remove margin/i;
+/** Still unbuilt after Phase 8: these must not appear as buttons anywhere. */
+const UNBUILT = /rescue|copy|kill|close all|funding|remove margin/i;
 
 test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing unbuilt, and links only to the site', async () => {
   const h = harness();
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'disconnect-ask', 'disconnect', 'home', 'margin', 'position', 'positions', 'settings', 'warn-ask', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
     if (key !== 'home') assert.ok(screen.routes.length > 0, `${key} has no way on or back`);
-    for (const url of screen.urls) assert.equal(url, 'https://perpguard.example', `${key} links somewhere invented: ${url}`);
+    // Only routes the site has: its home, and a trader's page by account id.
+    for (const url of screen.urls) assert.match(url, /^https:\/\/perpguard\.example(\/traders\/\d+)?$/, `${key} links somewhere invented: ${url}`);
   }
   // Home, linked: the spec's status block, with the network and an honest execution line.
   const home = seen.get('home')!;
@@ -1492,7 +1515,7 @@ test('PHASE 7: a STRANGER reaches only the public screens, and the Trading Accou
   const who = { from: STRANGER_ID, chat: STRANGER_CHAT };
   const seen = await walkMenu(h, who);
   const reached = new Set([...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)));
-  assert.deepEqual([...reached].sort(), ['account', 'connect-go', 'home', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...reached].sort(), ['account', 'alert-settings', 'big', 'big-set', 'connect-go', 'home', 'liq', 'liq-set', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-custom', 'warn-levels', 'warn-preset', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, key);
   const account = seen.get(JSON.stringify({ to: 'account' }))!;
   assert.match(account.html, /Account: <b>Not connected<\/b>\nNetwork: Monad testnet\nExecution: ⚪ Not configured/);
@@ -1534,4 +1557,87 @@ test('PHASE 7: Margin lists the positions and sends nothing; choosing one opens 
   // Not reachable for a stranger: the gate refuses before any handler.
   await tapNav(h, { to: 'margin' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
+});
+
+// ── Phase 8: Watch & Alerts ─────────────────────────────────────────────────
+
+test('PHASE 8: thresholds, warning presets and the wallet-alerts switch are saved PER CHAT, by anyone, for their own chat only', async () => {
+  const h = harness();
+  const stranger = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  await tapNav(h, { to: 'liq' }, stranger);
+  const liq = lastScreen(h.telegram);
+  assert.match(String(liq.payload['text']), /Now: <b>\$10K\+<\/b>/, 'the default');
+  assert.deepEqual(keyboardOf(liq).map((b) => b.text), ['$1K+ · about 4.7 a day', '$5K+ · about 1.7 a day', '✅ $10K+ · about 1 a day', '$25K+ · about 0.4 a day', '⚪ Off', '← Back']);
+  await tapNav(h, { to: 'liq-set', level: 3 }, stranger);
+  await tapNav(h, { to: 'big-set', level: 9 }, stranger);
+  await tapNav(h, { to: 'warn-preset', level: 0 }, stranger);
+  await tapNav(h, { to: 'wallet-alerts' }, stranger);
+  assert.deepEqual(h.prefs.get(STRANGER_CHAT), { walletAlerts: false, liquidationMinAusd: 25_000, largeTradeMinAusd: undefined, warningLevels: [20, 10, 5] });
+  assert.equal(h.prefs.get(OWNER_CHAT).liquidationMinAusd, 10_000, 'another chat is untouched');
+  await tapNav(h, { to: 'alert-settings' }, stranger);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Wallet alerts: ⚪ OFF\nLiquidations: <b>\$25K\+<\/b>\nLarge trades: <b>Off<\/b>\nWarnings: <b>20% \/ 10% \/ 5%<\/b>/);
+  await tapNav(h, { to: 'liq-set', level: 7 }, stranger);
+  assert.match(answers(h.telegram).at(-1)!, /do not know that setting/);
+});
+
+test('PHASE 8: custom warning levels are asked with force_reply; a bad answer re-asks; a good one is sorted and saved', async () => {
+  const h = harness();
+  const stranger = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  await tapNav(h, { to: 'warn-custom' }, stranger);
+  assert.equal((h.telegram.last('sendMessage').payload['reply_markup'] as { force_reply: boolean }).force_reply, true);
+  await h.bot.handleUpdate(messageUpdate('3 15 0', stranger));
+  assert.match(texts(h.telegram).at(-1)!, /^Each level must be above 0 and at most 100\./);
+  await h.bot.handleUpdate(messageUpdate('3 15% 8', stranger));
+  assert.deepEqual(h.prefs.get(STRANGER_CHAT).warningLevels, [15, 8, 3]);
+  assert.match(texts(h.telegram).at(-1)!, /Now: <b>15% \/ 8% \/ 3%<\/b>/);
+  await h.bot.handleUpdate(messageUpdate('5293', stranger));
+  assert.match(texts(h.telegram).at(-1)!, /Watch account <b>#5293<\/b>\?/, 'the question is closed: the next number is not a level');
+});
+
+test('PHASE 8: a watched wallet goes on and off the Watchlist; the Watchlist shows 30D PnL and all-time ROI WITH its denominator', async () => {
+  const h = harness();
+  h.watchStore.add({ chatId: STRANGER_CHAT, accountId: 987, label: '#987', addedAtMs: 0 });
+  const stranger = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  await tapNav(h, { to: 'watchlist' }, stranger);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^⭐ <b>WATCHLIST<\/b>\nEmpty\./);
+  await tapNav(h, { to: 'star', accountId: 987 }, stranger);
+  const list = String(lastScreen(h.telegram).payload['text']);
+  assert.match(list, /1\. <b>#987<\/b>\n   30D PnL <b>\+21,147 AUSD<\/b>\n   ROI \(all time\) <b>\+1,034%<\/b> on 2,045 AUSD deposited/);
+  assert.match(list, /Past results do not predict future returns\./);
+  await tapNav(h, { to: 'star', accountId: 5 }, stranger);
+  assert.match(answers(h.telegram).at(-1)!, /You are not watching #5 here/);
+  await tapNav(h, { to: 'unstar', accountId: 987 }, stranger);
+  assert.equal(h.watchStore.byChat(STRANGER_CHAT)[0]!.starred, false);
+});
+
+test('PHASE 8: Top ROI is ALL TIME and says so; a trader under the floors shows why, never a number', async () => {
+  const h = harness();
+  const stranger = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  await tapNav(h, { to: 'top-roi' }, stranger);
+  const top = String(lastScreen(h.telegram).payload['text']);
+  assert.match(top, /^📈 <b>TOP ROI — ALL TIME<\/b>\n<i>since Feb 11, 2026<\/i>\n\n1\. <b>#987<\/b> · <b>\+1,034%<\/b> on 2,045 AUSD deposited/);
+  await tapNav(h, { to: 'trader', accountId: 1876 }, stranger);
+  const card = lastScreen(h.telegram);
+  const html = String(card.payload['text']);
+  assert.match(html, /ROI \(all time\) no ROI: under 100 AUSD deposited \(99\)/);
+  assert.match(html, /Win rate \(30D\) not shown: 4 round trips, under 10/);
+  assert.deepEqual(keyboardOf(card).map((b) => b.text), ['📊 Full analytics', '👁 Watch', '← Back']);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('PHASE 8: watching shows WALLET ADDED with what will be reported, and offers the Watchlist', async () => {
+  const h = harness();
+  h.resolver.answers.set('4088', { accountId: 4088, address: undefined, resolvedBy: 'index' });
+  await h.bot.handleUpdate(messageUpdate('/watch 4088', { from: STRANGER_ID, chat: STRANGER_CHAT }));
+  const added = h.telegram.last('sendMessage');
+  assert.match(String(added.payload['text']), /^✅ <b>WALLET ADDED<\/b> · #4088\n\nPerpGuard will tell this chat about:\n• position opens, increases, reductions and closes\n• getting close to liquidation, at your warning levels\n• liquidation/);
+  assert.deepEqual(keyboardOf(added).map((b) => b.text), ['👁 View wallet', '⭐ Add to Watchlist', '🗑 Stop watching', '← Back']);
+});
+
+test('PHASE 8: the Large Trades screen states what it cannot see', async () => {
+  const h = harness();
+  await tapNav(h, { to: 'big' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  const html = String(lastScreen(h.telegram).payload['text']);
+  assert.match(html, /About 6% of fills carry no recorded taker and are not counted\./);
+  assert.match(html, /direction is read from the transaction, and is sometimes not known/);
 });

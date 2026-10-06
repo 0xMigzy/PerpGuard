@@ -49,6 +49,7 @@ import {
   lookupAccountByAddress,
   lookupAccountOwner,
   positionEventsInTxs,
+  type TraderRow,
   type MarketRiskConfig,
   type NetworkConfig,
   type VenueMarket,
@@ -88,7 +89,7 @@ import {
 } from './actions/index.ts';
 import { MarketFeed } from './ingest/marketFeed.ts';
 import { RiskLoop } from './risk/loop.ts';
-import type { RiskAssessment } from './risk/types.ts';
+import { isBlind, type RiskAssessment } from './risk/types.ts';
 import { AlertEngine } from './alerts/engine.ts';
 import { InMemoryAlertLog, PostgresAlertLog, type AlertHistoryReader } from './alerts/log.pg.ts';
 import type { AlertLog, AlertTransport } from './alerts/types.ts';
@@ -109,6 +110,7 @@ import { InMemoryLedger, PostgresLedger } from './events/ledger.ts';
 import { InMemoryPreferenceStore, SMALLEST_LARGE_TRADE_AUSD, type PreferenceStore } from './events/preferences.ts';
 import { PostgresPreferenceStore } from './events/preferences.pg.ts';
 import { FeedPoller, PositionChanges } from './events/sources.ts';
+import { InMemoryWarningState, PostgresWarningState, WatchWarnings, type WarningStateStore } from './events/watchWarnings.ts';
 import { ProfileWarmer } from './server/hotProfiles.ts';
 import { LazySeededMemoryStore, PostgresTreasuryStore } from './exchangeBalance/treasuryStore.ts';
 import { SwrCache } from './server/responseCache.ts';
@@ -330,6 +332,18 @@ if (alertDb !== undefined) {
     warn(`watch subscriptions could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); watching is in memory until the next restart`);
   }
 }
+// What each chat wants from the feeds and its warning levels. Loaded here,
+// beside the subscriptions, because the watch engine below already reads it.
+let preferences: PreferenceStore = new InMemoryPreferenceStore();
+let warningState: WarningStateStore = new InMemoryWarningState();
+if (alertDb !== undefined) {
+  try {
+    preferences = await PostgresPreferenceStore.load(alertDb);
+    warningState = await PostgresWarningState.load(alertDb);
+  } catch (error) {
+    warn(`alert preferences could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); defaults until the next restart`);
+  }
+}
 // Everyone who has ever said /start, so a restart does not forget them.
 let identities: IdentityStore = new InMemoryIdentityStore();
 if (alertDb !== undefined) {
@@ -351,6 +365,8 @@ const watchResolver: WatchResolver = {
 let watchLoop: WatchLoop | undefined;
 /** The event engine's position source, bound once the engine exists (below the bot). */
 let positionChanges: PositionChanges | undefined;
+/** Each chat's warning levels on its watched wallets, bound with the engine. Declared here so the watch loop's hook can never read it before it exists. */
+let watchWarnings: WatchWarnings | undefined;
 /** What each fill did to its position, from its receipt: shared by the trades page and the large-trade feed. */
 let fillDirections: FillDirections | undefined;
 
@@ -529,6 +545,45 @@ if (credentials !== undefined && envAccountId !== undefined) {
 }
 const envSession = envAccountId === undefined ? undefined : registry.get(envAccountId);
 
+// ── Top Traders and one trader's figures, for the bot's Watch screens ─────────
+//
+// From the analytics reader (bound further down; a tap can only arrive once
+// the bot is polling, after everything is up). Kept a minute, so a busy chat
+// cannot turn a leaderboard into a scan per tap. Top PnL is 30 days; Top ROI is
+// ALL TIME (lifetime net PnL over lifetime deposits), named from the index's
+// real start, which is the Exchange's deployment: "since Perpl launched".
+/** The analytics reader, bound when the index is configured (section 7). Declared here so nothing can read it before it exists. */
+let analyticsReader: PostgresAnalytics | undefined;
+const TRADER_FIGURES_TTL_MS = 60_000;
+const traderMemo = new Map<string, { readonly atMs: number; readonly value: Promise<unknown> }>();
+function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const hit = traderMemo.get(key);
+  if (hit !== undefined && Date.now() - hit.atMs < TRADER_FIGURES_TTL_MS) return hit.value as Promise<T>;
+  const value = load();
+  traderMemo.set(key, { atMs: Date.now(), value });
+  value.catch(() => traderMemo.delete(key));
+  if (traderMemo.size > 2_000) traderMemo.clear();
+  return value;
+}
+const traderFigures = {
+  top: (kind: 'pnl' | 'roi') =>
+    memo(`top:${kind}`, async () => {
+      if (analyticsReader === undefined) throw new Error('no analytics');
+      const list = kind === 'pnl' ? await analyticsReader.traders('30d', { ranking: 'pnl', limit: 10 }) : await analyticsReader.traders('all', { ranking: 'roi', limit: 10 });
+      return { rows: list.rows, label: kind === 'pnl' ? `Net PnL over ${list.window.label}` : 'Since Perpl launched on 11 Feb 2026: the index starts at the Exchange\'s deployment' };
+    }),
+  stats: (accountId: number) =>
+    memo(`stats:${accountId}`, async () => {
+      if (analyticsReader === undefined) throw new Error('no analytics');
+      const [month, lifetime] = await Promise.all([
+        analyticsReader.traders('30d', { query: String(accountId), limit: 1 }),
+        analyticsReader.traders('all', { query: String(accountId), limit: 1 }),
+      ]);
+      const mine = (rows: readonly TraderRow[]) => rows.find((r) => r.accountId === accountId);
+      return { accountId, month: mine(month.rows), lifetime: mine(lifetime.rows) };
+    }),
+};
+
 const bot =
   botConfig === undefined
     ? undefined
@@ -559,6 +614,8 @@ const bot =
           facts: (accountId) => watchLoop?.accountFacts(accountId),
           configs: () => watchLoop?.marketConfigs,
           refresh: async () => watchLoop?.evaluate(),
+          preferences: { get: (chatId) => preferences.get(chatId), set: (chatId, p) => preferences.set(chatId, p) },
+          traders: traderFigures,
         },
         settings: accountSettings,
         // Telegram refuses a URL button it cannot open, so a local-only
@@ -628,7 +685,13 @@ async function startWatchAlerts(): Promise<void> {
     // keyboard. The decision was already made per position above this line; a
     // subscription made in the last two minutes is spared first sights, which
     // its wallet screen has just shown.
-    recipients: (change) => watchRecipients(watchStore, change, Date.now()),
+    // ONLY "I cannot see it" and "I can see it again" now: crossing a distance
+    // is each chat's own warning levels (events/watchWarnings.ts), and
+    // sending both would warn twice about the same fall.
+    recipients: (change) =>
+      isBlind(change.assessment.state) || (change.previousState !== undefined && isBlind(change.previousState))
+        ? watchRecipients(watchStore, change, Date.now()).filter((r) => r.chatId === undefined || preferences.get(r.chatId).walletAlerts)
+        : [],
     logger: { error: warn, warn, info: log },
   });
   watchEngine.start();
@@ -641,7 +704,6 @@ async function startWatchAlerts(): Promise<void> {
 const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
 let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
-let analyticsReader: PostgresAnalytics | undefined;
 let analyticsVenue: PerplVenue | undefined;
 let analyticsNetworkConfig: NetworkConfig | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
@@ -729,7 +791,11 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     marks: () => watchVenue.getOpenInterest(),
     configs: () => watchVenue.getRiskConfigs(),
     staleMs: appConfig.staleMs,
-    onPositions: (pass) => void positionChanges?.observe(pass).catch((error) => warn(`events: position changes failed: ${error instanceof Error ? error.message : String(error)}`)),
+    onPositions: (pass) => {
+      const failed = (what: string) => (error: unknown) => warn(`events: ${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+      void positionChanges?.observe(pass).catch(failed('position changes'));
+      void watchWarnings?.observe(pass).catch(failed('warning levels'));
+    },
     logger: { info: log, warn },
   });
   fillDirections = new FillDirections({
@@ -747,7 +813,6 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
 // ledger. Links only: an event alert never carries an action.
 let eventEngine: EventEngine | undefined;
 let feedPoller: FeedPoller | undefined;
-let preferences: PreferenceStore = new InMemoryPreferenceStore();
 let ledgerPrune: ReturnType<typeof setInterval> | undefined;
 if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefined) {
   const feed = analyticsReader;
@@ -755,7 +820,6 @@ if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefine
   if (alertDb !== undefined) {
     try {
       ledger = await PostgresLedger.load(alertDb);
-      preferences = await PostgresPreferenceStore.load(alertDb);
     } catch (error) {
       warn(`events: the delivery ledger could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); deliveries are remembered in memory until the next restart`);
     }
@@ -790,6 +854,14 @@ if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefine
   });
   eventEngine.start();
   positionChanges = new PositionChanges(eventEngine);
+  watchWarnings = new WatchWarnings({
+    watchersOf: (accountId) => watchStore.watchersOf(accountId),
+    preferencesFor: (chatId) => preferences.get(chatId),
+    state: warningState,
+    sender,
+    render: { webUrl: /^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? undefined : PUBLIC_WEB_URL, watchEveryMs: 30_000 },
+    logger: { warn },
+  });
   feedPoller = new FeedPoller({
     feed,
     cursor: ledger,
@@ -929,6 +1001,7 @@ const app = createHealthApp({
   link: {
     service: linkService,
     wallet: walletChallenger,
+    logger: { info: log },
     network: network.name,
     ...(envAccountId === undefined ? {} : { envAccountId }),
     keyStorageConfigured: vault !== undefined,

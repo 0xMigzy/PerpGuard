@@ -1098,3 +1098,11 @@ test('known owners: lowercased, only accounts the index saw created, asked by id
   assert.deepEqual(sql.calls.find((c) => /from "Trader"/.test(c.sql))!.values[0], ['4908', '5303']);
   assert.equal((await reader(new FakeSql()).knownOwners([])).size, 0);
 });
+
+test('ROI: lifetime net PnL over lifetime deposits, withheld under 100 AUSD deposited', async () => {
+  const { roiPct } = await import('./pg.ts');
+  assert.equal(roiPct(21_147, 2_045)?.toFixed(1), '1034.1');
+  assert.equal(roiPct(-50, 200), -25);
+  assert.equal(roiPct(427, 99.99), undefined, 'under the floor: no ROI at all, not a huge one');
+  assert.equal(roiPct(0, 100), 0, 'at the floor counts');
+});

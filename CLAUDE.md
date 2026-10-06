@@ -602,10 +602,35 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   (Trading Account + network, Execution, Automation, Alerts) and the buttons
   Watch & Alerts, My Positions, Margin, Trading Account, Settings, Open
   PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON (owner, 6 Oct 2026): Rescue,
-  Copy Trading, the Kill Switch, Top Traders, Liquidations, Large Trades and
-  Alert Settings appear when their phase lands, never as a dead button; the
-  roadmap belongs in the README. A test walks every screen and fails on any
-  label for an unbuilt feature.
+  Copy Trading and the Kill Switch appear when their phase lands, never as a
+  dead button; the roadmap belongs in the README. A test walks every screen
+  and fails on any label for an unbuilt feature.
+- 👁 WATCH & ALERTS (Phase 8, `apps/bot/src/watchScreens.ts`): Watch Wallet
+  (the watched-wallets list; a new watch shows "✅ WALLET ADDED" and what will
+  be reported), Watchlist (a `starred` flag on `watch_subscriptions`, not a
+  second concept: 30D PnL and all-time ROI), Top Traders, Liquidations, Large
+  Trades, Warning Levels, Alert Settings. All public: they read the index or
+  change the chat's OWN settings (`alert_preferences`). EVERY SCREEN STATES
+  ITS LIMITS: index blocks behind, watched wallets re-read every 30 s, ~6% of
+  fills with no taker, direction sometimes not known, past results do not
+  predict returns.
+- ROI IS ALL TIME, WITH ITS DENOMINATOR, AND WITHHELD UNDER 100 AUSD DEPOSITED
+  (owner, 6 Oct 2026; `MIN_DEPOSIT_FOR_ROI_AUSD`). Lifetime net PnL over
+  lifetime deposits, so both cover the same period; never a window's PnL over
+  all-time deposits, never against current equity. The `roi` sort and ranking
+  read the lifetime rows whatever window is asked. The Top ROI board also
+  takes Top PnL's 10-round-trip floor (427 on 100 over 4 round trips is
+  +426%, and noise). Rendered "+1,034% on 2,045 AUSD deposited". Top PnL is
+  30 days. Not on the website.
+- WARNING LEVELS FOR WATCHED WALLETS (`events/warnings.ts`,
+  `events/watchWarnings.ts`): Early 20/10/5, Standard 10/5 (default), Late
+  5/2, Custom up to five (typed, force_reply), Off. Per (chat, account,
+  market): each level fires once, re-arms after recovering a quarter of the
+  level (at least half a point), a fall through several is one message, held
+  while blind, a new watch's first two minutes are a baseline, state persists
+  (`watch_warning_state`). The old watch engine now sends watchers only "I
+  cannot see it" and "I can see it again". The linked account keeps "Warn me
+  at"; the two are unified in Phases 13-14.
 - THE TRADING ACCOUNT SHOWS ACCOUNT, NETWORK AND EXECUTION AS SEPARATE FACTS
   (`apps/bot/src/trading.ts`): Execution is green only for a signed-in
   session that allows forwarding, and every other state is named with what to

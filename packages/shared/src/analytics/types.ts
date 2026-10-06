@@ -59,6 +59,17 @@ export const TIMEFRAMES: readonly Timeframe[] = ['24h', '7d', '30d', 'all'];
  */
 export const MIN_ROUND_TRIPS_FOR_RATIOS = 10;
 
+/**
+ * ROI IS ALL TIME AND HAS A FLOOR (owner, 6 Oct 2026). Lifetime net PnL over
+ * lifetime deposits, so the numerator and the denominator cover the same
+ * period: 30-day PnL over lifetime deposits compares a trader who deposited
+ * long ago with one who deposited last week, and the two numbers mean
+ * different things. Complete because the index starts at the Exchange's
+ * deployment. WITHHELD under 100 AUSD deposited: 50 AUSD made on 10 is 500%,
+ * and it means nothing. Always shown with its denominator.
+ */
+export const MIN_DEPOSIT_FOR_ROI_AUSD = 100;
+
 /** How long a timeframe covers, in milliseconds. `all` has no start. */
 export function timeframeMs(timeframe: Timeframe): number | undefined {
   switch (timeframe) {
@@ -921,10 +932,10 @@ export interface MarketPnl {
 
 // ── the Traders section ─────────────────────────────────────────────────────
 
-export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld' | 'deposits' | 'withdrawals' | 'netFlow' | 'netFlowAbs';
+export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld' | 'deposits' | 'withdrawals' | 'netFlow' | 'netFlowAbs' | 'roi';
 export type SortDirection = 'asc' | 'desc';
 
-export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld', 'deposits', 'withdrawals', 'netFlow', 'netFlowAbs'];
+export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld', 'deposits', 'withdrawals', 'netFlow', 'netFlowAbs', 'roi'];
 
 /** The sorts the Flows ranking lets a reader choose between. Every other ranking's order is fixed. */
 export const FLOW_SORT_KEYS: readonly TraderSortKey[] = ['netFlowAbs', 'netFlow', 'deposits', 'withdrawals'];
@@ -952,8 +963,8 @@ export const FLOW_SORT_KEYS: readonly TraderSortKey[] = ['netFlowAbs', 'netFlow'
  *                into Trader and TraderDay), NEVER a balance delta: a balance
  *                also moves on PnL, funding, fees and liquidations.
  */
-export type TraderRanking = 'pnl' | 'losses' | 'volume' | 'liquidated' | 'spare' | 'flows';
-export const TRADER_RANKINGS: readonly TraderRanking[] = ['pnl', 'losses', 'volume', 'liquidated', 'spare', 'flows'];
+export type TraderRanking = 'pnl' | 'losses' | 'volume' | 'liquidated' | 'spare' | 'flows' | 'roi';
+export const TRADER_RANKINGS: readonly TraderRanking[] = ['pnl', 'losses', 'volume', 'liquidated', 'spare', 'flows', 'roi'];
 
 /**
  * Which rows the list's windowed columns were summed over.
@@ -1007,6 +1018,12 @@ export interface TraderRow {
   readonly freeBalanceAusd: number;
   readonly openPositionCount: number;
   readonly lastActiveAtMs: number;
+  /**
+   * Lifetime net PnL over lifetime deposits, in percent. ONLY on an all-time
+   * list (see MIN_DEPOSIT_FOR_ROI_AUSD), and undefined under the deposit
+   * floor. Render it with `depositedAusd` beside it, always.
+   */
+  readonly roiPct: number | undefined;
 }
 
 export interface TraderList {

@@ -18,7 +18,7 @@
  */
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName } from '@perpguard/shared';
+import type { ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
@@ -47,8 +47,27 @@ import { buildMessage } from '@perpguard/backend/alerts/render';
 import { esc, pct } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { warnLevelByIndex, warnLevelInfo } from '@perpguard/backend/risk/warn';
-import { decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
+import { OFF_LEVEL, decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
 import { EXECUTION_UNKNOWN, executionState, type ExecutionState } from './trading.ts';
+import {
+  WARNING_LEVELS_PROMPT,
+  alertSettingsScreen,
+  largeTradesScreen,
+  liquidationsScreen,
+  presetAt,
+  topListScreen,
+  topMenuScreen,
+  traderCardScreen,
+  walletAddedScreen,
+  walletsScreen,
+  warningCustomAskScreen,
+  warningLevelsScreen,
+  watchMenuScreen,
+  watchlistScreen,
+  type TraderStats,
+} from './watchScreens.ts';
+import { DEFAULT_PREFERENCES, InMemoryPreferenceStore, LARGE_TRADE_PRESETS_AUSD, LIQUIDATION_PRESETS_AUSD, type AlertPreferences } from '@perpguard/backend/events/preferences';
+import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
 import {
   WATCH_PLACEHOLDER,
@@ -57,10 +76,8 @@ import {
   connectGoScreen,
   connectUnavailableScreen,
   homeScreen,
-  watchMenuScreen,
   walletScreen,
   watchAskScreen,
-  watchlistScreen,
   type AccountFacts,
   type Screen,
 } from './screens.ts';
@@ -147,6 +164,13 @@ export interface BotDeps {
     readonly configs?: () => ReadonlyMap<number, MarketRiskConfig> | undefined;
     /** Run a watch pass now, so a freshly watched account shows at once. Bounded by the bot. */
     readonly refresh?: () => Promise<unknown>;
+    /** Each chat's own alert settings: feed thresholds, wallet alerts, warning levels. Defaults to in memory. */
+    readonly preferences?: { get(chatId: number): AlertPreferences; set(chatId: number, preferences: AlertPreferences): Promise<void> };
+    /** Top Traders and one trader's figures, from the index. Absent: those screens say so. */
+    readonly traders?: {
+      top(kind: 'pnl' | 'roi'): Promise<{ readonly rows: readonly TraderRow[]; readonly label: string }>;
+      stats(accountId: number): Promise<TraderStats>;
+    };
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
   readonly webUrl?: string;
@@ -370,11 +394,26 @@ export function createBot(deps: BotDeps): Bot {
     return accountScreen({ accountId: link.accountId, network: session?.view.network ?? deps.tradingNetwork, execution: executionFor(link) });
   };
 
-  const watchlist = (chatId: number): Screen => {
+  const preferences = deps.watch?.preferences ?? new InMemoryPreferenceStore();
+  const prefsOf = (chatId: number): AlertPreferences => preferences.get(chatId) ?? DEFAULT_PREFERENCES;
+
+  /** 👛 Every wallet this chat watches. */
+  const wallets = (chatId: number): Screen => {
     const watch = deps.watch;
     if (watch === undefined) return { html: watchUnavailable, buttons: [[{ text: '← Back', route: { to: 'home' } }]] };
     const rows = watch.store.byChat(chatId).map((sub) => ({ sub, assessments: watchedAssessments(sub.accountId), facts: watch.facts?.(sub.accountId) }));
-    return watchlistScreen(rows, watch.store.maxPerChat);
+    return walletsScreen(rows, watch.store.maxPerChat);
+  };
+
+  /** ⭐ The starred ones, with their figures from the index (at most five, so five reads). */
+  const watchlist = async (chatId: number): Promise<Screen> => {
+    const watch = deps.watch;
+    if (watch === undefined) return { html: watchUnavailable, buttons: [[{ text: '← Back', route: { to: 'home' } }]] };
+    const starred = watch.store.byChat(chatId).filter((sub) => sub.starred === true);
+    const stats = await Promise.all(
+      starred.map((sub) => watch.traders?.stats(sub.accountId).catch(() => undefined) ?? Promise.resolve(undefined)),
+    );
+    return watchlistScreen(starred.map((sub, i) => stats[i] ?? { accountId: sub.accountId, month: undefined, lifetime: undefined }));
   };
 
   const wallet = (chatId: number, accountId: number, extra: { lead?: string; back?: Route } = {}): Screen =>
@@ -424,6 +463,35 @@ export function createBot(deps: BotDeps): Bot {
   }
 
   /** Ask what to watch, with force_reply, and park the question so the answer is heard. */
+  async function askWarningLevels(ctx: Context, text: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    amounts.delete(telegramUserId);
+    questions.ask(chatId, telegramUserId, { kind: 'warning-levels' });
+    await ctx.reply(text, { reply_markup: { force_reply: true, input_field_placeholder: '15 8 3' } });
+  }
+
+  /** Saves this chat's settings, toasting the result. False (and nothing changed) when it could not be saved. */
+  async function savePrefs(ctx: Context, chatId: number, next: AlertPreferences): Promise<boolean> {
+    try {
+      await preferences.set(chatId, next);
+    } catch {
+      await answer(ctx, 'I could not save that, so nothing changed. Try again in a moment.');
+      return false;
+    }
+    if (ctx.callbackQuery !== undefined) await ctx.answerCallbackQuery({ text: 'Saved.' });
+    return true;
+  }
+
+  /** The per-chat limit, for taps that read the index. */
+  async function tapWithinLimit(ctx: Context, chatId: number): Promise<boolean> {
+    const verdict = limiter.allow(String(chatId));
+    if (verdict.ok) return true;
+    await answer(ctx, `Slow down: try again in ${Math.ceil(verdict.retryInMs / 1000)}s.`);
+    return false;
+  }
+
   async function askWatchTarget(ctx: Context, text: string): Promise<void> {
     const chatId = ctx.chat?.id;
     const telegramUserId = ctx.from?.id;
@@ -454,7 +522,7 @@ export function createBot(deps: BotDeps): Bot {
     }
     const added = watch.store.add({ chatId, accountId: resolved.accountId, label: labelFor(target, resolved), addedAtMs: now() });
     if (!added.ok) {
-      await sendScreen(ctx, { html: added.text, buttons: [[{ text: '⭐ Watchlist', route: { to: 'watchlist' } }]] });
+      await sendScreen(ctx, { html: added.text, buttons: [[{ text: '👛 Watched wallets', route: { to: 'wallets' } }]] });
       return true;
     }
     if (!added.already && watch.refresh !== undefined) {
@@ -462,11 +530,10 @@ export function createBot(deps: BotDeps): Bot {
       await Promise.race([watch.refresh().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, REFRESH_WAIT_MS).unref?.())]);
     }
     const how = resolved.resolvedBy === 'chain' ? ' (found through the Exchange contract)' : '';
-    const lead = added.already
-      ? `Already watching <b>#${resolved.accountId}</b>.`
-      : `Now watching <b>#${resolved.accountId}</b>${how}. I will message this chat when a position on it gets close to being closed.`;
-    const screen = wallet(chatId, resolved.accountId, { lead, back: { to: 'home' } });
-    await sendScreen(ctx, { ...screen, buttons: [[{ text: '⭐ Watchlist', route: { to: 'watchlist' } }, { text: '← Home', route: { to: 'home' } }]] });
+    await sendScreen(
+      ctx,
+      walletAddedScreen({ accountId: resolved.accountId, label: added.subscription.label, already: added.already, starred: added.subscription.starred === true, via: how }),
+    );
     return true;
   }
 
@@ -560,6 +627,23 @@ export function createBot(deps: BotDeps): Bot {
     if (commandOf(text) !== undefined) return;
 
     const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'warning-levels') {
+      const parsed = parseCustomLevels(text);
+      if ('error' in parsed) {
+        await askWarningLevels(ctx, `${parsed.error}\n\n${WARNING_LEVELS_PROMPT.replace(/<\/?b>/g, '')}`);
+        return;
+      }
+      const next = { ...prefsOf(chatId), warningLevels: parsed.levels };
+      try {
+        await preferences.set(chatId, next);
+      } catch {
+        await ctx.reply('I could not save that, so nothing changed. Try again in a moment.');
+        return;
+      }
+      questions.close(chatId, telegramUserId);
+      await sendScreen(ctx, warningLevelsScreen(next.warningLevels));
+      return;
+    }
     if (question?.kind === 'watch-target') {
       if (!(await withinLimit(ctx))) return;
       const target = parseWatchArgument(text);
@@ -636,11 +720,105 @@ export function createBot(deps: BotDeps): Bot {
         questions.close(chatId, telegramUserId);
         await showScreen(ctx, home(chatId, telegramUserId));
         return;
-      case 'watch-menu':
+      case 'watch-menu': {
         await ctx.answerCallbackQuery();
         questions.close(chatId, telegramUserId);
-        await showScreen(ctx, watchMenuScreen(deps.watch?.store.byChat(chatId).length ?? 0, deps.watch?.store.maxPerChat ?? 0));
+        const subs = deps.watch?.store.byChat(chatId) ?? [];
+        await showScreen(ctx, watchMenuScreen({ watching: subs.length, starred: subs.filter((s) => s.starred === true).length, maxPerChat: deps.watch?.store.maxPerChat ?? 0, health: deps.watch?.indexerHealth?.() }));
         return;
+      }
+      case 'wallets':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, wallets(chatId));
+        return;
+      case 'star':
+      case 'unstar': {
+        const on = route.to === 'star';
+        const changed = deps.watch?.store.star(chatId, route.accountId, on) ?? false;
+        await ctx.answerCallbackQuery({ text: changed ? (on ? `#${route.accountId} is on your Watchlist.` : `#${route.accountId} is off your Watchlist.`) : `You are not watching #${route.accountId} here.` });
+        await showScreen(ctx, await watchlist(chatId));
+        return;
+      }
+      case 'top':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, topMenuScreen());
+        return;
+      case 'top-pnl':
+      case 'top-roi': {
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        const kind = route.to === 'top-pnl' ? 'pnl' : 'roi';
+        const top = await deps.watch?.traders?.top(kind).catch(() => undefined);
+        await showScreen(ctx, top === undefined ? { html: 'I cannot read the leaderboard right now. Try again in a minute.', buttons: [[{ text: '← Back', route: { to: 'top' } }]] } : topListScreen(kind, top.rows, top.label));
+        return;
+      }
+      case 'trader': {
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        const stats = await deps.watch?.traders?.stats(route.accountId).catch(() => undefined);
+        const sub = deps.watch?.store.byChat(chatId).find((x) => x.accountId === route.accountId);
+        await showScreen(
+          ctx,
+          stats === undefined
+            ? { html: `I cannot read #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] }
+            : traderCardScreen({ stats, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
+        );
+        return;
+      }
+      case 'liq':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, liquidationsScreen(prefsOf(chatId).liquidationMinAusd));
+        return;
+      case 'big':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, largeTradesScreen(prefsOf(chatId).largeTradeMinAusd));
+        return;
+      case 'liq-set':
+      case 'big-set': {
+        const presets = route.to === 'liq-set' ? LIQUIDATION_PRESETS_AUSD : LARGE_TRADE_PRESETS_AUSD;
+        const value = route.level === OFF_LEVEL ? undefined : presets[route.level];
+        if (route.level !== OFF_LEVEL && value === undefined) {
+          await answer(ctx, 'I do not know that setting.');
+          return;
+        }
+        const before = prefsOf(chatId);
+        const next = route.to === 'liq-set' ? { ...before, liquidationMinAusd: value } : { ...before, largeTradeMinAusd: value };
+        if (!(await savePrefs(ctx, chatId, next))) return;
+        await showScreen(ctx, route.to === 'liq-set' ? liquidationsScreen(next.liquidationMinAusd) : largeTradesScreen(next.largeTradeMinAusd));
+        return;
+      }
+      case 'warn-levels':
+        await ctx.answerCallbackQuery();
+        questions.close(chatId, telegramUserId);
+        await showScreen(ctx, warningLevelsScreen(prefsOf(chatId).warningLevels));
+        return;
+      case 'warn-preset': {
+        const levels = presetAt(route.level);
+        if (levels === undefined) {
+          await answer(ctx, 'I do not know that setting.');
+          return;
+        }
+        const next = { ...prefsOf(chatId), warningLevels: levels };
+        if (!(await savePrefs(ctx, chatId, next))) return;
+        await showScreen(ctx, warningLevelsScreen(next.warningLevels));
+        return;
+      }
+      case 'warn-custom':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, warningCustomAskScreen());
+        await askWarningLevels(ctx, '↩️ Reply with your levels here.');
+        return;
+      case 'alert-settings':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, alertSettingsScreen(prefsOf(chatId)));
+        return;
+      case 'wallet-alerts': {
+        const before = prefsOf(chatId);
+        const next = { ...before, walletAlerts: !before.walletAlerts };
+        if (!(await savePrefs(ctx, chatId, next))) return;
+        await showScreen(ctx, alertSettingsScreen(next));
+        return;
+      }
       case 'watch-ask':
         await ctx.answerCallbackQuery();
         if (deps.watch === undefined) {
@@ -664,8 +842,9 @@ export function createBot(deps: BotDeps): Bot {
         return;
       }
       case 'watchlist':
+        if (!(await tapWithinLimit(ctx, chatId))) return;
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, watchlist(chatId));
+        await showScreen(ctx, await watchlist(chatId));
         return;
       case 'wallet':
         await ctx.answerCallbackQuery();
@@ -674,7 +853,7 @@ export function createBot(deps: BotDeps): Bot {
       case 'unwatch': {
         const removed = deps.watch?.store.remove(chatId, route.accountId) ?? false;
         await ctx.answerCallbackQuery({ text: removed ? `Stopped watching #${route.accountId}.` : `You were not watching #${route.accountId}.` });
-        const list = watchlist(chatId);
+        const list = wallets(chatId);
         await showScreen(ctx, { ...list, html: `${removed ? `Stopped watching <b>#${route.accountId}</b>.` : `You were not watching <b>#${route.accountId}</b>.`}\n\n${list.html}` });
         return;
       }

@@ -16,7 +16,9 @@
     "./alerts/test-support": "./src/alerts/testSupport.ts",
     "./actions": "./src/actions/index.ts",
     "./actions/types": "./src/actions/types.ts",
-    "./protect": "./src/server/protect/types.ts"
+    "./protect": "./src/server/protect/types.ts",
+    "./events/preferences": "./src/events/preferences.ts",
+    "./events/warnings": "./src/events/warnings.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -167,27 +167,6 @@ export function homeScreen(input: HomeInput): Screen {
   return { html: lines.join('\n'), buttons };
 }
 
-// ── watch & alerts ──────────────────────────────────────────────────────────
-
-/** Read-only by construction: every button here is public. More arrives with Phase 8. */
-export function watchMenuScreen(watching: number, maxPerChat: number): Screen {
-  return {
-    html: [
-      '👁 <b>WATCH & ALERTS</b>',
-      'Read-only. No wallet, no key.',
-      '',
-      watching === 0 ? 'Not watching anything yet.' : `Watching <b>${watching} of ${maxPerChat}</b> wallets. You get a message when one of their positions gets close to being closed.`,
-    ].join('\n'),
-    buttons: [
-      [
-        { text: '👛 Watch Wallet', route: { to: 'watch-ask' } },
-        { text: '⭐ Watchlist', route: { to: 'watchlist' } },
-      ],
-      [BACK_HOME],
-    ],
-  };
-}
-
 /** The position nearest its closing price among those that can be priced. */
 export function closestOf(assessments: readonly RiskAssessment[]): RiskAssessment | undefined {
   let best: RiskAssessment | undefined;
@@ -204,7 +183,7 @@ export const WATCH_PROMPT = 'Send me an address or an account id.\nEither works.
 export const WATCH_PLACEHOLDER = '0x… or 710';
 
 export function watchAskScreen(): Screen {
-  return { html: WATCH_PROMPT, buttons: [[BACK_TO_WATCH]] };
+  return { html: WATCH_PROMPT, buttons: [[{ text: '← Back', route: { to: 'wallets' } }]] };
 }
 
 // ── the watch list ──────────────────────────────────────────────────────────
@@ -232,28 +211,6 @@ export function watchlistLine(row: WatchlistRow): string {
   return `${id} · ${what} · <b>${shortDistance(closest?.liqBufferPct)}</b>`;
 }
 
-export function watchlistScreen(rows: readonly WatchlistRow[], maxPerChat: number): Screen {
-  if (rows.length === 0) {
-    return {
-      html: '⭐ <b>WATCHLIST</b>\nYou are not watching anything yet. Watch any Perpl account by its address or account id — no wallet needed.',
-      buttons: [[{ text: '👛 Watch Wallet', route: { to: 'watch-ask' } }], [BACK_TO_WATCH]],
-    };
-  }
-  const html = [
-    `⭐ <b>WATCHLIST</b> · ${rows.length} of ${maxPerChat}`,
-    '',
-    ...rows.map(watchlistLine),
-    '',
-    `<i>${DISTANCE_EXPLAINED}</i>`,
-  ].join('\n');
-  const wallets: Button[][] = [];
-  for (let i = 0; i < rows.length; i += 3) {
-    wallets.push(rows.slice(i, i + 3).map((row) => ({ text: `#${row.sub.accountId}`, route: { to: 'wallet', accountId: row.sub.accountId } }) as Button));
-  }
-  const more: Button[] = rows.length < maxPerChat ? [{ text: '👛 Watch another', route: { to: 'watch-ask' } }] : [];
-  return { html, buttons: [...wallets, ...(more.length === 0 ? [] : [more]), [BACK_TO_WATCH]] };
-}
-
 // ── one watched wallet ──────────────────────────────────────────────────────
 
 export interface WalletInput {
@@ -270,7 +227,7 @@ export interface WalletInput {
 
 export function walletScreen(input: WalletInput): Screen {
   const id = `#${input.accountId}`;
-  const back: Button = { text: '← Back', route: input.back ?? { to: 'watchlist' } };
+  const back: Button = { text: '← Back', route: input.back ?? { to: 'wallets' } };
   if (input.sub === undefined) {
     return { html: `You are not watching ${id} in this chat.`, buttons: [[{ text: `👛 Watch ${id}`, route: { to: 'watch-ask' } }], [back]] };
   }

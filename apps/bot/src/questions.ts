@@ -15,7 +15,9 @@
 
 export type Question =
   /** "Send me an address or an account id." */
-  | { readonly kind: 'watch-target' };
+  | { readonly kind: 'watch-target' }
+  /** "Send up to five levels, like 15 8 3." */
+  | { readonly kind: 'warning-levels' };
 
 interface Parked {
   readonly question: Question;

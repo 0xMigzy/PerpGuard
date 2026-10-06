@@ -90,7 +90,7 @@ import type {
 import type { BackstopHistory } from './exposure.ts';
 import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
 import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, LeverageBaseline, WalletInsightFacts } from './types.ts';
-import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
+import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -779,6 +779,9 @@ select p.market_id as id, m.name,
  * The win rate SORTS WITH THE FLOOR: an account under it has no rate and
  * sorts last in either direction, the same rule the UI applies to an unknown.
  */
+/** The ROI floor in AUSD micros. AUSD is 6 decimals (CLAUDE.md). */
+const MIN_DEPOSIT_FOR_ROI_CNS = MIN_DEPOSIT_FOR_ROI_AUSD * 1_000_000;
+
 const TRADER_SORT: Record<TraderSortKey, string> = {
   netPnl: 'w.net_pnl',
   volume: 'w.volume',
@@ -792,6 +795,8 @@ const TRADER_SORT: Record<TraderSortKey, string> = {
   withdrawals: 'w.withdrawn',
   netFlow: '(w.deposited - w.withdrawn)',
   netFlowAbs: 'abs(w.deposited - w.withdrawn)',
+  // Numeric, never a ::text alias (see CLAUDE.md). Null under the floor, so it sorts last.
+  roi: `case when w.deposited >= ${MIN_DEPOSIT_FOR_ROI_CNS} then w.net_pnl::numeric / w.deposited end`,
 };
 
 /**
@@ -812,6 +817,9 @@ const TRADER_RANKING: Record<
   liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'trades' },
   spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false, activity: 'trades' },
   flows: { sort: 'netFlowAbs', direction: 'desc', where: 'true', floor: false, activity: 'flows', sortable: FLOW_SORT_KEYS },
+  // ALL TIME ONLY: `traders()` reads the lifetime rows for it whatever window is asked. The board
+  // also takes Top PnL's round-trip floor: 427 made on 100 over 4 round trips is +426% and noise.
+  roi: { sort: 'roi', direction: 'desc', where: `w.deposited >= ${MIN_DEPOSIT_FOR_ROI_CNS} and w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
 };
 
 const TRADER_SOURCE_LIFETIME = `
@@ -1856,7 +1864,9 @@ export class PostgresAnalytics implements Analytics, ActivityFeed {
     const where = rule === undefined ? 'true' : search === undefined ? rule.where : rule.floor ? 'true' : rule.where;
     const floorApplied = rule?.floor === true && search === undefined;
 
-    const { window, start } = traderWindow(timeframe, now);
+    // ROI is lifetime over lifetime, whatever window was asked: never a window's PnL over all-time deposits.
+    const lifetimeOnly = sort === 'roi';
+    const { window, start } = traderWindow(lifetimeOnly ? 'all' : timeframe, now);
     const rows = await this.#rows(tradersSql(start === null, sort, direction, where, rule?.activity ?? 'trades'), [
       limit,
       offset,
@@ -1888,6 +1898,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed {
         freeBalanceAusd: toAusd(row['free_balance'], decimals),
         openPositionCount: count(row['open_positions']),
         lastActiveAtMs: requireMs(row['last_active']),
+        roiPct: start === null ? roiPct(toAusd(row['net_pnl'], decimals), toAusd(row['deposited'], decimals)) : undefined,
       };
     });
     return {
@@ -2051,4 +2062,9 @@ function meanRate(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? fundingUnitsToPct(parsed) : undefined;
+}
+
+/** Lifetime ROI in percent, or undefined under the deposit floor. Pure. */
+export function roiPct(netPnlAusd: number, depositedAusd: number): number | undefined {
+  return depositedAusd >= MIN_DEPOSIT_FOR_ROI_AUSD ? (netPnlAusd / depositedAusd) * 100 : undefined;
 }

@@ -28,6 +28,8 @@ export interface WatchSubscription {
   /** How the watcher named it: the address they typed (lowercased) or `#<id>`. */
   readonly label: string;
   readonly addedAtMs: number;
+  /** On this chat's Watchlist: a trader they follow closely, and may copy later. */
+  readonly starred?: boolean;
 }
 
 export type WatchAddResult =
@@ -37,6 +39,8 @@ export type WatchAddResult =
 export interface WatchStore {
   add(subscription: WatchSubscription): WatchAddResult;
   remove(chatId: number, accountId: number): boolean;
+  /** Puts a watched account on, or takes it off, this chat's Watchlist. False when it is not watched here. */
+  star(chatId: number, accountId: number, starred: boolean): boolean;
   /** What one chat follows, oldest first. */
   byChat(chatId: number): readonly WatchSubscription[];
   /** Every account anybody follows: what the watch loop assesses. */
@@ -77,7 +81,7 @@ export class InMemoryWatchStore implements WatchStore {
       return {
         ok: false,
         refusal: 'chat-at-capacity',
-        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from the Watchlist first.`,
+        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from Watched wallets first.`,
       };
     }
     // A new DISTINCT account counts against the bot-wide cap; following one
@@ -98,6 +102,13 @@ export class InMemoryWatchStore implements WatchStore {
     const removed = chat?.delete(accountId) ?? false;
     if (chat !== undefined && chat.size === 0) this.#byChat.delete(chatId);
     return removed;
+  }
+
+  star(chatId: number, accountId: number, starred: boolean): boolean {
+    const sub = this.#byChat.get(chatId)?.get(accountId);
+    if (sub === undefined) return false;
+    this.#set({ ...sub, starred });
+    return true;
   }
 
   byChat(chatId: number): readonly WatchSubscription[] {

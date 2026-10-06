@@ -14,7 +14,10 @@
  * any callback from a chat that is not linked.
  */
 import type { FillAction } from '@perpguard/shared';
-import { esc } from '../alerts/plain.ts';
+import type { MarketRiskConfig } from '@perpguard/shared';
+import { esc, freeVerdict, freshness, held, watchedPositionLines } from '../alerts/plain.ts';
+import type { RiskAssessment } from '../risk/types.ts';
+import { levelsLabel, severityOf } from './warnings.ts';
 import type { EventFreshness, LargeTradeEvent, LiquidationEvent, PerpEvent, PositionChangeEvent } from './types.ts';
 
 export const EXPLORER_TX_URL = 'https://monadscan.com/tx/';
@@ -127,4 +130,27 @@ export function renderEvent(event: PerpEvent, why: 'watching' | 'feed', ctx: Ren
     default:
       return renderPositionChange(event, ctx);
   }
+}
+
+/**
+ * A watched position reaching one of the chat's warning levels (spec 28):
+ * the level it reached, the position in the screen's own lines, what they hold
+ * free against it, and how fresh all of that is. Links only.
+ */
+export function renderWarning(assessment: RiskAssessment, level: number, levels: readonly number[], market: MarketRiskConfig | undefined, ctx: RenderContext): RenderedEvent {
+  const scope = assessment.watch!;
+  const distancePct = (assessment.liqBufferPct ?? 0) * 100;
+  const s = severityOf(level, levels, distancePct);
+  const lines = [
+    `⚠️ <b>RISK WARNING — ${s.word}</b> ${s.dot}`,
+    `<b>#${scope.accountId}</b> reached your ${level}% level${distancePct <= 0 ? ', and is past its closing price' : ''}.`,
+    '',
+    ...watchedPositionLines(assessment, market),
+    '',
+  ];
+  if (scope.freeBalanceCNS !== undefined) lines.push(`They hold free ${held(scope.freeBalanceCNS)}`);
+  lines.push(freeVerdict(scope, [assessment]));
+  lines.push(`<i>You warn at ${levelsLabel(levels)}. Each level warns once and waits for the position to recover before it can warn again.</i>`);
+  lines.push(freshness(scope, assessment));
+  return { html: lines.join('\n'), links: traderLink(scope.accountId, ctx) };
 }

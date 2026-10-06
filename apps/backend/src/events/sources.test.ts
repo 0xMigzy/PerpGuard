@@ -15,7 +15,7 @@ test('position changes: first pass is a baseline; an unwatched account is forgot
   const r = recorder();
   const changes = new PositionChanges(r.publisher);
   const pos = (sizeLots: number): OpenPosition => ({ market: BTC, side: 'long', sizeLots, entryPrice: 1, marginAusd: 1, leverage: 1, openedAtMs: 1, marginAddedAusd: 0 });
-  const pass = (watched: number[], reads: [number, OpenPosition[]][]) => ({ seenAtMs: 1, indexerBlock: 5, blocksBehind: 2, watched, reads: new Map(reads) });
+  const pass = (watched: number[], reads: [number, OpenPosition[]][]) => ({ seenAtMs: 1, indexerBlock: 5, blocksBehind: 2, watched, reads: new Map(reads), assessments: [], configs: new Map() });
   await changes.observe(pass([7], [[7, [pos(1)]]]));
   assert.equal(r.got.length, 0, 'baseline');
   await changes.observe(pass([7], [[7, [pos(2)]]]));

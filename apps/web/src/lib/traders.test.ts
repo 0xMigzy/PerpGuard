@@ -112,7 +112,7 @@ test('the CSV keeps the backend order, leaves unserved fields empty and quotes w
   const base = {
     accountId: 1, address: '0xabc', netPnlAusd: 12.5, volumeAusd: 1000, tradeCount: 4, roundTrips: 12, wins: 9, losses: 3, winRate: 0.75,
     liquidationCount: 2, rescuableLiquidationCount: 1, marginLostAusd: 5, maxSpareHeldAusd: 40, freeBalanceAusd: 1, openPositionCount: 0, lastActiveAtMs: 0,
-    depositedAusd: 1_000, withdrawnAusd: 250.5, netFlowAusd: 749.5,
+    depositedAusd: 1_000, withdrawnAusd: 250.5, netFlowAusd: 749.5, roiPct: undefined,
   };
   const csv = tradersCsv([base, { ...base, accountId: 2, address: '', netPnlAusd: -3, roundTrips: 2, wins: 1, winRate: undefined }], 'Top PnL', 'Sep 4, 2026 – Oct 4, 2026');
   const lines = csv.trimEnd().split('\r\n');
@@ -138,7 +138,7 @@ test('the Flows CSV has its own five columns and leaves an unrecorded owner empt
   const row = {
     accountId: 7, address: '0xabc', netPnlAusd: 0, volumeAusd: 0, tradeCount: 0, roundTrips: 0, wins: 0, losses: 0, winRate: undefined,
     liquidationCount: 0, rescuableLiquidationCount: 0, marginLostAusd: 0, maxSpareHeldAusd: undefined, freeBalanceAusd: 0, openPositionCount: 0, lastActiveAtMs: 0,
-    depositedAusd: 1_000, withdrawnAusd: 1_250.5, netFlowAusd: -250.5,
+    depositedAusd: 1_000, withdrawnAusd: 1_250.5, netFlowAusd: -250.5, roiPct: undefined,
   };
   const lines = flowsCsv([row, { ...row, accountId: 8, address: '' }]).trimEnd().split('\r\n');
   assert.equal(lines[0], 'Account,Account ID,Deposits (AUSD),Withdrawals (AUSD),Net Flow (AUSD)');

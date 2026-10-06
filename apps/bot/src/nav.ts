@@ -24,6 +24,28 @@ export type Route =
   /** Confirm a bare number pasted without being asked: is it an account id to watch? */
   | { readonly to: 'watch-id'; readonly accountId: number }
   | { readonly to: 'watchlist' }
+  /** 👛 Every wallet this chat watches. */
+  | { readonly to: 'wallets' }
+  /** ⭐ Put a watched wallet on, or take it off, the Watchlist. */
+  | { readonly to: 'star'; readonly accountId: number }
+  | { readonly to: 'unstar'; readonly accountId: number }
+  /** 🏆 Top Traders: Top PnL (30 days) and Top ROI (all time), and one trader's card. */
+  | { readonly to: 'top' }
+  | { readonly to: 'top-pnl' }
+  | { readonly to: 'top-roi' }
+  | { readonly to: 'trader'; readonly accountId: number }
+  /** 💥 / 🐋 The feeds' thresholds: `level` is the preset's index, or OFF_LEVEL. */
+  | { readonly to: 'liq' }
+  | { readonly to: 'liq-set'; readonly level: number }
+  | { readonly to: 'big' }
+  | { readonly to: 'big-set'; readonly level: number }
+  /** ⚠️ Warning levels for watched wallets: a preset by index, OFF_LEVEL, or typed. */
+  | { readonly to: 'warn-levels' }
+  | { readonly to: 'warn-preset'; readonly level: number }
+  | { readonly to: 'warn-custom' }
+  /** ⚙️ Alert Settings, and the wallet-alerts switch. */
+  | { readonly to: 'alert-settings' }
+  | { readonly to: 'wallet-alerts' }
   | { readonly to: 'wallet'; readonly accountId: number }
   | { readonly to: 'unwatch'; readonly accountId: number }
   /** 🔐 Trading Account. Public: an unlinked chat sees "Not connected" and how to connect. */
@@ -54,6 +76,22 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'watch-ask': 'wa',
   'watch-id': 'wi',
   watchlist: 'wl',
+  wallets: 'ws',
+  star: 'st',
+  unstar: 'us',
+  top: 'tt',
+  'top-pnl': 'tp',
+  'top-roi': 'tr',
+  trader: 'tc',
+  liq: 'lq',
+  'liq-set': 'lqs',
+  big: 'lt',
+  'big-set': 'lts',
+  'warn-levels': 'wv',
+  'warn-preset': 'wp',
+  'warn-custom': 'wc',
+  'alert-settings': 'as',
+  'wallet-alerts': 'wt',
   wallet: 'w',
   unwatch: 'uw',
   account: 'ta',
@@ -73,6 +111,12 @@ const NAME_BY_CODE = new Map<string, RouteName>(Object.entries(CODE).map(([name,
 /** Routes whose single argument is required, and what it is called. */
 const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   wallet: 'accountId',
+  star: 'accountId',
+  unstar: 'accountId',
+  trader: 'accountId',
+  'liq-set': 'level',
+  'big-set': 'level',
+  'warn-preset': 'level',
   unwatch: 'accountId',
   'watch-id': 'accountId',
   position: 'marketId',
@@ -86,7 +130,15 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
  * for an unlinked chat says "Not connected" and how to connect. Nothing here touches an
  * account, a position or money.
  */
-const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>(['home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go']);
+const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>([
+  'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go',
+  // Phase 8: read the index, or change this chat's OWN alert settings. Nothing touches an account.
+  'wallets', 'star', 'unstar', 'top', 'top-pnl', 'top-roi', 'trader', 'liq', 'liq-set', 'big', 'big-set',
+  'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
+]);
+
+/** The `level` that means Off on the threshold and warning routes. */
+export const OFF_LEVEL = 9;
 
 export function isPublicRoute(route: Route): boolean {
   return PUBLIC.has(route.to);
