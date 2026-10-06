@@ -36,11 +36,29 @@ export function LinkView() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      // A code opens the session; without one, an existing cookie may still be live.
+      // SURVIVE A RELOAD (6 Oct 2026): coming back from the wallet app often reloads the
+      // page with the already-used code still in the address. The code comes out of the
+      // address once it has opened the session, and a refused code falls back to the
+      // session this browser already holds before the page says the link has ended.
+      const forget = () => {
+        if (code !== '' && typeof window !== 'undefined') window.history.replaceState(null, '', '/link');
+      };
       try {
-        // A code opens the session; without one, an existing cookie may still be live.
         const me = code === '' ? await link.me() : await link.session(code);
+        forget();
         if (alive) setPhase({ kind: 'ready', me });
       } catch (error) {
+        if (code !== '') {
+          try {
+            const me = await link.me();
+            forget();
+            if (alive) setPhase({ kind: 'ready', me });
+            return;
+          } catch {
+            // No live session either: the code's refusal is the answer.
+          }
+        }
         if (!alive) return;
         const reason = error instanceof ApiError && error.status === 401 ? error.message : describeError(error);
         setPhase({ kind: 'no-session', reason });
@@ -86,6 +104,8 @@ export function LinkView() {
     if (s.trading.forwardingAllowed === false) return "This account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it.";
     return 'PerpGuard is watching it now. Alerts in your Telegram chat come with buttons to act.';
   };
+  const executionOk = (l: NonNullable<LinkMe['link']>): boolean =>
+    l.needsRelink === undefined && l.session !== undefined && l.session.mismatch === undefined && l.session.trading.state === 'signed-in' && l.session.trading.forwardingAllowed !== false;
 
   return (
     <>
@@ -110,7 +130,17 @@ export function LinkView() {
           <h2 className="m-0 mt-1 text-[18px] font-bold tracking-[-0.02em]">
             Perpl account #{linked.accountId}
           </h2>
-          <p className="mt-1 mb-0 text-[12.5px] text-muted">Confirmed with {linked.proof === 'wallet' ? 'your wallet' : 'an API key'}.</p>
+          {/* THE THREE STATES, NEVER COLLAPSED: which wallet, whether it proved ownership, whether PerpGuard may act. */}
+          <dl className="mt-3 mb-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+            <dt className="text-muted">Wallet</dt>
+            <dd className="num m-0">{linked.wallet === undefined ? <span className="text-muted">None on record</span> : `${linked.wallet.address.slice(0, 6)}…${linked.wallet.address.slice(-4)}`}</dd>
+            <dt className="text-muted">Ownership</dt>
+            <dd className="m-0">
+              {linked.wallet !== undefined ? '✅ Verified by wallet signature' : linked.proof === 'key' ? '⚪ Not verified by a wallet: connected with an API key' : "⚪ Not verified: linked as this deployment's owner"}
+            </dd>
+            <dt className="text-muted">Execution</dt>
+            <dd className="m-0">{executionOk(linked) ? `🟢 Authorized · ${linked.proof === 'key' ? 'your API key' : "this deployment's own key"}` : '⚪ Not authorized right now'}</dd>
+          </dl>
           <p className="mt-2 text-[13px] text-muted">{stateLine(linked)}</p>
           <button
             type="button"
@@ -136,8 +166,8 @@ export function LinkView() {
 
       {me.provenAccountId !== null && linked === null && (
         <div role="status" className="mb-4 rounded-[10px] border border-watch/40 bg-watch/10 px-4 py-3 text-[13px]">
-          <b className="text-watch">Your wallet owns Perpl account #{me.provenAccountId}.</b>{' '}
-          <span className="text-muted">To use the buttons, PerpGuard also needs an API key for it. Paste one below to finish.</span>
+          <div><b>Ownership:</b> ✅ verified. Your wallet owns Perpl account #{me.provenAccountId} on {me.network}.</div>
+          <div className="mt-1"><b className="text-watch">Execution:</b> <span className="text-muted">not yet. For the buttons to act, PerpGuard needs an API key for account #{me.provenAccountId}: paste it below.</span></div>
         </div>
       )}
 
@@ -154,13 +184,14 @@ export function LinkView() {
           </p>
           {me.walletSignIn ? (
             <WalletProofCard
+              verifiedAddress={me.wallet?.address}
               onProof={(proof: WalletProof, next: LinkMe) => {
                 setPhase({ kind: 'ready', me: next });
                 setNotice(
                   proof.kind === 'linked'
                     ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}. Alerts in your Telegram chat now come with buttons to act.` }
                     : proof.kind === 'proven-needs-key'
-                      ? { tone: 'warn', text: proof.reason }
+                      ? undefined // the Ownership / Execution banner says it, once
                       : { tone: 'bad', text: proof.reason },
                 );
               }}

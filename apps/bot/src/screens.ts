@@ -282,6 +282,28 @@ export interface AccountScreenInput {
   readonly accountId: number | undefined;
   readonly network: NetworkName | undefined;
   readonly execution: ExecutionState | undefined;
+  /** How the link is backed, FROM RECORDS (link service status). Undefined: not known here. */
+  readonly ownership?: { readonly proof: 'wallet' | 'key' | 'owner'; readonly walletAddress: string | undefined };
+}
+
+const shortAddress = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/**
+ * THE THREE STATES, NEVER COLLAPSED: which wallet, whether it PROVED it owns
+ * the account, and whether PerpGuard may EXECUTE on it (and with whose key).
+ */
+function ownershipLines(o: AccountScreenInput['ownership']): string[] {
+  if (o === undefined) return [];
+  return [
+    `Wallet: ${o.walletAddress === undefined ? 'None on record' : `<code>${shortAddress(o.walletAddress)}</code>`}`,
+    `Ownership: ${
+      o.walletAddress !== undefined
+        ? '✅ Verified by wallet signature'
+        : o.proof === 'key'
+          ? '⚪ Not verified by a wallet: connected with an API key'
+          : '⚪ Not verified: linked as this deployment\'s owner'
+    }`,
+  ];
 }
 
 /**
@@ -311,7 +333,8 @@ export function accountScreen(input: AccountScreenInput): Screen {
     '',
     `Account: <b>#${input.accountId}</b>`,
     `Network: ${networkLabel(input.network)}`,
-    `Execution: ${e === undefined ? '⚪ Unknown' : `${e.dot} ${esc(e.label)}`}`,
+    ...ownershipLines(input.ownership),
+    `Execution: ${e === undefined ? '⚪ Unknown' : `${e.dot} ${esc(e.label)}${e.dot === '🟢' && input.ownership !== undefined ? (input.ownership.proof === 'key' ? ' · your API key' : " · this deployment's own key") : ''}`}`,
     'Automation: ⚪ None',
   ];
   if (e?.next !== undefined) lines.push('', esc(e.next));

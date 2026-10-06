@@ -744,6 +744,32 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   other account proves ownership and still needs a key for it, and a key for
   a different account than the wallet proved is refused.
   (`apps/backend/src/server/link/{service,routes,crypto,stores}.ts`.)
+- THREE STATES, KEPT AND NEVER COLLAPSED (Phases 10-11, 6 Oct 2026): wallet
+  (connected in the browser), OWNERSHIP VERIFIED (`wallet_proofs`: the wallet
+  signed our challenge and the Exchange says it owns the account on the
+  trading network; kept across visits, deleted on unlink) and EXECUTION
+  AUTHORIZED (an API key sealed, or the deployment's own key). `LinkStatus`
+  reports them from records (`proof` is `key`, `wallet` or `owner`, never
+  inferred); the page and the bot's Trading Account show Wallet, Ownership
+  and Execution as three rows. A kept proof binds the key that follows only
+  while it waits for one; once linked, a key for another account is a switch.
+- THE PAGE IS ONE FLOW: the signature is requested AUTOMATICALLY when a
+  wallet connects (the owner failed the old second tap three times while
+  testing it), the card is neutral ("one more step") until the backend has
+  verified it, and green only for a wallet whose ownership is on record. A
+  used `?code=` is removed from the address once it opens the session, and a
+  refused code falls back to the session the browser holds, so returning
+  from the wallet app never shows "This link has ended".
+- A WALLET WHOSE ACCOUNT IS ON THE OTHER NETWORK IS TOLD SO BY NAME
+  (`lookupElsewhere`, the analytics network): "This wallet owns Perpl account
+  #4855 on mainnet. PerpGuard acts on testnet only for now". Nothing is ever
+  linked there. Found when the owner's Rabby wallet (mainnet #4855, nothing
+  on testnet) was refused as owning "no account".
+- EVERY PAGE OUTCOME LOGS a line with the client (user-agent, named; iOS
+  in-app Safari is indistinguishable from Safari and is said so) and an
+  8-character hash of the page session, never the code, message, signature
+  or key: code refused or redeemed, challenge issued, signature refused or
+  verified, and any request that arrives without a valid session cookie.
 - THE API KEY NEVER COMES BACK OUT. It is entered on the HTTPS page only
   (the form disables itself on plain HTTP off localhost), never asked for or
   accepted in Telegram, never echoed by any route, never logged, and sealed

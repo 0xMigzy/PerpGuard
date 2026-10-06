@@ -144,6 +144,8 @@ export interface BotDeps {
     unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }>;
     /** Why a linked account cannot be served right now (a rotated key, say). */
     needsRelink?(userId: string): string | undefined;
+    /** How the link is backed, from records: for the Trading Account's Wallet and Ownership rows. */
+    status?(userId: string): { readonly proof: 'wallet' | 'key' | 'owner'; readonly wallet: { readonly address: string } | undefined } | undefined;
   };
   /**
    * The public watch tier. Absent means `/watch` says it is not available on
@@ -391,7 +393,13 @@ export function createBot(deps: BotDeps): Bot {
     const link = linkHere(telegramUserId, chatId);
     if (link === undefined) return accountScreen({ accountId: undefined, network: deps.tradingNetwork, execution: undefined });
     const session = deps.sessions.forAccount(link.accountId);
-    return accountScreen({ accountId: link.accountId, network: session?.view.network ?? deps.tradingNetwork, execution: executionFor(link) });
+    const status = deps.link?.status?.(link.userId);
+    return accountScreen({
+      accountId: link.accountId,
+      network: session?.view.network ?? deps.tradingNetwork,
+      execution: executionFor(link),
+      ownership: status === undefined ? { proof: 'owner', walletAddress: undefined } : { proof: status.proof, walletAddress: status.wallet?.address },
+    });
   };
 
   const preferences = deps.watch?.preferences ?? new InMemoryPreferenceStore();

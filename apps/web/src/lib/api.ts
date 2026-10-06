@@ -152,7 +152,10 @@ export interface LinkSessionStatus {
 
 export interface LinkStatus {
   readonly accountId: number;
-  readonly proof: 'wallet' | 'key';
+  /** How it may execute, from records: an API key, a verified wallet on an account the deployment runs, or the deployment's owner. */
+  readonly proof: 'wallet' | 'key' | 'owner';
+  /** Verified ownership of this account, if a wallet proved it. */
+  readonly wallet: { readonly address: string; readonly provedAtMs: number } | undefined;
   readonly session: LinkSessionStatus | undefined;
   readonly needsRelink?: string;
 }
@@ -161,6 +164,8 @@ export interface LinkMe {
   readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
+  /** Ownership verified and kept: the wallet that signed, and the account it owns. */
+  readonly wallet: { readonly address: string; readonly accountId: number } | null;
   /** Wallet ownership by signed challenge is available on this page. */
   readonly walletSignIn: boolean;
   readonly keyStorageConfigured: boolean;

@@ -35,6 +35,7 @@ import type { SessionStatus } from '../../sessions/session.ts';
 import type { LinkCodeStore } from '../protect/session.ts';
 import { KeyRotatedError, type KeyVault, type SealedCredentials } from './crypto.ts';
 import type { KeyStore } from './stores.ts';
+import { InMemoryWalletProofStore, type WalletProofRecord, type WalletProofStore } from './proofs.ts';
 
 export interface Probe {
   readonly accountId: number | undefined;
@@ -57,6 +58,15 @@ export interface LinkServiceDeps {
   readonly probe: (credentials: SealedCredentials) => Promise<Probe>;
   /** Wallet -> account on the TRADING network's Exchange contract. */
   readonly lookupAccount: (address: string) => Promise<AccountLookup>;
+  /**
+   * Wallet -> account on ANOTHER network (mainnet, while trading is testnet),
+   * asked only when the trading network has none, so the refusal can name
+   * where the wallet's account actually is. Never linked to: acting there is
+   * switched off for this deployment.
+   */
+  readonly lookupElsewhere?: (address: string) => Promise<{ readonly network: string; readonly accountId: number } | undefined>;
+  /** Verified wallet ownership, kept. Absent: in memory only. */
+  readonly proofs?: WalletProofStore;
   readonly secretFromHex: (hex: string) => import('@perpguard/shared').ApiSecret;
   /** The account the process runs regardless of links; never closed by an unlink. */
   readonly envAccountId: number | undefined;
@@ -84,7 +94,15 @@ export type KeyProof =
 
 export interface LinkStatus {
   readonly accountId: number;
-  readonly proof: 'wallet' | 'key';
+  /**
+   * HOW IT IS AUTHORISED TO EXECUTE, from records, never inferred: `key` (an
+   * API key is sealed for it), `wallet` (a verified wallet, and the deployment
+   * runs the account with its own key), `owner` (linked as this deployment's
+   * configured owner, with no proof on record).
+   */
+  readonly proof: 'wallet' | 'key' | 'owner';
+  /** Verified ownership of THIS account, if a wallet proved it. */
+  readonly wallet: { readonly address: string; readonly provedAtMs: number } | undefined;
   readonly session: SessionStatus | undefined;
   /** Set when the stored key cannot be opened any more and the account must be re-linked. */
   readonly needsRelink?: string;
@@ -95,11 +113,18 @@ export class LinkService {
   readonly #now: () => number;
   /** Users whose stored key could not be opened at boot, and why. */
   readonly #needsRelink = new Map<string, string>();
+  readonly #proofs: WalletProofStore;
 
   constructor(deps: LinkServiceDeps) {
     if (deps.codes.purpose !== 'link') throw new Error(`the link service needs a code store made for 'link', not '${deps.codes.purpose}': a code minted for one purpose must never open another`);
     this.#deps = deps;
     this.#now = deps.now ?? Date.now;
+    this.#proofs = deps.proofs ?? new InMemoryWalletProofStore();
+  }
+
+  /** The verified wallet this identity proved, kept across page sessions. */
+  walletProof(userId: string): WalletProofRecord | undefined {
+    return this.#proofs.get(userId);
   }
 
   /** `/link`: a one-time code and the page that redeems it. */
@@ -123,9 +148,12 @@ export class LinkService {
     if (link === undefined) return undefined;
     const key = this.#deps.keys.get(userId);
     const needsRelink = this.#needsRelink.get(userId);
+    const proof = this.#proofs.get(userId);
+    const wallet = proof !== undefined && proof.accountId === link.accountId ? { address: proof.address, provedAtMs: proof.provedAtMs } : undefined;
     return {
       accountId: link.accountId,
-      proof: key === undefined ? 'wallet' : 'key',
+      proof: key !== undefined ? 'key' : wallet !== undefined ? 'wallet' : 'owner',
+      wallet,
       session: this.#deps.registry.get(link.accountId)?.status(),
       ...(needsRelink === undefined ? {} : { needsRelink }),
     };
@@ -146,6 +174,8 @@ export class LinkService {
         continue;
       }
       const accountId = lookup.accountId;
+      // OWNERSHIP VERIFIED, and kept: whatever happens next, this is now a fact on record.
+      this.#proofs.put({ userId: identity.userId, address: wallet.toLowerCase(), accountId, network: this.#deps.network ?? 'trading', provedAtMs: this.#now() });
       if (this.#deps.registry.get(accountId) !== undefined) {
         const bound = this.#bind(identity, accountId);
         if (!bound.ok) {
@@ -168,7 +198,22 @@ export class LinkService {
     }
     // The per-wallet detail is for the log; the person needs one sentence.
     this.#deps.logger.info(`link: ${identity.userId} wallet proof found no account: ${reasons.join(' ')}`);
-    return { kind: 'refused', reason: `That wallet doesn't own a Perpl account on ${this.#deps.network ?? 'this network'}. Sign in with the wallet you opened your Perpl account with.` };
+    const here = this.#deps.network ?? 'this network';
+    // NAME WHERE IT IS, when it is somewhere else: "that wallet owns no account" is
+    // a false sentence to someone whose account is on the other network.
+    for (const wallet of wallets) {
+      const elsewhere = await this.#deps.lookupElsewhere?.(wallet.toLowerCase()).catch(() => undefined);
+      if (elsewhere !== undefined) {
+        this.#deps.logger.info(`link: ${identity.userId}'s wallet owns account ${elsewhere.accountId} on ${elsewhere.network}, not on ${here}`);
+        return {
+          kind: 'refused',
+          reason:
+            `This wallet owns Perpl account #${elsewhere.accountId} on ${elsewhere.network}. PerpGuard acts on ${here} only for now, and on ${here} this wallet has no account. ` +
+            `Open a ${here} account with it on Perpl, or sign with the wallet that owns your ${here} account.`,
+        };
+      }
+    }
+    return { kind: 'refused', reason: `That wallet doesn't own a Perpl account on ${here}. Sign in with the wallet you opened your Perpl account with.` };
   }
 
   /**
@@ -202,8 +247,13 @@ export class LinkService {
       return { kind: 'refused', reason: 'That key works, but no Perpl account is attached to it yet. Open your account on Perpl first.' };
     }
     const accountId = probe.accountId;
-    if (provenAccountId !== undefined && provenAccountId !== accountId) {
-      return { kind: 'refused', reason: `That key is for account #${accountId}, but your wallet owns account #${provenAccountId}. Paste a key for account #${provenAccountId}.` };
+    // The page's proof, or one KEPT from an earlier visit while it still waits for its key (not yet
+    // linked): a key for another account is refused. Once linked, a key for another account is a
+    // deliberate switch, as it always was.
+    const waiting = this.#deps.links.byUserId(identity.userId) === undefined ? this.#proofs.get(identity.userId)?.accountId : undefined;
+    const proven = provenAccountId ?? waiting;
+    if (proven !== undefined && proven !== accountId) {
+      return { kind: 'refused', reason: `That key is for account #${accountId}, but your wallet owns account #${proven}. Paste a key for account #${proven}.` };
     }
 
     const opened = this.#deps.registry.open(accountId, { apiKey: credentials.apiKey.trim(), secret });
@@ -236,6 +286,7 @@ export class LinkService {
     if (link === undefined) return { ok: false, text: 'This chat is not linked to any account.' };
     this.#deps.links.unlink(link.telegramUserId);
     const hadKey = this.#deps.keys.delete(userId);
+    this.#proofs.delete(userId);
     this.#needsRelink.delete(userId);
     let closed = false;
     if (link.accountId !== this.#deps.envAccountId && this.#deps.links.byAccountId(link.accountId).length === 0) {

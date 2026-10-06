@@ -1313,7 +1313,7 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['⚠️ Warn me at: Normal (8%)', '← Back'], 'Settings no longer holds Disconnect');
   await tapNav(h, { to: 'account' });
   const account = lastScreen(h.telegram);
-  assert.match(String(account.payload['text']), new RegExp(`Account: <b>#710</b>\nNetwork: Monad ${h.view.network}\nExecution: 🟢 Authorized\nAutomation: ⚪ None`));
+  assert.match(String(account.payload['text']), new RegExp(`Account: <b>#710</b>\nNetwork: Monad ${h.view.network}\nWallet: None on record\nOwnership: ⚪ Not verified: linked as this deployment's owner\nExecution: 🟢 Authorized · this deployment's own key\nAutomation: ⚪ None`));
   assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect account #710', '← Back']);
   await tapNav(h, { to: 'disconnect-ask' });
   assert.match(shown(h.telegram).at(-1)!, /^<b>Disconnect account #710\?<\/b>/);
@@ -1640,4 +1640,23 @@ test('PHASE 8: the Large Trades screen states what it cannot see', async () => {
   const html = String(lastScreen(h.telegram).payload['text']);
   assert.match(html, /About 6% of fills carry no recorded taker and are not counted\./);
   assert.match(html, /direction is read from the transaction, and is sometimes not known/);
+});
+
+test('PHASES 10-11: the Trading Account shows wallet, ownership and execution as three separate facts, from the link records', async () => {
+  const base = fakeLinkService().service;
+  const cases = [
+    [{ proof: 'wallet', wallet: { address: '0x169e49ece0d4f19b92de549482d1562ddd235251' } }, /Wallet: <code>0x169e…5251<\/code>\nOwnership: ✅ Verified by wallet signature\nExecution: 🟢 Authorized · this deployment's own key/],
+    [{ proof: 'key', wallet: { address: '0x169e49ece0d4f19b92de549482d1562ddd235251' } }, /Ownership: ✅ Verified by wallet signature\nExecution: 🟢 Authorized · your API key/],
+    [{ proof: 'key', wallet: undefined }, /Wallet: None on record\nOwnership: ⚪ Not verified by a wallet: connected with an API key\nExecution: 🟢 Authorized · your API key/],
+  ] as const;
+  for (const [status, line] of cases) {
+    const h = harness({ link: { ...base, status: () => status } });
+    await tapNav(h, { to: 'account' });
+    assert.match(String(lastScreen(h.telegram).payload['text']), line);
+  }
+  // Not authorized is never dressed as authorized, whatever the ownership says.
+  const h = harness({ link: { ...base, status: () => ({ proof: 'wallet', wallet: { address: '0x169e49ece0d4f19b92de549482d1562ddd235251' } }) } });
+  h.sessionStatus = { trading: { state: 'signed-in', forwardingAllowed: false } };
+  await tapNav(h, { to: 'account' });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Ownership: ✅ Verified by wallet signature\nExecution: 🟡 Order forwarding is off\n/);
 });

@@ -1,7 +1,14 @@
 'use client';
 
 /**
- * The wallet proof: connect with RainbowKit, then sign one message.
+ * The wallet proof: connect, then sign one message. ONE FLOW (6 Oct 2026).
+ *
+ * Connecting is not signing, and the owner failed the signing step three
+ * times while testing it on purpose: a green "Connected" read as finished.
+ * So the signature is asked for AUTOMATICALLY the moment a wallet connects,
+ * the card stays neutral ("one more step") until the backend has verified
+ * it, and it turns green only for a wallet whose ownership is on record.
+ * Declining is not an error: the card offers to ask again.
  *
  * The backend issues a Sign-In with Ethereum challenge for the connected
  * address (this site, the trading network's chain, a one-time nonce, five
@@ -10,36 +17,62 @@
  * signature proves ownership and nothing else: it moves no funds, places no
  * trade, and authorises no future action. The API key does that, separately.
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useDisconnect, useSignMessage } from 'wagmi';
 import { describeError, link, type LinkMe, type WalletProof } from '@/lib/api.ts';
 
 const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;
 
-export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (proof: WalletProof, me: LinkMe) => void; readonly onProblem: (text: string) => void }) {
+type Step = 'idle' | 'signing' | 'checking' | 'declined';
+
+export function WalletProofCard({
+  verifiedAddress,
+  onProof,
+  onProblem,
+}: {
+  /** The wallet whose ownership is on record (lowercase), if any. Only that wallet is shown green. */
+  readonly verifiedAddress: string | undefined;
+  readonly onProof: (proof: WalletProof, me: LinkMe) => void;
+  readonly onProblem: (text: string) => void;
+}) {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
-  const [busy, setBusy] = useState<'idle' | 'signing' | 'checking'>('idle');
+  const [step, setStep] = useState<Step>('idle');
+  /** Each connected address is asked automatically once per page; after that, the button asks. */
+  const asked = useRef(new Set<string>());
+  const verified = address !== undefined && verifiedAddress !== undefined && address.toLowerCase() === verifiedAddress.toLowerCase();
 
-  const prove = async () => {
+  const prove = useCallback(async () => {
     if (address === undefined) return;
-    setBusy('signing');
+    setStep('signing');
     try {
       const { message } = await link.challenge(address);
       const signature = await signMessageAsync({ message });
-      setBusy('checking');
+      setStep('checking');
       const r = await link.wallet(message, signature);
       onProof(r.proof, r.me);
+      setStep('idle');
     } catch (error) {
-      // A wallet that declined to sign is not a problem with the page.
-      const text = error instanceof Error && /reject|denied|cancel/i.test(error.message) ? 'The signature was declined in the wallet. Nothing was linked.' : describeError(error);
-      onProblem(text);
-    } finally {
-      setBusy('idle');
+      // A wallet that declined to sign is not a problem with the page: say so, and offer again.
+      if (error instanceof Error && /reject|denied|cancel|declin/i.test(error.message)) {
+        setStep('declined');
+        return;
+      }
+      setStep('idle');
+      onProblem(describeError(error));
     }
-  };
+  }, [address, signMessageAsync, onProof, onProblem]);
+
+  // THE SECOND STEP STARTS ITSELF: a newly connected, not-yet-verified wallet is asked to sign at once.
+  useEffect(() => {
+    if (!isConnected || address === undefined || verified) return;
+    const key = address.toLowerCase();
+    if (asked.current.has(key)) return;
+    asked.current.add(key);
+    void prove();
+  }, [isConnected, address, verified, prove]);
 
   return (
     <ConnectButton.Custom>
@@ -52,17 +85,49 @@ export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (pro
             </button>
           );
         }
+        if (verified) {
+          return (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="num inline-flex items-center gap-2 rounded-[8px] border border-safe/40 bg-safe/10 px-3 py-[7px] text-[12.5px] text-text">
+                <span aria-hidden="true">✅</span> Ownership verified <span className="text-muted">{short(address)}</span>
+              </span>
+              <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" title="Forgets the wallet on this page only. Links nothing and unlinks nothing." onClick={() => disconnect()}>
+                Use a different wallet
+              </button>
+            </div>
+          );
+        }
         return (
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={openAccountModal} className="num inline-flex items-center gap-2 rounded-[8px] border border-border2 bg-card px-3 py-[7px] text-[12.5px] text-text" title="Switch or disconnect">
-              <span aria-hidden="true">🟢</span> Connected <span className="text-muted">{short(address)}</span>
+          <div className="flex flex-col gap-2.5">
+            {/* NEUTRAL until verified: connected is not finished. */}
+            <button type="button" onClick={openAccountModal} className="num inline-flex w-fit items-center gap-2 rounded-[8px] border border-border2 bg-card px-3 py-[7px] text-[12.5px] text-text" title="Switch or disconnect">
+              Wallet connected <span className="text-muted">{short(address)}</span>
             </button>
-            <button type="button" className="btn" disabled={busy !== 'idle'} onClick={() => void prove()}>
-              {busy === 'signing' ? 'Sign in your wallet…' : busy === 'checking' ? 'Looking up your account…' : 'Sign to prove ownership'}
-            </button>
-            <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" title="Forgets the wallet on this page only. Links nothing and unlinks nothing." onClick={() => disconnect()}>
-              Use a different wallet
-            </button>
+            <p role="status" className="m-0 text-[13px]">
+              {step === 'signing' ? (
+                <>
+                  <b>One more step: sign in your wallet.</b> <span className="text-muted">The request is waiting in your wallet app; if it did not open, switch to it.</span>
+                </>
+              ) : step === 'checking' ? (
+                <span className="text-muted">Checking the signature and looking up your account…</span>
+              ) : step === 'declined' ? (
+                <>
+                  <b>The signature was declined.</b> <span className="text-muted">Nothing was linked. Sign to prove this wallet is yours.</span>
+                </>
+              ) : (
+                <>
+                  <b>One more step: sign to prove this wallet is yours.</b> <span className="text-muted">It moves no funds and places no trade.</span>
+                </>
+              )}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" className="btn primary" disabled={step === 'signing' || step === 'checking'} onClick={() => void prove()}>
+                {step === 'signing' ? 'Waiting for your wallet…' : step === 'checking' ? 'Checking…' : 'Sign to prove ownership'}
+              </button>
+              <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" title="Forgets the wallet on this page only. Links nothing and unlinks nothing." onClick={() => disconnect()}>
+                Use a different wallet
+              </button>
+            </div>
           </div>
         );
       }}

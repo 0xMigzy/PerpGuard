@@ -122,6 +122,7 @@ import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/pro
 import { AccountRegistry, DEFAULT_MAX_SESSIONS } from './sessions/registry.ts';
 import { KeyVault } from './server/link/crypto.ts';
 import { LinkService } from './server/link/service.ts';
+import { InMemoryWalletProofStore, PostgresWalletProofStore, type WalletProofStore } from './server/link/proofs.ts';
 import { InMemoryKeyStore, PostgresKeyStore, PostgresLinkStore, type KeyStore } from './server/link/stores.ts';
 import { WatchLoop } from './watch/loop.ts';
 import { thresholdsFor } from './risk/warn.ts';
@@ -291,10 +292,12 @@ let links: LinkStore = new InMemoryLinkStore({
   ...(botConfig?.ownerTelegramUserId === undefined ? {} : { ownerTelegramUserId: botConfig.ownerTelegramUserId }),
 });
 let keyStore: KeyStore = new InMemoryKeyStore();
+let walletProofs: WalletProofStore = new InMemoryWalletProofStore();
 if (alertDb !== undefined) {
   try {
     links = await PostgresLinkStore.load({ pool: alertDb, capacity: linkCapacity, ownerTelegramUserId: botConfig?.ownerTelegramUserId, logger: { warn } });
     keyStore = await PostgresKeyStore.load({ pool: alertDb, logger: { warn } });
+    walletProofs = await PostgresWalletProofStore.load({ pool: alertDb, logger: { warn } });
     log(`account links loaded from Postgres: ${links.list().length} link(s), ${keyStore.list().length} sealed key(s)`);
   } catch (error) {
     warn(`account links could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); links are in memory until the next restart`);
@@ -554,6 +557,8 @@ const envSession = envAccountId === undefined ? undefined : registry.get(envAcco
 // real start, which is the Exchange's deployment: "since Perpl launched".
 /** The analytics reader, bound when the index is configured (section 7). Declared here so nothing can read it before it exists. */
 let analyticsReader: PostgresAnalytics | undefined;
+/** The analytics network's config (mainnet), bound in section 7; also names a wallet's account on it when linking. */
+let analyticsNetworkConfig: NetworkConfig | undefined;
 const TRADER_FIGURES_TTL_MS = 60_000;
 const traderMemo = new Map<string, { readonly atMs: number; readonly value: Promise<unknown> }>();
 function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
@@ -604,6 +609,7 @@ const bot =
           },
           unlink: (id) => (linkServiceImpl === undefined ? Promise.resolve({ ok: false, text: 'Linking is not available right now.' }) : linkServiceImpl.unlink(id)),
           needsRelink: (id) => linkServiceImpl?.needsRelink(id),
+          status: (id) => linkServiceImpl?.status(id),
         },
         watch: {
           store: watchStore,
@@ -658,6 +664,15 @@ const linkService = new LinkService({
     }
   },
   lookupAccount: (address) => lookupAccountByAddress(address, { rpcUrl: network.rpcUrl, exchangeAddress: network.exchangeAddress }),
+  proofs: walletProofs,
+  // The analytics network (mainnet), asked only to NAME where a wallet's account is when the
+  // trading network has none. Nothing is ever linked there: acting on it is switched off.
+  lookupElsewhere: async (address) => {
+    const other = analyticsNetworkConfig;
+    if (other === undefined || other.chainId === network.chainId) return undefined;
+    const found = await lookupAccountByAddress(address, { rpcUrl: other.rpcUrl, exchangeAddress: other.exchangeAddress });
+    return found.found ? { network: other.name, accountId: found.accountId } : undefined;
+  },
   secretFromHex: (hex) => ApiSecret.fromHex(hex),
   envAccountId,
   webUrl: PUBLIC_WEB_URL,
@@ -705,7 +720,6 @@ const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
 let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
 let analyticsVenue: PerplVenue | undefined;
-let analyticsNetworkConfig: NetworkConfig | undefined;
 if (indexerUrl !== undefined && indexerUrl !== '') {
   // A pool, and NOT connected eagerly, for the same two reasons as the alert
   // log: a dead single client never recovers, and an indexer database that is

@@ -11,6 +11,7 @@ import { InMemoryIdentityStore, InMemoryLinkStore, type TelegramIdentity } from 
 import { LinkCodeStore } from '../protect/session.ts';
 import { KeyVault } from './crypto.ts';
 import { LinkService, RELINK_REASON } from './service.ts';
+import { InMemoryWalletProofStore } from './proofs.ts';
 import { InMemoryKeyStore } from './stores.ts';
 
 const KEY_A = '1'.repeat(64);
@@ -33,7 +34,7 @@ interface Rig {
   readonly logs: string[];
 }
 
-function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: InMemoryKeyStore; readonly maxSessions?: number } = {}): Rig {
+function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: InMemoryKeyStore; readonly maxSessions?: number; readonly proofs?: InMemoryWalletProofStore; readonly elsewhere?: Map<string, number>; readonly probeAccount?: number } = {}): Rig {
   const identities = new InMemoryIdentityStore();
   const identity = identities.register(4242, 5150, 1_000).identity;
   const links = new InMemoryLinkStore({ capacity: 5 });
@@ -44,7 +45,7 @@ function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: I
     running: new Set<number>([ENV]),
     notices: [] as Array<{ chatId: number; text: string }>,
     probes: [] as string[],
-    probeAccount: 711 as number | undefined,
+    probeAccount: (options.probeAccount ?? 711) as number | undefined,
     lookups: new Map<string, AccountLookup>([[OWNER_WALLET, { found: true, accountId: ENV, address: OWNER_WALLET }]]),
     logs: [] as string[],
   };
@@ -73,6 +74,12 @@ function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: I
       return { accountId: state.probeAccount, forwardingAllowed: true };
     },
     lookupAccount: async (address) => state.lookups.get(address) ?? { found: false, address, reason: 'this wallet has no account on the Exchange' },
+    ...(options.proofs === undefined ? {} : { proofs: options.proofs }),
+    lookupElsewhere: async (address) => {
+      const id = options.elsewhere?.get(address);
+      return id === undefined ? undefined : { network: 'mainnet', accountId: id };
+    },
+    network: 'testnet',
     secretFromHex: (hex) => ApiSecret.fromHex(hex),
     envAccountId: ENV,
     webUrl: 'https://perpguard.example/',
@@ -210,4 +217,50 @@ test('one account per user: a new proof replaces the previous link', async () =>
   await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   assert.equal(r.links.byTelegramUserId(4242)?.accountId, 711);
   assert.equal(r.links.list().length, 1);
+});
+
+
+// ── Phases 10-11: three states, kept ────────────────────────────────────────
+
+test('OWNERSHIP IS KEPT: a wallet proven without a key survives the page closing, and binds the key that follows', async () => {
+  const proofs = new InMemoryWalletProofStore();
+  const first = rig({ proofs });
+  first.lookups.set('0x' + '1'.repeat(40), { found: true, accountId: 711, address: '0x' + '1'.repeat(40) });
+  const proof = await first.service.proveWallet(first.identity, ['0x' + '1'.repeat(40)]);
+  assert.equal(proof.kind, 'proven-needs-key');
+  // A later visit: a new page session, so no proof in the page. The record remains.
+  const keyFor712 = rig({ proofs, probeAccount: 712 });
+  assert.deepEqual(keyFor712.service.walletProof(keyFor712.identity.userId), { userId: keyFor712.identity.userId, address: '0x' + '1'.repeat(40), accountId: 711, network: 'testnet', provedAtMs: 2_000 });
+  const wrong = await keyFor712.service.proveKey(keyFor712.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
+  assert.match((wrong as { reason: string }).reason, /That key is for account #712, but your wallet owns account #711/);
+  const later = rig({ proofs, probeAccount: 711 });
+  const right = await later.service.proveKey(later.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
+  assert.equal(right.kind, 'linked');
+  const status = later.service.status(later.identity.userId)!;
+  assert.equal(status.proof, 'key');
+  assert.deepEqual(status.wallet, { address: '0x' + '1'.repeat(40), provedAtMs: 2_000 }, 'ownership and execution, both on record, separately');
+});
+
+test('A WALLET WHOSE ACCOUNT IS ON THE OTHER NETWORK IS TOLD SO BY NAME, never "you own no account"', async () => {
+  const wallet = '0x169e49ece0d4f19b92de549482d1562ddd235251';
+  const r = rig({ elsewhere: new Map([[wallet, 4855]]) });
+  const proof = await r.service.proveWallet(r.identity, [wallet]);
+  assert.equal(proof.kind, 'refused');
+  assert.match((proof as { reason: string }).reason, /^This wallet owns Perpl account #4855 on mainnet\. PerpGuard acts on testnet only for now, and on testnet this wallet has no account\. Open a testnet account with it on Perpl/);
+  assert.equal(r.service.walletProof(r.identity.userId), undefined, 'nothing was proven on the trading network, so nothing is kept');
+  const none = await rig().service.proveWallet(r.identity, ['0x' + '9'.repeat(40)]);
+  assert.match((none as { reason: string }).reason, /^That wallet doesn't own a Perpl account on testnet\./);
+});
+
+test('status is FROM RECORDS: wallet-linked, key-linked and owner-linked read differently; unlink deletes the proof', async () => {
+  const r = rig();
+  await r.service.proveWallet(r.identity, [OWNER_WALLET]);
+  assert.equal(r.service.status(r.identity.userId)!.proof, 'wallet');
+  assert.equal(r.service.status(r.identity.userId)!.wallet?.address, OWNER_WALLET.toLowerCase());
+  await r.service.unlink(r.identity.userId);
+  assert.equal(r.service.walletProof(r.identity.userId), undefined);
+  // Linked as the deployment's owner, with no proof and no key: said as such, not as "your wallet".
+  r.links.link({ userId: r.identity.userId, accountId: ENV, telegramUserId: 4242, chatId: 5150, linkedAtMs: 1 });
+  assert.equal(r.service.status(r.identity.userId)!.proof, 'owner');
+  assert.equal(r.service.status(r.identity.userId)!.wallet, undefined);
 });

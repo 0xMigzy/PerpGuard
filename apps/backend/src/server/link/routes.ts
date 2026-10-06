@@ -101,6 +101,11 @@ export interface LinkMe {
   readonly telegram: { readonly name: string | null };
   readonly link: LinkStatus | null;
   readonly provenAccountId: number | null;
+  /**
+   * OWNERSHIP VERIFIED, as kept: the wallet that signed and the account the
+   * Exchange says it owns. Survives the page closing. Null: none on record.
+   */
+  readonly wallet: { readonly address: string; readonly accountId: number } | null;
   /** Whether the page can prove a wallet (signed challenge). */
   readonly walletSignIn: boolean;
   readonly keyStorageConfigured: boolean;
@@ -123,14 +128,20 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
   const { service } = options;
   const log = (line: string): void => options.logger?.info(`link page: ${line}`);
 
-  const me = (session: LinkSession): LinkMe => ({
+  const me = (session: LinkSession): LinkMe => {
+    const link = service.status(session.identity.userId) ?? null;
+    const kept = service.walletProof(session.identity.userId);
+    return {
     telegram: { name: session.telegramName ?? null },
-    link: service.status(session.identity.userId) ?? null,
-    provenAccountId: session.provenAccountId ?? null,
+    link,
+    // Proven and not yet linked: from this page, or kept from an earlier visit.
+    provenAccountId: link !== null ? null : (session.provenAccountId ?? kept?.accountId ?? null),
+    wallet: kept === undefined ? null : { address: kept.address, accountId: kept.accountId },
     walletSignIn: options.wallet !== undefined,
     keyStorageConfigured: options.keyStorageConfigured,
     network: options.network,
-  });
+    };
+  };
 
   app.post<{ Body: { code?: unknown } }>(`${prefix}/session`, async (request, reply) => {
     const code = typeof request.body?.code === 'string' ? request.body.code : '';
