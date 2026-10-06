@@ -60,8 +60,8 @@ export function WalletProofCard({ onProof, onProblem }: { readonly onProof: (pro
             <button type="button" className="btn" disabled={busy !== 'idle'} onClick={() => void prove()}>
               {busy === 'signing' ? 'Sign in your wallet…' : busy === 'checking' ? 'Looking up your account…' : 'Sign to prove ownership'}
             </button>
-            <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" onClick={() => disconnect()}>
-              Disconnect
+            <button type="button" className="text-[12px] text-muted underline decoration-border2 underline-offset-2 hover:text-text" title="Forgets the wallet on this page only. Links nothing and unlinks nothing." onClick={() => disconnect()}>
+              Use a different wallet
             </button>
           </div>
         );

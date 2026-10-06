@@ -7,7 +7,7 @@
  * source, risk loop, executor and reconciliation — behind the real bot, with
  * only Telegram's wire replaced by a recorder. The owner presses Start, opens
  * My positions and a position, adds a custom 0.01 AUSD, changes "Warn me at",
- * reduces the position by a quarter, and fires the kill switch. Every outcome
+ * reduces the position by a quarter, and opens the Trading Account. Every outcome
  * printed is the executor's reconciled verdict, read off the position.
  *
  * MOVES REAL TESTNET COLLATERAL. Needs an open position on the account with at
@@ -81,6 +81,7 @@ const bot = createBot({
   sessions: registry,
   ownerAccountId: accountId,
   configs: riskConfigs,
+  tradingNetwork: network.name,
   identities: new InMemoryIdentityStore(),
   settings,
   webUrl: env['PUBLIC_WEB_URL'] ?? 'https://perpguard.example',
@@ -91,7 +92,7 @@ const rec = new ChatRecorder(bot, OWNER);
 await rec.send('/start');
 rec.frame('1. The owner presses Start: connected, with the account on the home screen');
 
-await rec.tap('🛡 My positions');
+await rec.tap('📊 My Positions');
 rec.frame('2. My positions');
 
 const position = rec.labels().find((l) => / · /.test(l) && !l.startsWith('⚙'));
@@ -107,7 +108,8 @@ const t0 = Date.now();
 await rec.tap('✓ Send it');
 rec.frame(`6. The outcome, reconciled against the position (${Math.round((Date.now() - t0) / 1000)}s)`);
 
-await rec.tap('🛡 My positions');
+await rec.tap('📊 My Positions');
+await rec.tap('← Back');
 await rec.tap('⚙️ Settings');
 rec.frame('7. Settings: each button shows what it is set to');
 await rec.tap(rec.labels().find((l) => l.startsWith('⚠️ Warn me at'))!);
@@ -117,6 +119,8 @@ rec.frame(`9. Saved: the loop now warns at ${(session.loop.thresholds.watchEnter
 await settings.set(accountId, { warnLevel: 'normal' });
 
 await rec.tap('← Back');
+await rec.tap('← Back');
+await rec.tap('📊 My Positions');
 const again = rec.labels().find((l) => / · /.test(l) && !l.startsWith('⚙'))!;
 await rec.tap(again);
 if (rec.labels().includes('Reduce 25%')) {
@@ -125,18 +129,16 @@ if (rec.labels().includes('Reduce 25%')) {
   const t1 = Date.now();
   await rec.tap('✓ Send it');
   rec.frame(`11. Reduced, reconciled against the position (${Math.round((Date.now() - t1) / 1000)}s)`);
-  await rec.tap('🛡 My positions');
+  await rec.tap('📊 My Positions');
 } else {
   say('  (position too small to reduce by a quarter; skipped)');
   await rec.tap('← Back');
 }
 
-await rec.tap('⛔ Kill switch');
-rec.frame('12. Kill switch: what it will close, before anything is sent');
-const killLabel = rec.labels().find((l) => l.startsWith('⛔ Close all'))!;
-const t2 = Date.now();
-await rec.tap(killLabel);
-rec.frame(`13. Kill switch fired and reconciled (${Math.round((Date.now() - t2) / 1000)}s)`);
+// The close-all kill switch is retired (6 Oct 2026); it returns in Phase 20 as "stop automation".
+await rec.tap('← Back');
+await rec.tap('🔐 Trading Account');
+rec.frame('12. Trading Account: the account, its network, and whether it can execute');
 
 if (OUT !== undefined) {
   writeFileSync(OUT, JSON.stringify({ capturedAt: new Date().toISOString(), accountId, frames: rec.frames }, null, 2));

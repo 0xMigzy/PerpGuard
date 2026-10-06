@@ -192,6 +192,7 @@ const bot = createBot({
   store: pending,
   sessions: new StaticSessionRouter([{ accountId: 0, view, executor, balance: { freeBalance: () => ({ known: false, reason: 'demo' }) } as never }]),
   configs: await venue.getRiskConfigs(),
+  tradingNetwork: app.trading.name,
   identities: new InMemoryIdentityStore(),
   watch: {
     store: watchStore,
@@ -246,8 +247,10 @@ await engine.drain();
 await send(bot, '/start');
 frame('1. A stranger presses Start');
 
-await tap(bot, '👁 Watch a wallet', { to: 'watch-ask' });
-frame('2. Watch a wallet: asked with force_reply');
+await tap(bot, '👁 Watch & Alerts', { to: 'watch-menu' });
+frame('2. Watch & Alerts: read-only, no wallet');
+await tap(bot, '👛 Watch Wallet', { to: 'watch-ask' });
+frame('2b. Watch Wallet: asked with force_reply');
 
 await send(bot, String(first));
 await engine.drain();
@@ -263,11 +266,17 @@ await tap(bot, `👁 Watch #${second}`, { to: 'watch-id', accountId: second });
 await engine.drain();
 frame(`6. One tap watches #${second}`);
 
-await tap(bot, '← Home', { to: 'home' });
-frame('7. Home, returning');
+await tap(bot, '⭐ Watchlist', { to: 'watchlist' });
+frame('7. Watchlist');
 
-await tap(bot, '📋 My watchlist', { to: 'watchlist' });
-frame('8. My watchlist');
+await tap(bot, '← Back', { to: 'watch-menu' });
+await tap(bot, '← Back', { to: 'home' });
+frame('8. Home, returning: watching, not connected');
+await tap(bot, '🔐 Trading Account', { to: 'account' });
+frame('8b. Trading Account: Not connected, with its network');
+await tap(bot, '← Back', { to: 'home' });
+await tap(bot, '👁 Watch & Alerts', { to: 'watch-menu' });
+await tap(bot, '⭐ Watchlist', { to: 'watchlist' });
 
 await tap(bot, `#${first}`, { to: 'wallet', accountId: first });
 frame(`9. Watched wallet #${first}: no actions`);

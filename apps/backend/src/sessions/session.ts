@@ -38,10 +38,9 @@ import {
   type Unsubscribe,
   type VenueMarket,
 } from '@perpguard/shared';
-import { freeBalanceFrom, type AccountView, type FreeBalanceView, type KillSwitchReport, type RiskView } from '@perpguard/bot';
+import { freeBalanceFrom, type AccountView, type FreeBalanceView, type RiskView } from '@perpguard/bot';
 import { VenueActionExecutor } from '@perpguard/bot';
 import { ActionsExecutor, LoopPositionReader, type ActionLog } from '../actions/index.ts';
-import { describeKillSwitch, fireKillSwitch } from '../actions/killSwitch.ts';
 import type { ActionProgress } from '../actions/executor.ts';
 import { AlertEngine } from '../alerts/engine.ts';
 import type { AlertLog, AlertRecipient, AlertTransport } from '../alerts/types.ts';
@@ -49,7 +48,7 @@ import type { MarketFeed } from '../ingest/marketFeed.ts';
 import { RiskLoop } from '../risk/loop.ts';
 import type { MarketConfigs, RiskAssessment, RiskThresholds } from '../risk/types.ts';
 import { DeferredPositionSource } from '../server/deferredPositionSource.ts';
-import { fromVenuePosition, type PositionSourceStatus, type RiskPosition } from '@perpguard/shared';
+import type { PositionSourceStatus } from '@perpguard/shared';
 import type { TradingSessionStatus } from '../server/health.ts';
 import { TradingSession } from '../server/tradingSession.ts';
 
@@ -237,61 +236,10 @@ export class AccountSession {
         availability: (symbol) => this.venue.getActionAvailability(symbol),
       }),
       balance: this.balance,
-      killSwitch: (userId) => this.killSwitch(userId),
-    };
-  }
-
-  /**
-   * Close every open position on THIS account, worst first, through the same
-   * executor (and so the same one-in-flight lock, feed gate and position
-   * reconciliation) as any single close. Returns the report in words.
-   *
-   * Refused outright while the position list cannot be trusted: a kill switch
-   * fired against a stale list closes the wrong set, or misses one.
-   */
-  async killSwitch(userId: string): Promise<KillSwitchReport> {
-    const status = this.positionSource.status();
-    if (status.state !== 'live') {
-      return { refused: `I cannot see your positions right now (the list is ${status.state}), so I do not know what to close.`, closed: [], stillOpen: [], unresolved: [], notPriceable: [] };
-    }
-    const configs = this.#deps.riskConfigs;
-    const marks = new Map<number, bigint>();
-    const sides = new Map<number, string>();
-    for (const a of this.loop.snapshot()) {
-      if (a.markPricePNS > 0n) marks.set(a.marketId, a.markPricePNS);
-      if (a.side !== undefined) sides.set(a.marketId, `${a.symbol} ${a.side}`);
-    }
-    const positions: RiskPosition[] = [];
-    const positionIds = new Map<number, number>();
-    const notPriceable: string[] = [];
-    for (const p of this.positionSource.snapshot()) {
-      const config = configs.get(p.marketId);
-      if (config === undefined || !marks.has(p.marketId)) {
-        notPriceable.push(`${p.symbol} ${p.side}`);
-        continue;
-      }
-      positions.push(fromVenuePosition(p, config));
-      if (p.positionId !== undefined) positionIds.set(p.marketId, p.positionId);
-    }
-    const run = (this.#deps.now ?? Date.now)().toString(36);
-    const result = await fireKillSwitch({
-      runner: this.executor,
-      userId,
-      positions,
-      markPrices: marks,
-      configs,
-      positionIds,
-      keyFor: (marketId, order) => `${userId}:kill:${this.accountId}:${run}:${marketId}:${order}`,
-      logger: { info: this.#log, warn: this.#warn },
-    });
-    // The full report, log-shaped, goes to the log; the bot gets the facts.
-    this.#log(describeKillSwitch(result));
-    const name = (line: { marketId: number; symbol: string }): string => sides.get(line.marketId) ?? line.symbol;
-    return {
-      closed: result.closed.map(name),
-      stillOpen: result.stillOpen.map((line) => ({ name: name(line), why: line.outcome.kind === 'refused' ? line.outcome.detail : 'it was sent, and I checked afterwards: the position is still open' })),
-      unresolved: result.unresolved.map((line) => ({ name: name(line), nextStep: line.outcome.kind === 'unknown' ? line.outcome.nextStep : 'Look at this position before doing anything else.' })),
-      notPriceable,
+      status: () => {
+        const s = this.status();
+        return { trading: s.trading, ...(s.mismatch === undefined ? {} : { mismatch: s.mismatch }) };
+      },
     };
   }
 

@@ -22,7 +22,6 @@ import type { IndexerHealth } from '@perpguard/shared';
 import { InMemoryWatchStore, RateLimiter, type ResolvedWatchTarget, type WatchResolver, type WatchTarget } from './watch.ts';
 import { encodeNav, type Route } from './nav.ts';
 import { InMemoryAccountSettingsStore } from './settings.ts';
-import type { KillSwitchReport } from './sessions.ts';
 import { StaticSessionRouter } from './sessions.ts';
 import {
   CONFIGS,
@@ -58,8 +57,8 @@ interface Harness {
   readonly watchStore: InMemoryWatchStore;
   readonly resolver: FakeResolver;
   nowMs: number;
-  /** What the owner's session does when its kill switch fires. Undefined: not available. */
-  killSwitch: ((userId: string) => Promise<KillSwitchReport>) | undefined;
+  /** What the owner's session reports about its trading socket. */
+  sessionStatus: { trading: { state: string; forwardingAllowed?: boolean }; mismatch?: string } | undefined;
 }
 
 /** A resolver the test scripts: an address or id -> an account, or a refusal. */
@@ -79,7 +78,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
   const view = new FakeView();
   const balance = new FakeBalance();
   const links = options.links ?? newLinks();
-  const state: { nowMs: number; killSwitch: ((userId: string) => Promise<KillSwitchReport>) | undefined } = { nowMs: 1_000_000, killSwitch: undefined };
+  const state: { nowMs: number; sessionStatus: Harness['sessionStatus'] } = { nowMs: 1_000_000, sessionStatus: { trading: { state: 'signed-in', forwardingAllowed: true } } };
   const store = new PendingActionStore({
     now: () => state.nowMs,
     nextToken: countingTokens(),
@@ -97,7 +96,9 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     links,
     store,
     amounts,
-    sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance, killSwitch: (userId: string) => (state.killSwitch === undefined ? Promise.resolve({ refused: 'not available', closed: [], stillOpen: [], unresolved: [], notPriceable: [] }) : state.killSwitch(userId)) }]),
+    sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance, status: () => state.sessionStatus }]),
+    tradingNetwork: 'testnet',
+    webUrl: 'https://perpguard.example',
     ownerAccountId: OWNER_ACCOUNT,
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     configs: CONFIGS,
@@ -126,11 +127,11 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     set nowMs(value: number) {
       state.nowMs = value;
     },
-    get killSwitch() {
-      return state.killSwitch;
+    get sessionStatus() {
+      return state.sessionStatus;
     },
-    set killSwitch(fn: ((userId: string) => Promise<KillSwitchReport>) | undefined) {
-      state.killSwitch = fn;
+    set sessionStatus(value: Harness['sessionStatus']) {
+      state.sessionStatus = value;
     },
   };
 }
@@ -261,7 +262,7 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
   await h.bot.handleUpdate(messageUpdate('/start'));
   const sent = texts(h.telegram);
   assert.match(sent.at(-2)!, /^Connected to account #710\./);
-  assert.match(sent.at(-1)!, /🛡 My account <b>#710<\/b>/, 'the home screen shows the account');
+  assert.match(sent.at(-1)!, new RegExp(`🔐 Trading Account: <b>#710</b> · Monad ${h.view.network}`), 'the home screen shows the account and its OWN session\'s network');
   assert.equal(h.links.byTelegramUserId(OWNER_ID)?.chatId, OWNER_CHAT);
   assert.equal(h.links.byTelegramUserId(OWNER_ID)?.accountId, OWNER_ACCOUNT);
 
@@ -272,8 +273,9 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
   // A stranger's /start is an identity and the first-run home screen, not a link and not a refusal.
   await h.bot.handleUpdate(messageUpdate('/start', { from: STRANGER_ID, chat: 7_777 }));
   const hello = texts(h.telegram).at(-1)!;
-  assert.match(hello, /Watch any Perpl trader and get told before they are liquidated\./);
-  assert.match(hello, /🛡 No account connected/);
+  assert.match(hello, /^🛡 <b>PERPGUARD<\/b>\nAnalyse\. Watch\. Act\./);
+  assert.match(hello, /👁 <b>WATCH<\/b>/);
+  assert.deepEqual(keyboardOf(h.telegram.last('sendMessage')).map((b) => b.text), ['👁 Watch & Alerts', '🔐 Trading Account', '🌐 Open PerpGuard']);
   assert.equal(h.links.byTelegramUserId(STRANGER_ID), undefined);
   assert.equal(h.links.byUserId(USER_ID)?.telegramUserId, OWNER_ID);
 });
@@ -281,14 +283,15 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
 test('with no owner configured, /start links NOBODY: a public bot has no first-come acting slot', async () => {
   const h = harness({ links: new InMemoryLinkStore({ capacity: 1 }) });
   await h.bot.handleUpdate(messageUpdate('/start'));
-  assert.match(texts(h.telegram).at(-1)!, /🛡 No account connected/);
+  assert.match(texts(h.telegram).at(-1)!, /👁 <b>WATCH<\/b>/, 'the intro, not an account');
+  assert.doesNotMatch(texts(h.telegram).at(-1)!, /Trading Account: <b>#/);
   assert.equal(h.links.list().length, 0, 'the first person to arrive does not become the owner');
 });
 
 test('/start from the already-linked user is idempotent', async () => {
   const h = harness();
   await h.bot.handleUpdate(messageUpdate('/start'));
-  assert.match(texts(h.telegram).at(-1)!, /🛡 My account <b>#710<\/b>/);
+  assert.match(texts(h.telegram).at(-1)!, /🔐 Trading Account: <b>#710<\/b>/);
   assert.equal(h.links.list().length, 1);
 });
 
@@ -313,7 +316,7 @@ test('My positions lists each position closest first; its screen offers both top
   const list = lastScreen(h.telegram);
   assert.match(String(list.payload['text']), /^<b>Account #710<\/b> · 1 open\n\n🔴 BTC long [\d.]+ BTC · <b>2\.7%<\/b>/);
   assert.match(String(list.payload['text']), /Free balance at least <b>10,000 AUSD<\/b>/);
-  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['BTC long · 2.7%', '⚙️ Settings', '⛔ Kill switch', '← Back']);
+  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['BTC long · 2.7%', '← Back']);
 
   const screen = await openPosition(h);
   const html = String(screen.payload['text']);
@@ -325,7 +328,6 @@ test('My positions lists each position closest first; its screen offers both top
     'Add custom amount',
     'Reduce 25%',
     'Close position',
-    '⛔ Kill switch',
     '← Back',
   ]);
   assert.deepEqual(
@@ -1109,13 +1111,18 @@ test('a pasted address is watched without pressing anything first; a bare number
   assert.match(texts(h.telegram).at(-1)!, /^I cannot watch that/, 'a #id paste is unambiguous and goes straight to the lookup');
 });
 
-test('a stranger navigates the read-only half by buttons: home, Watch a wallet, the list, a wallet, Stop watching', async () => {
+test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, Watch Wallet, the list, a wallet, Stop watching', async () => {
   const h = harness();
   h.resolver.answers.set('5293', { accountId: 5293, address: undefined, resolvedBy: 'index' });
   const tap = (route: Route) => h.bot.handleUpdate(callbackUpdate(encodeNav(route), { from: STRANGER_ID, chat: STRANGER_CHAT }));
 
   await h.bot.handleUpdate(stranger('/start'));
-  assert.deepEqual(keyboardOf(h.telegram.last('sendMessage')).map((b) => b.text), ['👁 Watch a wallet', '🔗 Connect my account']);
+  assert.deepEqual(keyboardOf(h.telegram.last('sendMessage')).map((b) => b.text), ['👁 Watch & Alerts', '🔐 Trading Account', '🌐 Open PerpGuard']);
+
+  await tap({ to: 'watch-menu' });
+  const menu = h.telegram.last('editMessageText');
+  assert.match(String(menu.payload['text']), /^👁 <b>WATCH & ALERTS<\/b>\nRead-only\. No wallet, no key\./);
+  assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch Wallet', '⭐ Watchlist', '← Back']);
 
   await tap({ to: 'watch-ask' });
   const edit = h.telegram.last('editMessageText');
@@ -1126,7 +1133,7 @@ test('a stranger navigates the read-only half by buttons: home, Watch a wallet, 
 
   await tap({ to: 'watchlist' });
   const list = String(h.telegram.last('editMessageText').payload['text']);
-  assert.match(list, /^<b>Watching 1 wallet<\/b> · 1 of 5/);
+  assert.match(list, /^⭐ <b>WATCHLIST<\/b> · 1 of 5/);
   assert.match(list, /The percentage is how far the price can move against them before the exchange closes it\./);
 
   await tap({ to: 'wallet', accountId: 5293 });
@@ -1155,7 +1162,8 @@ test('SERVER-SIDE: a stranger tapping an ACCOUNT route, or a crafted nav payload
 test('the owner in ANOTHER chat sees only public screens there: home never shows their account in that room', async () => {
   const h = harness();
   await h.bot.handleUpdate(messageUpdate('/start', { chat: 7_777 }));
-  assert.match(texts(h.telegram).at(-1)!, /🛡 No account connected/);
+  assert.match(texts(h.telegram).at(-1)!, /👁 <b>WATCH<\/b>/);
+  assert.doesNotMatch(texts(h.telegram).at(-1)!, /#710/);
   await h.bot.handleUpdate(callbackUpdate(encodeNav({ to: 'positions' }), { chat: 7_777 }));
   assert.deepEqual(answers(h.telegram), [WRONG_CHAT_TEXT]);
 });
@@ -1185,7 +1193,7 @@ test('a chat that sends too many public commands is told to slow down, with a wa
   assert.match(texts(h.telegram).at(-1)!, /^Slow down: too many commands from this chat\. Try again in \d+s\./);
   // Another chat is not affected.
   await h.bot.handleUpdate(messageUpdate('/start', { from: 8_888, chat: 8_888 }));
-  assert.match(texts(h.telegram).at(-1)!, /Not watching anything yet/);
+  assert.match(texts(h.telegram).at(-1)!, /Analyse\. Watch\. Act\./);
 });
 
 test('/start never points at the old Protect page, and /help names the menu and /watch', async () => {
@@ -1277,14 +1285,18 @@ test('/link without a link service says so instead of pretending', async () => {
   assert.equal(texts(h.telegram).at(-1), 'Linking is not available on this deployment.');
 });
 
-test('Settings → Disconnect asks first, then calls the link service for that user and shows home', async () => {
+test('Trading Account → Disconnect asks first, then calls the link service for that user and shows home', async () => {
   const fake = fakeLinkService();
   const h = harness({ link: fake.service });
   await tapNav(h, { to: 'settings' });
-  const settings = lastScreen(h.telegram);
-  assert.deepEqual(keyboardOf(settings).map((b) => b.text), ['⚠️ Warn me at: Normal (8%)', '🔗 Disconnect account #710', '← Back']);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['⚠️ Warn me at: Normal (8%)', '← Back'], 'Settings no longer holds Disconnect');
+  await tapNav(h, { to: 'account' });
+  const account = lastScreen(h.telegram);
+  assert.match(String(account.payload['text']), new RegExp(`Account: <b>#710</b>\nNetwork: Monad ${h.view.network}\nExecution: 🟢 Authorized\nAutomation: ⚪ None`));
+  assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect account #710', '← Back']);
   await tapNav(h, { to: 'disconnect-ask' });
   assert.match(shown(h.telegram).at(-1)!, /^<b>Disconnect account #710\?<\/b>/);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect account #710', 'Cancel']);
   assert.deepEqual(fake.unlinked, [], 'asking is not doing');
   await tapNav(h, { to: 'disconnect' });
   assert.deepEqual(fake.unlinked, [USER_ID]);
@@ -1314,30 +1326,24 @@ test('Warn me at: three choices, the current one marked, a tap saves it and the 
   assert.deepEqual(saved, [[710, 'early']]);
 });
 
-test('the kill switch needs the nonce it just showed: a crafted or replayed kill-go fires nothing', async () => {
+test('the retired close-all kill switch: an old kill button in a chat fires NOTHING, and no screen offers one', async () => {
   const h = harness();
   h.view.assessments = [dangerAssessment()];
-  let fired = 0;
-  h.killSwitch = async () => {
-    fired += 1;
-    return { closed: ['BTC long'], stillOpen: [], unresolved: [], notPriceable: [] };
-  };
-  await tapNav(h, { to: 'kill-go', nonce: 123_456 });
-  assert.match(answers(h.telegram).at(-1)!, /has expired\. Nothing was sent/);
-  await tapNav(h, { to: 'kill-ask' });
-  const ask = lastScreen(h.telegram);
-  assert.match(String(ask.payload['text']), /^<b>Close all 1 position on account #710\?<\/b>/);
-  const go = keyboardOf(ask)[0]!;
-  assert.equal(go.text, '⛔ Close all 1');
-  await h.bot.handleUpdate(callbackUpdate(go.callback_data));
-  assert.equal(fired, 1);
-  assert.match(shown(h.telegram).at(-1)!, /^✓ <b>Closed all 1 position<\/b>: BTC long\./);
-  await h.bot.handleUpdate(callbackUpdate(go.callback_data));
-  assert.equal(fired, 1, 'single use');
-  // A stranger tapping the same payload is refused at the gate.
-  await h.bot.handleUpdate(callbackUpdate(go.callback_data, { from: STRANGER_ID, chat: 7_777 }));
+  for (const old of ['n1:kq', 'n1:kx:123456', 'n1:kx+:123456']) {
+    await h.bot.handleUpdate(callbackUpdate(old));
+    assert.match(answers(h.telegram).at(-1)!, /older version of the menu\. Nothing was sent/);
+  }
+  assert.equal(h.executor.calls.length, 0);
+  // From a stranger the same payload is refused at the gate, before any handler.
+  await h.bot.handleUpdate(callbackUpdate('n1:kx:123456', { from: STRANGER_ID, chat: 7_777 }));
   assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
-  assert.equal(fired, 1);
+  for (const route of [{ to: 'home' }, { to: 'positions' }, { to: 'margin' }, { to: 'settings' }, { to: 'account' }] as const) {
+    await tapNav(h, route);
+    const labels = keyboardOf(lastScreen(h.telegram)).map((b) => b.text).join(' | ');
+    assert.doesNotMatch(labels, /kill|close all/i, route.to);
+  }
+  await openPosition(h);
+  assert.doesNotMatch(keyboardOf(lastScreen(h.telegram)).map((b) => b.text).join(' | '), /kill/i);
 });
 
 test('reduce says the closing price does not move; close says it closes the whole position; Cancel deletes the token', async () => {
@@ -1398,7 +1404,7 @@ test('a URL button Telegram refuses does not lose the screen: it goes out again 
   await h.bot.handleUpdate(stranger('/start'));
   const sends = h.telegram.of('sendMessage');
   assert.equal(sends.length, 2, 'refused once, then sent');
-  assert.match(String(sends[1]!.payload['text']), /Watch any Perpl trader/);
+  assert.match(String(sends[1]!.payload['text']), /Analyse\. Watch\. Act\./);
 });
 
 test('navigating on from an outcome opens a new message: the outcome stays in the chat as the record', async () => {
@@ -1408,9 +1414,124 @@ test('navigating on from an outcome opens a new message: the outcome stays in th
   await h.bot.handleUpdate(callbackUpdate(confirm));
   const outcome = lastScreen(h.telegram);
   assert.match(String(outcome.payload['text']), /^✓ <b>Added 562 AUSD to BTC long<\/b>/);
-  const myPositions = keyboardOf(outcome).find((b) => b.text === '🛡 My positions')!;
+  const myPositions = keyboardOf(outcome).find((b) => b.text === '📊 My Positions')!;
   const edits = h.telegram.of('editMessageText').length;
   await h.bot.handleUpdate(callbackUpdate(myPositions.callback_data));
   assert.equal(h.telegram.of('editMessageText').length, edits, 'nothing edited');
   assert.match(String(h.telegram.last('sendMessage').payload['text']), /^<b>Account #710<\/b>/);
+});
+
+// ── Phase 7: the menu as a whole ────────────────────────────────────────────
+
+/**
+ * Every screen reachable by tapping, from /start, for one person. Taps only
+ * navigation buttons, and never the ones that change something (unlink, stop
+ * watching, a setting, minting a link code, a watch offer): those are reached,
+ * recorded, and covered by their own tests.
+ */
+async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat?: number }): Promise<Map<string, { html: string; labels: string[]; routes: Route[]; urls: string[] }>> {
+  const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id']);
+  const seen = new Map<string, { html: string; labels: string[]; routes: Route[]; urls: string[] }>();
+  const read = (call: FakeTelegram['calls'][number]) => {
+    const markup = call.payload['reply_markup'] as InlineKeyboard | undefined;
+    const buttons = (markup?.inline_keyboard?.flat() ?? []) as Array<{ text: string; callback_data?: string; url?: string }>;
+    const routes: Route[] = [];
+    for (const b of buttons) {
+      if (b.callback_data === undefined) continue;
+      const decoded = decodeNavTapForTest(b.callback_data);
+      if (decoded !== undefined) routes.push(decoded);
+    }
+    return { html: String(call.payload['text']), labels: buttons.map((b) => b.text), routes, urls: buttons.flatMap((b) => (b.url === undefined ? [] : [b.url])) };
+  };
+  await h.bot.handleUpdate(messageUpdate('/start', who));
+  const queue: Route[] = [{ to: 'home' }];
+  seen.set('home', read(lastScreen(h.telegram)));
+  for (const r of seen.get('home')!.routes) queue.push(r);
+  while (queue.length > 0) {
+    const route = queue.shift()!;
+    const key = JSON.stringify(route);
+    if (route.to === 'home' || seen.has(key) || CHANGES.has(route.to)) {
+      if (CHANGES.has(route.to)) seen.set(key, { html: '(changes something: not tapped)', labels: [], routes: [], urls: [] });
+      continue;
+    }
+    await tapNav(h, route, who);
+    // The screen is the last message with buttons: a question that follows it (force_reply) has none, by design.
+    const call = [...h.telegram.calls].reverse().find((c) => (c.method === 'sendMessage' || c.method === 'editMessageText') && (c.payload['reply_markup'] as InlineKeyboard | undefined)?.inline_keyboard !== undefined) ?? lastScreen(h.telegram);
+    const screen = read(call);
+    seen.set(key, screen);
+    queue.push(...screen.routes);
+  }
+  return seen;
+}
+
+import { decodeNav as decodeNavTapForTest } from './nav.ts';
+
+const UNBUILT = /rescue|copy|kill|close all|top traders|liquidations|large trades|funding|alert settings|remove margin/i;
+
+test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing unbuilt, and links only to the site', async () => {
+  const h = harness();
+  h.view.assessments = [dangerAssessment()];
+  const seen = await walkMenu(h, {});
+  const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
+  assert.deepEqual([...new Set(reached)], ['account', 'disconnect-ask', 'disconnect', 'home', 'margin', 'position', 'positions', 'settings', 'warn-ask', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  for (const [key, screen] of seen) {
+    if (screen.html.startsWith('(changes')) continue;
+    assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
+    if (key !== 'home') assert.ok(screen.routes.length > 0, `${key} has no way on or back`);
+    for (const url of screen.urls) assert.equal(url, 'https://perpguard.example', `${key} links somewhere invented: ${url}`);
+  }
+  // Home, linked: the spec's status block, with the network and an honest execution line.
+  const home = seen.get('home')!;
+  assert.match(home.html, /^🛡 <b>PERPGUARD<\/b>\nAnalyse\. Watch\. Act\.\n\n🔐 Trading Account: <b>#710<\/b> · Monad \w+\nExecution: 🟢 Authorized\nAutomation: ⚪ None\nAlerts: 🟢 ON · first warning at 8%/);
+  assert.deepEqual(home.labels, ['👁 Watch & Alerts', '📊 My Positions', '💰 Margin', '🔐 Trading Account', '⚙️ Settings', '🌐 Open PerpGuard']);
+  assert.equal(h.executor.calls.length, 0, 'walking the menu sends nothing');
+});
+
+test('PHASE 7: a STRANGER reaches only the public screens, and the Trading Account says Not connected with its network', async () => {
+  const h = harness();
+  const who = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  const seen = await walkMenu(h, who);
+  const reached = new Set([...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)));
+  assert.deepEqual([...reached].sort(), ['account', 'connect-go', 'home', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  for (const [key, screen] of seen) assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, key);
+  const account = seen.get(JSON.stringify({ to: 'account' }))!;
+  assert.match(account.html, /Account: <b>Not connected<\/b>\nNetwork: Monad testnet\nExecution: ⚪ Not configured/);
+  assert.deepEqual(account.labels, ['🌈 Connect Wallet', '← Back']);
+  assert.equal(answers(h.telegram).filter((t) => t === REFUSAL_TEXT).length, 0, 'no public screen leads to a refusal');
+});
+
+test('PHASE 7: the menu says why execution is not green, never "Authorized" when it is not', async () => {
+  const cases: Array<[Harness['sessionStatus'], RegExp]> = [
+    [{ trading: { state: 'signed-in', forwardingAllowed: false } }, /Execution: 🟡 Order forwarding is off/],
+    [{ trading: { state: 'connecting' } }, /Execution: 🟠 Connecting/],
+    [{ trading: { state: 'signed-in' }, mismatch: 'signed in as #711' }, /Execution: 🔴 Key is for another account/],
+    [undefined, /Execution: ⚪ Unknown/],
+  ];
+  for (const [status, line] of cases) {
+    const h = harness();
+    h.sessionStatus = status;
+    await h.bot.handleUpdate(messageUpdate('/start'));
+    assert.match(texts(h.telegram).at(-1)!, line);
+    await tapNav(h, { to: 'account' });
+    assert.match(String(lastScreen(h.telegram).payload['text']), line);
+  }
+  const relink = harness({ link: { ...fakeLinkService().service, needsRelink: () => 'the key was sealed under a rotated key' } });
+  await relink.bot.handleUpdate(messageUpdate('/start'));
+  assert.match(texts(relink.telegram).at(-1)!, /Execution: 🔴 Key can no longer be used/);
+});
+
+test('PHASE 7: Margin lists the positions and sends nothing; choosing one opens its screen, where Add goes through the confirmation', async () => {
+  const h = harness();
+  h.view.assessments = [dangerAssessment()];
+  await tapNav(h, { to: 'margin' });
+  const margin = lastScreen(h.telegram);
+  assert.match(String(margin.payload['text']), /^💰 <b>MARGIN<\/b>\nAdd margin to one position\./);
+  assert.deepEqual(keyboardOf(margin).map((b) => b.text), ['BTC long · 2.7%', '← Back']);
+  assert.equal(actionButtons(margin).length, 0, 'no action button on the Margin screen itself');
+  await h.bot.handleUpdate(callbackUpdate(keyboardOf(margin)[0]!.callback_data));
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔴 <b>BTC long · 2\.7% from being closed<\/b>/);
+  assert.equal(h.executor.calls.length, 0);
+  // Not reachable for a stranger: the gate refuses before any handler.
+  await tapNav(h, { to: 'margin' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
 });

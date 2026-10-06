@@ -77,6 +77,7 @@ export function LinkView() {
 
   const { me } = phase;
   const linked = me.link;
+  const showOptions = linked === null || linked.needsRelink !== undefined;
   // Plain words for the connection's state; the internals stay out of it.
   const stateLine = (l: NonNullable<LinkMe['link']>): string => {
     if (l.needsRelink !== undefined) return 'Your saved API key can no longer be used, so the buttons are off. Paste it again below to reconnect.';
@@ -114,6 +115,7 @@ export function LinkView() {
           <button
             type="button"
             className="btn danger mt-3"
+            title="Stops this Telegram chat acting on the account and deletes any API key you gave PerpGuard"
             onClick={() => {
               void (async () => {
                 try {
@@ -126,9 +128,9 @@ export function LinkView() {
               })();
             }}
           >
-            Disconnect
+            Unlink account #{linked.accountId} from Telegram
           </button>
-          <p className="mt-2 text-[12px] text-muted">Takes effect at once, and deletes any API key you gave PerpGuard.</p>
+          <p className="mt-2 text-[12px] text-muted">Takes effect at once, and deletes any API key you gave PerpGuard. Your wallet and your positions are not touched.</p>
         </div>
       )}
 
@@ -139,6 +141,10 @@ export function LinkView() {
         </div>
       )}
 
+      {/* LINKED, THE PROOF IS DONE: the two ways in collapse, so nothing reads as unfinished
+          and the only disconnect on the page is the account's own, named. A key that can no
+          longer be opened still needs pasting again, so that case keeps them. */}
+      {showOptions && (
       <div className="grid max-w-[1000px] grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card px-[22px] py-5">
           <div className="eyebrow">Option 1</div>
@@ -170,6 +176,7 @@ export function LinkView() {
           setNotice(proof.kind === 'linked' ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}.${proof.forwardingAllowed === false ? " One thing first: this account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it." : ' Alerts in your Telegram chat now come with buttons to act.'}` } : { tone: 'bad', text: proof.reason });
         }} onProblem={(text) => setNotice({ tone: 'bad', text })} />
       </div>
+      )}
 
       <p className="mt-4 text-[12px] text-muted">
         <button type="button" className="text-accent-hi" onClick={() => void link.signOut().then(() => refresh())}>

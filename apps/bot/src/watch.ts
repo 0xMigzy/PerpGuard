@@ -77,7 +77,7 @@ export class InMemoryWatchStore implements WatchStore {
       return {
         ok: false,
         refusal: 'chat-at-capacity',
-        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from My watchlist first.`,
+        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from the Watchlist first.`,
       };
     }
     // A new DISTINCT account counts against the bot-wide cap; following one

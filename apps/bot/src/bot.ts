@@ -18,7 +18,7 @@
  */
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActionAvailability, IndexerHealth, MarketRiskConfig } from '@perpguard/shared';
+import type { ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
@@ -34,8 +34,7 @@ import { authorise } from './auth.ts';
 import {
   confirmScreen,
   disconnectAskScreen,
-  killAskScreen,
-  killReportScreen,
+  marginScreen,
   outcomeScreen,
   positionScreen,
   positionsScreen,
@@ -45,18 +44,20 @@ import {
 } from './account.ts';
 import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
 import { buildMessage } from '@perpguard/backend/alerts/render';
-import { esc } from '@perpguard/backend/alerts/plain';
+import { esc, pct } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { warnLevelByIndex, warnLevelInfo } from '@perpguard/backend/risk/warn';
-import { decodeNav, decodeNavTap, encodeNav, isPublicRoute, type Route } from './nav.ts';
+import { decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
+import { EXECUTION_UNKNOWN, executionState, type ExecutionState } from './trading.ts';
 import { PendingQuestionStore } from './questions.ts';
 import {
   WATCH_PLACEHOLDER,
   WATCH_PROMPT,
+  accountScreen,
   connectGoScreen,
-  connectScreen,
   connectUnavailableScreen,
   homeScreen,
+  watchMenuScreen,
   walletScreen,
   watchAskScreen,
   watchlistScreen,
@@ -74,7 +75,7 @@ import {
   renderAmountPrompt,
   validateCustomAmount,
 } from './custom.ts';
-import { HELP_TEXT, REFUSAL_TEXT } from './help.ts';
+import { HELP_TEXT, OLD_MENU_TEXT, REFUSAL_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
 import {
   DEFAULT_RATE_LIMIT,
@@ -149,6 +150,11 @@ export interface BotDeps {
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
   readonly webUrl?: string;
+  /**
+   * The network a Trading Account is on in this deployment, named on every
+   * screen that shows one. A linked account's own session's network wins.
+   */
+  readonly tradingNetwork?: NetworkName;
   /** Open questions; defaults to a fresh store. */
   readonly questions?: PendingQuestionStore;
   /** Each linked account's own settings ("Warn me at"). Defaults to in memory. */
@@ -324,17 +330,44 @@ export function createBot(deps: BotDeps): Bot {
 
   const watchedAssessments = (accountId: number): readonly RiskAssessment[] => deps.watch?.assessments?.(accountId) ?? [];
 
+  /** The linked account's Execution line, from its live session at the moment of asking. */
+  const executionFor = (link: LinkRecord): ExecutionState => {
+    const needsRelink = deps.link?.needsRelink?.(link.userId);
+    if (needsRelink !== undefined) return executionState({ needsRelink });
+    const account = deps.sessions.forAccount(link.accountId);
+    if (account === undefined) return executionState({});
+    const session = account.status?.();
+    return session === undefined ? EXECUTION_UNKNOWN : executionState({ session });
+  };
+
   const home = (chatId: number, telegramUserId: number | undefined): Screen => {
     const link = linkHere(telegramUserId, chatId);
     const subs = deps.watch?.store.byChat(chatId) ?? [];
-    const own = link === undefined ? [] : (deps.sessions.forAccount(link.accountId)?.view.snapshot() ?? []);
+    const session = link === undefined ? undefined : deps.sessions.forAccount(link.accountId);
+    const own = session?.view.snapshot() ?? [];
     return homeScreen({
       health: deps.watch?.indexerHealth?.(),
       watching: subs.length,
-      linkedAccountId: link?.accountId,
+      account:
+        link === undefined
+          ? undefined
+          : {
+              accountId: link.accountId,
+              network: session?.view.network ?? deps.tradingNetwork,
+              execution: executionFor(link),
+              warnAt: pct(warnLevelInfo(settings.get(link.accountId).warnLevel).firstWarningPct).replace('.0%', '%'),
+            },
+      tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
       webUrl: deps.webUrl,
     });
+  };
+
+  const tradingAccount = (chatId: number, telegramUserId: number): Screen => {
+    const link = linkHere(telegramUserId, chatId);
+    if (link === undefined) return accountScreen({ accountId: undefined, network: deps.tradingNetwork, execution: undefined });
+    const session = deps.sessions.forAccount(link.accountId);
+    return accountScreen({ accountId: link.accountId, network: session?.view.network ?? deps.tradingNetwork, execution: executionFor(link) });
   };
 
   const watchlist = (chatId: number): Screen => {
@@ -421,7 +454,7 @@ export function createBot(deps: BotDeps): Bot {
     }
     const added = watch.store.add({ chatId, accountId: resolved.accountId, label: labelFor(target, resolved), addedAtMs: now() });
     if (!added.ok) {
-      await sendScreen(ctx, { html: added.text, buttons: [[{ text: '📋 My watchlist', route: { to: 'watchlist' } }]] });
+      await sendScreen(ctx, { html: added.text, buttons: [[{ text: '⭐ Watchlist', route: { to: 'watchlist' } }]] });
       return true;
     }
     if (!added.already && watch.refresh !== undefined) {
@@ -433,7 +466,7 @@ export function createBot(deps: BotDeps): Bot {
       ? `Already watching <b>#${resolved.accountId}</b>.`
       : `Now watching <b>#${resolved.accountId}</b>${how}. I will message this chat when a position on it gets close to being closed.`;
     const screen = wallet(chatId, resolved.accountId, { lead, back: { to: 'home' } });
-    await sendScreen(ctx, { ...screen, buttons: [[{ text: '📋 My watchlist', route: { to: 'watchlist' } }, { text: '← Home', route: { to: 'home' } }]] });
+    await sendScreen(ctx, { ...screen, buttons: [[{ text: '⭐ Watchlist', route: { to: 'watchlist' } }, { text: '← Home', route: { to: 'home' } }]] });
     return true;
   }
 
@@ -603,6 +636,11 @@ export function createBot(deps: BotDeps): Bot {
         questions.close(chatId, telegramUserId);
         await showScreen(ctx, home(chatId, telegramUserId));
         return;
+      case 'watch-menu':
+        await ctx.answerCallbackQuery();
+        questions.close(chatId, telegramUserId);
+        await showScreen(ctx, watchMenuScreen(deps.watch?.store.byChat(chatId).length ?? 0, deps.watch?.store.maxPerChat ?? 0));
+        return;
       case 'watch-ask':
         await ctx.answerCallbackQuery();
         if (deps.watch === undefined) {
@@ -640,15 +678,16 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, { ...list, html: `${removed ? `Stopped watching <b>#${route.accountId}</b>.` : `You were not watching <b>#${route.accountId}</b>.`}\n\n${list.html}` });
         return;
       }
+      case 'account':
       case 'connect':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, connectScreen(linkHere(telegramUserId, chatId)?.accountId));
+        await showScreen(ctx, tradingAccount(chatId, telegramUserId));
         return;
       case 'connect-go': {
         const linked = linkHere(telegramUserId, chatId);
         if (linked !== undefined) {
           await ctx.answerCallbackQuery();
-          await showScreen(ctx, connectScreen(linked.accountId));
+          await showScreen(ctx, tradingAccount(chatId, telegramUserId));
           return;
         }
         if (deps.link === undefined) {
@@ -674,10 +713,6 @@ export function createBot(deps: BotDeps): Bot {
   }
 
   // ── the account half: every route resolves the link at tap time ──────────
-  /** Kill-switch confirmations: a nonce per person, single use, short-lived. */
-  const killNonces = new Map<number, { readonly nonce: number; readonly atMs: number }>();
-  const KILL_NONCE_TTL_MS = 2 * 60_000;
-
   async function accountNav(ctx: Context, route: Route): Promise<void> {
     const telegramUserId = ctx.from?.id;
     if (telegramUserId === undefined) return;
@@ -695,6 +730,10 @@ export function createBot(deps: BotDeps): Bot {
       encodeCallback({ kind, token: deps.store.put({ userId: link.userId, telegramUserId, action }).token, marketId: action.marketId, amountCNS: action.amountCNS });
 
     switch (route.to) {
+      case 'margin':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, marginScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+        return;
       case 'positions':
         await ctx.answerCallbackQuery();
         await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
@@ -749,31 +788,6 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
         return;
       }
-      case 'kill-ask': {
-        await ctx.answerCallbackQuery();
-        const nonce = 100_000 + Math.floor(Math.random() * 899_999_999);
-        killNonces.set(telegramUserId, { nonce, atMs: now() });
-        await showScreen(ctx, killAskScreen(account.accountId, view.snapshot(), nonce));
-        return;
-      }
-      case 'kill-go': {
-        // SINGLE USE, and only the nonce THIS person was just shown. A crafted
-        // or replayed kill-go finds nothing and fires nothing.
-        const issued = killNonces.get(telegramUserId);
-        killNonces.delete(telegramUserId);
-        if (issued === undefined || issued.nonce !== route.nonce || now() - issued.atMs > KILL_NONCE_TTL_MS) {
-          await answer(ctx, 'That kill switch button has expired. Nothing was sent. Open it again from My positions.');
-          return;
-        }
-        if (account.killSwitch === undefined) {
-          await answer(ctx, 'The kill switch is not available for this account here. Nothing was sent.');
-          return;
-        }
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, { html: 'Closing every position, closest to its closing price first, and checking each one afterwards. This can take a minute per position. Do not fire it again meanwhile.', buttons: [] });
-        await sendScreen(ctx, killReportScreen(await account.killSwitch(link.userId)));
-        return;
-      }
       default:
         await answer(ctx, 'That screen is not available.');
     }
@@ -786,6 +800,12 @@ export function createBot(deps: BotDeps): Bot {
     if (tap !== undefined) {
       if (tap.fresh) freshTaps.add(ctx);
       await handleNav(ctx, tap.route);
+      return;
+    }
+    if (isNavShaped(data)) {
+      // A button from an older menu, such as the retired close-all kill
+      // switch. It names nothing that exists now, so nothing runs.
+      await answer(ctx, OLD_MENU_TEXT);
       return;
     }
     const decoded = decodeCallback(data);
@@ -834,7 +854,7 @@ export function createBot(deps: BotDeps): Bot {
       // Deleted, not just hidden: its Send button can never fire now.
       deps.store.delete(payload.token);
       await ctx.answerCallbackQuery({ text: 'Cancelled. Nothing was sent.' });
-      await showScreen(ctx, { html: 'Cancelled. Nothing was sent.', buttons: [[{ text: '🛡 My positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
+      await showScreen(ctx, { html: 'Cancelled. Nothing was sent.', buttons: [[{ text: '📊 My Positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
       return;
     }
 

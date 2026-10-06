@@ -18,53 +18,60 @@
 export type Route =
   // ── public: anyone, linked or not ──
   | { readonly to: 'home' }
+  /** 👁 Watch & Alerts: the read-only half's own menu. */
+  | { readonly to: 'watch-menu' }
   | { readonly to: 'watch-ask' }
   /** Confirm a bare number pasted without being asked: is it an account id to watch? */
   | { readonly to: 'watch-id'; readonly accountId: number }
   | { readonly to: 'watchlist' }
   | { readonly to: 'wallet'; readonly accountId: number }
   | { readonly to: 'unwatch'; readonly accountId: number }
+  /** 🔐 Trading Account. Public: an unlinked chat sees "Not connected" and how to connect. */
+  | { readonly to: 'account' }
+  /** Kept so a "Connect my account" button already sitting in a chat still opens; shows the Trading Account. */
   | { readonly to: 'connect' }
   | { readonly to: 'connect-go' }
   // ── linked: resolved against the chat's link at tap time ──
   | { readonly to: 'positions' }
+  /** 💰 Margin: the positions, framed for adding margin. Each still goes through the position screen's confirm. */
+  | { readonly to: 'margin' }
   | { readonly to: 'position'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
   | { readonly to: 'disconnect-ask' }
-  | { readonly to: 'disconnect' }
-  | { readonly to: 'kill-ask' }
-  /** Fires the kill switch: the nonce must match the one kill-ask issued, once. */
-  | { readonly to: 'kill-go'; readonly nonce: number };
+  | { readonly to: 'disconnect' };
+// The close-all kill switch ('kq', 'kx') is RETIRED (6 Oct 2026): Close All is
+// cut and the kill switch returns in Phase 20 as "stop automation". Its codes
+// decode to nothing, so an old button in a chat fires nothing; see `isNavShaped`.
 
 type RouteName = Route['to'];
 
 /** The codes on the wire. Short, because Telegram allows 64 bytes in all. */
 const CODE: Readonly<Record<RouteName, string>> = {
   home: 'h',
+  'watch-menu': 'wm',
   'watch-ask': 'wa',
   'watch-id': 'wi',
   watchlist: 'wl',
   wallet: 'w',
   unwatch: 'uw',
+  account: 'ta',
   connect: 'c',
   'connect-go': 'cg',
   positions: 'p',
+  margin: 'mg',
   position: 'pd',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
   'disconnect-ask': 'dq',
   disconnect: 'dx',
-  'kill-ask': 'kq',
-  'kill-go': 'kx',
 };
 const NAME_BY_CODE = new Map<string, RouteName>(Object.entries(CODE).map(([name, code]) => [code, name as RouteName]));
 
 /** Routes whose single argument is required, and what it is called. */
-const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level' | 'nonce'>> = {
-  'kill-go': 'nonce',
+const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   wallet: 'accountId',
   unwatch: 'accountId',
   'watch-id': 'accountId',
@@ -73,12 +80,13 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level' | 'nonce
 };
 
 /**
- * THE PUBLIC SET. Everything a watcher can reach: the home screen, the watch
- * list and a watched wallet, stopping a watch (their own subscription in their
- * own chat), and the explanation of connecting. Nothing here touches an
+ * THE PUBLIC SET. Everything a watcher can reach: the home screen, the Watch
+ * & Alerts menu, the watch list and a watched wallet, stopping a watch (their
+ * own subscription in their own chat), and the Trading Account screen, which
+ * for an unlinked chat says "Not connected" and how to connect. Nothing here touches an
  * account, a position or money.
  */
-const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>(['home', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'connect', 'connect-go']);
+const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>(['home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go']);
 
 export function isPublicRoute(route: Route): boolean {
   return PUBLIC.has(route.to);
@@ -88,7 +96,7 @@ const VERSION = 'n1';
 
 /**
  * A tap that opens its screen as a NEW message instead of editing the one it
- * sits on. Used on outcome and kill-switch reports: those are the record of
+ * sits on. Used on outcome reports: those are the record of
  * what happened to someone's money, and navigating on from one must not
  * overwrite it. Encoded as a trailing `+` on the code.
  */
@@ -135,4 +143,13 @@ function decodeParts(parts: string[]): Route | undefined {
   if (arg === undefined) return parts.length === 2 ? ({ to: name } as Route) : undefined;
   if (parts.length !== 3 || !/^\d{1,12}$/.test(parts[2]!)) return undefined;
   return { to: name, [arg]: Number(parts[2]) } as unknown as Route;
+}
+
+/**
+ * A payload in this namespace that no longer decodes: a button from an older
+ * menu (the retired kill switch, say). The bot answers it as such and runs
+ * nothing, rather than reporting it as unreadable.
+ */
+export function isNavShaped(data: string): boolean {
+  return data.startsWith(`${VERSION}:`);
 }

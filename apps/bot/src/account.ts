@@ -21,7 +21,6 @@ import { WARN_LEVELS, warnLevelInfo, type WarnLevel } from '@perpguard/backend/r
 import type { FreeBalanceReading } from './balance.ts';
 import type { ExecutionOutcome } from './actions.ts';
 import type { AccountSettings } from './settings.ts';
-import type { KillSwitchReport } from './sessions.ts';
 import type { Button, Screen } from './screens.ts';
 
 const BACK_TO_POSITIONS: Button = { text: '← Back', route: { to: 'positions' } };
@@ -73,8 +72,30 @@ export function positionsScreen(input: PositionsInput): Screen {
   const buttons: Button[][] = ordered(input.assessments).map((a) => [
     { text: `${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'position', marketId: a.marketId } },
   ]);
-  buttons.push([{ text: '⚙️ Settings', route: { to: 'settings' } }]);
-  if (input.assessments.length > 0) buttons.push([{ text: '⛔ Kill switch', route: { to: 'kill-ask' } }]);
+  buttons.push([{ text: '← Back', route: { to: 'home' } }]);
+  return { html: lines.join('\n'), buttons };
+}
+
+// ── Margin ──────────────────────────────────────────────────────────────────
+
+/**
+ * 💰 MARGIN: the same positions, framed for adding margin. Choosing one opens
+ * its position screen, whose Add buttons go through the one confirmation,
+ * lock and reconciliation every top-up uses. Nothing here sends anything.
+ */
+export function marginScreen(input: PositionsInput): Screen {
+  const lines = ['💰 <b>MARGIN</b>', "Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.", ''];
+  lines.push(input.free.known ? `Free balance at least ${held(input.free.floorCNS)}` : `Free balance unknown: ${esc(input.free.reason)}`);
+  if (input.assessments.length === 0) {
+    lines.push('', input.positions.state === 'live' ? 'No open positions, so there is nothing to add margin to.' : 'I have not been told what is open, so I cannot offer anything yet.');
+  } else {
+    lines.push('', 'Choose a position:');
+  }
+  const blind = blindLine(input.feed, input.positions);
+  if (blind !== undefined) lines.push('', blind);
+  const buttons: Button[][] = ordered(input.assessments).map((a) => [
+    { text: `${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? 'cannot see' : shortDistance(a.liqBufferPct)}`, route: { to: 'position', marketId: a.marketId } },
+  ]);
   buttons.push([{ text: '← Back', route: { to: 'home' } }]);
   return { html: lines.join('\n'), buttons };
 }
@@ -167,7 +188,6 @@ export function positionScreen(input: PositionInput): Screen {
   }
   const close: AlertAction = { ...position, type: 'close-position', intent: 'close', amountCNS: 0n, label: 'Close position' };
   buttons.push([{ text: 'Close position', data: input.button(close, kind) }]);
-  buttons.push([{ text: '⛔ Kill switch', route: { to: 'kill-ask' } }]);
 
   if (kind === 'blocked') {
     const av = input.availability;
@@ -269,7 +289,7 @@ export function outcomeScreen(input: OutcomeInput): Screen {
   const { action, outcome, market } = input;
   const name = input.assessment === undefined ? esc(action.symbol) : positionName(input.assessment);
   // FRESH: the outcome is the record of what happened to their money, and it stays.
-  const nav: Button[] = [{ text: '🛡 My positions', route: { to: 'positions' }, fresh: true }, { text: '← Home', route: { to: 'home' }, fresh: true }];
+  const nav: Button[] = [{ text: '📊 My Positions', route: { to: 'positions' }, fresh: true }, { text: '← Home', route: { to: 'home' }, fresh: true }];
   switch (outcome.kind) {
     case 'applied': {
       const lines: string[] = [];
@@ -308,11 +328,10 @@ export function outcomeScreen(input: OutcomeInput): Screen {
 export function settingsScreen(accountId: number, settings: AccountSettings): Screen {
   const level = warnLevelInfo(settings.warnLevel);
   return {
-    html: '<b>Settings</b>\nEach button shows what it is set to now. Tap to change it.',
+    html: `⚙️ <b>SETTINGS</b> · account #${accountId}\nEach button shows what it is set to now. Tap to change it.`,
     buttons: [
       [{ text: `⚠️ Warn me at: ${level.label} (${pct(level.firstWarningPct).replace('.0%', '%')})`, route: { to: 'warn-ask' } }],
-      [{ text: `🔗 Disconnect account #${accountId}`, route: { to: 'disconnect-ask' } }],
-      [BACK_TO_POSITIONS],
+      [{ text: '← Back', route: { to: 'home' } }],
     ],
   };
 }
@@ -332,48 +351,9 @@ export function warnAskScreen(current: WarnLevel): Screen {
 export function disconnectAskScreen(accountId: number): Screen {
   return {
     html: `<b>Disconnect account #${accountId}?</b>\nThis chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.`,
-    buttons: [[{ text: '🔗 Disconnect', route: { to: 'disconnect' } }, { text: 'Cancel', route: { to: 'settings' } }]],
-  };
-}
-
-// ── the kill switch ─────────────────────────────────────────────────────────
-
-export function killAskScreen(accountId: number, assessments: readonly RiskAssessment[], nonce: number): Screen {
-  const n = assessments.length;
-  if (n === 0) return { html: `<b>Kill switch</b>\nAccount #${accountId} has no open positions, so there is nothing to close.`, buttons: [[BACK_TO_POSITIONS]] };
-  return {
-    html: [
-      `<b>Close all ${n} position${n === 1 ? '' : 's'} on account #${accountId}?</b>`,
-      'One at a time, closest to its closing price first, each checked against the position afterwards. Their margin, after profit or loss, goes back to your free balance.',
-      '',
-      ...ordered(assessments).map((a) => `${dot(a.state)} ${positionName(a)} · ${shortDistance(a.liqBufferPct)}`),
-      '',
-      'Nothing has been sent yet.',
-    ].join('\n'),
-    buttons: [[{ text: `⛔ Close all ${n}`, route: { to: 'kill-go', nonce } }, { text: 'Cancel', route: { to: 'positions' } }]],
+    buttons: [[{ text: `🔌 Disconnect account #${accountId}`, route: { to: 'disconnect' } }], [{ text: 'Cancel', route: { to: 'account' } }]],
   };
 }
 
 /** The intents that mean "add margin", for callers that branch on it. */
 export const TOP_UP_INTENTS: ReadonlySet<AlertActionIntent> = new Set(['clear-danger', 'to-safe', 'custom']);
-
-/** The kill switch's report, worded for the person who fired it. */
-export function killReportScreen(report: KillSwitchReport): Screen {
-  const nav: Button[] = [{ text: '🛡 My positions', route: { to: 'positions' }, fresh: true }, { text: '← Home', route: { to: 'home' }, fresh: true }];
-  if (report.refused !== undefined) return { html: `<b>Kill switch not fired.</b> ${esc(report.refused)} Nothing was sent.`, buttons: [nav] };
-  const total = report.closed.length + report.stillOpen.length + report.unresolved.length;
-  const lines: string[] = [];
-  if (total === 0 && report.notPriceable.length === 0) lines.push('<b>Nothing to close:</b> there were no open positions.');
-  else if (report.stillOpen.length === 0 && report.unresolved.length === 0 && report.notPriceable.length === 0) {
-    lines.push(`✓ <b>Closed all ${total} position${total === 1 ? '' : 's'}</b>: ${report.closed.map(esc).join(', ')}.`);
-    lines.push("<i>Each one checked against the position itself, not only the exchange's reply.</i>");
-  } else {
-    lines.push(`⚠️ <b>Closed ${report.closed.length} of ${total + report.notPriceable.length}. You still have exposure.</b>`);
-    for (const name of report.closed) lines.push(`✓ ${esc(name)} — closed`);
-    for (const p of report.stillOpen) lines.push(`• ${esc(p.name)} — still open: ${esc(p.why)}`);
-    for (const p of report.unresolved) lines.push(`? ${esc(p.name)} — not known yet. ${esc(p.nextStep)}`);
-    for (const name of report.notPriceable) lines.push(`• ${esc(name)} — not closed: I cannot price it right now.`);
-    if (report.unresolved.length > 0) lines.push('', '<b>Do not fire the kill switch again to finish:</b> that would re-send closes for positions that may already be closed.');
-  }
-  return { html: lines.join('\n'), buttons: [nav] };
-}

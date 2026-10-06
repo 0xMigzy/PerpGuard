@@ -11,32 +11,15 @@
 import type { ActionExecutor } from './actions.ts';
 import type { FreeBalanceView } from './balance.ts';
 import type { RiskView } from './view.ts';
+import type { ExecutionFacts } from './trading.ts';
 
 export interface AccountView {
   readonly accountId: number;
   readonly view: RiskView;
   readonly executor: ActionExecutor;
   readonly balance: FreeBalanceView;
-  /**
-   * Close every open position on this account, worst first, and say what
-   * happened. Absent where no session can fire one (tests, demos).
-   */
-  readonly killSwitch?: (userId: string) => Promise<KillSwitchReport>;
-}
-
-/**
- * What a kill switch did, per position, in terms the bot can word plainly.
- * `refused` means nothing was sent at all, with the reason.
- */
-export interface KillSwitchReport {
-  readonly refused?: string;
-  readonly closed: readonly string[];
-  /** Still open: refused or reconciled as not closed, with why. */
-  readonly stillOpen: ReadonlyArray<{ readonly name: string; readonly why: string }>;
-  /** Not known: something may have happened. Never "try again". */
-  readonly unresolved: ReadonlyArray<{ readonly name: string; readonly nextStep: string }>;
-  /** Open, but not closed because they could not be priced. */
-  readonly notPriceable: readonly string[];
+  /** The trading session's state, for the Trading Account's Execution line. Absent: not known here. */
+  readonly status?: () => ExecutionFacts['session'];
 }
 
 export interface SessionRouter {

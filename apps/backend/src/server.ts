@@ -527,6 +527,7 @@ const bot =
         sessions: registry,
         ...(envAccountId === undefined ? {} : { ownerAccountId: envAccountId }),
         configs: riskConfigs,
+        tradingNetwork: network.name,
         amounts: pendingAmounts,
         identities,
         link: {
