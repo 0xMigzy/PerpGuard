@@ -26,6 +26,7 @@ import { ShortLine } from '@/components/Explain.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { ANCHOR_TOLERANCE, oiHistory, type OiHistory } from '@/lib/oiHistory.ts';
 import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx';
+import { activitySentence, riskSentence } from '@/lib/summary.ts';
 
 const POLL_MS = 30_000;
 
@@ -62,7 +63,8 @@ function skewOf(
 export function OverviewView() {
   const t = useTimeframe();
   const { fetch: ct, showDays } = chartWindow(t);
-  const period = periodLabel(t, useHistoryStart());
+  const historyStart = useHistoryStart();
+  const period = periodLabel(t, historyStart);
 
   const metrics = usePoll(() => api.metrics(t), POLL_MS, `metrics:${t}`);
   // Since launch, whatever the timeframe: the line under the windowed flow.
@@ -72,6 +74,8 @@ export function OverviewView() {
   const series = usePoll(() => api.series(ct), POLL_MS, `series:${ct}`);
   const byMarket = usePoll(() => api.seriesByMarket(ct), POLL_MS, `series-markets:${ct}`);
   const oi = usePoll(api.openInterest, POLL_MS, 'oi');
+  // For the summary's risk clause only: the Risk page's own snapshot, from the same cache.
+  const risk = usePoll(api.risk, POLL_MS, 'risk');
   // Since launch, whatever the window: the exchange balance is a running total from launch.
   const seriesAll = usePoll(() => api.series('all'), POLL_MS, 'series:all:balance');
   const treasury = usePoll(api.protocolTreasuryDays, POLL_MS, 'protocol-treasury-days');
@@ -120,6 +124,19 @@ export function OverviewView() {
         }
       />
 
+      {metrics.data !== undefined && (
+        <p className="mt-[-6px] mb-4 text-[13.5px] leading-[1.5] text-text2">
+          {activitySentence({
+            timeframe: t,
+            sinceLabel: historyStart === undefined ? undefined : formatDayLong(historyStart),
+            volumeAusd: metrics.data.data.volumeAusd,
+            volumeChange: deltaVsPrevious(metrics.data.data, (p) => p.volumeAusd, metrics.data.data.volumeAusd).fraction,
+            traders: metrics.data.data.activeTraders,
+            netFlowAusd: metrics.data.data.collateralFlow.netAusd,
+          })}
+          {risk.data !== undefined && riskSentence(risk.data.data) !== undefined && ` ${riskSentence(risk.data.data)}`}
+        </p>
+      )}
       <StaleMarker envelope={metrics.data} />
       <ErrorNote error={metrics.error} what="Protocol metrics" />
 

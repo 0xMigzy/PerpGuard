@@ -17,6 +17,7 @@ import { LADDER_COLORS, LadderChart } from '@/components/charts/LadderChart.tsx'
 import { MarketName, TokenIcon } from '@/components/TokenIcon.tsx';
 import { InfoTip, PANEL, RiskKpis } from './RiskKpis.tsx';
 import { ShortLine } from '@/components/Explain.tsx';
+import { riskSentence } from '@/lib/summary.ts';
 
 const POLL_MS = 30_000;
 const DEFAULT_MOVE = -0.1;
@@ -69,6 +70,7 @@ export function RiskView() {
         }
       />
 
+      {s !== undefined && riskSentence(s) !== undefined && <p className="mt-[-6px] mb-4 text-[13.5px] leading-[1.5] text-text2">{riskSentence(s)}</p>}
       <StaleMarker envelope={poll.data} />
       <ErrorNote error={poll.error} what="The risk snapshot" />
 
