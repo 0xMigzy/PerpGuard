@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { DirectionalExposure, ExposedPosition, MarketExposure } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatSignedAusd, formatWhen } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatMoney, formatPct, formatPriceAsServed, formatSignedMoney, formatWhen } from '@/lib/format.ts';
 import { chartRungs, exposedAt, formatMove, hasShortfall, ladderFor, marketLabel, rungAt, sideExposed } from '@/lib/risk.ts';
 import { VAR } from '@/lib/theme.ts';
 import { bufferTier } from '@/lib/traders.ts';
@@ -124,7 +124,7 @@ export function RiskView() {
           ) : (
             <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-[6px] border border-border bg-border sm:grid-cols-3">
               <Stat label="Positions exposed" value={formatCount(rung.positions)} />
-              <Stat label="Notional exposed" value={formatCompact(rung.notionalAusd)} />
+              <Stat label="Notional exposed" value={formatMoney(rung.notionalAusd)} />
               <Stat label="Share of open interest" value={scope.openInterestAusd > 0 ? formatPct(rung.notionalAusd / scope.openInterestAusd) : '—'} />
               <Stat
                 label="Side exposed"
@@ -136,7 +136,7 @@ export function RiskView() {
               />
               <Stat
                 label="Losses beyond collateral"
-                value={<span className={hasShortfall(rung.shortfallAusd) ? 'text-danger' : ''}>{formatCompact(rung.shortfallAusd)}</span>}
+                value={<span className={hasShortfall(rung.shortfallAusd) ? 'text-danger' : ''}>{formatMoney(rung.shortfallAusd)}</span>}
                 title={`${formatCount(rung.shortfallPositions)} positions past their own collateral`}
               />
               <Stat
@@ -271,7 +271,7 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
                     <td className="whitespace-nowrap">
                       <span className={`rounded-[4px] px-[6px] py-[2px] text-[10px] font-semibold tracking-[0.05em] uppercase ${p.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{p.side}</span>
                     </td>
-                    <td className={cell} title={`${formatPriceAsServed(p.sizeLots)} ${p.market.symbol ?? ''} · margin ${formatAusd(p.marginAusd)} AUSD`}>{formatCompact(p.notionalAusd)}</td>
+                    <td className={cell} title={`${formatPriceAsServed(p.sizeLots)} ${p.market.symbol ?? ''} · margin ${formatAusdExact(p.marginAusd)}`}>{formatMoney(p.notionalAusd)}</td>
                     <td className={`${cell} text-muted`}>{p.leverage.toFixed(1)}×</td>
                     <td className={cell}>{p.liquidationPrice === undefined ? '—' : formatPriceAsServed(p.liquidationPrice)}</td>
                     <td className={cell}>
@@ -281,7 +281,7 @@ function ExposedTable({ rows, loading, move, scopeLabel }: { readonly rows: read
                         <b className="text-[14px]" style={{ color: TIER_COLOR[tier] }}>{p.liqBufferPct === undefined ? '—' : formatPct(p.liqBufferPct)}</b>
                       )}
                     </td>
-                    <td className={`${cell} ${p.unrealisedPnlAusd > 0 ? 'text-safe' : p.unrealisedPnlAusd < 0 ? 'text-danger' : ''}`}>{formatSignedAusd(p.unrealisedPnlAusd, 0)}</td>
+                    <td className={`${cell} ${p.unrealisedPnlAusd > 0 ? 'text-safe' : p.unrealisedPnlAusd < 0 ? 'text-danger' : ''}`}>{formatSignedMoney(p.unrealisedPnlAusd)}</td>
                   </tr>
                 );
               })}
@@ -319,7 +319,7 @@ const MARKET_COLUMNS: readonly { readonly label: string; readonly advanced?: boo
 /** A table amount: compact from 10K, whole AUSD below, a quiet 0 for nothing. The exact figure is on hover. */
 function Amount({ ausd }: { readonly ausd: number }) {
   if (ausd === 0) return <span className="text-muted2">0</span>;
-  return <span title={`${formatAusdExact(ausd)} AUSD`}>{Math.abs(ausd) >= 10_000 ? formatCompact(ausd) : formatCount(ausd)}</span>;
+  return <span title={formatAusdExact(ausd)}>{formatMoney(ausd)}</span>;
 }
 
 function MarketsTable({ markets, selected, onSelect }: { readonly markets: readonly MarketExposure[] | undefined; readonly selected: number | undefined; readonly onSelect: (id: number) => void }) {
@@ -372,9 +372,9 @@ function MarketsTable({ markets, selected, onSelect }: { readonly markets: reado
                       </td>
                       <td
                         className={`${cell} font-semibold`}
-                        title={`one side · total position value, both sides ${formatCompact(m.notionalAusd)} · margin long ${formatCompact(m.longMarginAusd)} · short ${formatCompact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}
+                        title={`one side · total position value, both sides ${formatAusdExact(m.notionalAusd)} · margin long ${formatAusdExact(m.longMarginAusd)} · short ${formatAusdExact(m.shortMarginAusd)} · mark ${formatPriceAsServed(m.markPrice)}`}
                       >
-                        {formatCompact(m.openInterestAusd)}
+                        {formatMoney(m.openInterestAusd)}
                       </td>
                       <td className={cell}>
                         {formatCount(m.positions)}

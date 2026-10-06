@@ -1,26 +1,60 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  formatUsdCompact,
+  formatMoney,
+  formatMoneyExact,
+  formatSignedMoney,
+  formatCompactCount,
+  formatAusdExact,
   formatMultiple,
   formatFundingPct,
   blocksToApproxMs,
   formatAge,
-  formatCompact,
   formatDecimalString,
   formatPrice,
-  formatSignedAusd,
   formatSignedPct,
   microsToAusdString,
   shortAddress,
 } from './format.ts';
 
-test('tile figures go compact above a million and stay exact below ten thousand', () => {
-  assert.equal(formatCompact(1_990_209_053.25), '1.99B');
-  assert.equal(formatCompact(16_776_380.96), '16.78M');
-  assert.equal(formatCompact(111_817.62), '111.8K');
-  assert.equal(formatCompact(4_120), '4,120.00');
-  assert.equal(formatCompact(-1_087_223.31), '−1.09M');
+test('money has ONE rule: $, compact from 1,000, two decimals below', () => {
+  assert.equal(formatMoney(1_990_209_053.25), '$1.99B');
+  assert.equal(formatMoney(42_760_000), '$42.76M');
+  assert.equal(formatMoney(111_817.62), '$111.8K');
+  assert.equal(formatMoney(98_000), '$98K');
+  assert.equal(formatMoney(4_120), '$4.1K');
+  assert.equal(formatMoney(1_000), '$1K');
+  assert.equal(formatMoney(999.994), '$999.99');
+  assert.equal(formatMoney(8.5), '$8.50');
+  assert.equal(formatMoney(0), '$0.00');
+  assert.equal(formatMoney(-1_087_223.31), '−$1.09M');
+  assert.equal(formatMoney(-80_936), '−$80.9K');
+});
+
+test('a tiny amount is never $0.00, and rounding never prints $1,000K', () => {
+  assert.equal(formatMoney(0.000032), '<$0.01');
+  assert.equal(formatMoney(-0.004), '−<$0.01');
+  assert.equal(formatMoney(999_960), '$1M');
+  assert.equal(formatMoney(999_960_000), '$999.96M');
+  assert.equal(formatMoney(999_996_000), '$1B');
+});
+
+test('signed money for flows and PnL', () => {
+  assert.equal(formatSignedMoney(66_060), '+$66.1K');
+  assert.equal(formatSignedMoney(-33_958), '−$34K');
+  assert.equal(formatSignedMoney(0), '$0.00');
+});
+
+test('exact money where exactness is the point, and the hover form', () => {
+  assert.equal(formatMoneyExact(3_838_376.912802), '$3,838,376.91');
+  assert.equal(formatMoneyExact(-27.700465), '−$27.70');
+  assert.equal(formatAusdExact(0.000032), '$0.000032');
+  assert.equal(formatAusdExact(-1_234.5), '−$1,234.50');
+});
+
+test('a count on an axis is compact without a dollar', () => {
+  assert.equal(formatCompactCount(1_500), '1.5K');
+  assert.equal(formatCompactCount(360), '360');
 });
 
 test('a decimal string is grouped and truncated WITHOUT being parsed as a float', () => {
@@ -50,7 +84,6 @@ test('signs use a real minus and percentages are from fractions', () => {
   assert.equal(formatSignedPct(0.227), '+22.7%');
   assert.equal(formatSignedPct(-0.048), '−4.8%');
   assert.equal(formatSignedPct(0), '0.0%');
-  assert.equal(formatSignedAusd(-33958), '−33,958.00');
 });
 
 test('ages pick the coarsest unit that still says something', () => {
@@ -80,15 +113,12 @@ test('a multiple keeps a decimal only below 10', () => {
   assert.equal(formatMultiple(Number.POSITIVE_INFINITY), '—');
 });
 
-test('compact dollars: two decimals at most, floored because it prints a loss', () => {
-  assert.equal(formatUsdCompact(5_312_345), '$5.31M');
-  assert.equal(formatUsdCompact(428_529.99), '$428.52K');
-  assert.equal(formatUsdCompact(3_029), '$3.02K');
-  assert.equal(formatUsdCompact(425_343.63), '$425.34K');
-  assert.equal(formatUsdCompact(146.509), '$146.5');
-  assert.equal(formatUsdCompact(999.999), '$999.99', 'never rounded up into the next unit');
-  assert.equal(formatUsdCompact(0), '$0');
-  assert.equal(formatUsdCompact(1_250_000_000), '$1.25B');
+test('floored money, for a loss: never rounded up, never into the next unit', () => {
+  assert.equal(formatMoney(5_318_345, { floor: true }), '$5.31M');
+  assert.equal(formatMoney(428_599.99, { floor: true }), '$428.5K');
+  assert.equal(formatMoney(999.999, { floor: true }), '$999.99');
+  assert.equal(formatMoney(999_999, { floor: true }), '$999.9K');
+  assert.equal(formatMoney(1_259_000_000, { floor: true }), '$1.25B');
 });
 
 test('an age is never negative: a timestamp ahead of a slow visitor clock reads "under 1 s"', async () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatCompact, formatDay, formatDayLong } from '@/lib/format.ts';
+import { formatDay, formatDayLong, formatMoney } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -37,7 +37,7 @@ export function LevelChart({
         <AreaChart data={points as LevelPoint[]} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={VAR.border} />
           <XAxis dataKey="atMs" type="number" scale="time" domain={[first, last]} tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-          <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={60} />
+          <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={60} />
           <Tooltip
             cursor={{ stroke: VAR.border2 }}
             content={({ active, payload }) => {
@@ -46,7 +46,7 @@ export function LevelChart({
               return (
                 <ChartTooltip
                   title={p.live === true ? 'Now, from the venue' : `${formatDayLong(p.atMs)}, at the UTC close`}
-                  rows={[{ label, value: `${formatCompact(p.value)} AUSD` }, ...(rows?.(p) ?? [])]}
+                  rows={[{ label, value: `${formatMoney(p.value)}` }, ...(rows?.(p) ?? [])]}
                 />
               );
             }}

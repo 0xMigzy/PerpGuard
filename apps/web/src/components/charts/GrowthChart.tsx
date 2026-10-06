@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { HistoryMonth } from '@perpguard/shared';
-import { formatCompact, formatCount } from '@/lib/format.ts';
+import { formatCompactCount, formatCount, formatMoney } from '@/lib/format.ts';
 import { formatMonth } from '@/lib/growth.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
@@ -15,7 +15,7 @@ export function GrowthChart({ months }: { readonly months: readonly HistoryMonth
         <BarChart data={months} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="22%">
           <CartesianGrid vertical={false} stroke={VAR.border} />
           <XAxis dataKey="monthMs" tickFormatter={(v: number) => formatMonth(v).replace(' 2026', '')} tickLine={false} axisLine={false} interval={0} tick={{ fill: VAR.muted, fontSize: 11.5 }} />
-          <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={44} allowDecimals={false} tick={{ fill: VAR.muted, fontSize: 11.5 }} />
+          <YAxis tickFormatter={(v: number) => formatCompactCount(v)} tickLine={false} axisLine={false} width={44} allowDecimals={false} tick={{ fill: VAR.muted, fontSize: 11.5 }} />
           <Tooltip
             cursor={{ fill: VAR.card2 }}
             content={({ active, payload }) => {
@@ -26,7 +26,7 @@ export function GrowthChart({ months }: { readonly months: readonly HistoryMonth
                   title={`${formatMonth(row.monthMs)}${row.partial ? ' · so far' : ''}`}
                   rows={[
                     { swatch: VAR.accentHi, label: 'Trades', value: formatCount(row.trades) },
-                    { label: 'Volume', value: `${formatCompact(row.volumeAusd)} AUSD` },
+                    { label: 'Volume', value: `${formatMoney(row.volumeAusd)}` },
                     { label: 'New accounts', value: formatCount(row.newAccounts), muted: true },
                   ]}
                 />

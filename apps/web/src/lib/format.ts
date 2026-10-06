@@ -10,41 +10,61 @@
 
 const EN = 'en-US';
 
-/** Grouped, fixed decimals. For AUSD figures the API already serves as floats. */
-export function formatAusd(value: number, decimals = 2): string {
-  return value.toLocaleString(EN, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+/**
+ * MONEY, ONE RULE (AUSD is a dollar stablecoin, so "$" is the unit; the footer
+ * says "amounts in AUSD" once): compact from 1,000 up ($1.2K, $3.45M,
+ * $1.44B: up to 2 decimals for millions and billions, 1 for thousands), two
+ * decimals below ($8.56), a minus sign before the dollar (−$80.9K), and a
+ * non-zero amount under a cent is "<$0.01", never "$0.00".
+ *
+ * `floor` rounds DOWN, for a figure that states a loss or what someone holds:
+ * a rounded-up loss claims more than happened.
+ */
+export function formatMoney(value: number, options: { readonly floor?: boolean } = {}): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '−' : '';
+  if (abs > 0 && abs < 0.005) return `${sign}<$0.01`;
+  const [div, suffix, digits] = abs >= 1e9 ? [1e9, 'B', 2] : abs >= 1e6 ? [1e6, 'M', 2] : abs >= 1e3 ? [1e3, 'K', 1] : [1, '', 2];
+  const scaled = abs / div;
+  const shown = options.floor === true ? Math.floor(scaled * 10 ** digits + 1e-9) / 10 ** digits : scaled;
+  // A rounded value that reaches the next unit moves to it: 999,960 is $1M, never $1,000K.
+  if (suffix !== '' && suffix !== 'B' && options.floor !== true && Number(shown.toFixed(digits)) >= 1000) return formatMoney(value < 0 ? -(div * 1000) : div * 1000);
+  const body = suffix === '' ? shown.toLocaleString(EN, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : shown.toLocaleString(EN, { maximumFractionDigits: digits });
+  return `${sign}$${body}${suffix}`;
 }
 
-/** Up to six decimals, no padding: the exact figure for a hover. */
+/** A flow or a PnL: "+$66.1K", "−$80.9K", "$0.00". */
+export function formatSignedMoney(value: number): string {
+  return value > 0 ? `+${formatMoney(value)}` : formatMoney(value);
+}
+
+/**
+ * Exact, grouped, for where exactness IS the point: a reconciliation, an
+ * equation that must add up on screen, a fee recorded to the micro. "$8,684.56".
+ */
+export function formatMoneyExact(value: number, decimals = 2): string {
+  const sign = value < 0 ? '−' : '';
+  return `${sign}$${Math.abs(value).toLocaleString(EN, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
+/** Up to six decimals, no padding: the exact figure for a hover. "$1,234.567891". */
 export function formatAusdExact(value: number): string {
-  return value.toLocaleString(EN, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  const sign = value < 0 ? '−' : '';
+  return `${sign}$${Math.abs(value).toLocaleString(EN, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
 }
 
-/**
- * A tile figure: compact above a million, so "16.45M" rather than a wall of
- * digits, and full 2dp below it. The exact figure goes on hover.
- */
-export function formatCompact(value: number): string {
-  const abs = Math.abs(value);
-  const sign = value < 0 ? '−' : '';
-  if (abs >= 1e9) return `${sign}${(abs / 1e9).toLocaleString(EN, { maximumFractionDigits: 2 })}B`;
-  if (abs >= 1e6) return `${sign}${(abs / 1e6).toLocaleString(EN, { maximumFractionDigits: 2 })}M`;
-  if (abs >= 1e4) return `${sign}${(abs / 1e3).toLocaleString(EN, { maximumFractionDigits: 1 })}K`;
-  return `${sign}${formatAusd(abs)}`;
+/** The signed exact form, for a PnL hover: "+$1,234.56", "−$80,936.12". */
+export function formatSignedExact(value: number): string {
+  return value > 0 ? `+${formatAusdExact(value)}` : formatAusdExact(value);
 }
 
-/**
- * Compact dollars, at most two decimals: $5.31M, $428.52K, $146.5. FLOORED, not
- * rounded: it prints a LOSS, and a figure that rounds up claims more than
- * happened. AUSD is a dollar stablecoin, so $ is the unit.
- */
-export function formatUsdCompact(value: number): string {
+/** A count on a chart axis: 12K, 1.5M. Never money; it has no "$". */
+export function formatCompactCount(value: number): string {
   const abs = Math.abs(value);
   const sign = value < 0 ? '−' : '';
-  const floor2 = (v: number) => Math.floor(v * 100 + 1e-9) / 100;
-  const [div, suffix] = abs >= 1e9 ? [1e9, 'B'] : abs >= 1e6 ? [1e6, 'M'] : abs >= 1e3 ? [1e3, 'K'] : [1, ''];
-  const shown = floor2(abs / div).toLocaleString(EN, suffix === '' ? { maximumFractionDigits: 2 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${sign}$${shown}${suffix}`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toLocaleString(EN, { maximumFractionDigits: 1 })}M`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toLocaleString(EN, { maximumFractionDigits: 1 })}K`;
+  return `${sign}${Math.round(abs).toLocaleString(EN)}`;
 }
 
 /** An integer count, grouped. */
@@ -70,12 +90,6 @@ export function formatSignedPct(fraction: number, decimals = 1): string {
 /** An unsigned percentage, e.g. "74.4%". */
 export function formatPct(fraction: number, decimals = 1): string {
   return `${(fraction * 100).toLocaleString(EN, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}%`;
-}
-
-/** A signed AUSD amount for a flow: "+55,022.10" / "−33,958.00". */
-export function formatSignedAusd(value: number, decimals = 2): string {
-  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
-  return `${sign}${formatAusd(Math.abs(value), decimals)}`;
 }
 
 /**

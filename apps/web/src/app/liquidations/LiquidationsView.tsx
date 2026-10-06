@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { LiquidationRecord, MarketBreakdown, RescueVerdict } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAusd, formatAusdExact, formatCompact, formatCount, formatPct, formatPriceAsServed, formatUsdCompact, formatWhen } from '@/lib/format.ts';
+import { formatAusdExact, formatCount, formatMoney, formatPct, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit, splitLiquidationDays } from '@/lib/liquidations.ts';
 import { deltaVsPrevious, lastDays } from '@/lib/overview.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
@@ -90,9 +90,9 @@ export function LiquidationsView() {
               <div className="eyebrow">Potentially avoidable losses</div>
               <div
                 className="num my-[6px] text-[46px] font-semibold leading-none tracking-[-0.03em] text-accent-hi"
-                title={`${formatAusdExact(r.rescuableRealisedLossAusd)} AUSD realised loss across ${formatCount(r.rescuableCount)} rescuable liquidations`}
+                title={`${formatAusdExact(r.rescuableRealisedLossAusd)} realised loss across ${formatCount(r.rescuableCount)} rescuable liquidations`}
               >
-                {formatUsdCompact(r.rescuableRealisedLossAusd)}
+                {formatMoney(r.rescuableRealisedLossAusd, { floor: true })}
               </div>
               <div className="num text-[13px] text-text">
                 {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} liquidations
@@ -134,10 +134,10 @@ export function LiquidationsView() {
             <StatTile
               label={`Liquidations · ${period}`}
               value={formatCount(m.liquidations.count)}
-              exact={`${formatAusdExact(m.liquidations.notionalAusd)} AUSD notional liquidated`}
+              exact={`${formatAusdExact(m.liquidations.notionalAusd)} notional liquidated`}
               delta={deltaVsPrevious(m, (p) => p.liquidations.count, m.liquidations.count)}
               goodDirection="down"
-              secondary={`${formatCount(r.judgeableCount)} judgeable · ${formatCount(r.unknownCount)} excluded · ${formatCompact(m.liquidations.notionalAusd)} notional`}
+              secondary={`${formatCount(r.judgeableCount)} judgeable · ${formatCount(r.unknownCount)} excluded · ${formatMoney(m.liquidations.notionalAusd)} notional`}
               sparkline={days?.map((d) => d.total)}
               sparklineColor={COLORS.danger}
             />
@@ -203,7 +203,7 @@ export function LiquidationsView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">By size</h2>
-            <span className="text-[12.5px] text-muted">notional taken, AUSD</span>
+            <span className="text-[12.5px] text-muted">notional taken</span>
           </div>
           <ErrorNote error={summary.error} what="The liquidation bands" />
           {s === undefined ? <Skeleton className="mt-3 h-[150px] w-full" /> : <BandBars bands={s.bySize} unit="AUSD notional" />}
@@ -350,15 +350,15 @@ function LiquidationRow({ row }: { readonly row: LiquidationRecord }) {
         <span className={`ml-2 rounded-[4px] px-[5px] py-[1.5px] text-[10px] font-semibold tracking-[0.05em] uppercase ${row.side === 'long' ? 'bg-safe/12 text-safe' : 'bg-danger/12 text-danger'}`}>{row.side}</span>
         {!row.isFull && <span className="ml-1 text-[10.5px] text-muted2">partial</span>}
       </td>
-      <td className={`${cell} text-muted`} title={`${formatAusdExact(row.notionalAusd)} AUSD notional${row.execPrice === undefined ? '' : ` · closed at ${formatPriceAsServed(row.execPrice)}`}`}>
+      <td className={`${cell} text-muted`} title={`${formatAusdExact(row.notionalAusd)} notional${row.execPrice === undefined ? '' : ` · closed at ${formatPriceAsServed(row.execPrice)}`}`}>
         {formatPriceAsServed(row.sizeLots)} {row.market.symbol ?? ''}
-        <span className="block text-[11px] text-muted2">{formatCompact(row.notionalAusd)} notional</span>
+        <span className="block text-[11px] text-muted2">{formatMoney(row.notionalAusd)} notional</span>
       </td>
-      <td className={`${cell} text-danger`} title={row.badDebtAusd > 0 ? `${formatAusdExact(row.badDebtAusd)} AUSD bad debt` : undefined}>−{formatAusd(row.marginLostAusd)}</td>
-      <td className={`${cell} ${row.marginToSurviveAusd === undefined ? 'text-muted2' : ''}`} title={row.marginToSurviveAusd === undefined ? undefined : `${formatAusdExact(row.marginToSurviveAusd)} AUSD`}>
-        {row.marginToSurviveAusd === undefined ? 'unknown' : formatAusd(row.marginToSurviveAusd)}
+      <td className={`${cell} text-danger`} title={row.badDebtAusd > 0 ? `${formatAusdExact(row.badDebtAusd)} bad debt` : undefined}>−{formatMoney(row.marginLostAusd)}</td>
+      <td className={`${cell} ${row.marginToSurviveAusd === undefined ? 'text-muted2' : ''}`} title={row.marginToSurviveAusd === undefined ? undefined : `${formatAusdExact(row.marginToSurviveAusd)}`}>
+        {row.marginToSurviveAusd === undefined ? 'unknown' : formatMoney(row.marginToSurviveAusd)}
       </td>
-      <td className={cell} title={`${formatAusdExact(row.freeBalanceBeforeAusd)} AUSD`}>{formatAusd(row.freeBalanceBeforeAusd)}</td>
+      <td className={cell} title={`${formatAusdExact(row.freeBalanceBeforeAusd)}`}>{formatMoney(row.freeBalanceBeforeAusd)}</td>
       <td className={cell}>
         <span className={`rounded-[4px] px-[6px] py-[2.5px] text-[10px] font-semibold tracking-[0.05em] ${verdict.className}`} title={verdict.title}>
           {verdict.text}

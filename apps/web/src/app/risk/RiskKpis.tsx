@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { DirectionalExposure, RiskSnapshot } from '@perpguard/shared';
-import { formatAge, formatAusdExact, formatCompact, formatCount, formatPct } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatMoney, formatPct } from '@/lib/format.ts';
 import { directionWord, hasShortfall, wholeDays } from '@/lib/risk.ts';
 import { VAR } from '@/lib/theme.ts';
 import { Skeleton } from '@/components/Skeleton.tsx';
@@ -107,19 +107,19 @@ function OpenInterestCard({ s }: { readonly s: RiskSnapshot }) {
           text={
             <>
               One side, at the venue&rsquo;s marks: every long is matched by a short, so a long/short split is always 50/50 and is not shown. Total position value, both sides:{' '}
-              {formatCompact(s.totals.notionalAusd)} AUSD. Posted margin {formatCompact(s.totals.marginAusd)} (long {formatCompact(s.totals.longMarginAusd)}, short{' '}
-              {formatCompact(s.totals.shortMarginAusd)}).
+              {formatMoney(s.totals.notionalAusd)}. Posted margin {formatMoney(s.totals.marginAusd)} (long {formatMoney(s.totals.longMarginAusd)}, short{' '}
+              {formatMoney(s.totals.shortMarginAusd)}).
             </>
           }
         />
       </div>
       <div className="flex flex-1 flex-col justify-center py-4">
-        <div className="metric-value metric-value-lg" title={`${formatAusdExact(s.totals.openInterestAusd)} AUSD`}>
-          {formatCompact(s.totals.openInterestAusd)}
+        <div className="metric-value metric-value-lg" title={`${formatAusdExact(s.totals.openInterestAusd)}`}>
+          {formatMoney(s.totals.openInterestAusd)}
         </div>
         <div className="metric-support mt-3">
           <span className="num font-semibold text-text">{formatCount(s.counted.priced)}</span> open positions
-          <span className="text-muted"> · {formatCount(s.counted.markets)} markets · AUSD</span>
+          <span className="text-muted"> · {formatCount(s.counted.markets)} markets</span>
         </div>
         {s.counted.unpriced > 0 && <div className="mt-1 text-[11.5px] text-watch">{formatCount(s.counted.unpriced)} more could not be priced</div>}
       </div>
@@ -141,8 +141,8 @@ function StressCard({ d }: { readonly d: DirectionalExposure }) {
           closes {fall ? 'longs' : 'shorts'}
         </span>
       </div>
-      <div className="metric-value mt-[6px]" title={`${formatAusdExact(d.notionalAusd)} AUSD notional exposed`}>
-        {formatCompact(d.notionalAusd)}
+      <div className="metric-value mt-[6px]" title={`${formatAusdExact(d.notionalAusd)} notional exposed`}>
+        {formatMoney(d.notionalAusd)}
       </div>
       <div className="metric-support mt-[2px]">
         <span className="num text-text">{formatCount(d.positions)}</span> positions
@@ -153,7 +153,7 @@ function StressCard({ d }: { readonly d: DirectionalExposure }) {
       <div className="metric-note mt-[6px]">
         {d.shortfallPositions === 0
           ? 'none past its own collateral'
-          : `${formatCount(d.shortfallPositions)} past ${d.shortfallPositions === 1 ? 'its' : 'their'} own collateral · ${formatCompact(d.shortfallAusd)}`}
+          : `${formatCount(d.shortfallPositions)} past ${d.shortfallPositions === 1 ? 'its' : 'their'} own collateral · ${formatMoney(d.shortfallAusd)}`}
       </div>
     </div>
   );
@@ -172,9 +172,9 @@ function LossesCard({ worse }: { readonly worse: DirectionalExposure }) {
       <div
         className="metric-value mt-[6px]"
         style={{ color: hasShortfall(worse.shortfallAusd) ? VAR.danger : VAR.text }}
-        title={`${formatAusdExact(worse.shortfallAusd)} AUSD`}
+        title={`${formatAusdExact(worse.shortfallAusd)}`}
       >
-        {formatCompact(worse.shortfallAusd)}
+        {formatMoney(worse.shortfallAusd)}
       </div>
       <div className="metric-support mt-[2px]">worst case if every market {word} 10%</div>
       <div className="metric-note mt-[6px]">
@@ -200,8 +200,8 @@ function InsuranceCard({ s }: { readonly s: RiskSnapshot }) {
           }`}
         />
       </div>
-      <div className="metric-value mt-[6px]" title={s.insurance.totalAusd === undefined ? undefined : `${formatAusdExact(s.insurance.totalAusd)} AUSD`}>
-        {s.insurance.totalAusd === undefined ? 'unknown' : formatCompact(s.insurance.totalAusd)}
+      <div className="metric-value mt-[6px]" title={s.insurance.totalAusd === undefined ? undefined : `${formatAusdExact(s.insurance.totalAusd)}`}>
+        {s.insurance.totalAusd === undefined ? 'unknown' : formatMoney(s.insurance.totalAusd)}
       </div>
       <div className="metric-support mt-[2px]">
         across {formatCount(s.insurance.marketsWithReading)} markets{s.insurance.marketsWithout === 0 ? '' : ` · ${formatCount(s.insurance.marketsWithout)} without a reading`}
@@ -241,7 +241,7 @@ function WeakestCoverCard({ s }: { readonly s: RiskSnapshot }) {
             </span>
           </div>
           <div className="metric-note mt-[8px]">
-            its fund ÷ {formatCompact(w.shortfallAusd)} past collateral if {name} {directionWord(w.direction === 'fall' ? -1 : 1)} 10%
+            its fund ÷ {formatMoney(w.shortfallAusd)} past collateral if {name} {directionWord(w.direction === 'fall' ? -1 : 1)} 10%
           </div>
         </>
       )}

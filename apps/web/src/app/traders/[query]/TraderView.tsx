@@ -5,21 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import type { AssessedPosition, RoundTrip, WalletProfile } from '@perpguard/shared';
 import { ApiError, api } from '@/lib/api.ts';
-import {
-  formatAge,
-  formatAusd,
-  formatAusdExact,
-  formatCompact,
-  formatCount,
-  formatDayLong,
-  formatDuration,
-  formatPct,
-  formatPriceAsServed,
-  formatSignedAusd,
-  formatSignedPct,
-  formatWhen,
-  shortAddress,
-} from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatDayLong, formatDuration, formatMoney, formatPct, formatPriceAsServed, formatSignedExact, formatSignedMoney, formatSignedPct, formatWhen, shortAddress } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
 import { DAY_BUCKET_24H, dayPeriodLabel, periodLabel } from '@/lib/history.ts';
@@ -258,13 +244,13 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
           <>
             <StatTile
               label={`Net PnL · ${windowLabel}`}
-              value={formatSignedAusd(t === 'all' ? p.netPnlAusd : window.netPnlAusd, 0)}
-              exact={t === 'all' ? `${formatSignedAusd(p.netPnlAusd)} AUSD = realised ${formatSignedAusd(p.realisedPnlAusd)} + funding ${formatSignedAusd(p.fundingAusd)} − fees ${formatAusd(p.feesPaidAusd)}` : `${formatSignedAusd(window.netPnlAusd)} AUSD = realised ${formatSignedAusd(window.realisedPnlAusd)} + funding ${formatSignedAusd(window.fundingAusd)} − fees ${formatAusd(window.feesAusd)}`}
+              value={formatSignedMoney(t === 'all' ? p.netPnlAusd : window.netPnlAusd)}
+              exact={t === 'all' ? `${formatSignedExact(p.netPnlAusd)} = realised ${formatSignedExact(p.realisedPnlAusd)} + funding ${formatSignedExact(p.fundingAusd)} − fees ${formatAusdExact(p.feesPaidAusd)}` : `${formatSignedExact(window.netPnlAusd)} = realised ${formatSignedExact(window.realisedPnlAusd)} + funding ${formatSignedExact(window.fundingAusd)} − fees ${formatAusdExact(window.feesAusd)}`}
               valueColor={(t === 'all' ? p.netPnlAusd : window.netPnlAusd) > 0 ? COLORS.safe : (t === 'all' ? p.netPnlAusd : window.netPnlAusd) < 0 ? COLORS.danger : undefined}
               secondary={
                 <>
-                  <div>{t === 'all' ? `realised ${formatSignedAusd(p.realisedPnlAusd, 0)} · funding ${formatSignedAusd(p.fundingAusd, 0)} · fees ${formatAusd(p.feesPaidAusd, 0)}` : `lifetime ${formatSignedAusd(p.netPnlAusd, 0)}`}</div>
-                  <div>{t === 'all' ? `curve: the last ${formatCount(curve?.length ?? 0)} round trips` : `realised ${formatSignedAusd(window.realisedPnlAusd, 0)} · funding ${formatSignedAusd(window.fundingAusd, 0)} · fees ${formatAusd(window.feesAusd, 0)}`}</div>
+                  <div>{t === 'all' ? `realised ${formatSignedMoney(p.realisedPnlAusd)} · funding ${formatSignedMoney(p.fundingAusd)} · fees ${formatMoney(p.feesPaidAusd)}` : `lifetime ${formatSignedMoney(p.netPnlAusd)}`}</div>
+                  <div>{t === 'all' ? `curve: the last ${formatCount(curve?.length ?? 0)} round trips` : `realised ${formatSignedMoney(window.realisedPnlAusd)} · funding ${formatSignedMoney(window.fundingAusd)} · fees ${formatMoney(window.feesAusd)}`}</div>
                 </>
               }
               sparkline={t === 'all' ? (curve !== undefined && curve.length >= 2 ? curve : undefined) : dayCurve !== undefined && dayCurve.length >= 2 ? dayCurve.map((d) => d.cumulativeAusd) : undefined}
@@ -273,12 +259,12 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             />
             <StatTile
               label={`Volume · ${windowLabel}`}
-              value={formatCompact(t === 'all' ? p.volumeAusd : window.volumeAusd)}
-              exact={`${formatAusdExact(t === 'all' ? p.volumeAusd : window.volumeAusd)} AUSD notional`}
+              value={formatMoney(t === 'all' ? p.volumeAusd : window.volumeAusd)}
+              exact={`${formatAusdExact(t === 'all' ? p.volumeAusd : window.volumeAusd)} notional`}
               secondary={
                 <>
                   <div>{formatCount(t === 'all' ? p.tradeCount : window.tradeCount)} trades</div>
-                  <div>{t === 'all' ? 'lifetime' : `lifetime ${formatCompact(p.volumeAusd)} · ${formatCount(p.tradeCount)} trades`}</div>
+                  <div>{t === 'all' ? 'lifetime' : `lifetime ${formatMoney(p.volumeAusd)} · ${formatCount(p.tradeCount)} trades`}</div>
                 </>
               }
               sparkline={dayRows !== undefined && dayRows.length >= 2 ? dayRows.map((d) => d.volumeAusd) : undefined}
@@ -320,7 +306,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
                   <div>
                     {p.rescues.medianSpareBalanceAusd === undefined
                       ? 'no rescuable case to take a median over'
-                      : `median ${formatAusd(p.rescues.medianSpareBalanceAusd)} AUSD sitting free at the time · lifetime`}
+                      : `median ${formatMoney(p.rescues.medianSpareBalanceAusd)} sitting free at the time · lifetime`}
                   </div>
                 </>
               }
@@ -432,18 +418,18 @@ function Performance({ profile: p }: { readonly profile: WalletProfile }) {
       title: 'gross profit over gross loss',
       sub: perf.roundTrips < perf.minRoundTripsForRatios ? `under ${formatCount(perf.minRoundTripsForRatios)} trips` : undefined,
     },
-    { label: 'Max drawdown', value: perf.maxDrawdownAusd === 0 ? '0' : `−${formatAusd(perf.maxDrawdownAusd)}`, color: perf.maxDrawdownAusd > 0 ? COLORS.danger : undefined, title: 'largest peak-to-trough fall in cumulative net PnL' },
+    { label: 'Max drawdown', value: perf.maxDrawdownAusd === 0 ? '0' : `−${formatMoney(perf.maxDrawdownAusd)}`, color: perf.maxDrawdownAusd > 0 ? COLORS.danger : undefined, title: 'largest peak-to-trough fall in cumulative net PnL' },
     { label: 'Best streak', value: `${formatCount(perf.longestWinStreak)} wins` },
     { label: 'Worst streak', value: `${formatCount(perf.longestLossStreak)} losses` },
     { label: 'Avg hold', value: perf.averageHoldMs === undefined ? '—' : formatDuration(perf.averageHoldMs) },
-    { label: 'Best / worst trip', value: `${formatSignedAusd(perf.bestRoundTripAusd, 0)} / ${formatSignedAusd(perf.worstRoundTripAusd, 0)}` },
+    { label: 'Best / worst trip', value: `${formatSignedMoney(perf.bestRoundTripAusd)} / ${formatSignedMoney(perf.worstRoundTripAusd)}` },
     {
       label: 'Best / worst market',
       value: `${perf.bestMarket?.market.symbol ?? '—'} / ${perf.worstMarket?.market.symbol ?? '—'}`,
       title:
         perf.bestMarket === undefined || perf.worstMarket === undefined
           ? undefined
-          : `${perf.bestMarket.market.symbol}: ${formatSignedAusd(perf.bestMarket.netPnlAusd, 0)} over ${formatCount(perf.bestMarket.roundTrips)} trips · ${perf.worstMarket.market.symbol}: ${formatSignedAusd(perf.worstMarket.netPnlAusd, 0)} over ${formatCount(perf.worstMarket.roundTrips)}`,
+          : `${perf.bestMarket.market.symbol}: ${formatSignedMoney(perf.bestMarket.netPnlAusd)} over ${formatCount(perf.bestMarket.roundTrips)} trips · ${perf.worstMarket.market.symbol}: ${formatSignedMoney(perf.worstMarket.netPnlAusd)} over ${formatCount(perf.worstMarket.roundTrips)}`,
     },
   ];
   return (
@@ -519,15 +505,15 @@ function PositionsTable({
                     <td className={`${cell} text-muted`}>{formatPriceAsServed(pos.sizeLots)}</td>
                     <td className={cell}>{pos.entryPrice === undefined ? <span className="text-muted2">unknown</span> : formatPriceAsServed(pos.entryPrice)}</td>
                     <td className={`${cell} text-muted`}>{pos.leverage}×</td>
-                    <td className={cell} title={pos.marginAddedAusd > 0 ? `${formatAusd(pos.marginAddedAusd)} added since open` : undefined}>
-                      {formatAusd(pos.marginAusd)}
+                    <td className={cell} title={pos.marginAddedAusd > 0 ? `${formatAusdExact(pos.marginAddedAusd)} added since open` : undefined}>
+                      {formatMoney(pos.marginAusd)}
                     </td>
                     <td className={cell}>{a.markPrice === undefined ? '—' : formatPriceAsServed(a.markPrice)}</td>
                     <td className={`${cell} ${a.unrealisedPnlAusd === undefined ? 'text-muted' : a.unrealisedPnlAusd > 0 ? 'text-safe' : a.unrealisedPnlAusd < 0 ? 'text-danger' : ''}`} title={a.pnlPctOfMargin === undefined ? undefined : `${formatSignedPct(a.pnlPctOfMargin)} of margin`}>
-                      {a.unrealisedPnlAusd === undefined ? '—' : formatSignedAusd(a.unrealisedPnlAusd)}
+                      {a.unrealisedPnlAusd === undefined ? '—' : formatSignedMoney(a.unrealisedPnlAusd)}
                     </td>
                     <td className={cell}>{a.liquidationPrice === undefined ? '—' : formatPriceAsServed(a.liquidationPrice)}</td>
-                    <td className={cell} title={a.reason ?? (a.marginToSurviveAusd !== undefined && a.marginToSurviveAusd > 0 ? `needs ${formatAusd(a.marginToSurviveAusd)} AUSD to get back above maintenance` : undefined)}>
+                    <td className={cell} title={a.reason ?? (a.marginToSurviveAusd !== undefined && a.marginToSurviveAusd > 0 ? `needs ${formatAusdExact(a.marginToSurviveAusd)} to get back above maintenance` : undefined)}>
                       {a.reason !== undefined ? (
                         <span className="text-[11.5px] text-muted2">not assessed</span>
                       ) : tier === 'past' ? (
@@ -599,7 +585,7 @@ function TripsTable({ rows }: { readonly rows: readonly RoundTrip[] | undefined 
                   <td className={`${cell} text-muted`}>{formatPriceAsServed(r.sizeLots)}</td>
                   <td className={cell}>{r.entryPrice === undefined ? <span className="text-muted2">unknown</span> : formatPriceAsServed(r.entryPrice)}</td>
                   <td className={`${cell} text-muted`}>{formatDuration(r.holdMs)}</td>
-                  <td className={`${cell} ${r.netPnlAusd > 0 ? 'text-safe' : r.netPnlAusd < 0 ? 'text-danger' : ''}`}>{formatSignedAusd(r.netPnlAusd)}</td>
+                  <td className={`${cell} ${r.netPnlAusd > 0 ? 'text-safe' : r.netPnlAusd < 0 ? 'text-danger' : ''}`}>{formatSignedMoney(r.netPnlAusd)}</td>
                   <td className={cell}>
                     {r.wasForcedExit ? (
                       <span className="rounded-[6px] bg-danger/15 px-[7px] py-[2px] text-[11px] font-bold text-danger">forced</span>

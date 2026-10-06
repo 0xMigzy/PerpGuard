@@ -8,7 +8,7 @@
  * Pure: no I/O, no React. Unit tested.
  */
 import type { LeverageBaseline, MarketRef, WalletInsightFacts } from '@perpguard/shared';
-import { formatAusd, formatCompact, formatCount, formatPct } from './format.ts';
+import { formatCount, formatMoney, formatPct } from './format.ts';
 import { marketName } from './markets.ts';
 
 export type InsightKey = 'rescuable' | 'leverage' | 'hold' | 'markets' | 'direction' | 'sizing';
@@ -44,7 +44,7 @@ export interface InsightInputs {
   readonly equityAusd: number | undefined;
 }
 
-const money = (ausd: number): string => (Math.abs(ausd) >= 10_000 ? formatCompact(Math.abs(ausd)) : formatAusd(Math.abs(ausd), 0));
+const money = (ausd: number): string => formatMoney(Math.abs(ausd));
 const multiple = (x: number): string => `${x.toFixed(1)}×`;
 const times = (n: number): string => (n === 1 ? 'once' : `${formatCount(n)} times`);
 /** A share that is not zero never prints as 0.0%: 2 of 824,883 is "under 0.1%". */
@@ -123,7 +123,7 @@ export function walletInsights(input: InsightInputs): InsightsResult {
           : worst.netPnlAusd > 0
             ? `Made money on every market traded: most on ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), least on ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`
             : `Best market ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), worst ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`,
-      detail: `Net PnL (realised + funding − fees) over ${formatCount(best.roundTrips)} and ${formatCount(worst.roundTrips)} round trips. AUSD.`,
+      detail: `Net PnL (realised + funding − fees) over ${formatCount(best.roundTrips)} and ${formatCount(worst.roundTrips)} round trips.`,
       tone: 'neutral',
     });
   }
@@ -135,7 +135,7 @@ export function walletInsights(input: InsightInputs): InsightsResult {
       key: 'direction',
       label: 'Direction',
       text: `${formatPct(facts.longTrips / sided)} of round trips were long. Longs ${madeOrLost(facts.longNetPnlAusd)}, shorts ${madeOrLost(facts.shortNetPnlAusd)}.`,
-      detail: `${formatCount(facts.longTrips)} long and ${formatCount(facts.shortTrips)} short round trips; net PnL per side, AUSD.`,
+      detail: `${formatCount(facts.longTrips)} long and ${formatCount(facts.shortTrips)} short round trips; net PnL per side.`,
       tone: 'neutral',
     });
   }
@@ -148,7 +148,7 @@ export function walletInsights(input: InsightInputs): InsightsResult {
       key: 'sizing',
       label: 'Position size',
       text: `Largest open position: ${marketName(largest.market)} ${largest.side}, ${money(largest.notionalAusd!)} notional, ${multiple(largest.notionalAusd! / input.equityAusd)} equity.`,
-      detail: `Equity ${money(input.equityAusd)} AUSD (free + margin + unrealised), now; notional at the venue's mark.`,
+      detail: `Equity ${money(input.equityAusd)} (free + margin + unrealised), now; notional at the venue's mark.`,
       tone: 'neutral',
     });
   }

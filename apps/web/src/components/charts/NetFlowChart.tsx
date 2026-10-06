@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { DailyPoint } from '@perpguard/shared';
-import { formatAusd, formatCompact, formatDay, formatDayLong, formatSignedAusd } from '@/lib/format.ts';
+import { formatDay, formatDayLong, formatMoney, formatSignedMoney } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -20,7 +20,7 @@ export function NetFlowChart({ days }: { readonly days: readonly DailyPoint[] })
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={60} />
+            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={60} />
             <ReferenceLine y={0} stroke={VAR.border2} />
             <Tooltip
               cursor={{ fill: VAR.card2 }}
@@ -31,9 +31,9 @@ export function NetFlowChart({ days }: { readonly days: readonly DailyPoint[] })
                   <ChartTooltip
                     title={formatDayLong(Number(label))}
                     rows={[
-                      { label: 'Deposited', value: formatAusd(row.deposited, 0), muted: true },
-                      { label: 'Withdrawn', value: formatAusd(row.withdrawn, 0), muted: true },
-                      { label: 'Net', value: formatSignedAusd(row.net, 0) },
+                      { label: 'Deposited', value: formatMoney(row.deposited), muted: true },
+                      { label: 'Withdrawn', value: formatMoney(row.withdrawn), muted: true },
+                      { label: 'Net', value: formatSignedMoney(row.net) },
                     ]}
                   />
                 );

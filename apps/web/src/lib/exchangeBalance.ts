@@ -12,7 +12,7 @@
  * window the line started 178.6K below zero.
  */
 import type { DailyPoint, ProtocolTreasuryDays, TreasuryScanStatus } from '@perpguard/shared';
-import { formatAge, formatAusd, formatCount } from './format.ts';
+import { formatAge, formatCount, formatMoneyExact } from './format.ts';
 
 export interface BalanceDay {
   readonly dayMs: number;
@@ -55,11 +55,11 @@ export function treasuryLines(scan: TreasuryScanStatus, nowMs: number): Treasury
       : r.withinExpected
         ? {
             tone: 'ok' as const,
-            text: `Rebuilt from events, matches the contract at block ${formatCount(r.atBlock)}: ${formatAusd(r.rebuiltAusd)} rebuilt, ${formatAusd(r.contractAusd)} held, ${formatAusd(r.gapAusd)} apart, the known difference since 6 Oct 2026 that no event explains.`,
+            text: `Rebuilt from events, matches the contract at block ${formatCount(r.atBlock)}: ${formatMoneyExact(r.rebuiltAusd)} rebuilt, ${formatMoneyExact(r.contractAusd)} held, ${formatMoneyExact(r.gapAusd)} apart, the known difference since 6 Oct 2026 that no event explains.`,
           }
         : {
             tone: 'watch' as const,
-            text: `Rebuilt and contract differ by ${formatAusd(r.gapAusd)} AUSD at block ${formatCount(r.atBlock)}, outside the known ${formatAusd(r.expectedGapAusd)} ± ${formatAusd(r.toleranceAusd, 0)}: a movement the rebuild does not explain. ${formatAusd(r.rebuiltAusd)} rebuilt, ${formatAusd(r.contractAusd)} held.`,
+            text: `Rebuilt and contract differ by ${formatMoneyExact(r.gapAusd)} at block ${formatCount(r.atBlock)}, outside the known ${formatMoneyExact(r.expectedGapAusd)} ± ${formatMoneyExact(r.toleranceAusd, 0)}: a movement the rebuild does not explain. ${formatMoneyExact(r.rebuiltAusd)} rebuilt, ${formatMoneyExact(r.contractAusd)} held.`,
           };
   const through = scan.throughBlock === undefined ? 'no block yet' : `block ${formatCount(scan.throughBlock)}`;
   const minutes = Math.round(scan.intervalMs / 60_000);

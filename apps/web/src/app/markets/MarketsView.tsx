@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusdExact, formatCompact, formatCount, formatFundingPct, formatPct, formatPriceAsServed } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatFundingPct, formatMoney, formatPct, formatPriceAsServed } from '@/lib/format.ts';
 import {
   CROWDED_SHARE,
   buildMarketTable,
@@ -338,12 +338,12 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
       <td className={cell} title={row.markPrice === undefined ? 'no mark known' : row.change === undefined ? undefined : `${formatPct(row.change, 2)} over ${row.low === undefined || row.high === undefined ? 'the window' : `${formatPriceAsServed(row.low)} – ${formatPriceAsServed(row.high)}`}`}>
         {row.markPrice === undefined ? '—' : formatPriceAsServed(row.markPrice)}
       </td>
-      <td className={cell} title={`${formatAusdExact(row.volumeAusd)} AUSD · ${formatCount(row.tradeCount)} trades · fees ${formatAusdExact(row.feesAusd)} AUSD over ${row.feesLabel}`}>
-        {formatCompact(row.volumeAusd)}
+      <td className={cell} title={`${formatAusdExact(row.volumeAusd)} · ${formatCount(row.tradeCount)} trades · fees ${formatAusdExact(row.feesAusd)} over ${row.feesLabel}`}>
+        {formatMoney(row.volumeAusd)}
         <span className="block text-[11px] text-muted2">{formatCount(row.tradeCount)} trades</span>
       </td>
-      <td className={cell} title={row.openInterestNotional === undefined ? 'the venue has no reading for this market' : `${formatAusdExact(row.openInterestNotional)} AUSD · ${formatPriceAsServed(row.openInterestSize ?? 0)} ${row.symbol}`}>
-        {row.openInterestNotional === undefined ? <span className="text-muted">no reading</span> : formatCompact(row.openInterestNotional)}
+      <td className={cell} title={row.openInterestNotional === undefined ? 'the venue has no reading for this market' : `${formatAusdExact(row.openInterestNotional)} · ${formatPriceAsServed(row.openInterestSize ?? 0)} ${row.symbol}`}>
+        {row.openInterestNotional === undefined ? <span className="text-muted">no reading</span> : formatMoney(row.openInterestNotional)}
       </td>
       <td className={`${cell} ${fundingClass}`}>{row.fundingPct === undefined ? <span className="text-muted2">no event</span> : formatFundingPct(row.fundingPct)}</td>
       <td
@@ -351,7 +351,7 @@ function MarketTableRow({ row, expanded, onToggle }: { readonly row: MarketRow; 
         title={
           share === undefined
             ? 'no open margin'
-            : `${formatPct(share, 0)} long · ${formatPct(1 - share, 0)} short\nmargin long ${formatAusdExact(row.longMarginAusd)} AUSD · short ${formatAusdExact(row.shortMarginAusd)} AUSD`
+            : `${formatPct(share, 0)} long · ${formatPct(1 - share, 0)} short\nmargin long ${formatAusdExact(row.longMarginAusd)} · short ${formatAusdExact(row.shortMarginAusd)}`
         }
       >
         {share === undefined ? (
@@ -387,7 +387,7 @@ function RiskBreakdownRow({ row, columns, oiAge, period }: { readonly row: Marke
           <b className="text-text">{row.symbol} risk {row.risk.score}</b> = Σ value × weight × 100. Each value is the input against its ceiling, capped at 1.
           {oiAge !== undefined && ` Mark and open interest as of ${oiAge} ago.`}
           {` Liquidations in ${period}: ${formatCount(row.liquidationCount)}${row.liquidationCount > 0 ? `, ${formatCount(row.rescuableLiquidationCount)} rescuable` : ''}.`}
-          {` Fees ${formatCompact(row.feesAusd)} maker + taker over ${row.feesLabel}.`}
+          {` Fees ${formatMoney(row.feesAusd)} maker + taker over ${row.feesLabel}.`}
         </div>
         <div className="grid gap-x-6 gap-y-2 text-[12px] sm:grid-cols-2 lg:grid-cols-4">
           {row.risk.components.map((c) => (

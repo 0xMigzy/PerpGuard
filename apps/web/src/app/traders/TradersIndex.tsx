@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAusdExact, formatCompact, formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
+import { formatAusdExact, formatCount, formatMoney, formatPct, formatSignedExact, formatSignedMoney, shortAddress } from '@/lib/format.ts';
 import { DAY_BUCKET_24H, dayPeriodLabel, inDayPeriod } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
@@ -305,16 +305,16 @@ function TraderTableRow({ row, floor }: { readonly row: TraderRow; readonly floo
   const liquidationHover =
     row.liquidationCount === 0
       ? undefined
-      : `${formatAusdExact(row.marginLostAusd)} AUSD margin lost` +
-        (row.maxSpareHeldAusd === undefined ? '' : ` · up to ${formatAusdExact(row.maxSpareHeldAusd)} AUSD free at a rescuable liquidation`);
+      : `${formatAusdExact(row.marginLostAusd)} margin lost` +
+        (row.maxSpareHeldAusd === undefined ? '' : ` · up to ${formatAusdExact(row.maxSpareHeldAusd)} free at a rescuable liquidation`);
   return (
     <tr className="group border-b border-border last:border-b-0 hover:bg-card2">
       <AccountCell row={row} />
-      <td className={`${cell} ${sign(row.netPnlAusd)}`} title={`${formatSignedAusd(row.netPnlAusd)} AUSD`}>
-        {formatSignedAusd(row.netPnlAusd, 0)}
+      <td className={`${cell} ${sign(row.netPnlAusd)}`} title={`${formatSignedExact(row.netPnlAusd)}`}>
+        {formatSignedMoney(row.netPnlAusd)}
       </td>
-      <td className={cell} title={`${formatAusdExact(row.volumeAusd)} AUSD · ${formatCount(row.tradeCount)} trades`}>
-        {formatCompact(row.volumeAusd)}
+      <td className={cell} title={`${formatAusdExact(row.volumeAusd)} · ${formatCount(row.tradeCount)} trades`}>
+        {formatMoney(row.volumeAusd)}
       </td>
       <td className={cell}>
         {row.winRate === undefined ? (
@@ -354,15 +354,15 @@ function AccountCell({ row }: { readonly row: TraderRow }) {
 /** One account's capital flow over the window. Net flow's colour carries the direction; zero is muted. */
 function FlowTableRow({ row }: { readonly row: TraderRow }) {
   const cell = 'num px-[10px] py-[9px] text-right whitespace-nowrap align-top';
-  const amount = (ausd: number) => (ausd === 0 ? <span className="text-muted2">0</span> : formatCompact(ausd));
+  const amount = (ausd: number) => (ausd === 0 ? <span className="text-muted2">$0</span> : formatMoney(ausd));
   const net = row.netFlowAusd;
   return (
     <tr className="group border-b border-border last:border-b-0 hover:bg-card2">
       <AccountCell row={row} />
-      <td className={cell} title={`${formatAusdExact(row.depositedAusd)} AUSD deposited`}>{amount(row.depositedAusd)}</td>
-      <td className={cell} title={`${formatAusdExact(row.withdrawnAusd)} AUSD withdrawn`}>{amount(row.withdrawnAusd)}</td>
-      <td className={`${cell} font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : 'text-muted2'}`} title={`${formatSignedAusd(net)} AUSD`}>
-        {net === 0 ? '0' : `${net > 0 ? '+' : '−'}${formatCompact(Math.abs(net))}`}
+      <td className={cell} title={`${formatAusdExact(row.depositedAusd)} deposited`}>{amount(row.depositedAusd)}</td>
+      <td className={cell} title={`${formatAusdExact(row.withdrawnAusd)} withdrawn`}>{amount(row.withdrawnAusd)}</td>
+      <td className={`${cell} font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : 'text-muted2'}`} title={`${formatSignedExact(net)}`}>
+        {net === 0 ? '0' : `${net > 0 ? '+' : '−'}${formatMoney(Math.abs(net))}`}
       </td>
     </tr>
   );

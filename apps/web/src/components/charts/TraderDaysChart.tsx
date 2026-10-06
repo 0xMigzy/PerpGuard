@@ -1,7 +1,7 @@
 'use client';
 
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatCompact, formatDay, formatDayLong, formatSignedAusd } from '@/lib/format.ts';
+import { formatDay, formatDayLong, formatMoney, formatSignedMoney } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -32,7 +32,7 @@ export function TraderDaysChart({ days }: { readonly days: readonly TraderDayBar
           <ComposedChart data={days} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={64} />
+            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={VAR.border2} />
             <Tooltip
               cursor={{ fill: VAR.card2 }}
@@ -43,10 +43,10 @@ export function TraderDaysChart({ days }: { readonly days: readonly TraderDayBar
                   <ChartTooltip
                     title={formatDayLong(Number(label))}
                     rows={[
-                      { swatch: row.netPnlAusd >= 0 ? VAR.safe : VAR.danger, label: 'Net PnL', value: formatSignedAusd(row.netPnlAusd, 0) },
-                      { label: CUMULATIVE, value: formatSignedAusd(row.cumulativeAusd, 0) },
-                      { label: 'Volume', value: formatCompact(row.volumeAusd), muted: true },
-                      { label: 'Free balance at close', value: formatCompact(row.endFreeBalanceAusd), muted: true },
+                      { swatch: row.netPnlAusd >= 0 ? VAR.safe : VAR.danger, label: 'Net PnL', value: formatSignedMoney(row.netPnlAusd) },
+                      { label: CUMULATIVE, value: formatSignedMoney(row.cumulativeAusd) },
+                      { label: 'Volume', value: formatMoney(row.volumeAusd), muted: true },
+                      { label: 'Free balance at close', value: formatMoney(row.endFreeBalanceAusd), muted: true },
                     ]}
                   />
                 );

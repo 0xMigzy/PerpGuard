@@ -7,7 +7,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import type { AssessedPosition, Timeframe, TraderDayPoint, WalletMatch, WalletProfile } from '@perpguard/shared';
 import { ApiError, api } from '@/lib/api.ts';
 import { alignedCumulative, compareColumn, MAX_COMPARE, parseCompareIds, walletLabel, withAdded, withRemoved, type CompareColumn } from '@/lib/compare.ts';
-import { formatAusd, formatCompact, formatCount, formatDay, formatDayLong, formatDuration, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
+import { formatCount, formatDay, formatDayLong, formatDuration, formatMoney, formatPct, formatSignedMoney, shortAddress } from '@/lib/format.ts';
 import { DAY_BUCKET_24H, dayPeriodLabel } from '@/lib/history.ts';
 import { marketName } from '@/lib/markets.ts';
 import { SERIES, VAR } from '@/lib/theme.ts';
@@ -217,7 +217,7 @@ export function CompareView() {
 
           <section className="card px-[18px] py-4" aria-label="Cumulative net PnL">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">
-              Cumulative net PnL <span className="ml-1 text-[12.5px] font-medium text-muted">{period} · AUSD, from 0 where the window opens</span>
+              Cumulative net PnL <span className="ml-1 text-[12.5px] font-medium text-muted">{period} · from 0 where the window opens</span>
             </h2>
             <CompareChart
               columns={columns.map((c) => ({
@@ -268,16 +268,16 @@ interface Row {
   readonly cell?: (c: CompareColumn) => ReactNode;
 }
 
-// Under 1 AUSD keeps its cents, so a small loss never prints as "−0".
-const signed = (v: number) => <span className={v > 0 ? 'text-safe' : v < 0 ? 'text-danger' : ''}>{formatSignedAusd(v, v !== 0 && Math.abs(v) < 1 ? 2 : 0)}</span>;
-const volume = (v: number) => (v === 0 ? '0' : formatCompact(v));
+// The money rule keeps cents under $1, so a small loss never prints as "−0".
+const signed = (v: number) => <span className={v > 0 ? 'text-safe' : v < 0 ? 'text-danger' : ''}>{formatSignedMoney(v)}</span>;
+const volume = (v: number) => (v === 0 ? '0' : formatMoney(v));
 const withheld = (v: number | undefined, floor: number, roundTrips: number) =>
   v === undefined ? <span className="text-muted2" title={`Withheld under ${floor} round trips; this has ${roundTrips}.`}>under {floor} trips</span> : formatPct(v);
 
 function ROWS(period: string): readonly Row[] {
   return [
     { group: 'Now', label: '' },
-    { label: 'Equity', title: 'Free balance + posted margin + unrealised PnL, at the venue’s marks now', cell: (c) => (c.equityAusd === undefined ? <span className="text-muted2">not priced yet</span> : formatAusd(c.equityAusd, 0)) },
+    { label: 'Equity', title: 'Free balance + posted margin + unrealised PnL, at the venue’s marks now', cell: (c) => (c.equityAusd === undefined ? <span className="text-muted2">not priced yet</span> : formatMoney(c.equityAusd)) },
     { label: 'Open positions', cell: (c) => formatCount(c.openPositions) },
     { group: period, label: '' },
     { label: 'Net PnL', title: 'Realised + funding − fees over the window', cell: (c) => signed(c.window.netPnlAusd) },
@@ -295,7 +295,7 @@ function ROWS(period: string): readonly Row[] {
       title: 'Gross profit ÷ gross loss. Withheld under the floor, and when there has been no losing trip.',
       cell: (c) => (c.lifetime.profitFactor === undefined ? <span className="text-muted2">{c.lifetime.roundTrips < c.floor ? `under ${c.floor} trips` : 'no losses'}</span> : `${c.lifetime.profitFactor.toFixed(2)}×`),
     },
-    { label: 'Max drawdown', title: 'Largest peak-to-trough fall in cumulative net PnL', cell: (c) => (c.lifetime.maxDrawdownAusd === 0 ? '0' : <span className="text-danger">−{formatAusd(c.lifetime.maxDrawdownAusd, 0)}</span>) },
+    { label: 'Max drawdown', title: 'Largest peak-to-trough fall in cumulative net PnL', cell: (c) => (c.lifetime.maxDrawdownAusd === 0 ? '0' : <span className="text-danger">−{formatMoney(c.lifetime.maxDrawdownAusd)}</span>) },
     { label: 'Best / worst streak', title: 'Longest run of winning, then losing, round trips', cell: (c) => `${formatCount(c.lifetime.longestWinStreak)} won / ${formatCount(c.lifetime.longestLossStreak)} lost` },
     { label: 'Average hold', cell: (c) => (c.lifetime.averageHoldMs === undefined ? '—' : formatDuration(c.lifetime.averageHoldMs)) },
     { label: 'Best market', cell: (c) => (c.lifetime.bestMarket === undefined ? '—' : <>{marketName(c.lifetime.bestMarket.market)} {signed(c.lifetime.bestMarket.netPnlAusd)}</>) },
@@ -342,19 +342,19 @@ function CompareChart({ columns: all }: { readonly columns: readonly ChartColumn
       ) : points.length === 0 ? (
         <div className="py-8 text-center text-[12.5px] text-muted">None of these accounts traded in this window.</div>
       ) : (
-      <div className="mt-2 h-[260px] w-full" role="img" aria-label={`Cumulative net PnL per account: ${columns.map((c) => `${c.label} ends at ${formatSignedAusd(points.at(-1)!.values[c.id] ?? 0, 0)}`).join('; ')}`}>
+      <div className="mt-2 h-[260px] w-full" role="img" aria-label={`Cumulative net PnL per account: ${columns.map((c) => `${c.label} ends at ${formatSignedMoney(points.at(-1)!.values[c.id] ?? 0)}`).join('; ')}`}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatCompact(v)} tickLine={false} axisLine={false} width={64} />
+            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={VAR.border2} />
             <Tooltip
               content={({ active, label }) => {
                 if (!active || label === undefined) return null;
                 const p = points.find((x) => x.dayMs === label);
                 if (p === undefined) return null;
-                return <ChartTooltip title={formatDayLong(Number(label))} rows={columns.map((c) => ({ swatch: c.colour, label: c.label, value: formatSignedAusd(p.values[c.id] ?? 0, 0) }))} />;
+                return <ChartTooltip title={formatDayLong(Number(label))} rows={columns.map((c) => ({ swatch: c.colour, label: c.label, value: formatSignedMoney(p.values[c.id] ?? 0) }))} />;
               }}
             />
             {columns.map((c) => (
@@ -372,7 +372,7 @@ function Footnote({ period, floor }: { readonly period: string; readonly floor: 
   return (
     <p className="m-0 py-[10px] text-[11.5px] leading-[1.55] text-muted2">
       Window figures sum each account&rsquo;s UTC days over {period}; lifetime figures run since its first trade. Win rate and profit factor are withheld under {formatCount(floor)} round
-      trips, as on every page. Rescuable liquidations are those the free balance would have covered, out of those that can be judged. AUSD throughout.
+      trips, as on every page. Rescuable liquidations are those the free balance would have covered, out of those that can be judged.
     </p>
   );
 }

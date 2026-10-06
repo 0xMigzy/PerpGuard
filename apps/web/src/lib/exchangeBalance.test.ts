@@ -40,7 +40,7 @@ const recon = (gapAusd: number, withinExpected: boolean) => ({
 test('inside the known difference the page says it matches, with both figures and the block', () => {
   const l = treasuryLines({ throughBlock: 111_028_900, scannedAtMs: 1_000, intervalMs: 900_000, reconciliation: recon(27.700465, true) }, 241_000);
   assert.equal(l.reconciliation!.tone, 'ok');
-  assert.match(l.reconciliation!.text, /^Rebuilt from events, matches the contract at block 111,028,717: 3,838,349\.21 rebuilt, 3,838,376\.91 held, 27\.70 apart/);
+  assert.match(l.reconciliation!.text, /^Rebuilt from events, matches the contract at block 111,028,717: \$3,838,349\.21 rebuilt, \$3,838,376\.91 held, \$27\.70 apart/);
   assert.equal(l.scan.text, 'Treasury events scanned through block 111,028,900, 4 min ago; rescanned every 15 min.');
   assert.equal(l.scan.tone, 'ok');
 });
@@ -48,7 +48,7 @@ test('inside the known difference the page says it matches, with both figures an
 test('outside it, the difference is shown in words, never smoothed over', () => {
   const l = treasuryLines({ throughBlock: 1, scannedAtMs: 1, intervalMs: 900_000, reconciliation: recon(5_027.7, false) }, 1);
   assert.equal(l.reconciliation!.tone, 'watch');
-  assert.match(l.reconciliation!.text, /^Rebuilt and contract differ by 5,027\.70 AUSD at block 111,028,717, outside the known 27\.70 ± 1: a movement the rebuild does not explain/);
+  assert.match(l.reconciliation!.text, /^Rebuilt and contract differ by \$5,027\.70 at block 111,028,717, outside the known \$27\.70 ± \$1: a movement the rebuild does not explain/);
 });
 
 test('a failed scan and a scan not yet run both say so', () => {

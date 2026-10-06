@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api.ts';
 import { FILLS_CSV_CAP, FILLS_LIST_CAP, FILLS_STEP, fillsCsv, moreFills, nextFillsLimit } from '@/lib/fills.ts';
-import { formatAusd, formatAusdExact, formatCount, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
+import { formatAusdExact, formatCount, formatMoney, formatPriceAsServed, formatWhen } from '@/lib/format.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { Skeleton } from '@/components/Skeleton.tsx';
@@ -64,7 +64,7 @@ export function FillsPanel({ accountId }: { readonly accountId: number }) {
                   <td className="px-[10px] py-[9px] whitespace-nowrap">{f.role}</td>
                   <td className={cell}>{formatPriceAsServed(f.sizeLots)}</td>
                   <td className={cell}>{f.price === undefined ? <span className="text-muted2">—</span> : formatPriceAsServed(f.price)}</td>
-                  <td className={cell}>{formatAusd(f.notionalAusd)}</td>
+                  <td className={cell}>{formatMoney(f.notionalAusd)}</td>
                   <td className={cell}>{f.makerFeeAusd === undefined ? <span className="text-muted2" title="A taker's fee is not recorded per fill">—</span> : formatAusdExact(f.makerFeeAusd)}</td>
                 </tr>
               ))
@@ -74,7 +74,7 @@ export function FillsPanel({ accountId }: { readonly accountId: number }) {
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11.5px] text-muted2">
         <span className="max-w-[760px]">
-          Every fill this account took part in, newest first, in AUSD. A fill records the account&rsquo;s role, not its side or action; side, entry and realised PnL are per
+          Every fill this account took part in, newest first. A fill records the account&rsquo;s role, not its side or action; side, entry and realised PnL are per
           position, on the Round trips tab. Only the maker&rsquo;s fee is recorded per fill. About 6% of fills have no taker the index could pair within its transaction, so a
           taker&rsquo;s list can miss them.
         </span>

@@ -2,7 +2,7 @@
 
 import type { TraderSummary } from '@perpguard/shared';
 import type { OpenInterestPayload } from '@/lib/api.ts';
-import { formatAge, formatAusdExact, formatCompact, formatCount, formatPct } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatMoney, formatPct } from '@/lib/format.ts';
 import { shareOf } from '@/lib/traders.ts';
 import { StatTile, StatTileSkeleton } from '@/components/StatTile.tsx';
 
@@ -40,7 +40,7 @@ export function TraderCards({
         label={`Traders · ${period}`}
         value={formatCount(summary.traders)}
         exact={`${formatCount(summary.traders)} accounts with at least one trade`}
-        secondary={`${formatCompact(summary.volumeAusd)} AUSD traded, counted once per match`}
+        secondary={`${formatMoney(summary.volumeAusd)} traded, counted once per match`}
       />
       <StatTile
         label={`Profitable traders · ${period}`}
@@ -60,11 +60,11 @@ export function TraderCards({
       />
       <StatTile
         label="Open interest · now"
-        value={openInterest === undefined ? '…' : formatCompact(openInterest.totalNotional)}
+        value={openInterest === undefined ? '…' : formatMoney(openInterest.totalNotional)}
         exact={
           openInterest === undefined
             ? undefined
-            : `${formatAusdExact(openInterest.totalNotional)} AUSD across ${formatCount(openInterest.markets.length)} markets, size × mark from the venue${
+            : `${formatAusdExact(openInterest.totalNotional)} across ${formatCount(openInterest.markets.length)} markets, size × mark from the venue${
                 openInterest.asOfMs === undefined ? '' : `, as of ${formatAge(Date.now() - openInterest.asOfMs)} ago`
               }`
         }

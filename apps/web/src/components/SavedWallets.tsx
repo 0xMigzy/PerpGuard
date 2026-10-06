@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api } from '@/lib/api.ts';
-import { formatCount, formatPct, formatSignedAusd, shortAddress } from '@/lib/format.ts';
+import { formatCount, formatPct, formatSignedMoney, shortAddress } from '@/lib/format.ts';
 import { SAVED_EVENT, SAVED_KEY, readSaved, withSaved, withoutSaved, writeSaved, type SavedWallet } from '@/lib/savedWallets.ts';
 import { bufferTier } from '@/lib/traders.ts';
 import { compareHref, MAX_COMPARE } from '@/lib/compare.ts';
@@ -210,7 +210,7 @@ function SavedRow({ wallet, onOpen, onRemove }: { readonly wallet: SavedWallet; 
         <span className="flex flex-none flex-col items-end gap-[3px]">
           <span className={`rounded-[4px] px-[6px] py-[1px] text-[10.5px] font-semibold whitespace-nowrap ${tone}`}>{state.status.text}</span>
           <span className={`num text-[12px] ${state.netPnl > 0 ? 'text-safe' : state.netPnl < 0 ? 'text-danger' : 'text-muted'}`} title="Net PnL, lifetime">
-            {formatSignedAusd(state.netPnl, 0)}
+            {formatSignedMoney(state.netPnl)}
           </span>
         </span>
       )}

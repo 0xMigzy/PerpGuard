@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { MarketBreakdown } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
-import { formatAge, formatAusd, formatAusdExact, formatCompact, formatCount, formatDayLong, formatPct, formatSignedAusd } from '@/lib/format.ts';
+import { formatAge, formatAusdExact, formatCount, formatDayLong, formatMoney, formatPct, formatSignedMoney } from '@/lib/format.ts';
 import { deltaOf, deltaVsPrevious, lastDays, stackByMarket } from '@/lib/overview.ts';
 import { balanceBefore, rebuiltBalance, treasuryLines } from '@/lib/exchangeBalance.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
@@ -130,19 +130,19 @@ export function OverviewView() {
           <>
             <StatTile
               label={`Volume · ${period}`}
-              value={formatCompact(m.volumeAusd)}
-              exact={`${formatAusdExact(m.volumeAusd)} AUSD`}
+              value={formatMoney(m.volumeAusd)}
+              exact={`${formatAusdExact(m.volumeAusd)}`}
               delta={deltaVsPrevious(m, (p) => p.volumeAusd, m.volumeAusd)}
-              secondary={`AUSD · ${formatCount(m.tradeCount)} trades`}
+              secondary={`${formatCount(m.tradeCount)} trades`}
               sparkline={days?.map((d) => d.volumeAusd)}
             />
             <StatTile
               label="Open interest · now"
-              value={oi.data === undefined ? '…' : formatCompact(oi.data.data.totalNotional)}
-              exact={oi.data === undefined ? undefined : `${formatAusdExact(oi.data.data.totalNotional)} AUSD, ${oi.data.data.markets.length} markets`}
+              value={oi.data === undefined ? '…' : formatMoney(oi.data.data.totalNotional)}
+              exact={oi.data === undefined ? undefined : `${formatAusdExact(oi.data.data.totalNotional)}, ${oi.data.data.markets.length} markets`}
               secondary={
                 <>
-                  <div>{oi.data === undefined ? '…' : `AUSD across ${formatCount(oi.data.data.markets.length)} markets`}</div>
+                  <div>{oi.data === undefined ? '…' : `across ${formatCount(oi.data.data.markets.length)} markets`}</div>
                   <div>{openPositions === undefined ? '…' : `${formatCount(openPositions)} open positions in the index`}</div>
                 </>
               }
@@ -151,21 +151,21 @@ export function OverviewView() {
             />
             <StatTile
               label="Exchange balance · now"
-              value={tvlNow === undefined ? (tvl.data === undefined ? '…' : 'unknown') : formatCompact(tvlNow)}
-              exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)} AUSD: the Exchange contract's whole AUSD balance, read now. It holds traders' free balances and position margin, and also the per-market insurance funds and protocol balances, so it is not the same as collateral held across accounts.`}
+              value={tvlNow === undefined ? (tvl.data === undefined ? '…' : 'unknown') : formatMoney(tvlNow)}
+              exact={tvlNow === undefined ? tvlReading?.known === false ? tvlReading.reason : undefined : `${formatAusdExact(tvlNow)}: the Exchange contract's whole AUSD balance, read now. It holds traders' free balances and position margin, and also the per-market insurance funds and protocol balances, so it is not the same as collateral held across accounts.`}
               delta={tvlNow === undefined || treasury.data === undefined ? undefined : deltaOf(tvlNow, balanceBefore(tvlNow, m.collateralFlow.netAusd, treasury.data.data.movements, m.sinceMs))}
               deltaLabel={`in ${period}`}
-              secondary="AUSD held by the Exchange contract"
+              secondary="held by the Exchange contract"
               sparkline={tvlSpark}
             />
             <StatTile
               label={`Fees · ${m.fees.days === 0 ? 'no day yet' : `${formatCount(m.fees.days)} UTC day${m.fees.days === 1 ? '' : 's'}`}`}
               labelWarn={t !== 'all'}
-              value={formatCompact(m.fees.totalAusd)}
-              exact={`${formatAusdExact(m.fees.totalAusd)} AUSD over ${m.fees.label}`}
+              value={formatMoney(m.fees.totalAusd)}
+              exact={`${formatAusdExact(m.fees.totalAusd)} over ${m.fees.label}`}
               delta={deltaVsPrevious(m, (p) => p.fees.totalAusd, m.fees.totalAusd)}
               deltaLabel={m.previous === undefined ? 'vs prev' : `vs ${formatCount(m.previous.fees.days)} days before`}
-              secondary={`AUSD, maker + taker, over ${m.fees.label} · maker ${formatAusd(m.makerFeesAusd, 0)} exact`}
+              secondary={`AUSD, maker + taker, over ${m.fees.label} · maker ${formatMoney(m.makerFeesAusd)} exact`}
               sparkline={days?.map((d) => d.feesAusd)}
             />
             <StatTile
@@ -184,7 +184,7 @@ export function OverviewView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Open interest</h2>
-            <span className="text-[12.5px] text-muted">AUSD, one side · each UTC day&rsquo;s close, then now</span>
+            <span className="text-[12.5px] text-muted">one side · each UTC day&rsquo;s close, then now</span>
           </div>
           <ErrorNote error={byMarket.error} what="Open interest history" />
           {oiPoints === undefined ? (
@@ -211,7 +211,7 @@ export function OverviewView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Exchange balance</h2>
-            <span className="text-[12.5px] text-muted">AUSD held by the contract · each UTC day&rsquo;s close, then now</span>
+            <span className="text-[12.5px] text-muted">held by the contract · each UTC day&rsquo;s close, then now</span>
           </div>
           <ErrorNote error={seriesAll.error ?? treasury.error} what="Exchange balance history" />
           {balancePoints === undefined ? <Skeleton className="mt-2 h-[220px] w-full" /> : <LevelChart points={balancePoints} label="Exchange balance" />}
@@ -232,10 +232,10 @@ export function OverviewView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Fees per day</h2>
-            <span className="text-[12.5px] text-muted">AUSD, maker + taker, per UTC day</span>
+            <span className="text-[12.5px] text-muted">maker + taker, per UTC day</span>
           </div>
           <ErrorNote error={series.error} what="Daily fees" />
-          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.feesAusd }))} label="Fees" format={(v) => `${formatAusd(v, 0)} AUSD`} />}
+          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.feesAusd }))} label="Fees" axis="money" format={(v) => `${formatMoney(v)}`} />}
           <div className="mt-2 text-[11.5px] text-muted2">Today is so far.{chartNote !== undefined && ` ${chartNote}`}</div>
         </div>
         <div className="card px-[18px] py-4">
@@ -244,7 +244,7 @@ export function OverviewView() {
             <span className="text-[12.5px] text-muted">distinct accounts with a fill, per UTC day</span>
           </div>
           <ErrorNote error={series.error} what="Daily active traders" />
-          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.activeTraders }))} label="Active traders" format={(v) => formatCount(v)} />}
+          {days === undefined ? <Skeleton className="mt-2 h-[160px] w-full" /> : <DailyBars days={days.map((d) => ({ dayMs: d.dayMs, value: d.activeTraders }))} label="Active traders" axis="count" format={(v) => formatCount(v)} />}
           <div className="mt-2 text-[11.5px] text-muted2">An account trading three markets counts once. Today is so far.{chartNote !== undefined && ` ${chartNote}`}</div>
         </div>
       </section>
@@ -256,7 +256,7 @@ export function OverviewView() {
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Volume</h2>
-            <span className="text-[12.5px] text-muted">AUSD per UTC day, by market · line: 7-day average</span>
+            <span className="text-[12.5px] text-muted">per UTC day, by market · line: 7-day average</span>
           </div>
           <ErrorNote error={byMarket.error} what="Volume by market" />
           {stacked === undefined ? <Skeleton className="mt-2 h-[262px] w-full" /> : <VolumeByMarketChart stacked={stacked} />}
@@ -334,12 +334,12 @@ function SinceLaunchFlow({
   return (
     <p className="mt-3 mb-0 border-t border-border pt-3 text-[12.5px] text-muted" title={`${formatAusdExact(flow.depositedAusd)} in, ${formatAusdExact(flow.withdrawnAusd)} out, AUSD`}>
       <span className="font-semibold text-text">Since launch{startsAtMs === undefined ? '' : ` (${formatDayLong(startsAtMs)})`}:</span>{' '}
-      <span className="num text-text">{formatCompact(flow.depositedAusd)}</span> deposited, <span className="num text-text">{formatCompact(flow.withdrawnAusd)}</span> withdrawn, net{' '}
+      <span className="num text-text">{formatMoney(flow.depositedAusd)}</span> deposited, <span className="num text-text">{formatMoney(flow.withdrawnAusd)}</span> withdrawn, net{' '}
       <span className={`num font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : 'text-text'}`}>
         {net >= 0 ? '+' : '−'}
-        {formatCompact(Math.abs(net))}
+        {formatMoney(Math.abs(net))}
       </span>{' '}
-      {net >= 0 ? 'in' : 'out'}, across <span className="num text-text">{formatCount(accounts)}</span> accounts. AUSD.
+      {net >= 0 ? 'in' : 'out'}, across <span className="num text-text">{formatCount(accounts)}</span> accounts.
     </p>
   );
 }
@@ -354,11 +354,11 @@ function FlowSummary({ deposited, withdrawn, deposits, withdrawals }: { readonly
     <div className="mt-2">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-[6px] text-[12.5px]">
         <dt className="text-muted">Deposits</dt>
-        <dd className="num m-0 text-right text-safe" title={`${formatCount(deposits)} deposits`}>{formatSignedAusd(deposited, 0)}</dd>
+        <dd className="num m-0 text-right text-safe" title={`${formatCount(deposits)} deposits`}>{formatSignedMoney(deposited)}</dd>
         <dt className="text-muted">Withdrawals</dt>
-        <dd className="num m-0 text-right text-danger" title={`${formatCount(withdrawals)} withdrawals`}>{formatSignedAusd(-withdrawn, 0)}</dd>
+        <dd className="num m-0 text-right text-danger" title={`${formatCount(withdrawals)} withdrawals`}>{formatSignedMoney(-withdrawn)}</dd>
         <dt className="font-semibold text-text">Net {net >= 0 ? 'inflow' : 'outflow'}</dt>
-        <dd className={`num m-0 text-right font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : ''}`}>{formatSignedAusd(net, 0)}</dd>
+        <dd className={`num m-0 text-right font-semibold ${net > 0 ? 'text-safe' : net < 0 ? 'text-danger' : ''}`}>{formatSignedMoney(net)}</dd>
       </dl>
       <div className="mt-3 h-[5px] overflow-hidden rounded-full bg-border" aria-hidden="true">
         <i className="block h-full bg-safe" style={{ width: `${(inbound ?? 0) * 100}%` }} />
@@ -414,7 +414,7 @@ function GrowthSection() {
                   <tr className="text-muted2">
                     <th className="py-1 pr-4 font-medium">Month</th>
                     <th className="py-1 pr-4 text-right font-medium">Trades</th>
-                    <th className="py-1 pr-4 text-right font-medium">Volume (AUSD)</th>
+                    <th className="py-1 pr-4 text-right font-medium">Volume</th>
                     <th className="py-1 text-right font-medium">New accounts</th>
                   </tr>
                 </thead>
@@ -423,7 +423,7 @@ function GrowthSection() {
                     <tr key={m.monthMs} className="border-t border-border text-text">
                       <td className="py-1 pr-4">{formatMonth(m.monthMs)}{m.partial ? ' (so far)' : ''}</td>
                       <td className="py-1 pr-4 text-right">{formatCount(m.trades)}</td>
-                      <td className="py-1 pr-4 text-right">{formatCompact(m.volumeAusd)}</td>
+                      <td className="py-1 pr-4 text-right">{formatMoney(m.volumeAusd)}</td>
                       <td className="py-1 text-right">{formatCount(m.newAccounts)}</td>
                     </tr>
                   ))}
@@ -458,6 +458,6 @@ function topMarkets(p: LevelPoint, h: OiHistory, names: ReadonlyMap<number, stri
   return Object.entries(day.byMarket)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 3)
-    .map(([id, v]) => ({ label: names.get(Number(id)) ?? `market ${id}`, value: formatCompact(v), muted: true }));
+    .map(([id, v]) => ({ label: names.get(Number(id)) ?? `market ${id}`, value: formatMoney(v), muted: true }));
 }
 

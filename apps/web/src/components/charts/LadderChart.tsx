@@ -1,5 +1,5 @@
 import type { ChartRung } from '@/lib/risk.ts';
-import { formatCompact, formatCount } from '@/lib/format.ts';
+import { formatCount, formatMoney } from '@/lib/format.ts';
 import { SERIES, VAR } from '@/lib/theme.ts';
 
 const W = 560;
@@ -30,7 +30,7 @@ export function LadderChart({ rungs, highlightSize }: { readonly rungs: readonly
   const height = TOP + rungs.length * ROW_H + 30;
   const px = (ausd: number) => (ausd / max) * half;
   const ticks = [0.5, 1].map((f) => ({ f, ausd: max * f }));
-  const summary = rungs.map((r) => `${Math.round(r.size * 1000) / 10}%: ${formatCompact(r.longsAusd)} of longs, ${formatCompact(r.shortsAusd)} of shorts`).join('; ');
+  const summary = rungs.map((r) => `${Math.round(r.size * 1000) / 10}%: ${formatMoney(r.longsAusd)} of longs, ${formatMoney(r.shortsAusd)} of shorts`).join('; ');
   return (
     <svg className="block h-auto w-full" viewBox={`0 0 ${W} ${height}`} role="img" aria-label={`Notional exposed at each move size, longs left and shorts right. ${summary}`}>
       <line x1={centre} y1={TOP} x2={centre} y2={TOP + rungs.length * ROW_H} stroke={VAR.border2} strokeWidth={1} />
@@ -38,8 +38,8 @@ export function LadderChart({ rungs, highlightSize }: { readonly rungs: readonly
         <g key={t.f}>
           <line x1={centre - px(t.ausd)} y1={TOP} x2={centre - px(t.ausd)} y2={TOP + rungs.length * ROW_H} stroke={VAR.border} strokeWidth={1} />
           <line x1={centre + px(t.ausd)} y1={TOP} x2={centre + px(t.ausd)} y2={TOP + rungs.length * ROW_H} stroke={VAR.border} strokeWidth={1} />
-          <text x={centre - px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatCompact(t.ausd)}</text>
-          <text x={centre + px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatCompact(t.ausd)}</text>
+          <text x={centre - px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatMoney(t.ausd)}</text>
+          <text x={centre + px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatMoney(t.ausd)}</text>
         </g>
       ))}
       <text x={centre} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">0</text>
@@ -52,7 +52,7 @@ export function LadderChart({ rungs, highlightSize }: { readonly rungs: readonly
           <g key={r.size}>
             {marked && <rect x={4} y={TOP + i * ROW_H + 1} width={W - 8} height={ROW_H - 2} rx={4} fill={VAR.card2} stroke={VAR.border2} />}
             <text x={LABEL_W - 8} y={y + BAR_H - 3} textAnchor="end" fill={marked ? VAR.text : VAR.muted} fontSize="10.5" fontWeight={marked ? 600 : 400} className="num">{Math.round(r.size * 1000) / 10}%</text>
-            <title>{`${Math.round(r.size * 1000) / 10}%: ${formatCount(r.longs)} longs (${formatCompact(r.longsAusd)}) exposed to a fall, ${formatCount(r.shorts)} shorts (${formatCompact(r.shortsAusd)}) to a rise`}</title>
+            <title>{`${Math.round(r.size * 1000) / 10}%: ${formatCount(r.longs)} longs (${formatMoney(r.longsAusd)}) exposed to a fall, ${formatCount(r.shorts)} shorts (${formatMoney(r.shortsAusd)}) to a rise`}</title>
             <rect x={centre - lw} y={y} width={lw} height={BAR_H} rx={2} fill={LADDER_COLORS.longs} />
             <rect x={centre} y={y} width={sw} height={BAR_H} rx={2} fill={LADDER_COLORS.shorts} />
           </g>

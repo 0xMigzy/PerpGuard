@@ -2,12 +2,12 @@
 
 import type { ReactNode } from 'react';
 import type { AssessedPosition, WalletProfile } from '@perpguard/shared';
-import { formatAusd, formatCompact, formatCount } from '@/lib/format.ts';
+import { formatAusdExact, formatCount, formatMoney, formatMoneyExact } from '@/lib/format.ts';
 import { accountSummary } from '@/lib/traders.ts';
 import { Skeleton } from '@/components/Skeleton.tsx';
 
 /** A tile figure: compact from 10K, two decimals below, so small accounts stay exact. */
-const tile = (ausd: number): string => (Math.abs(ausd) >= 10_000 ? formatCompact(ausd) : formatAusd(ausd));
+const tile = (ausd: number): string => formatMoney(ausd);
 const signed = (ausd: number): string => `${ausd > 0 ? '+' : ausd < 0 ? '−' : ''}${tile(Math.abs(ausd))}`;
 
 /**
@@ -48,27 +48,27 @@ export function AccountSummary({
   return (
     <section className="card mb-4 px-[18px] pt-4 pb-3" aria-label="Account summary">
       <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-[1.5fr_repeat(5,1fr)]">
-        <Cell label="Equity" lead value={s.equityAusd === undefined ? '—' : tile(s.equityAusd)} title={s.equityAusd === undefined ? undefined : `${formatAusd(s.equityAusd)} AUSD`}>
+        <Cell label="Equity" lead value={s.equityAusd === undefined ? '—' : tile(s.equityAusd)} title={s.equityAusd === undefined ? undefined : `${formatAusdExact(s.equityAusd)}`}>
           {equityKnown ? 'free + margin + unrealised' : positionsFailed ? 'marks unavailable, so not totalled' : `${formatCount(s.unpriced)} of ${formatCount(n)} positions could not be priced`}
         </Cell>
-        <Cell label="Free balance" value={tile(s.freeAusd)} title={`${formatAusd(s.freeAusd)} AUSD`}>
+        <Cell label="Free balance" value={tile(s.freeAusd)} title={`${formatAusdExact(s.freeAusd)}`}>
           not backing any position
         </Cell>
-        <Cell label="Margin in use" value={tile(s.marginAusd)} title={`${formatAusd(s.marginAusd)} AUSD`}>
+        <Cell label="Margin in use" value={tile(s.marginAusd)} title={`${formatAusdExact(s.marginAusd)}`}>
           {n === 0 ? 'no open position' : `across ${formatCount(n)} position${n === 1 ? '' : 's'}`}
         </Cell>
         <Cell
           label="Unrealised PnL"
           value={!equityKnown && s.unpriced === n && n > 0 ? '—' : signed(s.unrealisedAusd)}
           valueClass={s.unrealisedAusd > 0 ? 'text-safe' : s.unrealisedAusd < 0 ? 'text-danger' : ''}
-          title={`${formatAusd(s.unrealisedAusd)} AUSD${s.unpriced > 0 ? `, ${formatCount(s.unpriced)} position${s.unpriced === 1 ? '' : 's'} not priced` : ''}`}
+          title={`${formatAusdExact(s.unrealisedAusd)}${s.unpriced > 0 ? `, ${formatCount(s.unpriced)} position${s.unpriced === 1 ? '' : 's'} not priced` : ''}`}
         >
           if closed at the mark
         </Cell>
-        <Cell label="Deposited" value={tile(s.depositedAusd)} title={`${formatAusd(s.depositedAusd)} AUSD`}>
+        <Cell label="Deposited" value={tile(s.depositedAusd)} title={`${formatAusdExact(s.depositedAusd)}`}>
           lifetime
         </Cell>
-        <Cell label="Withdrawn" value={tile(s.withdrawnAusd)} title={`${formatAusd(s.withdrawnAusd)} AUSD`}>
+        <Cell label="Withdrawn" value={tile(s.withdrawnAusd)} title={`${formatAusdExact(s.withdrawnAusd)}`}>
           lifetime
         </Cell>
       </div>
@@ -77,20 +77,21 @@ export function AccountSummary({
         <span className="num">
           {equityKnown ? (
             <>
-              {formatAusd(s.freeAusd)} free + {formatAusd(s.marginAusd)} margin {s.unrealisedAusd < 0 ? '−' : '+'} {formatAusd(Math.abs(s.unrealisedAusd))} unrealised ={' '}
-              <b className="font-semibold text-text">{formatAusd(s.equityAusd!)} equity</b>
+              {/* Exact, to the cent: this line is an equation and must add up as printed. */}
+              {formatMoneyExact(s.freeAusd)} free + {formatMoneyExact(s.marginAusd)} margin {s.unrealisedAusd < 0 ? '−' : '+'} {formatMoneyExact(Math.abs(s.unrealisedAusd))} unrealised ={' '}
+              <b className="font-semibold text-text">{formatMoneyExact(s.equityAusd!)} equity</b>
             </>
           ) : (
             <>Equity is not totalled until every open position has a mark.</>
           )}
         </span>
         <span className="num">
-          net {formatAusd(Math.abs(s.netInAusd))} {s.netInAusd >= 0 ? 'in' : 'out'}
+          net {formatMoney(Math.abs(s.netInAusd))} {s.netInAusd >= 0 ? 'in' : 'out'}
           {s.sinceFirstDepositAusd !== undefined && (
             <>
               , so{' '}
               <b className={`font-semibold ${s.sinceFirstDepositAusd > 0 ? 'text-safe' : s.sinceFirstDepositAusd < 0 ? 'text-danger' : 'text-text'}`}>
-                {s.sinceFirstDepositAusd === 0 ? 'level' : `${s.sinceFirstDepositAusd > 0 ? 'up' : 'down'} ${formatAusd(Math.abs(s.sinceFirstDepositAusd))}`}
+                {s.sinceFirstDepositAusd === 0 ? 'level' : `${s.sinceFirstDepositAusd > 0 ? 'up' : 'down'} ${formatMoney(Math.abs(s.sinceFirstDepositAusd))}`}
               </b>{' '}
               since first deposit
             </>
@@ -123,7 +124,7 @@ function Cell({
         className={`num mt-1 font-semibold tracking-[-0.02em] ${lead === true ? 'text-[28px] leading-[1.1]' : 'text-[19px] leading-[1.2]'} ${valueClass ?? 'text-text'}`}
         title={title}
       >
-        {value} {lead === true && <span className="text-[13px] font-medium tracking-normal text-muted">AUSD</span>}
+        {value}
       </div>
       <div className="mt-[2px] text-[11.5px] text-muted2">{children}</div>
     </div>
