@@ -36,6 +36,7 @@ export type Route =
   | { readonly to: 'trader'; readonly accountId: number }
   /** 🔁 What if I'd copied this trader for 30 days? A replay from the index; sends nothing. */
   | { readonly to: 'copy-sim'; readonly accountId: number }
+  | { readonly to: 'copy-sim7'; readonly accountId: number }
   /** 💥 / 🐋 The feeds' thresholds: `level` is the preset's index, or OFF_LEVEL. */
   | { readonly to: 'liq' }
   | { readonly to: 'liq-set'; readonly level: number }
@@ -123,6 +124,7 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'top-roi': 'tr',
   trader: 'tc',
   'copy-sim': 'cs',
+  'copy-sim7': 'cs7',
   liq: 'lq',
   'liq-set': 'lqs',
   big: 'lt',
@@ -181,6 +183,7 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   unstar: 'accountId',
   trader: 'accountId',
   'copy-sim': 'accountId',
+  'copy-sim7': 'accountId',
   'liq-set': 'level',
   'big-set': 'level',
   'warn-preset': 'level',
@@ -212,7 +215,7 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
 const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>([
   'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go',
   // Phase 8: read the index, or change this chat's OWN alert settings. Nothing touches an account.
-  'wallets', 'star', 'unstar', 'top', 'top-pnl', 'top-roi', 'trader', 'copy-sim', 'liq', 'liq-set', 'big', 'big-set',
+  'wallets', 'star', 'unstar', 'top', 'top-pnl', 'top-roi', 'trader', 'copy-sim', 'copy-sim7', 'liq', 'liq-set', 'big', 'big-set',
   'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
 ]);
 

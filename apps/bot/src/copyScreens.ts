@@ -20,7 +20,7 @@ export const DEFAULT_COPY_SIZE_AUSD = 1_000;
 const SHOWN = 6;
 
 const SKIP_LABEL: Readonly<Record<SkipReason, string>> = {
-  'open-at-start': 'already open when the 30 days began',
+  'open-at-start': 'already open when the window began',
   'not-listed': 'market not on testnet',
   'too-small': 'too small at your size',
   'no-balance': 'not enough free balance at the time',
@@ -45,10 +45,32 @@ function tradeLine(t: ReplayTrade, d: number): string {
   return `• ${what} · margin ${ausdText(c.marginCNS, 'ceil', d)} → ${result}${tag}`;
 }
 
+type AnyReplay = ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number };
+
+/** The window a replay covers, in whole days. */
+export const daysOf = (r: { readonly fromMs: number; readonly toMs: number }): number => Math.round((r.toMs - r.fromMs) / 86_400_000);
+
+/** One replay in a few words, for the trader card's side-by-side line. */
+export function copySummary(r: AnyReplay | undefined): string {
+  if (r === undefined) return 'not readable now';
+  if (r.kind === 'unknown-account') return 'no such account';
+  if (r.kind === 'no-follower-equity') return 'nothing to copy with';
+  if (r.kind === 'too-busy') return 'too busy to replay';
+  if (!r.books.reconciled) return 'books not reconciled';
+  if (r.trades.length === 0) return 'opened nothing';
+  return `<b>${signed(r.totals.closedResultCNS, r.collateralDecimals)}</b>`;
+}
+
 export function copyReplayScreen(input: { readonly result: ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number }; readonly size: CopySize; readonly webUrl: string | undefined; readonly back: Route; readonly ageMs: number }): Screen {
   const r = input.result;
   const back: Button[] = [{ text: '← Back', route: input.back }];
-  const head = `🔁 <b>WHAT IF YOU'D COPIED #${r.accountId}?</b> · last 30 days`;
+  const days = 'fromMs' in r ? daysOf(r) : 30;
+  const head = `🔁 <b>WHAT IF YOU'D COPIED #${r.accountId}?</b> · last ${days} days`;
+  // 30D and 7D, toggled; the one on screen is marked.
+  const toggle: Button[] = [
+    { text: `${days === 30 ? '✅ ' : ''}30 days`, route: { to: 'copy-sim', accountId: r.accountId } },
+    { text: `${days === 7 ? '✅ ' : ''}7 days`, route: { to: 'copy-sim7', accountId: r.accountId } },
+  ];
   if (r.kind === 'unknown-account') return { html: `${head}\n\nThe index has no account #${r.accountId}.`, buttons: [back] };
   if (r.kind === 'no-follower-equity') return { html: `${head}\n\nYour account holds nothing to copy with, so there is nothing to scale to.`, buttons: [back] };
   if (r.kind === 'too-busy') {
@@ -56,9 +78,9 @@ export function copyReplayScreen(input: { readonly result: ReplayResult | { read
       html: [
         head,
         '',
-        `#${r.accountId} opened <b>${r.openedInWindow.toLocaleString('en-US')} positions</b> in 30 days, more than ${r.cap.toLocaleString('en-US')}. That is a bot's pace: a copy could not keep up, so I do not replay it at all rather than show half of it.`,
+        `#${r.accountId} opened <b>${r.openedInWindow.toLocaleString('en-US')} positions</b> in ${days} days, more than ${r.cap.toLocaleString('en-US')}. That is a bot's pace: a copy could not keep up, so I do not replay it at all rather than show half of it.`,
       ].join('\n'),
-      buttons: [back],
+      buttons: [toggle, back],
     };
   }
 
@@ -79,7 +101,7 @@ export function copyReplayScreen(input: { readonly result: ReplayResult | { read
     booksLine,
     '',
     sizeLine,
-    `Each copy is the leader's position scaled by your equity over theirs at that moment (theirs was <b>${ausdText(r.leaderStartCNS, 'floor', d)}</b> when the 30 days began).`,
+    `Each copy is the leader's position scaled by your equity over theirs at that moment (theirs was <b>${ausdText(r.leaderStartCNS, 'floor', d)}</b> when the ${days} days began).`,
     '',
     `📊 <b>${signed(t.closedResultCNS, d)}</b> on closed copies, after <b>${ausdText(t.feesCNS, 'ceil', d)}</b> of fees`,
   ];
@@ -109,8 +131,8 @@ export function copyReplayScreen(input: { readonly result: ReplayResult | { read
   const buttons: Button[][] = [];
   if (input.webUrl !== undefined) {
     const size = Number(r.followerStartCNS / 10n ** BigInt(d));
-    buttons.push([{ text: '📋 Every trade, on the site', url: `${input.webUrl.replace(/\/$/, '')}/copy/${r.accountId}?size=${size}` }]);
+    buttons.push([{ text: '📋 Every trade, on the site', url: `${input.webUrl.replace(/\/$/, '')}/copy/${r.accountId}?size=${size}${days === 7 ? '&days=7' : ''}` }]);
   }
-  buttons.push(back);
+  buttons.push(toggle, back);
   return { html: lines.join('\n'), buttons };
 }

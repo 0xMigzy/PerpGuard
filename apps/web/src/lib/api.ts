@@ -252,5 +252,5 @@ export const api = {
   /** A point-in-time snapshot. No timeframe: the payload carries its block. */
   risk: () => getJson<Envelope<RiskSnapshot>>(`${A}/risk`),
   /** 🔁 A leader's last 30 days replayed onto an account of `size` AUSD. Read-only: nothing is sent. */
-  copyReplay: (accountId: number, size: number) => getJson<CopyReplayPayload>(`${A}/copy/${accountId}?size=${size}`),
+  copyReplay: (accountId: number, size: number, days: 7 | 30 = 30) => getJson<CopyReplayPayload>(`${A}/copy/${accountId}?size=${size}&days=${days}`),
 };

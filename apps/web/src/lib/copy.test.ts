@@ -12,4 +12,6 @@ test('a size from the address bar is whole AUSD within bounds, else the default'
   assert.equal(copyHref(4886), '/copy/4886');
   assert.equal(copyHref(4886, 1_000), '/copy/4886');
   assert.equal(copyHref(4886, 2_500), '/copy/4886?size=2500');
+  assert.equal(copyHref(4886, 2_500, 7), '/copy/4886?size=2500&days=7');
+  assert.equal(copyHref(4886, undefined, 7), '/copy/4886?days=7');
 });

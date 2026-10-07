@@ -17,7 +17,8 @@
  * refusal, not the refusal itself.
  */
 import type { ReplayResult } from '@perpguard/backend/copy/replay';
-import { copyReplayScreen, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
+import { copyReplayScreen, copySummary, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
+import { ausdText } from '@perpguard/backend/copy/replay';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
 import type { ActingMarket, ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
@@ -223,7 +224,9 @@ export interface BotDeps {
       top(kind: 'pnl' | 'roi'): Promise<{ readonly rows: readonly TraderRow[]; readonly label: string }>;
       stats(accountId: number): Promise<TraderStats>;
       /** 🔁 A leader's last 30 days replayed onto an account of this size. Read-only. Absent: the screen says so. */
-      copy?(accountId: number, followerEquityCNS: bigint): Promise<{ readonly computedAtMs: number; readonly result: ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number } }>;
+      /** How recently the trader opens positions. */
+      activity?(accountId: number): Promise<{ readonly lastOpenedAtMs: number | undefined; readonly opened24h: number; readonly opened7d: number }>;
+      copy?(accountId: number, followerEquityCNS: bigint, days?: 7 | 30): Promise<{ readonly computedAtMs: number; readonly result: ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number } }>;
     };
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
@@ -936,17 +939,27 @@ export function createBot(deps: BotDeps): Bot {
       case 'trader': {
         if (!(await tapWithinLimit(ctx, chatId))) return;
         await ctx.answerCallbackQuery();
-        const stats = await deps.watch?.traders?.stats(route.accountId).catch(() => undefined);
+        const traders = deps.watch?.traders;
+        const { equityCNS } = followerSize(ctx.from?.id);
+        // The figures, how recently they open positions, and both replay windows, read together.
+        const [stats, activity, d30, d7] = await Promise.all([
+          traders?.stats(route.accountId).catch(() => undefined),
+          traders?.activity?.(route.accountId).catch(() => undefined),
+          traders?.copy?.(route.accountId, equityCNS, 30).catch(() => undefined),
+          traders?.copy?.(route.accountId, equityCNS, 7).catch(() => undefined),
+        ]);
         const sub = deps.watch?.store.byChat(chatId).find((x) => x.accountId === route.accountId);
+        const copied = traders?.copy === undefined ? undefined : { d30: copySummary(d30?.result), d7: copySummary(d7?.result), size: ausdText(equityCNS, 'floor', 6) };
         await showScreen(
           ctx,
           stats === undefined
             ? { html: `I cannot read #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] }
-            : traderCardScreen({ stats, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
+            : traderCardScreen({ stats, activity, copied, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
         );
         return;
       }
-      case 'copy-sim': {
+      case 'copy-sim':
+      case 'copy-sim7': {
         if (!(await tapWithinLimit(ctx, chatId))) return;
         await ctx.answerCallbackQuery();
         const back: Route = { to: 'trader', accountId: route.accountId };
@@ -957,7 +970,7 @@ export function createBot(deps: BotDeps): Bot {
         }
         // Sized to the reader's OWN linked account when it can be read, else to a stated default.
         const { equityCNS, size } = followerSize(ctx.from?.id);
-        const answer = await copy(route.accountId, equityCNS).catch(() => undefined);
+        const answer = await copy(route.accountId, equityCNS, route.to === 'copy-sim7' ? 7 : 30).catch(() => undefined);
         await showScreen(
           ctx,
           answer === undefined

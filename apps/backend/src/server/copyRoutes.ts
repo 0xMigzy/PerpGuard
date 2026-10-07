@@ -15,7 +15,7 @@ export const COPY_SIZE_MAX_AUSD = 10_000_000;
 export function registerCopyRoutes(app: FastifyInstance, options: { readonly service: CopyReplayService; readonly collateralDecimals: number; readonly prefix?: string; readonly now?: () => number }): FastifyInstance {
   const prefix = options.prefix ?? '/api/analytics';
   const now = options.now ?? Date.now;
-  app.get<{ Params: { accountId: string }; Querystring: { size?: string } }>(`${prefix}/copy/:accountId`, async (request, reply) => {
+  app.get<{ Params: { accountId: string }; Querystring: { size?: string; days?: string } }>(`${prefix}/copy/:accountId`, async (request, reply) => {
     const accountId = Number(request.params.accountId);
     if (!Number.isSafeInteger(accountId) || accountId <= 0) return reply.code(400).send({ error: 'An account id is a whole number.' });
     const rawSize = request.query.size === undefined || request.query.size === '' ? COPY_SIZE_DEFAULT_AUSD : Number(request.query.size);
@@ -24,7 +24,9 @@ export function registerCopyRoutes(app: FastifyInstance, options: { readonly ser
     }
     // Whole AUSD: a size is a rough figure, and it keeps the replay cache small.
     const sizeCNS = BigInt(Math.floor(rawSize)) * 10n ** BigInt(options.collateralDecimals);
-    const answer = await options.service.replay(accountId, sizeCNS);
+    const days = request.query.days === undefined || request.query.days === '' ? 30 : Number(request.query.days);
+    if (days !== 7 && days !== 30) return reply.code(400).send({ error: 'A window is 7 or 30 days.' });
+    const answer = await options.service.replay(accountId, sizeCNS, days);
     return reply.send(copyReplayDto(answer, now()));
   });
   return app;

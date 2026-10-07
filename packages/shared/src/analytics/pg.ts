@@ -90,7 +90,7 @@ import type {
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
 import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
-import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, CopySource, CopySourcePosition, CopySourceReader, LeverageBaseline, WalletInsightFacts } from './types.ts';
+import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, CopySource, CopySourcePosition, CopySourceReader, OpenActivity, LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
@@ -1474,6 +1474,16 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
         };
       }),
     };
+  }
+
+  async openActivity(accountId: number, nowMs: number): Promise<OpenActivity> {
+    const row = await this.#one(
+      `select (select max("openedAt") from "Position" where trader_id = $1) as last_opened,
+              (select count(*) from "Position" where trader_id = $1 and "openedAt" >= $2) as d1,
+              (select count(*) from "Position" where trader_id = $1 and "openedAt" >= $3) as d7`,
+      [String(accountId), new Date(nowMs - 86_400_000).toISOString(), new Date(nowMs - 7 * 86_400_000).toISOString()],
+    );
+    return { lastOpenedAtMs: toMs(row?.['last_opened']), opened24h: count(row?.['d1']), opened7d: count(row?.['d7']) };
   }
 
   async knownOwners(accountIds: readonly number[]): Promise<ReadonlyMap<number, string>> {

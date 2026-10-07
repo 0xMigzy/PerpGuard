@@ -651,9 +651,13 @@ function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
 /** Bound in section 7, with the analytics reader. */
 let copyReplay: CopyReplayService | undefined;
 const traderFigures = {
-  copy: (accountId: number, followerEquityCNS: bigint) => {
+  copy: (accountId: number, followerEquityCNS: bigint, days: 7 | 30 = 30) => {
     if (copyReplay === undefined) return Promise.reject(new Error('no analytics'));
-    return copyReplay.replay(accountId, followerEquityCNS);
+    return copyReplay.replay(accountId, followerEquityCNS, days);
+  },
+  activity: (accountId: number) => {
+    if (copyReplay === undefined) return Promise.reject(new Error('no analytics'));
+    return copyReplay.activity(accountId);
   },
   top: (kind: 'pnl' | 'roi') =>
     memo(`top:${kind}`, async () => {

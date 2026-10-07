@@ -1361,8 +1361,16 @@ export interface CopySource {
   readonly now: { readonly freeCNS: bigint; readonly openMarginCNS: bigint; readonly openResultCNS: bigint };
 }
 
+/** How recently a trader opens positions: a top trader who stopped a week ago is no one to copy. */
+export interface OpenActivity {
+  readonly lastOpenedAtMs: number | undefined;
+  readonly opened24h: number;
+  readonly opened7d: number;
+}
+
 /** Reads a copy replay's source. Implemented by the Postgres analytics. */
 export interface CopySourceReader {
   /** Undefined when the index has no such account. `cap` bounds `positions`; `openedInWindow` is always the true count. */
   copySource(accountId: number, window: { readonly fromMs: number; readonly toMs: number; readonly cap: number }): Promise<CopySource | undefined>;
+  openActivity(accountId: number, nowMs: number): Promise<OpenActivity>;
 }

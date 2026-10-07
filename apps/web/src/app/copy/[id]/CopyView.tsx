@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api.ts';
-import { COPY_SIZE_MAX, COPY_SIZE_MIN, SKIP_LABEL, filterTrades, parseCopySize, type CopyFilter, type CopyReplayed, type SkipReason } from '@/lib/copy.ts';
+import { COPY_SIZE_MAX, COPY_SIZE_MIN, SKIP_LABEL, copyHref, filterTrades, parseCopyDays, parseCopySize, type CopyFilter, type CopyReplayed, type SkipReason } from '@/lib/copy.ts';
 import { formatCount, formatDay, formatDayLong, formatMoney, formatWhen } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -23,15 +23,16 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
   const router = useRouter();
   const pathname = usePathname();
   const size = parseCopySize(params.get('size'));
+  const days = parseCopyDays(params.get('days'));
   const [draft, setDraft] = useState(String(size));
   const valid = Number.isSafeInteger(accountId) && accountId > 0;
-  const replay = usePoll(() => api.copyReplay(accountId, size), POLL_MS, `copy:${accountId}:${size}`);
+  const replay = usePoll(() => api.copyReplay(accountId, size, days), POLL_MS, `copy:${accountId}:${size}:${days}`);
 
   const apply = (e: FormEvent) => {
     e.preventDefault();
     const next = parseCopySize(draft);
     setDraft(String(next));
-    router.replace(`${pathname}${next === 1_000 ? '' : `?size=${next}`}`, { scroll: false });
+    router.replace(copyHref(accountId, next, days), { scroll: false });
   };
 
   const sizeForm = (
@@ -55,7 +56,7 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
     <>
       <PageHeader
         title={<>What if you&rsquo;d copied #{valid ? accountId : '?'}?</>}
-        thin="last 30 days"
+        thin={`last ${days} days`}
         subtitle={
           <>
             A replay from indexed mainnet data onto a testnet account of <b className="font-semibold text-text">{formatCount(size)} AUSD</b>: every position this trader opened, copied in proportion, or skipped with the reason. <b className="font-semibold text-text">Nothing is sent</b>; nothing here can trade.
@@ -63,6 +64,13 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
         }
         right={
           <>
+            <div className="flex gap-1" role="group" aria-label="Window">
+              {([30, 7] as const).map((d) => (
+                <button key={d} type="button" className="seg" aria-pressed={days === d} onClick={() => router.replace(copyHref(accountId, size, d), { scroll: false })}>
+                  {d}D
+                </button>
+              ))}
+            </div>
             {sizeForm}
             {valid && <Link href={`/traders/${accountId}`} className="seg no-underline">Trader profile</Link>}
           </>
@@ -75,15 +83,15 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
       {result?.kind === 'no-follower-equity' && <div className="card px-5 py-4 text-muted">An account of that size has nothing to copy with.</div>}
       {result?.kind === 'too-busy' && (
         <div className="card px-5 py-4">
-          #{result.accountId} opened <b className="num">{formatCount(result.openedInWindow)}</b> positions in the last 30 days, more than {formatCount(result.cap)}. That is a bot&rsquo;s pace: a copy could not keep up with it, so it is not replayed at all rather than shown in part.
+          #{result.accountId} opened <b className="num">{formatCount(result.openedInWindow)}</b> positions in the last {days} days, more than {formatCount(result.cap)}. That is a bot&rsquo;s pace: a copy could not keep up with it, so it is not replayed at all rather than shown in part.
         </div>
       )}
-      {result?.kind === 'replayed' && <Replayed r={result} ageMs={replay.data?.ageMs ?? 0} />}
+      {result?.kind === 'replayed' && <Replayed r={result} days={days} ageMs={replay.data?.ageMs ?? 0} />}
     </>
   );
 }
 
-function Replayed({ r, ageMs }: { readonly r: CopyReplayed; readonly ageMs: number }) {
+function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days: number; readonly ageMs: number }) {
   const [filter, setFilter] = useState<CopyFilter>('all');
   const [shown, setShown] = useState(PAGE);
   const t = r.totals;
@@ -97,7 +105,7 @@ function Replayed({ r, ageMs }: { readonly r: CopyReplayed; readonly ageMs: numb
   if (r.trades.length === 0) {
     return (
       <div className="card px-5 py-4 text-muted">
-        #{r.accountId} opened no positions in the last 30 days ({span}), so a copy would have done nothing.
+        #{r.accountId} opened no positions in the last {days} days ({span}), so a copy would have done nothing.
         {t.skippedBy['open-at-start'] !== undefined && ` ${t.skippedBy['open-at-start']} it already held when the window began are never copied: a copy starts with the next open.`}
       </div>
     );

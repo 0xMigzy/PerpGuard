@@ -14,6 +14,7 @@ const T0 = Date.parse('2026-10-07T00:00:00Z');
 function rig() {
   const asked: Array<{ accountId: number; fromMs: number; toMs: number }> = [];
   const source: CopySourceReader = {
+    openActivity: async () => ({ lastOpenedAtMs: undefined, opened24h: 0, opened7d: 0 }),
     copySource: async (accountId, window): Promise<CopySource | undefined> => {
       asked.push({ accountId, fromMs: window.fromMs, toMs: window.toMs });
       if (accountId === 404) return undefined;
@@ -68,4 +69,12 @@ test('an account the index does not hold says so', async () => {
   const { app } = rig();
   const body = (await app.inject({ method: 'GET', url: '/api/analytics/copy/404' })).json();
   assert.deepEqual(body.result, { kind: 'unknown-account', accountId: 404 });
+});
+
+test('a 7-day window reads 7 days back; any other window is refused', async () => {
+  const { app, asked } = rig();
+  const res = await app.inject({ method: 'GET', url: '/api/analytics/copy/4886?days=7' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(asked.at(-1)!.toMs - asked.at(-1)!.fromMs, 7 * 86_400_000);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/analytics/copy/4886?days=14' })).statusCode, 400);
 });

@@ -39,7 +39,7 @@ test('the replay screen: the totals, a loss as a loss, the skips named, the limi
   assert.match(s.html, /Sized to an account of <b>1,000\.00 AUSD<\/b>\. Link your account and this uses yours\./);
   assert.match(s.html, /📊 <b>−64\.80 AUSD<\/b> on closed copies/);
   assert.match(s.html, /1 · market not on testnet: HYPE ×1/);
-  assert.match(s.html, /3 · already open when the 30 days began/);
+  assert.match(s.html, /3 · already open when the window began/);
   assert.match(s.html, /• 09\/07 BTC long · margin 200\.00 AUSD → <b>−64\.80 AUSD<\/b>/);
   assert.match(s.html, /prices and timing differ/);
   assert.match(s.html, /Past results do not predict future returns\./);
@@ -54,7 +54,7 @@ test('a linked reader is told the size is their own account\'s', () => {
 });
 
 test('a leader too busy to replay is refused whole, in words', () => {
-  const s = copyReplayScreen({ result: { kind: 'too-busy', accountId: 4848, openedInWindow: 36_639, cap: 3_000, fromMs: 0, toMs: 0 }, size: { kind: 'default' }, webUrl: undefined, back: { to: 'top' }, ageMs: 0 });
+  const s = copyReplayScreen({ result: { kind: 'too-busy', accountId: 4848, openedInWindow: 36_639, cap: 3_000, fromMs: 0, toMs: 30 * 86_400_000 }, size: { kind: 'default' }, webUrl: undefined, back: { to: 'top' }, ageMs: 0 });
   assert.match(s.html, /opened <b>36,639 positions<\/b> in 30 days, more than 3,000/);
 });
 
@@ -70,4 +70,28 @@ test('NOT RECONCILED is said with the gap, before any figure', () => {
   assert.ok(s.html.indexOf('NOT RECONCILED') < s.html.indexOf('📊'), 'said before the result');
   const ok = copyReplayScreen({ result: replayed, size: { kind: 'default' }, webUrl: undefined, back: { to: 'top' }, ageMs: 0 });
   assert.match(ok.html, /✅ Books reconciled: .* to within 0\.00 AUSD\./);
+});
+
+test('30 DAYS AND 7, TOGGLED: the screen names its window, marks it, and links the site to the same one', () => {
+  const week = copyReplayScreen({ result: { ...replayed, fromMs: replayed.toMs - 7 * 86_400_000 }, size: { kind: 'default' }, webUrl: 'https://perpguard.app', back: { to: 'top' }, ageMs: 0 });
+  assert.match(week.html, /· last 7 days/);
+  const flat = week.buttons.flat();
+  assert.ok(flat.some((b) => b.text === '✅ 7 days'));
+  assert.ok(flat.some((b) => b.text === '30 days'));
+  assert.ok(flat.some((b) => 'url' in b && b.url.endsWith('&days=7')));
+});
+
+test('THE TRADER CARD shows activity and both windows side by side; a week of silence is said', async () => {
+  const { traderCardScreen } = await import('./watchScreens.ts');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const card = traderCardScreen({
+    stats: { accountId: 5213, month: undefined, lifetime: undefined }, watching: false, starred: false, webUrl: undefined, back: { to: 'top' },
+    activity: { lastOpenedAtMs: now - 3 * 3_600_000, opened24h: 4, opened7d: 31 }, nowMs: now,
+    copied: { d30: '<b>+730.95 AUSD</b>', d7: '<b>−12.40 AUSD</b>', size: '1,000.00 AUSD' },
+  });
+  assert.match(card.html, /Activity: last opened a position <b>3 h ago<\/b> · <b>4<\/b> opened in 24 h · <b>31<\/b> in 7 days/);
+  assert.match(card.html, /🔁 If copied at 1,000\.00 AUSD, after fees: 30D <b>\+730\.95 AUSD<\/b> · 7D <b>−12\.40 AUSD<\/b>/);
+  assert.doesNotMatch(card.html, /24 ?h (P&amp;L|PnL)/, 'no 24-hour P&L');
+  const quiet = traderCardScreen({ stats: { accountId: 1, month: undefined, lifetime: undefined }, watching: false, starred: false, webUrl: undefined, back: { to: 'top' }, activity: { lastOpenedAtMs: now - 9 * 86_400_000, opened24h: 0, opened7d: 0 }, nowMs: now });
+  assert.match(quiet.html, /⚠️ Nothing opened in over a week: copying would copy nothing\./);
 });

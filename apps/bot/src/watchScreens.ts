@@ -192,7 +192,24 @@ export function topListScreen(kind: 'pnl' | 'roi', rows: readonly TraderRow[], w
 }
 
 /** 👤 TRADER (spec 23): the figures, each with its window or denominator, and where to read more. */
-export function traderCardScreen(input: { readonly stats: TraderStats; readonly watching: boolean; readonly starred: boolean; readonly webUrl: string | undefined; readonly back: Route }): Screen {
+/** "3 h ago", "2 days ago". */
+const agoText = (ms: number): string => {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+};
+
+/** Activity and the copy replay on the trader card: is this someone worth copying NOW. */
+export interface TraderCardExtras {
+  readonly activity?: { readonly lastOpenedAtMs: number | undefined; readonly opened24h: number; readonly opened7d: number } | undefined;
+  readonly nowMs?: number;
+  /** Each window's replay in a few words (`copySummary`), and the size they were replayed at. */
+  readonly copied?: { readonly d30: string; readonly d7: string; readonly size: string } | undefined;
+}
+
+export function traderCardScreen(input: { readonly stats: TraderStats; readonly watching: boolean; readonly starred: boolean; readonly webUrl: string | undefined; readonly back: Route } & TraderCardExtras): Screen {
   const s = input.stats;
   const id = s.accountId;
   const lines = [`👤 <b>TRADER #${id}</b>`];
@@ -206,6 +223,20 @@ export function traderCardScreen(input: { readonly stats: TraderStats; readonly 
   }
   const open = s.lifetime?.openPositionCount ?? s.month?.openPositionCount;
   if (open !== undefined) lines.push(`Open positions now <b>${open}</b>`);
+  const act = input.activity;
+  if (act !== undefined) {
+    const now = input.nowMs ?? Date.now();
+    lines.push(
+      '',
+      act.lastOpenedAtMs === undefined
+        ? 'Activity: <b>never opened a position</b>'
+        : `Activity: last opened a position <b>${agoText(now - act.lastOpenedAtMs)}</b> · <b>${grouped(act.opened24h)}</b> opened in 24 h · <b>${grouped(act.opened7d)}</b> in 7 days`,
+    );
+    if (act.lastOpenedAtMs !== undefined && now - act.lastOpenedAtMs > 7 * 86_400_000) lines.push('⚠️ Nothing opened in over a week: copying would copy nothing.');
+  }
+  if (input.copied !== undefined) {
+    lines.push('', `🔁 If copied at ${input.copied.size}, after fees: 30D ${input.copied.d30} · 7D ${input.copied.d7}`);
+  }
   lines.push('', '<i>Past results do not predict future returns.</i>');
   const buttons: Button[][] = [];
   if (input.webUrl !== undefined) buttons.push([{ text: '📊 Full analytics', url: `${input.webUrl.replace(/\/$/, '')}/traders/${id}` }]);
