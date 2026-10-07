@@ -38,7 +38,7 @@ test('the watch alert leads with the account and position, then money, and says 
   assert.equal(lines[1], 'BTC is 84,007.3. At 81,770.1 the exchange closes this position and they lose the <b>2,810 AUSD</b> behind it.');
   assert.equal(lines[2], 'They hold <b>2,910 AUSD</b> free — enough to survive, if they move it.');
   assert.match(lines[3]!, /^<i>Positions as of block 109,575,809, 12 blocks behind the chain\.<\/i>$/);
-  assert.equal(lines[4], 'No buttons. You are watching this account, not holding it.');
+  assert.equal(lines[4], "No buttons. You are watching this account, not holding it: PerpGuard's actions run on testnet only, and this is a mainnet account.");
   assert.ok(!/safe/i.test(html));
 });
 

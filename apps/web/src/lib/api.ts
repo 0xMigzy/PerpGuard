@@ -175,7 +175,7 @@ export interface LinkMe {
 export type WalletProof =
   | { readonly kind: 'linked'; readonly accountId: number }
   | { readonly kind: 'proven-needs-key'; readonly accountId: number; readonly reason: string }
-  | { readonly kind: 'refused'; readonly reason: string };
+  | { readonly kind: 'refused'; readonly reason: string; readonly watchInstead?: { readonly network: string; readonly accountId: number } };
 
 export type KeyProof =
   | { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined }
@@ -194,6 +194,8 @@ export const link = {
   /** The key goes to this origin's backend and nowhere else, and is never read back. */
   key: (apiKey: string, secret: string) => postJson<{ proof: KeyProof; me: LinkMe }>(`${L}/key`, { apiKey, secret }),
   unlink: () => postJson<{ ok: boolean; text: string; me: LinkMe }>(`${L}/unlink`, {}),
+  /** Watch the mainnet account this page's signed wallet proved it owns. Read-only; the server picks the account. */
+  watchInstead: () => postJson<{ ok: boolean; text: string; accountId: number }>(`${L}/watch-instead`, {}),
 };
 
 const A = '/api/analytics';

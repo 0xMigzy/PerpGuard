@@ -85,7 +85,11 @@ export interface LinkServiceDeps {
 export type WalletProof =
   | { readonly kind: 'linked'; readonly accountId: number }
   | { readonly kind: 'proven-needs-key'; readonly accountId: number; readonly reason: string }
-  | { readonly kind: 'refused'; readonly reason: string };
+  /**
+   * `watchInstead`: the signed wallet owns this account on the OTHER network
+   * (mainnet). Nothing can act on it here, but it can be watched, read-only.
+   */
+  | { readonly kind: 'refused'; readonly reason: string; readonly watchInstead?: { readonly network: string; readonly accountId: number } };
 
 /** What a person is told when their saved key can no longer be used. */
 export const RELINK_REASON = 'your saved API key can no longer be read, so PerpGuard has stopped acting on the account';
@@ -210,8 +214,9 @@ export class LinkService {
         return {
           kind: 'refused',
           reason:
-            `This wallet owns Perpl account #${elsewhere.accountId} on ${elsewhere.network}. PerpGuard acts on ${here} only for now, and on ${here} this wallet has no account. ` +
-            `Open a ${here} account with it on Perpl, or sign with the wallet that owns your ${here} account.`,
+            `This wallet owns Perpl account #${elsewhere.accountId} on ${elsewhere.network}. Actions are ${here} only for now, so it cannot be linked to act on. ` +
+            `You can watch it instead: alerts in your Telegram chat as it nears liquidation, opens and closes, read-only. Or sign with the wallet that owns your account on ${here}.`,
+          watchInstead: { network: elsewhere.network, accountId: elsewhere.accountId },
         };
       }
     }

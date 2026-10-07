@@ -140,7 +140,30 @@ export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 
 }
 
 /** The rule underneath the watch tier, said where a watcher reads it. */
-export const NO_BUTTONS = 'No buttons. You are watching this account, not holding it.';
+/**
+ * Said on every watched screen and watch alert (owner, 7 Oct 2026): what the
+ * missing buttons mean, and why: watching is mainnet and read-only, and
+ * PerpGuard's actions run on testnet only.
+ */
+export const NO_BUTTONS = "No buttons. You are watching this account, not holding it: PerpGuard's actions run on testnet only, and this is a mainnet account.";
+
+/**
+ * THE NETWORK ON EVERY ACTION SCREEN (owner, 7 Oct 2026): add margin,
+ * confirm, outcome, Auto, Emergency, and the messages about them, so nobody
+ * ever takes a testnet top-up for a real one. Undefined network: no badge.
+ */
+export function actingBadge(network: string | undefined): string | undefined {
+  if (network === 'testnet') return '🧪 <b>TESTNET</b> · test funds, not real money';
+  if (network === 'mainnet') return '⚠️ <b>MAINNET</b> · real funds';
+  return undefined;
+}
+
+/** A screen's HTML with the network badge on its first line. Idempotent. */
+export function withBadge(html: string, network: string | undefined): string {
+  const badge = actingBadge(network);
+  if (badge === undefined || html.startsWith(badge)) return html;
+  return `${badge}\n${html}`;
+}
 
 /**
  * Their free balance against what this position would need, in one sentence.

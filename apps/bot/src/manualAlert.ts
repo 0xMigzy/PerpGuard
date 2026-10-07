@@ -17,7 +17,7 @@
 import type { Api } from 'grammy';
 import type { MarketRiskConfig } from '@perpguard/shared';
 import type { AlertAction, AlertConfig } from '@perpguard/backend/alerts';
-import { distance, esc, held, money, positionName, signedPnl } from '@perpguard/backend/alerts/plain';
+import { distance, esc, held, money, positionName, signedPnl, withBadge } from '@perpguard/backend/alerts/plain';
 import type { RiskAssessment } from '@perpguard/backend/risk';
 import { distanceLabel } from '@perpguard/backend/manual/distance';
 import { ADD_MARGIN_PRESETS_AUSD } from './account.ts';
@@ -50,6 +50,8 @@ export interface ManualAlertDeps {
   readonly sessions: SessionRouter;
   readonly configs: ReadonlyMap<number, MarketRiskConfig>;
   readonly alerts: Pick<AlertConfig, 'bufferDecimals'>;
+  /** The acting network, for the badge on the alert (it offers actions). */
+  readonly network?: string | undefined;
 }
 
 type Key = { readonly text: string; readonly callback_data: string };
@@ -81,7 +83,8 @@ export function createManualAlertSender(deps: ManualAlertDeps): (input: ManualAl
     const account = deps.sessions.forAccount(input.accountId);
     const market = deps.configs.get(a.marketId);
     const free: FreeBalanceReading = account?.balance.freeBalance() ?? { known: false, reason: 'the account is not connected right now' };
-    const text = manualAlertText(input, free, market);
+    // THE NETWORK ON EVERY ACTION SCREEN: this message offers actions.
+    const text = withBadge(manualAlertText(input, free, market), deps.network);
     const nav = (to: Parameters<typeof encodeNav>[0]): string => encodeNav(to, { fresh: true });
 
     // Asked of the ACTING venue BY MARKET ID before any amount is offered as live.

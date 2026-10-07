@@ -83,6 +83,7 @@ import {
   createManualAlertSender,
 } from '@perpguard/bot';
 import { DEFAULT_ALERT_CONFIG } from './alerts/types.ts';
+import { withBadge } from './alerts/plain.ts';
 import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore } from './rescue/automation.ts';
 import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
 import { RescueControlService } from './rescue/control.ts';
@@ -830,7 +831,9 @@ const rescueEngine = new RescueEngine({
     };
   },
   notify: async (accountId, notice) => {
-    const rendered = renderRescue(notice, collateralDecimals);
+    const raw = renderRescue(notice, collateralDecimals);
+    // THE NETWORK ON EVERY ACTION SCREEN: Rescue's messages are about money that moved, or will.
+    const rendered = { ...raw, html: withBadge(raw.html, network.name) };
     const keyboard = rendered.buttons.map((b) => ({
       text: b.text,
       // Fresh: a rescue report is the record of what happened to someone's money, never edited away.
@@ -865,7 +868,7 @@ if (alertDb !== undefined) {
 const sendManualAlert =
   bot === undefined
     ? undefined
-    : createManualAlertSender({ api: bot.api, store: pendingActions, links, sessions: registry, configs: riskConfigs, alerts: DEFAULT_ALERT_CONFIG });
+    : createManualAlertSender({ api: bot.api, store: pendingActions, links, sessions: registry, configs: riskConfigs, alerts: DEFAULT_ALERT_CONFIG, network: network.name });
 const manualAlerts = new ManualAlerts({
   accounts: () =>
     registry.list().map((session) => ({
@@ -1305,6 +1308,18 @@ const app = createHealthApp({
     network: network.name,
     ...(envAccountId === undefined ? {} : { envAccountId }),
     keyStorageConfigured: vault !== undefined,
+    // 👁 WATCH IT INSTEAD: a mainnet account the page's signed wallet owns, watched read-only in the person's chat.
+    watchInstead: async (identity, accountId) => {
+      const added = watchStore.add({ chatId: identity.chatId, accountId, label: `#${accountId} (your wallet)`, addedAtMs: Date.now() });
+      if (!added.ok) return { ok: false, text: added.text };
+      const text =
+        `👁 Watching your mainnet account #${accountId}, read-only.\n` +
+        `You'll get alerts here as its positions near liquidation, open and close. ` +
+        `There are no buttons: PerpGuard's actions run on testnet only for now.`;
+      if (bot !== undefined) await bot.api.sendMessage(identity.chatId, text).catch(() => undefined);
+      void watchLoop?.evaluate().catch(() => undefined);
+      return { ok: true, text: added.already ? `Already watching #${accountId} in your Telegram chat.` : `Watching #${accountId} in your Telegram chat. Alerts are read-only.` };
+    },
   },
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities

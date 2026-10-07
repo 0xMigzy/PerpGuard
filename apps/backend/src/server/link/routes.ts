@@ -34,6 +34,8 @@ export interface LinkSession extends ChallengeHolder {
   readonly telegramName: string | undefined;
   /** The account a wallet proof established, waiting for a key. */
   provenAccountId: number | undefined;
+  /** A mainnet account this page's signed wallet proved it owns: the one account "Watch it instead" may watch. */
+  watchInsteadAccountId?: number | undefined;
   readonly expiresAtMs: number;
 }
 
@@ -80,6 +82,8 @@ export interface LinkRouteOptions {
   readonly envAccountId?: number;
   readonly keyStorageConfigured: boolean;
   readonly sessions?: LinkSessionStore;
+  /** 👁 Watch a proven mainnet account, read-only, in this person's own chat. Absent: no button works. */
+  readonly watchInstead?: (identity: TelegramIdentity, accountId: number) => Promise<{ readonly ok: boolean; readonly text: string }>;
   /**
    * EVERY OUTCOME ON THE PAGE LEAVES A LINE: a code redeemed or refused, a
    * challenge issued, a signature refused and why. Never the code, the
@@ -207,7 +211,20 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       log(`${session.identity.userId} signed and was verified: ${proof.kind}${'accountId' in proof ? ` (account ${proof.accountId})` : ''} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
       if (proof.kind === 'proven-needs-key') session.provenAccountId = proof.accountId;
       if (proof.kind === 'linked') session.provenAccountId = undefined;
+      session.watchInsteadAccountId = proof.kind === 'refused' ? proof.watchInstead?.accountId : undefined;
       return { proof, me: me(session) };
+    });
+
+    // 👁 WATCH IT INSTEAD: only the mainnet account THIS session's signed wallet
+    // proved it owns, never a number from the body. Read-only, into the person's
+    // own chat, under the watch tier's usual caps.
+    scope.post(`${prefix}/watch-instead`, async (request, reply) => {
+      const session = sessionOf(request);
+      const accountId = session.watchInsteadAccountId;
+      if (accountId === undefined || options.watchInstead === undefined) return reply.code(400).send({ error: 'Sign in with your wallet first: there is no mainnet account proven on this page.' });
+      const result = await options.watchInstead(session.identity, accountId);
+      log(`${session.identity.userId} chose to watch mainnet account ${accountId} instead: ${result.ok ? 'watching' : result.text} (session ${sessionTag(session.token)})`);
+      return reply.code(result.ok ? 200 : 409).send(result.ok ? { ok: true, text: result.text, accountId } : { error: result.text });
     });
 
     scope.post<{ Body: { apiKey?: unknown; secret?: unknown } }>(`${prefix}/key`, async (request, reply) => {

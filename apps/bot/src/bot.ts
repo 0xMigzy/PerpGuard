@@ -48,7 +48,7 @@ import {
 } from './account.ts';
 import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
 import { buildMessage } from '@perpguard/backend/alerts/render';
-import { esc, pct } from '@perpguard/backend/alerts/plain';
+import { esc, pct, withBadge } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { ALERT_DISTANCE_PRESETS, MAX_ALERT_DISTANCE_PCT, MIN_ALERT_DISTANCE_PCT, distanceLabel, parseAlertDistance } from '@perpguard/backend/manual/distance';
 import { OFF_LEVEL, decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
@@ -528,6 +528,8 @@ export function createBot(deps: BotDeps): Bot {
       ...extra,
     });
 
+  const sendScreenRaw = (c: Context, screen: Screen): Promise<void> => sendScreen(c, screen);
+  const showScreenRaw = (c: Context, screen: Screen): Promise<void> => showScreen(c, screen);
   async function sendScreen(ctx: Context, screen: Screen): Promise<void> {
     try {
       await ctx.reply(screen.html, { parse_mode: 'HTML', reply_markup: keyboardFor(screen), link_preview_options: { is_disabled: true } });
@@ -768,7 +770,7 @@ export function createBot(deps: BotDeps): Bot {
       }
       await ctx.reply('🛑 Stopping PerpGuard, then closing your positions one at a time. This takes a few seconds per position…');
       const report = await deps.emergency.closeAll(verdict.link.accountId, question.requestId, `tg:${telegramUserId}`);
-      await sendScreen(ctx, closeAllResultScreen(report, deps.killSwitch?.stopped(verdict.link.accountId) ?? true));
+      await sendScreen(ctx, badged(deps, closeAllResultScreen(report, deps.killSwitch?.stopped(verdict.link.accountId) ?? true)));
       return;
     }
     if (question?.kind === 'rescue-trigger' || question?.kind === 'rescue-amount') {
@@ -1062,6 +1064,9 @@ export function createBot(deps: BotDeps): Bot {
 
   // ── the account half: every route resolves the link at tap time ──────────
   async function accountNav(ctx: Context, route: Route): Promise<void> {
+    // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
+    const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
+    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
     const telegramUserId = ctx.from?.id;
     if (telegramUserId === undefined) return;
     const resolved = resolveAccount(telegramUserId);
@@ -1204,6 +1209,9 @@ export function createBot(deps: BotDeps): Bot {
   // the trading account is down or its key needs re-linking (spec 54). The
   // gate has already refused every unlinked chat (these routes are not public).
   async function killNav(ctx: Context, route: Route): Promise<void> {
+    // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
+    const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
+    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
     const telegramUserId = ctx.from?.id;
     const chatId = ctx.chat?.id;
     const link = linkHere(telegramUserId, chatId);
@@ -1232,7 +1240,7 @@ export function createBot(deps: BotDeps): Bot {
         // The request this confirmation is for: minted NOW, run at most once.
         amounts.delete(telegramUserId);
         questions.ask(chatId, telegramUserId, { kind: 'close-all', requestId: newRequestId(), shownAtMs: now() });
-        await ctx.reply(closeAllConfirmText(positions), { parse_mode: 'HTML', reply_markup: { force_reply: true, input_field_placeholder: CLOSE_ALL_PHRASE } });
+        await ctx.reply(withBadge(closeAllConfirmText(positions), deps.tradingNetwork), { parse_mode: 'HTML', reply_markup: { force_reply: true, input_field_placeholder: CLOSE_ALL_PHRASE } });
         return;
       }
       case 'close-retry': {
@@ -1313,6 +1321,9 @@ export function createBot(deps: BotDeps): Bot {
   }
 
   async function rescueNav(ctx: Context, route: Route, account: AccountView, link: LinkRecord): Promise<void> {
+    // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
+    const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
+    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
     const chatId = ctx.chat?.id;
     const telegramUserId = ctx.from?.id;
     if (chatId === undefined || telegramUserId === undefined) return;
@@ -1638,9 +1649,14 @@ interface Resolved {
  * Cancel buttons both carry the action's own token, so Cancel deletes the very
  * thing Send would have fired.
  */
+/** THE NETWORK ON EVERY ACTION SCREEN: the acting network's badge on the first line. */
+function badged(deps: Pick<BotDeps, 'tradingNetwork'>, screen: Screen): Screen {
+  return { ...screen, html: withBadge(screen.html, deps.tradingNetwork) };
+}
+
 function confirmFor(deps: BotDeps, account: AccountView, pending: PendingAction, action: AlertAction, notes: readonly string[] = []): Screen {
   const data = (kind: 'confirm' | 'cancel'): string => encodeCallback({ kind, token: pending.token, marketId: action.marketId, amountCNS: action.amountCNS });
-  return confirmScreen({
+  return badged(deps, confirmScreen({
     action,
     market: deps.configs.get(action.marketId),
     assessment: account.view.snapshot().find((a) => a.marketId === action.marketId),
@@ -1648,7 +1664,7 @@ function confirmFor(deps: BotDeps, account: AccountView, pending: PendingAction,
     confirmData: data('confirm'),
     cancelData: data('cancel'),
     notes,
-  });
+  }));
 }
 
 /** What the custom-amount flow needs beyond {@link BotDeps}, resolved once per request. */
@@ -1875,7 +1891,7 @@ async function runConfirmed(
 
   // The confirmation becomes the progress line, so its Send button is gone
   // while the action is in flight and cannot be tapped twice.
-  await editOrSend(ctx, sendingScreen(action));
+  await editOrSend(ctx, badged(deps, sendingScreen(action)));
   const market = deps.configs.get(action.marketId);
   const assessment = account.view.snapshot().find((a) => a.marketId === action.marketId);
 
@@ -1897,7 +1913,7 @@ async function runConfirmed(
     const retry = deps.store.put({ userId: pending.userId, telegramUserId: pending.telegramUserId, action });
     retryData = encodeCallback({ kind: 'confirm', token: retry.token, marketId: action.marketId, amountCNS: action.amountCNS });
   }
-  await editOrSend(ctx, outcomeScreen({ action, outcome, market, assessment, ...(retryData === undefined ? {} : { retryData }) }));
+  await editOrSend(ctx, badged(deps, outcomeScreen({ action, outcome, market, assessment, ...(retryData === undefined ? {} : { retryData }) })));
 }
 
 /** Edit the tapped message into a screen; send it fresh when that is not possible. */

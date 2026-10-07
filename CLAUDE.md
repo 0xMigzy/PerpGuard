@@ -568,6 +568,17 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
   persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
   does not unsubscribe anyone.
+- THE TWO TIERS ARE NAMED ON EVERY SCREEN (7 Oct 2026, owner). /start says
+  both: WATCH any mainnet account (read-only) and LINK your own testnet
+  account to act. Home says which tier ("👁 Watching 2 mainnet accounts",
+  "🔗 Linked: testnet #710"). Every watched-account message ends in
+  `NO_BUTTONS`, which says why: actions run on testnet only. Every ACTION
+  screen (account, margin, confirm, outcome, Rescue, Emergency, manual and
+  Rescue alerts) opens with `actingBadge` ("🧪 TESTNET · test funds"), added
+  by `badged()`/`withBadge`, never by hand. On /link, a wallet that owns a
+  MAINNET account is refused for acting and offered "👁 Watch it instead"
+  (`POST /api/link/watch-instead`), which watches ONLY the account the page
+  session proved, never one posted in the body.
 - EVERY TELEGRAM USER IS SOMEBODY: `/start` registers an identity
   (`tg:<telegram user id>`, `apps/bot/src/identity.ts`, persisted in
   `telegram_identities`) for anyone, and NEVER hands out the acting slot

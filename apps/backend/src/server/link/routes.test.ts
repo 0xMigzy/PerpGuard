@@ -25,7 +25,7 @@ const STRANGER_KEY = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367
 const OWNER = OWNER_KEY.address.toLowerCase();
 const T0 = Date.parse('2026-10-06T12:00:00Z');
 
-function rig(options: { wallet?: boolean; probeAccount?: number | undefined; chainId?: number; site?: string } = {}) {
+function rig(options: { wallet?: boolean; probeAccount?: number | undefined; chainId?: number; site?: string; strangerOnMainnet?: number } = {}) {
   const clock = { t: T0 };
   const identities = new InMemoryIdentityStore();
   identities.register(4242, 5150, 1_000);
@@ -35,6 +35,7 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
   const running = new Set<number>([710]);
   const logs: string[] = [];
   const closed: number[] = [];
+  const watched: Array<{ identity: string; accountId: number }> = [];
   const service = new LinkService({
     codes: new LinkCodeStore({ purpose: 'link', now: () => 1_000 }),
     identities,
@@ -56,6 +57,9 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
     probe: async () => ({ accountId: 'probeAccount' in options ? options.probeAccount : 711, forwardingAllowed: true }),
     lookupAccount: async (address): Promise<AccountLookup> => (address === OWNER ? { found: true, accountId: 710, address } : { found: false, address, reason: 'no account' }),
     secretFromHex: (hex) => ApiSecret.fromHex(hex),
+    ...(options.strangerOnMainnet !== undefined
+      ? { network: 'testnet', lookupElsewhere: async (address: string) => (address === STRANGER_KEY.address.toLowerCase() ? { network: 'mainnet', accountId: options.strangerOnMainnet! } : undefined) }
+      : {}),
     envAccountId: 710,
     webUrl: 'https://perpguard.example/',
     notify: async (_chatId, text) => {
@@ -70,11 +74,15 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
     envAccountId: 710,
     keyStorageConfigured: true,
     now: () => 2_000,
+    watchInstead: async (identity, accountId) => {
+      watched.push({ identity: identity.userId, accountId });
+      return { ok: true, text: `Watching #${accountId} in your Telegram chat. Alerts are read-only.` };
+    },
     ...(options.wallet
       ? { wallet: new WalletChallenger({ publicWebUrl: options.site ?? 'https://perpguard.example', chainId: options.chainId ?? 10143, verifyMessage: (a) => verifyMessage(a), now: () => clock.t }) }
       : {}),
   });
-  return { app, service, links, keys, logs, closed, running, clock };
+  return { app, service, links, keys, logs, closed, running, clock, watched };
 }
 
 const cookieOf = (setCookie: string | string[] | undefined): string => {
@@ -309,4 +317,29 @@ test('every page outcome leaves a log line naming who and why, never the code, m
   assert.match(lines.at(-1)!, /^link page: POST \/api\/link\/challenge refused: NO session cookie was sent; from Telegram in-app browser \(Android\)/);
   const all = lines.join('\n');
   for (const secret of [code, signature, message.slice(0, 40)]) assert.ok(!all.includes(secret), 'nothing secret in the log');
+});
+
+test('WATCH IT INSTEAD: a wallet that owns a MAINNET account is refused for acting and offered a watch; the watch takes only the account the session proved', async () => {
+  const r = rig({ wallet: true, strangerOnMainnet: 4855 });
+  const p = await page(r);
+  const before = await r.app.inject({ method: 'POST', url: '/api/link/watch-instead', headers: { cookie: p.cookie }, payload: { accountId: 1 } });
+  assert.equal(before.statusCode, 400, 'nothing proven yet: nothing to watch, and a body account id is never read');
+  assert.deepEqual(r.watched, []);
+
+  const message = await p.challenge(STRANGER_KEY.address.toLowerCase());
+  const res = await p.submit(message, await STRANGER_KEY.signMessage({ message }));
+  const proof = res.json().proof;
+  assert.equal(proof.kind, 'refused');
+  assert.deepEqual(proof.watchInstead, { network: 'mainnet', accountId: 4855 });
+  assert.match(proof.reason, /Actions are testnet only for now/);
+  assert.equal(r.links.byTelegramUserId(4242), undefined, 'nothing linked');
+
+  const watch = await r.app.inject({ method: 'POST', url: '/api/link/watch-instead', headers: { cookie: p.cookie }, payload: { accountId: 1 } });
+  assert.equal(watch.statusCode, 200);
+  assert.equal(watch.json().accountId, 4855);
+  assert.deepEqual(r.watched, [{ identity: 'tg:4242', accountId: 4855 }], 'the proven account, never the posted one');
+  assert.equal(r.links.byTelegramUserId(4242), undefined, 'watching links nothing');
+
+  const noCookie = await r.app.inject({ method: 'POST', url: '/api/link/watch-instead', payload: {} });
+  assert.equal(noCookie.statusCode, 401);
 });

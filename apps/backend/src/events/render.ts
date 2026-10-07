@@ -15,7 +15,7 @@
  */
 import type { FillAction } from '@perpguard/shared';
 import type { MarketRiskConfig } from '@perpguard/shared';
-import { esc, freeVerdict, freshness, held, watchedPositionLines } from '../alerts/plain.ts';
+import { NO_BUTTONS, esc, freeVerdict, freshness, held, watchedPositionLines } from '../alerts/plain.ts';
 import type { RiskAssessment } from '../risk/types.ts';
 import { levelsLabel, severityOf } from './warnings.ts';
 import type { EventFreshness, LargeTradeEvent, LiquidationEvent, PerpEvent, PositionChangeEvent } from './types.ts';
@@ -77,6 +77,7 @@ export function renderLiquidation(event: LiquidationEvent, why: 'watching' | 'fe
   if (at !== undefined) lines.push(`Closed at ${at}${entry === undefined ? '' : `, entered at ${entry}`}`);
   lines.push(pnl < 0 ? `Realised loss ${ausd(-pnl, 'floor')} (profit and loss plus funding; fees not included)` : `Realised result ${ausd(pnl, 'floor')} in profit, after funding`);
   lines.push('', freshnessLine(event.freshness));
+  if (why === 'watching') lines.push(NO_BUTTONS);
   return { html: lines.join('\n'), links: [...traderLink(l.accountId, ctx), { text: '🔎 Monadscan', url: `${EXPLORER_TX_URL}${l.txHash}` }] };
 }
 
@@ -117,7 +118,7 @@ export function renderPositionChange(event: PositionChangeEvent, ctx: RenderCont
     if (parts.length > 0) lines.push(parts.join(' · ').replace(/^./, (ch) => ch.toUpperCase()));
   }
   // Both delays, said: the index trails the chain, and we read it every N seconds.
-  lines.push('', `<i>${freshnessText(event.freshness)} Checked every ${Math.round(ctx.watchEveryMs / 1000)} seconds on top of that.</i>`);
+  lines.push('', `<i>${freshnessText(event.freshness)} Checked every ${Math.round(ctx.watchEveryMs / 1000)} seconds on top of that.</i>`, NO_BUTTONS);
   return { html: lines.join('\n'), links: traderLink(event.accountId, ctx) };
 }
 
@@ -151,6 +152,6 @@ export function renderWarning(assessment: RiskAssessment, level: number, levels:
   if (scope.freeBalanceCNS !== undefined) lines.push(`They hold free ${held(scope.freeBalanceCNS)}`);
   lines.push(freeVerdict(scope, [assessment]));
   lines.push(`<i>You warn at ${levelsLabel(levels)}. Each level warns once and waits for the position to recover before it can warn again.</i>`);
-  lines.push(freshness(scope, assessment));
+  lines.push(freshness(scope, assessment), NO_BUTTONS);
   return { html: lines.join('\n'), links: traderLink(scope.accountId, ctx) };
 }

@@ -29,6 +29,9 @@ export function LinkView() {
   const code = params.get('code') ?? '';
   const [phase, setPhase] = useState<Phase>({ kind: 'opening' });
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | undefined>(undefined);
+  /** A mainnet account the signed wallet owns: it cannot be acted on here, but it can be watched. */
+  const [watchOffer, setWatchOffer] = useState<{ readonly network: string; readonly accountId: number } | undefined>(undefined);
+  const [watching, setWatching] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -127,6 +130,29 @@ export function LinkView() {
       {notice !== undefined && (
         <div role="status" className={`mb-4 rounded-[10px] border px-4 py-3 text-[13px] ${notice.tone === 'ok' ? 'border-safe/40 bg-safe/10' : notice.tone === 'warn' ? 'border-watch/40 bg-watch/10' : 'border-danger/40 bg-danger/10'}`}>
           {notice.text}
+          {watchOffer !== undefined && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="btn primary"
+                disabled={watching}
+                onClick={() => {
+                  setWatching(true);
+                  link
+                    .watchInstead()
+                    .then((r) => {
+                      setWatchOffer(undefined);
+                      setNotice({ tone: 'ok', text: r.text });
+                    })
+                    .catch((error: unknown) => setNotice({ tone: 'bad', text: describeError(error) }))
+                    .finally(() => setWatching(false));
+                }}
+              >
+                {watching ? 'Adding…' : '👁 Watch it instead'}
+              </button>
+              <span className="text-[12.5px] text-muted">Actions are {me.network} only for now: watching is read-only, with alerts in your Telegram chat.</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -193,6 +219,7 @@ export function LinkView() {
               verifiedAddress={me.wallet?.address}
               onProof={(proof: WalletProof, next: LinkMe) => {
                 setPhase({ kind: 'ready', me: next });
+                setWatchOffer(proof.kind === 'refused' ? proof.watchInstead : undefined);
                 setNotice(
                   proof.kind === 'linked'
                     ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}. Alerts in your Telegram chat now come with buttons to act.` }

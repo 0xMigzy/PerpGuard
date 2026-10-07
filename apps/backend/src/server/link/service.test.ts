@@ -249,7 +249,8 @@ test('A WALLET WHOSE ACCOUNT IS ON THE OTHER NETWORK IS TOLD SO BY NAME, never "
   const r = rig({ elsewhere: new Map([[wallet, 4855]]) });
   const proof = await r.service.proveWallet(r.identity, [wallet]);
   assert.equal(proof.kind, 'refused');
-  assert.match((proof as { reason: string }).reason, /^This wallet owns Perpl account #4855 on mainnet\. PerpGuard acts on testnet only for now, and on testnet this wallet has no account\. Open a testnet account with it on Perpl/);
+  assert.match((proof as { reason: string }).reason, /^This wallet owns Perpl account #4855 on mainnet\. Actions are testnet only for now, so it cannot be linked to act on\. You can watch it instead/);
+  assert.deepEqual((proof as { watchInstead?: unknown }).watchInstead, { network: 'mainnet', accountId: 4855 }, 'offered as a watch, by the account the signature proved');
   assert.equal(r.service.walletProof(r.identity.userId), undefined, 'nothing was proven on the trading network, so nothing is kept');
   const none = await rig().service.proveWallet(r.identity, ['0x' + '9'.repeat(40)]);
   assert.match((none as { reason: string }).reason, /^That wallet doesn't own a Perpl account on testnet\./);

@@ -122,21 +122,22 @@ export function indexLine(health: IndexerHealth | undefined): string | undefined
 export function homeScreen(input: HomeInput): Screen {
   const open: Button[] = input.webUrl === undefined ? [] : [{ text: '🌐 Open PerpGuard', url: input.webUrl }];
   const index = indexLine(input.health);
-  const watchingLine = input.watching === 0 ? undefined : `👁 Watching <b>${input.watching} wallet${input.watching === 1 ? '' : 's'}</b>`;
+  const watchingLine = input.watching === 0 ? undefined : `👁 Watching <b>${input.watching} mainnet account${input.watching === 1 ? '' : 's'}</b> · read-only`;
+  const acting = input.account?.network ?? input.tradingNetwork ?? 'testnet';
 
   if (input.account === undefined) {
-    const firstRun = input.watching === 0;
-    const lines = firstRun
-      ? [
-          TITLE,
-          '',
-          'Real-time Perpl intelligence and risk protection on Monad.',
-          '',
-          '👁 <b>WATCH</b>\nTrack any trader and get told before a position is closed.',
-          '',
-          '🛟 <b>PROTECT</b>\nConnect your own account to add margin, reduce or close, each time only after you confirm.',
-        ]
-      : [TITLE, '', `🔐 Trading Account: <b>Not connected</b>`, watchingLine!];
+    // THE TWO TIERS, BEFORE ANYTHING ELSE (owner, 7 Oct 2026): what each one is, on which network, and what it can do.
+    const lines = [
+      TITLE,
+      '',
+      'Two ways to use PerpGuard:',
+      '',
+      `👁 <b>WATCH</b> any <b>mainnet</b> account, no key needed. Alerts as it nears liquidation, opens and closes. Read-only: no buttons.`,
+      '',
+      `🔗 <b>LINK</b> your own <b>${acting}</b> account with an API key to also act on it: add margin, reduce, close, Auto top-up. Actions run on ${acting} only, ${acting === 'testnet' ? 'with test funds' : 'with real funds'}.`,
+      '',
+      watchingLine ?? '👁 Not watching anything yet · 🔗 Not linked',
+    ];
     if (index !== undefined) lines.push('', index);
     return {
       html: lines.join('\n'),
@@ -148,12 +149,12 @@ export function homeScreen(input: HomeInput): Screen {
   const lines = [
     TITLE,
     '',
-    `🔐 Trading Account: <b>#${a.accountId}</b> · ${networkLabel(a.network)}`,
+    `🔗 Linked: <b>${a.network ?? acting} #${a.accountId}</b> · actions run here${(a.network ?? acting) === 'testnet' ? ', with test funds' : ''}`,
     `Execution: ${a.execution.dot} ${esc(a.execution.label)}`,
     `Automation: ${a.automation ?? '⚪ None'}`,
     `Alerts: 🟢 ON at ${a.warnAt} from liquidation`,
   ];
-  if (watchingLine !== undefined) lines.push(watchingLine);
+  lines.push(watchingLine ?? '👁 Watch any mainnet account read-only from Watch & Alerts');
   const closest = closestOf(input.assessments);
   if (closest !== undefined) lines.push(`Closest to liquidation <b>${shortDistance(closest.liqBufferPct)}</b>`);
   if (index !== undefined) lines.push('', index);

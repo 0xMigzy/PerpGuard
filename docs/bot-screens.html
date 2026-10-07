@@ -24,7 +24,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
 <h2>Anyone: no wallet, no link</h2><p>A stranger watching one account. Every screen is read-only; the Trading Account says Not connected and names the network.</p><div class="grid">
     <figure class="phone">
       <figcaption>Anyone · /start</figcaption>
-      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>Not connected</b><br>👁 Watching <b>1 wallet</b></div>
+      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>Two ways to use PerpGuard:<br><br>👁 <b>WATCH</b> any <b>mainnet</b> account, no key needed. Alerts as it nears liquidation, opens and closes. Read-only: no buttons.<br><br>🔗 <b>LINK</b> your own <b>testnet</b> account with an API key to also act on it: add margin, reduce, close, Auto top-up. Actions run on testnet only, with test funds.<br><br>👁 Watching <b>1 mainnet account</b> · read-only</div>
       <div class="row"><span class="btn">👁 Watch &amp; Alerts</span></div><div class="row"><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
     </figure>
@@ -84,7 +84,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Anyone · wallet</figcaption>
-      <div class="chat"><div class="bubble"><b>Account #4088</b><br>I have not read it from the index yet. The first look takes up to half a minute; open it again in a moment.<br><br>No buttons. You are watching this account, not holding it.</div>
+      <div class="chat"><div class="bubble"><b>Account #4088</b><br>I have not read it from the index yet. The first look takes up to half a minute; open it again in a moment.<br><br>No buttons. You are watching this account, not holding it: PerpGuard's actions run on testnet only, and this is a mainnet account.</div>
       <div class="row"><span class="btn changes">🔕 Stop watching</span><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -145,7 +145,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
 <h2>The linked owner</h2><p>Account #710 on testnet with one BTC long close to its closing price. Money buttons go through a confirmation; nothing on these screens sends on the first tap.</p><div class="grid">
     <figure class="phone">
       <figcaption>Owner · /start</figcaption>
-      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>#710</b> · Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON at 5% from liquidation<br>Closest to liquidation <b>2.7%</b></div>
+      <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔗 Linked: <b>testnet #710</b> · actions run here, with test funds<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON at 5% from liquidation<br>👁 Watch any mainnet account read-only from Watch & Alerts<br>Closest to liquidation <b>2.7%</b></div>
       <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">💰 Margin</span></div><div class="row"><span class="btn">🆘 Emergency</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
     </figure>
@@ -157,25 +157,25 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · positions</figcaption>
-      <div class="chat"><div class="bubble">📊 <b>MY POSITIONS</b> · account #710 · 1 open, closest to liquidation first<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Free balance at least <b>10,000 AUSD</b>: Perpl never moves it into a position by itself.<br><i>Distance: how far the price can move against you before the exchange closes the position. Leverage: position value ÷ margin. PnL: unrealised, at the mark.</i></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>📊 <b>MY POSITIONS</b> · account #710 · 1 open, closest to liquidation first<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Free balance at least <b>10,000 AUSD</b>: Perpl never moves it into a position by itself.<br><i>Distance: how far the price can move against you before the exchange closes the position. Leverage: position value ÷ margin. PnL: unrealised, at the mark.</i></div>
       <div class="row"><span class="btn">🔴 BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>RESCUE</b><br><br>🔔 <b>Alert</b>, always on: when a position gets within <b>5%</b> of liquidation, I message you once with its distance, your free balance and amounts to add. Nothing moves unless you tap and confirm. Change the distance in ⚙️ Settings.<br><br>🤖 <b>Auto top-up</b>, off until you turn it on for a position: at that same distance it adds the amount you chose by itself, within limits you set. One tap turns it off.<br><br>Account: <b>#710</b><br>Execution: 🟢 Authorized<br>Auto top-up: ⚪ off everywhere<br><br>Choose a position:</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>RESCUE</b><br><br>🔔 <b>Alert</b>, always on: when a position gets within <b>5%</b> of liquidation, I message you once with its distance, your free balance and amounts to add. Nothing moves unless you tap and confirm. Change the distance in ⚙️ Settings.<br><br>🤖 <b>Auto top-up</b>, off until you turn it on for a position: at that same distance it adds the amount you chose by itself, within limits you set. One tap turns it off.<br><br>Account: <b>#710</b><br>Execution: 🟢 Authorized<br>Auto top-up: ⚪ off everywhere<br><br>Choose a position:</div>
       <div class="row"><span class="btn">BTC · 2.7% · auto ⚪ OFF</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · margin</figcaption>
-      <div class="chat"><div class="bubble">💰 <b>MARGIN</b><br>Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.<br><br>Free balance at least <b>10,000 AUSD</b><br><br>Choose a position:</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>💰 <b>MARGIN</b><br>Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.<br><br>Free balance at least <b>10,000 AUSD</b><br><br>Choose a position:</div>
       <div class="row"><span class="btn">🔴 BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · kill</figcaption>
-      <div class="chat"><div class="bubble">🆘 <b>EMERGENCY</b><br><br>Trading Account: <b>#710</b><br><br>🔴 <b>STOP PERPGUARD</b><br>Blocks every automated action right now. Your positions and margin are untouched. Works even if the exchange is unreachable.<br><br>🚪 <b>CLOSE EVERYTHING</b><br>Exits the market. Closes all your positions at whatever price they get. Realises your losses. Cannot be undone.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🆘 <b>EMERGENCY</b><br><br>Trading Account: <b>#710</b><br><br>🔴 <b>STOP PERPGUARD</b><br>Blocks every automated action right now. Your positions and margin are untouched. Works even if the exchange is unreachable.<br><br>🚪 <b>CLOSE EVERYTHING</b><br>Exits the market. Closes all your positions at whatever price they get. Realises your losses. Cannot be undone.</div>
       <div class="row"><span class="btn">🔴 Stop PerpGuard</span></div><div class="row"><span class="btn">🚪 Close everything</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -187,7 +187,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · settings</figcaption>
-      <div class="chat"><div class="bubble">⚙️ <b>SETTINGS</b> · account #710<br>Each button shows what it is set to now. Tap to change it.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>⚙️ <b>SETTINGS</b> · account #710<br>Each button shows what it is set to now. Tap to change it.</div>
       <div class="row"><span class="btn">🔔 Alert me at: 5% from liquidation</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -235,43 +235,43 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · position</figcaption>
-      <div class="chat"><div class="bubble">🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>At 81,770.1 the exchange closes BTC long and you lose the <b>2,810 AUSD</b> behind it.<br><br>You hold free at least <b>10,000 AUSD</b><br>Perpl will not use it to save this position. Each position's money is kept separate.<br><br>Adding to it moves that closing price further down:</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>At 81,770.1 the exchange closes BTC long and you lose the <b>2,810 AUSD</b> behind it.<br><br>You hold free at least <b>10,000 AUSD</b><br>Perpl will not use it to save this position. Each position's money is kept separate.<br><br>Adding to it moves that closing price further down:</div>
       <div class="row"><span class="btn">Add 562 AUSD → closes at 80,647.1</span></div><div class="row"><span class="btn">Add 2,662 AUSD → closes at 76,446.7</span></div><div class="row"><span class="btn">Add custom amount</span></div><div class="row"><span class="btn">Reduce 25%</span></div><div class="row"><span class="btn">Close position</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-pos</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>RESCUE</b><br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>🔔 Alert: on, at <b>5%</b> from liquidation<br>🤖 Auto top-up: ⚪ OFF</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>RESCUE</b><br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>🔔 Alert: on, at <b>5%</b> from liquidation<br>🤖 Auto top-up: ⚪ OFF</div>
       <div class="row"><span class="btn">🤖 Turn on auto</span></div><div class="row"><span class="btn">➕ Add Margin Now</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · margin-pos</figcaption>
-      <div class="chat"><div class="bubble">💰 <b>MARGIN</b> · manual: nothing here runs by itself<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Available: at least <b>10,000 AUSD</b> free</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>💰 <b>MARGIN</b> · manual: nothing here runs by itself<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−12 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Available: at least <b>10,000 AUSD</b> free</div>
       <div class="row"><span class="btn">➕ Add Margin</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · kill-confirm</figcaption>
-      <div class="chat"><div class="bubble">⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
       <div class="row"><span class="btn changes">🔴 CONFIRM STOP</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · close-all</figcaption>
-      <div class="chat"><div class="bubble">⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
       <div class="row"><span class="btn changes">🔴 CONFIRM STOP</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · disconnect-ask</figcaption>
-      <div class="chat"><div class="bubble"><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
       <div class="row"><span class="btn changes">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · warn-ask</figcaption>
-      <div class="chat"><div class="bubble"><b>Alert me at what distance from liquidation?</b><br>When a position gets this close, I message you once: its distance, your free balance, and amounts to add. Nothing is ever added unless you tap it and confirm.<br>If you turn on Auto top-up for a position, it acts at this same distance.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br><b>Alert me at what distance from liquidation?</b><br>When a position gets this close, I message you once: its distance, your free balance, and amounts to add. Nothing is ever added unless you tap it and confirm.<br>If you turn on Auto top-up for a position, it acts at this same distance.</div>
       <div class="row"><span class="btn changes">2%</span><span class="btn changes">3%</span><span class="btn changes">✅ 5%</span><span class="btn changes">8%</span><span class="btn changes">10%</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -301,19 +301,19 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-cfg</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP · BTC</b><br><br>It acts where your alert fires: <b>5.0%</b> from liquidation (change it in ⚙️ Settings).<br><br>Add this much margin each time:</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP · BTC</b><br><br>It acts where your alert fires: <b>5.0%</b> from liquidation (change it in ⚙️ Settings).<br><br>Add this much margin each time:</div>
       <div class="row"><span class="btn">+100</span><span class="btn">+250</span><span class="btn">+500</span><span class="btn">+1,000</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · margin-add</figcaption>
-      <div class="chat"><div class="bubble">➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
       <div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · alert-custom</figcaption>
-      <div class="chat"><div class="bubble">➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
       <div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
@@ -343,61 +343,61 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>100 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>200 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>100 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>200 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>250 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>500 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>250 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>500 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>500 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>1,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>500 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>1,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt-custom</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-limit</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>Maximum top-ups</b></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>Maximum top-ups</b></div>
       <div class="row"><span class="btn changes">1</span><span class="btn changes">2</span><span class="btn changes">3</span></div><div class="row"><span class="btn changes">5</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-limit</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>Maximum total</b></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>Maximum total</b></div>
       <div class="row"><span class="btn changes">1,000 AUSD</span><span class="btn changes">2,500 AUSD</span><span class="btn changes">5,000 AUSD</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-limit</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>Minimum remaining</b></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>Minimum remaining</b></div>
       <div class="row"><span class="btn changes">100 AUSD</span><span class="btn changes">250 AUSD</span><span class="btn changes">500 AUSD</span></div><div class="row"><span class="btn changes">1,000 AUSD</span><span class="btn changes">2,500 AUSD</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-limit</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>Cooldown</b></div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🛟 <b>Cooldown</b></div>
       <div class="row"><span class="btn changes">5 min</span><span class="btn changes">15 min</span><span class="btn changes">30 min</span></div><div class="row"><span class="btn changes">60 min</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-review</figcaption>
-      <div class="chat"><div class="bubble">🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
+      <div class="chat"><div class="bubble">🧪 <b>TESTNET</b> · test funds, not real money<br>🤖 <b>AUTO TOP-UP</b><br><br><b>BTC long</b> · now 2.7% from being closed<br><br>Acts at: ≤ <b>5.0%</b> from liquidation (your alert distance), on two looks a second apart<br>Adds: <b>1,000 AUSD</b> each time<br><br>Maximum top-ups: <b>2</b><br>Maximum total: <b>2,000 AUSD</b> (top-ups × amount until you pick one)<br>Minimum remaining: <b>500 AUSD</b> free, never spent<br>Cooldown: <b>15 minutes</b><br><br>⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.<br><br>It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.</div>
       <div class="row"><span class="btn">🔢 Top-ups</span><span class="btn">💵 Total</span></div><div class="row"><span class="btn">🏦 Keep free</span><span class="btn">⏱ Cooldown</span></div><div class="row"><span class="btn changes">🟢 TURN ON AUTO</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure></div>
