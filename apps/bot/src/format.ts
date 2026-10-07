@@ -172,6 +172,10 @@ export function buildTelegramMessage(options: BuildOptions): TelegramMessage {
   };
 
   const keyboard = new InlineKeyboard();
-  for (const button of [...buttons, custom]) keyboard.text(button.label, button.data).row();
+  // One per row; a new row only BETWEEN buttons, so no empty row trails the last.
+  [...buttons, custom].forEach((button, i) => {
+    if (i > 0) keyboard.row();
+    keyboard.text(button.label, button.data);
+  });
   return { text, keyboard };
 }

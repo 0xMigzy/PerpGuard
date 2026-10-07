@@ -25,7 +25,7 @@ import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { BOT_MENU_COMMANDS, StaticSessionRouter, TelegramAlertTransport, createManualAlertSender, decodeCallback, decodeNav, encodeNav, isPublicRoute, type Route } from '@perpguard/bot';
-import { CONFIGS, FakeBalance, FakeExecutor, FakeView, OWNER_CHAT, OWNER_ID, OWNER_LINK, STRANGER_ID, callbackUpdate, dangerAssessment, fakeBot, messageUpdate, newLinks, newStore, type TelegramCall } from '@perpguard/bot/test-support';
+import { CONFIGS, FakeBalance, FakeExecutor, FakeView, OWNER_CHAT, OWNER_ID, OWNER_LINK, STRANGER_ID, callbackUpdate, dangerAssessment, dangerScenario, fakeBot, messageUpdate, newLinks, newStore, type TelegramCall } from '@perpguard/bot/test-support';
 import { buildMessage } from '../alerts/render.ts';
 import { replacedByManualAlert } from '../manual/replaced.ts';
 import { DEFAULT_ALERT_CONFIG, type AlertKind } from '../alerts/types.ts';
@@ -150,6 +150,7 @@ function placeholders(t: string): string {
     .replace(/\b\d{2}\/\d{2}\b/g, '{date}')
     .replace(/\b\d+(?:\.\d+)? ?(?:min|h|s|days?) ago\b/g, '{age} ago')
     .replace(/(?<!under )([−+-]?)[\d,]+(?:\.\d+)? AUSD/g, (_m, sign: string) => `${sign}{amount} AUSD`)
+    .replace(/\bAdd [\d,]+(?:\.\d+)?\b(?! ?%)/g, 'Add {amount}')
     .replace(/[−+-]?\d+\.\d+%/g, '{pct}%')
     .replace(/#\d{2,}/g, '#{account}')
     .replace(/\b(account|Account) \d{2,}\b/g, '$1 {account}')
@@ -170,7 +171,7 @@ function tierOfRoute(name: string): Tier {
 const GROUP_OF: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(home|\/start|\/help|chatter|dismiss)$/, '1. Start, home and help'],
   [/^(account|connect|connect-go|disconnect-ask|disconnect|\/link)$/, '2. Linking and the Trading Account'],
-  [/^(watch-menu|watch-ask|watch-id|watchlist|wallets|wallet|star|unstar|unwatch|liq|liq-set|big|big-set|warn-levels|warn-preset|warn-custom|alert-settings|wallet-alerts|\/watch.*|pasted .*|bare number)$/, '3. Watch & Alerts (watch tier)'],
+  [/^(watch-menu|watch-ask|watch-ask answer|watch-id|watchlist|wallets|wallet|star|unstar|unwatch|liq|liq-set|big|big-set|warn-levels|warn-preset|warn-custom|alert-settings|wallet-alerts|\/watch.*|pasted .*|bare number)$/, '3. Watch & Alerts (watch tier)'],
   [/^(top|top-pnl|top-roi|trader|copy-sim|copy-sim7)$/, '4. Top Traders and "What if I\'d copied?"'],
   [/^(positions|margin|margin-pos|margin-add|position|action:.*|typed amount.*)$/, '5. My Positions and Margin (add, reduce, close)'],
   [/^(rescue.*)$/, '6. Rescue: Alert and Auto top-up'],
@@ -343,7 +344,7 @@ for (const who of [WHO.owner, WHO.stranger]) {
   await typed(who, 'pasted address', 'watch-only', '0xB7854953A71e45D1033B3d619E76d56391291765', [], 'paste an address without being asked');
   await typed(who, 'bare number', 'watch-only', '4532', [], 'send a bare number without being asked');
   await typed(who, 'chatter', 'everyone', 'hello', [], 'send anything else');
-  await typed(who, 'pasted .*watch answer', 'watch-only', '4532', [nav({ to: 'watch-ask' })], 'answer the Watch Wallet question');
+  await typed(who, 'watch-ask answer', 'watch-only', '4532', [nav({ to: 'watch-ask' })], 'answer the Watch Wallet question');
 }
 await typed(WHO.owner, 'typed alert distance', 'linked testnet', '4', [nav({ to: 'settings' }), nav({ to: 'alert-custom' })], 'answer the custom alert distance question with 4');
 await typed(WHO.owner, 'typed alert distance (refused)', 'linked testnet', '99', [nav({ to: 'settings' }), nav({ to: 'alert-custom' })], 'answer it with 99 (out of range)');
@@ -361,7 +362,10 @@ const pushedTargets = new Set<string>();
   // Manual alert (the crossing), its three forms, through the real sender.
   const { bot, telegram } = fakeBot();
   const view = new FakeView();
-  view.assessments = [dangerAssessment()];
+  // The loop behind the sample position, so the alert's amounts are priced as in production.
+  const scenario = dangerScenario();
+  view.loop = scenario.loop;
+  view.assessments = [scenario.assessment];
   const send = createManualAlertSender({
     api: bot.api,
     store: newStore(),
