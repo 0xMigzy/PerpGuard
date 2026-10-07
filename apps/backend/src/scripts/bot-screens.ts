@@ -12,6 +12,7 @@
  * Buttons that change something (unlink, stop watching, a setting, minting a
  * link code) are shown on their screen but not tapped.
  */
+import { replayCopy } from '../copy/replay.ts';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { InMemoryWatchStore, RateLimiter, StaticSessionRouter, createBot, decodeNav, encodeNav, type Route } from '@perpguard/bot';
@@ -58,6 +59,28 @@ const sampleTraders = {
     label: kind === 'pnl' ? 'Net PnL over the 31 UTC days from 2026-09-06 (today so far)' : "Since Perpl launched on 11 Feb 2026: the index starts at the Exchange's deployment",
   }),
   stats: async (accountId: number) => ({ accountId, month: sampleRow(accountId, 1_250, 0, 42), lifetime: sampleRow(accountId, 21_147, 2_045, 24_944) }),
+  // A small replay through the REAL replay maths: a BTC win, an ETH loss, HYPE skipped by name.
+  copy: async (accountId: number, followerEquityCNS: bigint) => {
+    const from = Date.parse('2026-09-07T00:00:00Z');
+    const H = 3_600_000;
+    const position = (n: number, marketId: number, symbol: string, side: 'long' | 'short', openedH: number, closedH: number, netPnlCNS: bigint) => ({
+      key: `s${n}`, market: { marketId, symbol, indexerName: symbol }, side, status: 'closed' as const, lotDecimals: 5, priceDecimals: 1,
+      peakLotLNS: 200_000n, lotLNS: 0n, entryPricePNS: 1_000_000n, peakMarginCNS: 20_000_000_000n, netPnlCNS, leverageHdths: 1000n,
+      openedAtMs: from + openedH * H, closedAtMs: from + closedH * H,
+    });
+    const result = replayCopy({
+      source: {
+        accountId, fromMs: from, toMs: from + 30 * 24 * H, collateralDecimals: 6, equityAtStartCNS: 100_000_000_000n, feesByDay: [], flows: [], closedFromBefore: [], openAtStart: 1, openedInWindow: 3,
+        positions: [position(1, 1, 'BTC', 'long', 10, 40, 6_480_000_000n), position(2, 60, 'HYPE', 'short', 50, 60, 900_000_000n), position(3, 2, 'ETH', 'short', 100, 130, -2_100_000_000n)],
+      },
+      followerEquityCNS,
+      actingNetwork: 'testnet',
+      actingMarkets: [{ marketId: 16, symbol: 'BTC', sizeDecimals: 5, maxLeverage: 15, takerFeeMicros: 450 }, { marketId: 17, symbol: 'ETH', sizeDecimals: 5, maxLeverage: 12, takerFeeMicros: 450 }],
+      markOf: () => undefined,
+      cap: 3_000,
+    });
+    return { computedAtMs: Date.now(), result };
+  },
 };
 
 /** The one part of Telegram's reply markup this reads. */

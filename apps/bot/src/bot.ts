@@ -16,6 +16,8 @@
  * watcher's alert carrying no keyboard is a rendering courtesy on top of a
  * refusal, not the refusal itself.
  */
+import type { ReplayResult } from '@perpguard/backend/copy/replay';
+import { copyReplayScreen, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
 import type { ActingMarket, ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
@@ -214,6 +216,8 @@ export interface BotDeps {
     readonly traders?: {
       top(kind: 'pnl' | 'roi'): Promise<{ readonly rows: readonly TraderRow[]; readonly label: string }>;
       stats(accountId: number): Promise<TraderStats>;
+      /** 🔁 A leader's last 30 days replayed onto an account of this size. Read-only. Absent: the screen says so. */
+      copy?(accountId: number, followerEquityCNS: bigint): Promise<{ readonly computedAtMs: number; readonly result: ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number } }>;
     };
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
@@ -355,6 +359,17 @@ export function createBot(deps: BotDeps): Bot {
       return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try again in a moment.` };
     }
     return { link, account };
+  };
+
+  /** The follower's size for a copy replay: the linked account's equity (free floor plus position margin), else the default. */
+  const followerSize = (telegramUserId: number | undefined): { readonly equityCNS: bigint; readonly size: CopySize } => {
+    const fallback = { equityCNS: BigInt(DEFAULT_COPY_SIZE_AUSD) * 1_000_000n, size: { kind: 'default' } as const };
+    const resolved = resolveAccount(telegramUserId);
+    if ('refusal' in resolved) return fallback;
+    const free = resolved.account.balance.freeBalance();
+    if (!free.known) return fallback;
+    const margin = resolved.account.view.snapshot().reduce((sum, a) => sum + (a.marginCNS ?? 0n), 0n);
+    return { equityCNS: free.floorCNS + margin, size: { kind: 'linked', accountId: resolved.account.accountId, network: resolved.account.view.network } };
   };
 
   // ── the gate ──────────────────────────────────────────────────────────────
@@ -912,6 +927,26 @@ export function createBot(deps: BotDeps): Bot {
           stats === undefined
             ? { html: `I cannot read #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] }
             : traderCardScreen({ stats, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
+        );
+        return;
+      }
+      case 'copy-sim': {
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        const back: Route = { to: 'trader', accountId: route.accountId };
+        const copy = deps.watch?.traders?.copy;
+        if (copy === undefined) {
+          await showScreen(ctx, { html: 'The copy replay is not available here.', buttons: [[{ text: '← Back', route: back }]] });
+          return;
+        }
+        // Sized to the reader's OWN linked account when it can be read, else to a stated default.
+        const { equityCNS, size } = followerSize(ctx.from?.id);
+        const answer = await copy(route.accountId, equityCNS).catch(() => undefined);
+        await showScreen(
+          ctx,
+          answer === undefined
+            ? { html: `I cannot replay #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: back }]] }
+            : copyReplayScreen({ result: answer.result, size, webUrl: deps.webUrl, back, ageMs: Date.now() - answer.computedAtMs }),
         );
         return;
       }

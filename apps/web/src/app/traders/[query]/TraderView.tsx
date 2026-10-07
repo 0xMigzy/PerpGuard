@@ -25,6 +25,7 @@ import { FillsPanel } from './FillsPanel.tsx';
 import { marketName } from '@/lib/markets.ts';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 import { compareHref } from '@/lib/compare.ts';
+import { copyHref } from '@/lib/copy.ts';
 
 const POLL_MS = 30_000;
 
@@ -228,6 +229,11 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
             {p !== undefined && (
               <Link href={compareHref([p.accountId])} className="seg no-underline" title="Open this account in Compare, then add up to three more">
                 Compare
+              </Link>
+            )}
+            {p !== undefined && (
+              <Link href={copyHref(p.accountId)} className="seg no-underline" title="Replay this trader's last 30 days onto an account of your size, from indexed data. Nothing is sent.">
+                What if I&rsquo;d copied?
               </Link>
             )}
             <TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />

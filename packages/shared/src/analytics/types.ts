@@ -1290,3 +1290,74 @@ export interface Analytics {
   /** The owners the index recorded (AccountCreated), lowercased; an account it never saw created is absent. */
   knownOwners(accountIds: readonly number[]): Promise<ReadonlyMap<number, string>>;
 }
+
+// ───────────────────────── copy trading: the replay's source ─────────────────────────
+
+/**
+ * One of a leader's positions, as the index holds it, for the copy replay
+ * (`apps/backend/src/copy/replay.ts`). RAW INTEGERS: the replay does money
+ * maths, and money maths in this repo is integer-only.
+ *
+ * The index keeps a position's open and close but not the adds and reduces
+ * between, so this is the position's PEAK size and margin and its lifetime
+ * result. A proportional copy of every fill at the leader's prices has exactly
+ * the leader's result times the copy's scale, so the result is exact under
+ * that assumption; the margin it needed is the peak's, which is conservative.
+ */
+export interface CopySourcePosition {
+  readonly key: string;
+  readonly market: MarketRef;
+  readonly side: Side;
+  /** `forced` is any forced exit: liquidated, deleveraged or unwound. */
+  readonly status: 'open' | 'closed' | 'forced';
+  readonly lotDecimals: number;
+  readonly priceDecimals: number;
+  readonly peakLotLNS: bigint;
+  /** Size now: zero once closed. */
+  readonly lotLNS: bigint;
+  /** Undefined when the index never saw the entry price. */
+  readonly entryPricePNS: bigint | undefined;
+  readonly peakMarginCNS: bigint;
+  /**
+   * Lifetime realised P&L and funding; for an open position, so far.
+   * WITHOUT FEES: the index keeps fees per account per UTC day, never per
+   * position (`Position.feesCNS` is never written), so this is before fees.
+   */
+  readonly netPnlCNS: bigint;
+  readonly leverageHdths: bigint;
+  readonly openedAtMs: number;
+  readonly closedAtMs: number | undefined;
+}
+
+/** Everything the replay reads about one leader over one window. */
+export interface CopySource {
+  readonly accountId: number;
+  readonly fromMs: number;
+  readonly toMs: number;
+  readonly collateralDecimals: number;
+  /**
+   * The leader's equity when the window began: deposits minus withdrawals plus
+   * the realised result of every position closed before it, minus the fees of
+   * every whole UTC day that ended before it. Unrealised P&L of positions open
+   * at that moment is not in it.
+   */
+  readonly equityAtStartCNS: bigint;
+  /** Fees per UTC day inside the window, each taken when its day ends (the index keeps no finer grain). */
+  readonly feesByDay: readonly { readonly atMs: number; readonly feesCNS: bigint }[];
+  /** Deposits (+) and withdrawals (−) inside the window, oldest first. */
+  readonly flows: readonly { readonly atMs: number; readonly deltaCNS: bigint }[];
+  /** Positions opened before the window and closed inside it: they move the leader's equity, and are never copied. */
+  readonly closedFromBefore: readonly { readonly atMs: number; readonly netPnlCNS: bigint }[];
+  /** How many were already open when the window began. Never copied: a copy starts with new opens. */
+  readonly openAtStart: number;
+  /** How many the leader opened inside the window, whether or not `positions` holds them all. */
+  readonly openedInWindow: number;
+  /** Opened inside the window, oldest first, at most the cap asked for. */
+  readonly positions: readonly CopySourcePosition[];
+}
+
+/** Reads a copy replay's source. Implemented by the Postgres analytics. */
+export interface CopySourceReader {
+  /** Undefined when the index has no such account. `cap` bounds `positions`; `openedInWindow` is always the true count. */
+  copySource(accountId: number, window: { readonly fromMs: number; readonly toMs: number; readonly cap: number }): Promise<CopySource | undefined>;
+}

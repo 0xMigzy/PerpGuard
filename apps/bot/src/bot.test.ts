@@ -1522,7 +1522,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'margin-add', 'margin-pos', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'copy-sim', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'margin-add', 'margin-pos', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1542,7 +1542,7 @@ test('PHASE 7: a STRANGER reaches only the public screens, and the Trading Accou
   const who = { from: STRANGER_ID, chat: STRANGER_CHAT };
   const seen = await walkMenu(h, who);
   const reached = new Set([...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)));
-  assert.deepEqual([...reached].sort(), ['account', 'alert-settings', 'big', 'big-set', 'connect-go', 'home', 'liq', 'liq-set', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-custom', 'warn-levels', 'warn-preset', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...reached].sort(), ['account', 'alert-settings', 'big', 'big-set', 'connect-go', 'copy-sim', 'home', 'liq', 'liq-set', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-custom', 'warn-levels', 'warn-preset', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, key);
   const account = seen.get(JSON.stringify({ to: 'account' }))!;
   assert.match(account.html, /Account: <b>Not connected<\/b>\nNetwork: Monad testnet\nExecution: ⚪ Not configured/);
@@ -1648,7 +1648,7 @@ test('PHASE 8: Top ROI is ALL TIME and says so; a trader under the floors shows 
   const html = String(card.payload['text']);
   assert.match(html, /ROI \(all time\) no ROI: under 100 AUSD deposited \(99\)/);
   assert.match(html, /Win rate \(30D\) not shown: 4 round trips, under 10/);
-  assert.deepEqual(keyboardOf(card).map((b) => b.text), ['📊 Full analytics', '👁 Watch', '← Back']);
+  assert.deepEqual(keyboardOf(card).map((b) => b.text), ['📊 Full analytics', "🔁 What if I'd copied? · 30D", '👁 Watch', '← Back']);
   assert.equal(h.executor.calls.length, 0);
 });
 

@@ -29,6 +29,7 @@
  */
 import { classifyIndexerHealth, type IndexerHealth, type IndexerProgress } from './health.ts';
 import {
+  bigintOrUndefined,
   bigintOrZero,
   count,
   forcedExitKindFromRow,
@@ -89,7 +90,7 @@ import type {
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
 import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
-import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, LeverageBaseline, WalletInsightFacts } from './types.ts';
+import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, CopySource, CopySourcePosition, CopySourceReader, LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
@@ -686,6 +687,47 @@ select p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
  * all of them would be one nobody can call safely, and the limit is applied in
  * SQL rather than after the fact.
  */
+// ── copy trading: the replay's source (see CopySource) ──
+const COPY_START_EQUITY_SQL = `
+select (select coalesce(sum(case when kind = 'DEPOSIT' then "amountCNS" else -"amountCNS" end), 0)::text
+          from "CollateralFlow" where trader_id = $1 and "timestamp" < $2) as flows,
+       (select coalesce(sum("netPnlCNS"), 0)::text
+          from "Position" where trader_id = $1 and status <> 'OPEN' and "closedAt" < $2) as pnl,
+       (select coalesce(sum("feesCNS"), 0)::text
+          from "TraderDay" where trader_id = $1 and day + interval '1 day' <= $2) as fees
+`;
+const COPY_FEES_SQL = `
+select day + interval '1 day' as ends, "feesCNS"::text as fees
+  from "TraderDay" where trader_id = $1 and day + interval '1 day' > $2 and day <= $3 and "feesCNS" <> 0
+ order by day
+`;
+const COPY_FLOWS_SQL = `
+select kind, "amountCNS"::text as amount, "timestamp"
+  from "CollateralFlow" where trader_id = $1 and "timestamp" >= $2 and "timestamp" <= $3
+ order by "timestamp", id
+`;
+const COPY_CLOSED_FROM_BEFORE_SQL = `
+select "closedAt", "netPnlCNS"::text as pnl
+  from "Position"
+ where trader_id = $1 and "openedAt" < $2 and status <> 'OPEN' and "closedAt" >= $2 and "closedAt" <= $3
+ order by "closedAt"
+`;
+const COPY_COUNTS_SQL = `
+select (select count(*) from "Position" where trader_id = $1 and "openedAt" >= $2 and "openedAt" <= $3) as opened,
+       (select count(*) from "Position" where trader_id = $1 and "openedAt" < $2
+           and (status = 'OPEN' or "closedAt" >= $2)) as open_at_start
+`;
+const COPY_POSITIONS_SQL = `
+select p.id as key, p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
+       p.side, p.status, p."peakLotLNS"::text, p."lotLNS"::text, p."entryPricePNS"::text,
+       p."entryPriceKnown", p."peakDepositCNS"::text, p."netPnlCNS"::text, p."leverageHdths"::text,
+       p."openedAt", p."closedAt"
+  from "Position" p join "Market" m on m.id = p.market_id
+ where p.trader_id = $1 and p."openedAt" >= $2 and p."openedAt" <= $3
+ order by p."openedAt", p.id
+ limit $4
+`;
+
 const ROUND_TRIPS_SQL = `
 select p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
        p.side, p.status, p."peakLotLNS"::text, p."entryPricePNS"::text,
@@ -1024,7 +1066,7 @@ const medianAusd = (raw: unknown, decimals: number): number | undefined => {
   return Number.isFinite(micros) ? micros / 10 ** decimals : undefined;
 };
 
-export class PostgresAnalytics implements Analytics, ActivityFeed {
+export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceReader {
   readonly #client: SqlClient;
   readonly #chainId: number;
   readonly #resolve: SymbolResolver;
@@ -1372,6 +1414,58 @@ export class PostgresAnalytics implements Analytics, ActivityFeed {
       };
     });
     return { fills, limit, offset, hasMore: rows.length > limit };
+  }
+
+  async copySource(accountId: number, window: { readonly fromMs: number; readonly toMs: number; readonly cap: number }): Promise<CopySource | undefined> {
+    const id = String(accountId);
+    const exists = await this.#one('select 1 from "Trader" where id = $1', [id]);
+    if (exists === undefined) return undefined;
+    const decimals = await this.#decimals();
+    const from = new Date(window.fromMs).toISOString();
+    const to = new Date(window.toMs).toISOString();
+    const cap = Math.max(1, Math.floor(window.cap));
+    // Counted first: a leader with more opens than the cap is refused whole, so its rows are never read.
+    const counts = await this.#one(COPY_COUNTS_SQL, [id, from, to]);
+    const tooMany = count(counts?.['opened']) > cap;
+    const [start, fees, flows, before, rows] = await Promise.all([
+      this.#one(COPY_START_EQUITY_SQL, [id, from]),
+      this.#rows(COPY_FEES_SQL, [id, from, to]),
+      this.#rows(COPY_FLOWS_SQL, [id, from, to]),
+      this.#rows(COPY_CLOSED_FROM_BEFORE_SQL, [id, from, to]),
+      tooMany ? Promise.resolve([]) : this.#rows(COPY_POSITIONS_SQL, [id, from, to, cap]),
+    ]);
+    return {
+      accountId,
+      fromMs: window.fromMs,
+      toMs: window.toMs,
+      collateralDecimals: decimals,
+      equityAtStartCNS: bigintOrZero(start?.['flows']) + bigintOrZero(start?.['pnl']) - bigintOrZero(start?.['fees']),
+      feesByDay: fees.map((r) => ({ atMs: Math.min(requireMs(r['ends']), window.toMs), feesCNS: bigintOrZero(r['fees']) })),
+      flows: flows.map((r) => ({ atMs: requireMs(r['timestamp']), deltaCNS: r['kind'] === 'DEPOSIT' ? bigintOrZero(r['amount']) : -bigintOrZero(r['amount']) })),
+      closedFromBefore: before.map((r) => ({ atMs: requireMs(r['closedAt']), netPnlCNS: bigintOrZero(r['pnl']) })),
+      openAtStart: count(counts?.['open_at_start']),
+      openedInWindow: count(counts?.['opened']),
+      positions: rows.map((r): CopySourcePosition => {
+        const status = String(r['status']);
+        const closedAtMs = toMs(r['closedAt']);
+        return {
+          key: String(r['key']),
+          market: toMarketRef(r['id'], r['name'], this.#resolve),
+          side: sideFromRow(r['side']),
+          status: status === 'OPEN' ? 'open' : status === 'CLOSED' ? 'closed' : 'forced',
+          lotDecimals: count(r['lotDecimals']),
+          priceDecimals: count(r['priceDecimals']),
+          peakLotLNS: bigintOrZero(r['peakLotLNS']),
+          lotLNS: bigintOrZero(r['lotLNS']),
+          entryPricePNS: r['entryPriceKnown'] === true ? bigintOrUndefined(r['entryPricePNS']) : undefined,
+          peakMarginCNS: bigintOrZero(r['peakDepositCNS']),
+          netPnlCNS: bigintOrZero(r['netPnlCNS']),
+          leverageHdths: bigintOrZero(r['leverageHdths']),
+          openedAtMs: requireMs(r['openedAt']),
+          closedAtMs: status === 'OPEN' ? undefined : closedAtMs,
+        };
+      }),
+    };
   }
 
   async knownOwners(accountIds: readonly number[]): Promise<ReadonlyMap<number, string>> {

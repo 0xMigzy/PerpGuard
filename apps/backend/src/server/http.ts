@@ -21,6 +21,8 @@
  * port, gets the detail. The status code is identical either way, so a
  * monitor reading only the code is unaffected.
  */
+import type { CopyReplayService } from '../copy/service.ts';
+import { registerCopyRoutes } from './copyRoutes.ts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { isFromThisMachine } from './origin.ts';
 import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
@@ -55,6 +57,8 @@ export interface HealthServerOptions {
   readonly fillDirections?: AnalyticsRouteOptions['fillDirections'];
   /** The stale-while-revalidate cache for indexed answers, owned by the process so it can warm it. */
   readonly analyticsCache?: AnalyticsRouteOptions['cache'];
+  /** 🔁 The copy replay (Copy Trading, Half A). Read-only. */
+  readonly copyReplay?: { readonly service: CopyReplayService; readonly collateralDecimals: number };
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
   readonly protect?: ProtectRouteOptions;
   /** The linking page's API: the one place in the web app with a session. */
@@ -103,6 +107,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
     });
   }
 
+  if (options.copyReplay !== undefined) registerCopyRoutes(app, options.copyReplay);
   if (options.protect !== undefined) registerProtectRoutes(app, options.protect);
   if (options.link !== undefined) registerLinkRoutes(app, options.link);
 

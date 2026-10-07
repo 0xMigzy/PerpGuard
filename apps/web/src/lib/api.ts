@@ -10,6 +10,7 @@
  * every call is a GET against public analytics. The backend's action routes
  * exist and are never called from a page — actions live in Telegram.
  */
+import type { CopyReplayPayload } from './copy.ts';
 import type {
   AccountFillsPage,
   ProtocolTreasuryDays,
@@ -250,4 +251,6 @@ export const api = {
   liquidationSummary: (t: Timeframe) => getJson<Envelope<LiquidationSummary>>(`${A}/liquidations/summary?timeframe=${t}`),
   /** A point-in-time snapshot. No timeframe: the payload carries its block. */
   risk: () => getJson<Envelope<RiskSnapshot>>(`${A}/risk`),
+  /** 🔁 A leader's last 30 days replayed onto an account of `size` AUSD. Read-only: nothing is sent. */
+  copyReplay: (accountId: number, size: number) => getJson<CopyReplayPayload>(`${A}/copy/${accountId}?size=${size}`),
 };

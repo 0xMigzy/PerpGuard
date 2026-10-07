@@ -878,6 +878,31 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   clients on one key collide on request ids) drive the real bot with only
   Telegram's wire faked and write the chat as JSON for screenshots.
 
+## Copy trading
+- HALF A, WHAT WOULD HAVE HAPPENED (7 Oct 2026, owner): one leader's last 30
+  days replayed onto an account of a given size, from the index ONLY; nothing
+  is ever sent. `apps/backend/src/copy/replay.ts` (pure), `service.ts`,
+  `GET /api/analytics/copy/:id?size=`, web `/copy/[id]` (linked from the
+  trader page), bot "🔁 What if I'd copied? · 30D" on a trader's card (public
+  route `copy-sim`; a linked chat is sized to its own account's equity, any
+  other to 1,000 AUSD, said so). `pnpm copy:replay` runs it live and checks
+  the rebuilt equity against the index.
+  - Only new opens are copied; size is follower equity over leader equity at
+    each open (2% -> 2%); markets match by each network's CONTEXT ticker,
+    never the indexer name; a missing market is skipped by name; size rounds
+    DOWN to the acting step, margin (the leader's PEAK, scaled) UP; leverage
+    above the acting maximum is skipped; a leader with more than 3,000 opens
+    in the window is refused WHOLE, never replayed in part.
+  - `Position.netPnlCNS` HAS NO FEES: the indexer never writes
+    `Position.feesCNS`; fees live per account per UTC day (`TraderDay`). So
+    the leader's per-position result is BEFORE fees and is labelled so; each
+    copy pays the ACTING market's taker fee on opening and closing its full
+    size at entry (the least it would cost); the leader's equity takes its
+    daily fees at each day's end. With that, the rebuilt equity matched the
+    index to the micro on #4532 and within 0.31 AUSD on #5213; #4886 is 2%
+    off, unexplained.
+  - Half B (live copy onto testnet) is NOT BUILT; wait for the owner.
+
 ## Account sessions: one of everything PER LINKED ACCOUNT
 - `AccountRegistry` (`apps/backend/src/sessions/registry.ts`) owns an
   `AccountSession` per account id: its own venue with its own credentials and

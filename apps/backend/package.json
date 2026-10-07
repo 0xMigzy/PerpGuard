@@ -19,7 +19,8 @@
     "./protect": "./src/server/protect/types.ts",
     "./events/preferences": "./src/events/preferences.ts",
     "./events/warnings": "./src/events/warnings.ts",
-    "./manual/distance": "./src/manual/distance.ts"
+    "./manual/distance": "./src/manual/distance.ts",
+    "./copy/replay": "./src/copy/replay.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

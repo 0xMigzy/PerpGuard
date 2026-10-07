@@ -31,6 +31,7 @@
  *   rendered only through `maskApiKey`, the secret lives inside `ApiSecret`, and
  *   the bot token is redacted out of every string the transport hands back.
  */
+import { CopyReplayService } from './copy/service.ts';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import {
@@ -647,7 +648,13 @@ function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
   if (traderMemo.size > 2_000) traderMemo.clear();
   return value;
 }
+/** Bound in section 7, with the analytics reader. */
+let copyReplay: CopyReplayService | undefined;
 const traderFigures = {
+  copy: (accountId: number, followerEquityCNS: bigint) => {
+    if (copyReplay === undefined) return Promise.reject(new Error('no analytics'));
+    return copyReplay.replay(accountId, followerEquityCNS);
+  },
   top: (kind: 'pnl' | 'roi') =>
     memo(`top:${kind}`, async () => {
       if (analyticsReader === undefined) throw new Error('no analytics');
@@ -1076,6 +1083,18 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   });
   log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
 
+  // 🔁 COPY REPLAY (Half A): the analytics network's index and marks, onto the
+  // TRADING network's own markets. Read-only; nothing here can send.
+  {
+    const marksVenue = analyticsVenue;
+    copyReplay = new CopyReplayService({
+      source: analyticsReader,
+      actingNetwork: network.name,
+      actingMarkets: () => markets,
+      marks: () => marksVenue.getOpenInterest(),
+    });
+  }
+
   // ── the watch tier's data: the index for positions, the venue for marks ──
   //
   // ONE NETWORK, the analytics one: positions from its index, marks and margin
@@ -1259,6 +1278,7 @@ treasuryScanner?.start();
 
 const app = createHealthApp({
   health,
+  ...(copyReplay === undefined ? {} : { copyReplay: { service: copyReplay, collateralDecimals: analyticsNetworkConfig?.collateralDecimals ?? 6 } }),
   // The Protect API is bound to the ENVIRONMENT account's session. No page
   // calls it any more (the web is public and read-only), but the routes stay
   // for the bot-code flow; without an environment session there is nothing

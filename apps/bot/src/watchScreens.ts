@@ -209,6 +209,7 @@ export function traderCardScreen(input: { readonly stats: TraderStats; readonly 
   lines.push('', '<i>Past results do not predict future returns.</i>');
   const buttons: Button[][] = [];
   if (input.webUrl !== undefined) buttons.push([{ text: '📊 Full analytics', url: `${input.webUrl.replace(/\/$/, '')}/traders/${id}` }]);
+  buttons.push([{ text: "🔁 What if I'd copied? · 30D", route: { to: 'copy-sim', accountId: id } }]);
   if (!input.watching) buttons.push([{ text: '👁 Watch', route: { to: 'watch-id', accountId: id } }]);
   else buttons.push([input.starred ? { text: '⭐ Remove from Watchlist', route: { to: 'unstar', accountId: id } } : { text: '⭐ Add to Watchlist', route: { to: 'star', accountId: id } }]);
   buttons.push([{ text: '← Back', route: input.back }]);
