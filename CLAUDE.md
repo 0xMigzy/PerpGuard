@@ -610,9 +610,9 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   from /start, as the owner and as a stranger. Regenerate it after any screen
   change. Home is "🛡 PERPGUARD / Analyse. Watch. Act." with a status block
   (Trading Account + network, Execution, Automation, Alerts) and the buttons
-  Watch & Alerts, My Positions, Margin, Trading Account, Rescue (linked chats,
-  since Phase 17), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
-  (owner, 6 Oct 2026): Copy Trading and the Kill Switch appear when their phase lands, never as a
+  Watch & Alerts, My Positions, Rescue and Margin, Kill Switch and Trading
+  Account (Rescue and Kill Switch for linked chats), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
+  (owner, 6 Oct 2026): Copy Trading appears when its phase lands, never as a
   dead button; the roadmap belongs in the README. A test walks every screen
   and fails on any label for an unbuilt feature.
 - 👁 WATCH & ALERTS (Phase 8, `apps/bot/src/watchScreens.ts`): Watch Wallet
@@ -720,14 +720,26 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   "The exchange's own report disagreed with what actually happened. The
   margin applied — I checked the position itself, not the receipt. Do not
   send it again." Never "failed", never "rejection".
-- THE CLOSE-ALL KILL SWITCH IS RETIRED (6 Oct 2026, owner's decision). It
-  closed every position, Close All is cut, and the Kill Switch returns in
-  Phase 20 as "stop automation, leave positions open". A button whose current
-  meaning is the most destructive action in the product, about to change
-  meaning completely, does not sit on the menu meanwhile. Its nav codes
-  (`kq`, `kx`) decode to nothing: an old button still in a chat is answered
-  "from an older version of the menu. Nothing was sent." The executor's
-  `fireKillSwitch` stays for Phase 20 to rework; no bot path reaches it.
+- 🔴 THE KILL SWITCH (Phase 20, spec 54-57, 59, 80) STOPS AUTOMATION AND
+  LEAVES POSITIONS OPEN (`apps/backend/src/rescue/killSwitch.ts`, bot half
+  `apps/bot/src/killSwitch.ts`). Stop writes the persisted flag
+  `automation_state.kill_switch_active` FIRST (every automated path reads it:
+  `decide`, before the claim, the executor's last gate), then turns every
+  Rescue rule off (`paused_reason 'kill switch'`), moves the mode to NONE
+  whichever strategy held it, and reports a rescue in flight as stopped
+  before sending or already sent (a sent top-up cannot be recalled). It sends
+  NOTHING to the venue: no close, no reduce, no margin removed. Pending
+  orders: PerpGuard places none (Rescue adds margin directly; Copy is not
+  built), and the result says so. DATABASE ONLY: the bot routes resolve the
+  chat's LINK, never its session, so a stop works with the socket down or the
+  key needing re-linking (spec 54). Two taps (explain, confirm), the result is
+  a NEW message. Idempotent. While on, enabling Rescue is refused. RESUME
+  only lifts the block: every strategy stays off until turned on per
+  position. A person's own taps still work while it is on.
+  - The retired close-all's nav codes (`kq`, `kx`) still decode to nothing,
+    forever: the new switch uses `ks`/`ksc`/`ksx`/`ksr`/`ksv`, so an old button
+    can never be read as the new meaning. Close All stays cut. The executor's
+    old `fireKillSwitch` (close everything) is reachable from no bot path.
 - "WARN ME AT" (`apps/backend/src/risk/warn.ts`) is a real per-account
   threshold on that account's loop: Early 10%, Normal 8% (today's default),
   Last minute 3% (no WATCH band). DANGER stays at 3% for every level.

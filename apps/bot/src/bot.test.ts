@@ -90,7 +90,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -121,6 +121,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     ownerAccountId: OWNER_ACCOUNT,
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     ...(options.rescue === undefined ? {} : { rescue: options.rescue }),
+    ...(options.killSwitch === undefined ? {} : { killSwitch: options.killSwitch }),
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
@@ -1505,9 +1506,10 @@ async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat
 
 import { decodeNav as decodeNavTapForTest } from './nav.ts';
 import type { RescueControl, RescueDraft, RescueRuleView } from './rescue.ts';
+import type { KillSwitchControl, StopReportView } from './killSwitch.ts';
 
-/** Still unbuilt after Phase 8: these must not appear as buttons anywhere. */
-const UNBUILT = /rescue|copy|kill|close all|funding|remove margin/i;
+/** Still unbuilt after Phase 20: these must not appear as buttons anywhere. */
+const UNBUILT = /copy|close all|funding|remove margin/i;
 
 test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing unbuilt, and links only to the site', async () => {
   const h = harness();
@@ -1855,4 +1857,85 @@ test('RESCUE: a stranger cannot reach any rescue screen', async () => {
   }
   assert.equal(rescue.enabled.length, 0);
   assert.ok(answers(h.telegram).every((t) => t === REFUSAL_TEXT));
+});
+
+
+// ── 🔴 Kill Switch (Phase 20) ───────────────────────────────────────────────
+
+class FakeKillSwitch implements KillSwitchControl {
+  on = false;
+  stops: Array<{ accountId: number; by: string }> = [];
+  stopped(): boolean {
+    return this.on;
+  }
+  changedAtMs(): number | undefined {
+    return undefined;
+  }
+  async stop(accountId: number, by: string): Promise<StopReportView> {
+    this.stops.push({ accountId, by });
+    const alreadyStopped = this.on;
+    this.on = true;
+    return { alreadyStopped, rescueStopped: alreadyStopped ? [] : ['BTC'], modeBefore: alreadyStopped ? 'NONE' : 'LIQUIDATION_RESCUE', inFlight: 'none', inFlightDetail: undefined };
+  }
+  async resume(): Promise<{ readonly wasStopped: boolean }> {
+    const wasStopped = this.on;
+    this.on = false;
+    return { wasStopped };
+  }
+}
+
+test('KILL SWITCH: on home for a linked chat; two taps to stop; the result is a NEW message saying positions are unchanged', async () => {
+  const killSwitch = new FakeKillSwitch();
+  const h = harness({ killSwitch });
+  await h.bot.handleUpdate(messageUpdate('/start'));
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🔴 Kill Switch'));
+
+  await tapNav(h, { to: 'kill' });
+  const first = String(lastScreen(h.telegram).payload['text']);
+  assert.match(first, /EMERGENCY KILL SWITCH/);
+  assert.match(first, /Existing positions remain open/);
+  assert.equal(killSwitch.stops.length, 0, 'the first tap only explains');
+
+  await tapNav(h, { to: 'kill-confirm' });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /CONFIRM EMERGENCY STOP[\s\S]*Trading Account: <b>#710<\/b>/);
+  assert.equal(killSwitch.stops.length, 0, 'nor the second');
+  const confirm = keyboardOf(lastScreen(h.telegram)).find((b) => b.text === '🔴 CONFIRM STOP')!;
+  const sendsBefore = h.telegram.of('sendMessage').length;
+  await h.bot.handleUpdate(callbackUpdate(confirm.callback_data));
+  assert.deepEqual(killSwitch.stops, [{ accountId: 710, by: `tg:${OWNER_ID}` }]);
+  assert.equal(h.telegram.of('sendMessage').length, sendsBefore + 1, 'the result is a new message: the record is never edited away');
+  const result = String(lastScreen(h.telegram).payload['text']);
+  assert.match(result, /PERPGUARD STOPPED/);
+  assert.match(result, /Existing positions: <b>UNCHANGED<\/b>/);
+  assert.match(result, /New automated actions: 🔴 <b>BLOCKED<\/b>/);
+  assert.equal(h.executor.calls.length, 0, 'nothing sent to the venue');
+
+  // Home now says so, and the switch shows STOPPED with Resume.
+  await h.bot.handleUpdate(messageUpdate('/start'));
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Automation: 🛑 STOPPED \(kill switch\)/);
+  await tapNav(h, { to: 'kill' });
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '▶️ Resume automation'));
+  await tapNav(h, { to: 'kill-resume' });
+  assert.equal(killSwitch.on, false);
+});
+
+test('KILL SWITCH: reachable with NO trading session (key needs re-linking, socket down): stopping needs no authorization', async () => {
+  const killSwitch = new FakeKillSwitch();
+  // Linked to an account the router has no session for.
+  const links = newLinks([{ ...OWNER_LINK, accountId: 999 }]);
+  const h = harness({ killSwitch, links });
+  await tapNav(h, { to: 'kill-stop' });
+  assert.deepEqual(killSwitch.stops, [{ accountId: 999, by: `tg:${OWNER_ID}` }]);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /PERPGUARD STOPPED/);
+});
+
+test('KILL SWITCH: a stranger cannot reach it, and the retired close-all codes still fire nothing', async () => {
+  const killSwitch = new FakeKillSwitch();
+  const h = harness({ killSwitch });
+  for (const route of [{ to: 'kill' }, { to: 'kill-stop' }, { to: 'kill-resume' }] as Route[]) {
+    await tapNav(h, route, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  }
+  assert.equal(killSwitch.stops.length, 0);
+  assert.equal(decodeNavTapForTest('n1:kq'), undefined);
+  assert.equal(decodeNavTapForTest('n1:kx:1'), undefined);
 });

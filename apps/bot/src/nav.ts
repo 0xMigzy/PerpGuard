@@ -75,6 +75,16 @@ export type Route =
   | { readonly to: 'rescue-on' }
   | { readonly to: 'rescue-stop'; readonly marketId: number }
   | { readonly to: 'rescue-resume'; readonly marketId: number }
+  /**
+   * 🔴 Kill Switch (Phase 20, spec 56-57): stop automation, leave positions
+   * open. NEW codes: the retired close-all's `kq`/`kx` stay dead forever, so an
+   * old button can never be read as the new meaning.
+   */
+  | { readonly to: 'kill' }
+  | { readonly to: 'kill-confirm' }
+  | { readonly to: 'kill-stop' }
+  | { readonly to: 'kill-resume-ask' }
+  | { readonly to: 'kill-resume' }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
@@ -132,6 +142,11 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'rescue-on': 'ro',
   'rescue-stop': 'rs',
   'rescue-resume': 'rv',
+  kill: 'ks',
+  'kill-confirm': 'ksc',
+  'kill-stop': 'ksx',
+  'kill-resume-ask': 'ksr',
+  'kill-resume': 'ksv',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',

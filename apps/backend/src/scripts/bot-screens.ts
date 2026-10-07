@@ -39,10 +39,11 @@ import { InMemoryPreferenceStore } from '../events/preferences.ts';
 import { InMemoryAutomationStore } from '../rescue/automation.ts';
 import { RescueControlService } from '../rescue/control.ts';
 import { InMemoryRescueStore } from '../rescue/store.ts';
+import { KillSwitch } from '../rescue/killSwitch.ts';
 
 const OUT = resolve(import.meta.dirname, '../../../../docs/bot-screens.html');
 const STRANGER_CHAT = 7_777;
-const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts', 'rescue-on', 'rescue-stop', 'rescue-resume', 'rescue-lim']);
+const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts', 'rescue-on', 'rescue-stop', 'rescue-resume', 'rescue-lim', 'kill-stop', 'kill-resume']);
 
 /** SAMPLE trader figures: the generator has no index. Labelled as samples on the page. */
 const sampleRow = (accountId: number, netPnlAusd: number, depositedAusd: number, roundTrips: number): TraderRow => ({
@@ -77,6 +78,10 @@ function build() {
   view.assessments = [dangerAssessment()];
   const watchStore = new InMemoryWatchStore({ maxPerChat: 5 });
   watchStore.add({ chatId: STRANGER_CHAT, accountId: 4088, label: '#4088', addedAtMs: 0, starred: true });
+  // The real control and kill switch over in-memory stores, so the document shows the real screens.
+  const automation = new InMemoryAutomationStore();
+  const rescueStore = new InMemoryRescueStore();
+  const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: { inFlightOn: () => false, settleAccount: async () => true }, log: () => {} });
   const built = createBot({
     config: { token: TEST_TOKEN, userId: USER_ID, ownerTelegramUserId: undefined },
     links: newLinks(),
@@ -96,7 +101,13 @@ function build() {
       traders: sampleTraders,
     },
     // The real control over in-memory stores, so the document shows the real Rescue screens.
-    rescue: new RescueControlService({ store: new InMemoryRescueStore(), automation: new InMemoryAutomationStore(), collateralDecimals: 6, snapshot: () => view.assessments }),
+    rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, snapshot: () => view.assessments }),
+    killSwitch: {
+      stopped: (id) => automation.automationStopped(id),
+      changedAtMs: (id) => killSwitch.changedAtMs(id),
+      stop: (id, by) => killSwitch.stop(id, by),
+      resume: (id, by) => killSwitch.resume(id, by),
+    },
   });
   telegram.install(built.api);
   return { bot: built, telegram };

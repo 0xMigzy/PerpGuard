@@ -162,7 +162,7 @@ export function rescueMenuScreen(input: {
     `Execution: ${input.execution.dot} ${esc(input.execution.label)}`,
     `Status: ${on.length === 0 ? '⚪ OFF' : `🟢 ON for ${on.map((r) => esc(r.symbol)).join(', ')}`}`,
   ];
-  if (input.stopped) lines.push('', '⛔ <b>Automation is stopped</b> (kill switch). Rules stay, and nothing acts until it is turned back on.');
+  if (input.stopped) lines.push('', '⛔ <b>Automation is stopped</b> (kill switch). Rescue is off on every position, and nothing can be turned on until automation is resumed from 🔴 Kill Switch.');
   if (input.otherAutomation !== undefined) lines.push('', `${esc(input.otherAutomation)} is running on this account. One automation at a time: stop it before turning Rescue on.`);
   const open = input.assessments.filter((a) => a.positionId !== undefined && !isBlind(a.state));
   const buttons: Button[][] = open.slice(0, 8).map((a) => {
@@ -259,14 +259,15 @@ export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { r
   if (input.free !== undefined && input.free - amount < d.minRemainingCNS) {
     lines.push('', `⚠️ Your free balance is ${held(input.free, dp)}. A rescue now would take it below the minimum kept, so it would wait, not send less.`);
   }
-  if (input.stopped) lines.push('', '⛔ Automation is stopped (kill switch). The rule is saved but nothing acts until it is turned back on.');
+  if (input.stopped) lines.push('', '⛔ Automation is stopped (kill switch), so this rule cannot be turned on. Resume automation from 🔴 Kill Switch first.');
   lines.push('', 'Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.');
   return {
     html: lines.join('\n'),
     buttons: [
       [{ text: '🔢 Rescues', route: { to: 'rescue-limit', level: 0 } }, { text: '💵 Total', route: { to: 'rescue-limit', level: 1 } }],
       [{ text: '🏦 Keep free', route: { to: 'rescue-limit', level: 2 } }, { text: '⏱ Cooldown', route: { to: 'rescue-limit', level: 3 } }],
-      [{ text: '🟢 ENABLE RESCUE', route: { to: 'rescue-on' } }],
+      // While automation is stopped the way on is to resume it, not a button the server would refuse.
+      input.stopped ? [{ text: '🔴 Kill Switch', route: { to: 'kill' } }] : [{ text: '🟢 ENABLE RESCUE', route: { to: 'rescue-on' } }],
       [{ text: 'Cancel', route: { to: 'rescue-pos', marketId: a.marketId } }],
     ],
   };

@@ -73,6 +73,9 @@ import {
 import { DEFAULT_PREFERENCES, InMemoryPreferenceStore, LARGE_TRADE_PRESETS_AUSD, LIQUIDATION_PRESETS_AUSD, type AlertPreferences } from '@perpguard/backend/events/preferences';
 import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
+import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, killSwitchScreen, type KillSwitchControl } from './killSwitch.ts';
+
+const shortWallet = (address: string | undefined): string | undefined => (address === undefined ? undefined : `${address.slice(0, 6)}…${address.slice(-4)}`);
 import {
   applyLimit,
   unitOf,
@@ -212,6 +215,8 @@ export interface BotDeps {
   readonly settings?: AccountSettingsStore;
   /** 🛟 Liquidation Rescue: rules read and written through the backend, which re-validates them. Absent: no Rescue button. */
   readonly rescue?: RescueControl;
+  /** 🔴 Kill Switch: stop automation, leave positions open. Absent: no Kill Switch button. */
+  readonly killSwitch?: KillSwitchControl;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -401,8 +406,9 @@ export function createBot(deps: BotDeps): Bot {
 
   /** The home screen's Automation line, from the rules as they are now. */
   const automationLine = (accountId: number): string | undefined => {
+    if (deps.killSwitch?.stopped(accountId) === true) return '🛑 STOPPED (kill switch)';
     if (deps.rescue === undefined) return undefined;
-    if (deps.rescue.stopped(accountId)) return '⛔ Stopped (kill switch)';
+    if (deps.rescue.stopped(accountId)) return '🛑 STOPPED (kill switch)';
     const on = deps.rescue.rules(accountId).filter((r) => r.enabled && r.pausedReason === undefined);
     if (on.length > 0) return `🛟 Rescue ON · ${on.map((r) => esc(r.symbol)).join(', ')}`;
     const other = deps.rescue.otherAutomation(accountId);
@@ -428,6 +434,7 @@ export function createBot(deps: BotDeps): Bot {
               automation: automationLine(link.accountId),
             },
       rescue: deps.rescue !== undefined && link !== undefined,
+      killSwitch: deps.killSwitch !== undefined && link !== undefined,
       tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
       webUrl: deps.webUrl,
@@ -953,6 +960,13 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
         return;
       }
+      case 'kill':
+      case 'kill-confirm':
+      case 'kill-stop':
+      case 'kill-resume-ask':
+      case 'kill-resume':
+        await killNav(ctx, route);
+        return;
       default:
         await accountNav(ctx, route);
         return;
@@ -1084,6 +1098,52 @@ export function createBot(deps: BotDeps): Bot {
         const chatId = ctx.chat?.id ?? link.chatId;
         const after = home(chatId, telegramUserId);
         await showScreen(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
+        return;
+      }
+      default:
+        await answer(ctx, 'That screen is not available.');
+    }
+  }
+
+  // ── 🔴 Kill Switch (spec 54-57) ─────────────────────────────────────────
+  // Resolved from the chat's LINK, never its session: stopping must work when
+  // the trading account is down or its key needs re-linking (spec 54). The
+  // gate has already refused every unlinked chat (these routes are not public).
+  async function killNav(ctx: Context, route: Route): Promise<void> {
+    const telegramUserId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const link = linkHere(telegramUserId, chatId);
+    const control = deps.killSwitch;
+    if (link === undefined || control === undefined || telegramUserId === undefined) {
+      await answer(ctx, control === undefined ? 'The kill switch is not available here.' : REFUSAL_TEXT);
+      return;
+    }
+    const accountId = link.accountId;
+    const rescueOn = (deps.rescue?.rules(accountId) ?? []).filter((r) => r.enabled && r.pausedReason === undefined).map((r) => r.symbol);
+    const by = `tg:${telegramUserId}`;
+    switch (route.to) {
+      case 'kill':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, killSwitchScreen({ accountId, stopped: control.stopped(accountId), changedAtMs: control.changedAtMs(accountId), rescueOn }));
+        return;
+      case 'kill-confirm':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, killConfirmScreen({ accountId, wallet: shortWallet(deps.link?.status?.(link.userId)?.wallet?.address), rescueOn }));
+        return;
+      case 'kill-stop': {
+        await ctx.answerCallbackQuery({ text: 'Stopping…' });
+        const report = await control.stop(accountId, by);
+        await showScreen(ctx, killResultScreen(report));
+        return;
+      }
+      case 'kill-resume-ask':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, killResumeAskScreen());
+        return;
+      case 'kill-resume': {
+        const result = await control.resume(accountId, by);
+        await ctx.answerCallbackQuery({ text: result.wasStopped ? 'Automation resumed.' : 'It was not stopped.' });
+        await showScreen(ctx, killResumedScreen(result.wasStopped));
         return;
       }
       default:

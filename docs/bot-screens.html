@@ -146,7 +146,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · /start</figcaption>
       <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>#710</b> · Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON · first warning at 8%<br>Closest to liquidation <b>2.7%</b></div>
-      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">💰 Margin</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
+      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">💰 Margin</span></div><div class="row"><span class="btn">🔴 Kill Switch</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -162,21 +162,27 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · rescue</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>LIQUIDATION RESCUE</b><br><br>Adds margin to your own position, automatically, when it gets close to liquidation. Never removes margin. Every rule has limits.<br><br>Account: <b>#710</b><br>Execution: 🟢 Authorized<br>Status: ⚪ OFF<br><br>Choose a position:</div>
+      <div class="row"><span class="btn">BTC · 2.7% · ⚪ OFF</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · margin</figcaption>
       <div class="chat"><div class="bubble">💰 <b>MARGIN</b><br>Add margin to one position. Each position's margin is separate: Perpl never moves your free balance into a position by itself.<br><br>Free balance at least <b>10,000 AUSD</b><br><br>Choose a position:</div>
       <div class="row"><span class="btn">🔴 BTC long · 2.7%</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
-      <figcaption>Owner · account</figcaption>
-      <div class="chat"><div class="bubble">🔐 <b>TRADING ACCOUNT</b><br><br>Account: <b>#710</b><br>Network: Monad testnet<br>Wallet: None on record<br>Ownership: ⚪ Not verified: linked as this deployment's owner<br>Execution: 🟢 Authorized · this deployment's own key<br>Automation: ⚪ None</div>
-      <div class="row"><span class="btn">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">← Back</span></div>
+      <figcaption>Owner · kill</figcaption>
+      <div class="chat"><div class="bubble">🔴 <b>EMERGENCY KILL SWITCH</b><br>Immediately stop PerpGuard automated trading.<br>This will:<br>• stop Liquidation Rescue<br>• stop Copy Trading<br>• block new automated actions<br>• cancel bot-managed pending orders where supported (PerpGuard places none today: Rescue adds margin directly)<br><b>Existing positions remain open.</b> Nothing is closed, reduced or sold.</div>
+      <div class="row"><span class="btn">🔴 STOP AUTOMATION</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
-      <figcaption>Owner · rescue</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>LIQUIDATION RESCUE</b><br><br>Adds margin to your own position, automatically, when it gets close to liquidation. Never removes margin. Every rule has limits.<br><br>Account: <b>#710</b><br>Execution: 🟢 Authorized<br>Status: ⚪ OFF<br><br>Choose a position:</div>
-      <div class="row"><span class="btn">BTC · 2.7% · ⚪ OFF</span></div><div class="row"><span class="btn">← Back</span></div>
+      <figcaption>Owner · account</figcaption>
+      <div class="chat"><div class="bubble">🔐 <b>TRADING ACCOUNT</b><br><br>Account: <b>#710</b><br>Network: Monad testnet<br>Wallet: None on record<br>Ownership: ⚪ Not verified: linked as this deployment's owner<br>Execution: 🟢 Authorized · this deployment's own key<br>Automation: ⚪ None</div>
+      <div class="row"><span class="btn">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -234,21 +240,27 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · rescue-pos</figcaption>
+      <div class="chat"><div class="bubble">🛟 <b>RESCUE</b><br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−11 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Rescue: ⚪ OFF</div>
+      <div class="row"><span class="btn">⚙️ Configure Rescue</span></div><div class="row"><span class="btn">➕ Add Margin Now</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · margin-pos</figcaption>
       <div class="chat"><div class="bubble">💰 <b>MARGIN</b> · manual: nothing here runs by itself<br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−11 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Available: at least <b>10,000 AUSD</b> free</div>
       <div class="row"><span class="btn">➕ Add Margin</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
-      <figcaption>Owner · disconnect-ask</figcaption>
-      <div class="chat"><div class="bubble"><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
-      <div class="row"><span class="btn changes">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">Cancel</span></div>
+      <figcaption>Owner · kill-confirm</figcaption>
+      <div class="chat"><div class="bubble">⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
+      <div class="row"><span class="btn changes">🔴 CONFIRM STOP</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
-      <figcaption>Owner · rescue-pos</figcaption>
-      <div class="chat"><div class="bubble">🛟 <b>RESCUE</b><br><br>🔴 <b>2.7% from liquidation</b> · BTC long · DANGER<br>   Size 0.5 BTC · value <b>42,003 AUSD</b> · <b>14.9x</b><br>   Margin <b>2,810 AUSD</b> · PnL <b>−11 AUSD</b><br>   Mark 84,007.3 · liquidation price 81,770.1<br><br>Rescue: ⚪ OFF</div>
-      <div class="row"><span class="btn">⚙️ Configure Rescue</span></div><div class="row"><span class="btn">➕ Add Margin Now</span></div><div class="row"><span class="btn">← Back</span></div>
+      <figcaption>Owner · disconnect-ask</figcaption>
+      <div class="chat"><div class="bubble"><b>Disconnect account #710?</b><br>This chat stops getting its alerts and buttons, any API key you gave me is deleted, and its session closes — at once. You can connect again any time. Watched wallets stay.</div>
+      <div class="row"><span class="btn changes">🔌 Disconnect account #710</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -282,15 +294,15 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
-      <figcaption>Owner · margin-add</figcaption>
-      <div class="chat"><div class="bubble">➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
-      <div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">Cancel</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
       <figcaption>Owner · rescue-cfg</figcaption>
       <div class="chat"><div class="bubble">🛟 <b>BTC</b> is 2.7% from being closed.<br><br>Rescue when it gets this close to liquidation:</div>
       <div class="row"><span class="btn">10%</span><span class="btn">5%</span><span class="btn">3%</span><span class="btn">2%</span></div><div class="row"><span class="btn">🎛 Custom</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · margin-add</figcaption>
+      <div class="chat"><div class="bubble">➕ <b>ADD MARGIN</b> · BTC long<br><br>Current margin: <b>2,810 AUSD</b><br>Available: at least <b>10,000 AUSD</b><br><br>Pick an amount. The next screen shows what it changes; nothing is sent until you confirm there.<br><i>Cannot price right now: no risk loop wired into this view (market 1)</i></div>
+      <div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>
     </figure>
     <figure class="phone">

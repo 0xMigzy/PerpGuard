@@ -81,6 +81,10 @@ export class RescueControlService {
   }
 
   async enable(accountId: number, d: RescueDraftInput): Promise<Result> {
+    // THE KILL SWITCH BLOCKS NEW AUTOMATION: nothing is turned on while it is on.
+    if (this.#automation.automationStopped(accountId)) {
+      return { ok: false, text: 'Automation is stopped (kill switch). Turn it back on from 🔴 Kill Switch first. Nothing was turned on.' };
+    }
     const live = this.#snapshot(accountId);
     if (live === undefined) return { ok: false, text: 'Your account is not connected right now, so nothing was turned on.' };
     const a = live.find((x) => x.marketId === d.marketId);

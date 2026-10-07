@@ -98,6 +98,8 @@ export interface HomeInput {
   readonly webUrl: string | undefined;
   /** Rescue is built and wired, so a linked chat gets its button. */
   readonly rescue?: boolean;
+  /** The Kill Switch is built and wired, so a linked chat gets its button. */
+  readonly killSwitch?: boolean;
 }
 
 const TITLE = '🛡 <b>PERPGUARD</b>\nAnalyse. Watch. Act.';
@@ -161,11 +163,20 @@ export function homeScreen(input: HomeInput): Screen {
       { text: '👁 Watch & Alerts', route: { to: 'watch-menu' } },
       { text: '📊 My Positions', route: { to: 'positions' } },
     ],
-    [
-      { text: '💰 Margin', route: { to: 'margin' } },
-      { text: '🔐 Trading Account', route: { to: 'account' } },
-    ],
-    input.rescue === true ? [{ text: '🛟 Rescue', route: { to: 'rescue' } }, { text: '⚙️ Settings', route: { to: 'settings' } }] : [{ text: '⚙️ Settings', route: { to: 'settings' } }],
+    // Spec 20's grid, with what is built: Rescue beside Margin, the Kill Switch beside the Trading Account.
+    input.rescue === true
+      ? [
+          { text: '🛟 Rescue', route: { to: 'rescue' } },
+          { text: '💰 Margin', route: { to: 'margin' } },
+        ]
+      : [{ text: '💰 Margin', route: { to: 'margin' } }],
+    input.killSwitch === true
+      ? [
+          { text: '🔴 Kill Switch', route: { to: 'kill' } },
+          { text: '🔐 Trading Account', route: { to: 'account' } },
+        ]
+      : [{ text: '🔐 Trading Account', route: { to: 'account' } }],
+    [{ text: '⚙️ Settings', route: { to: 'settings' } }],
   ];
   if (open.length > 0) buttons.push(open);
   return { html: lines.join('\n'), buttons };

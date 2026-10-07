@@ -85,6 +85,7 @@ import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore 
 import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
 import { RescueControlService } from './rescue/control.ts';
 import { RescueEngine } from './rescue/engine.ts';
+import { KillSwitch } from './rescue/killSwitch.ts';
 import { renderRescue } from './rescue/render.ts';
 import { applyMarketRefresh } from './ingest/marketRefresh.ts';
 import {
@@ -627,6 +628,9 @@ const traderFigures = {
     }),
 };
 
+// Declared before the bot (whose deps close over it), set once the engine exists.
+let killSwitch: KillSwitch | undefined;
+
 const rescueControl = new RescueControlService({
   store: rescueStore,
   automation,
@@ -672,6 +676,18 @@ const bot =
         },
         settings: accountSettings,
         rescue: rescueControl,
+        killSwitch: {
+          stopped: (accountId) => automation.automationStopped(accountId),
+          changedAtMs: (accountId) => killSwitch?.changedAtMs(accountId),
+          stop: async (accountId, by) => {
+            if (killSwitch === undefined) throw new Error('the kill switch is not wired yet');
+            return killSwitch.stop(accountId, by);
+          },
+          resume: async (accountId, by) => {
+            if (killSwitch === undefined) throw new Error('the kill switch is not wired yet');
+            return killSwitch.resume(accountId, by);
+          },
+        },
         // Telegram refuses a URL button it cannot open, so a local-only
         // address is not offered as one.
         ...(/^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? {} : { webUrl: PUBLIC_WEB_URL }),
@@ -739,6 +755,9 @@ const rescueEngine = new RescueEngine({
   logger: { info: log, warn },
 });
 rescueEngine.start();
+// 🔴 THE KILL SWITCH: the persisted flag first, then every Rescue rule off and
+// the mode to NONE. Database only: it works with no session at all.
+killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine, log });
 
 // ── the market list, re-read every 10 minutes ───────────────────────────────
 // A maintenance margin Perpl changes while we run is applied in place and

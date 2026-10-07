@@ -155,6 +155,21 @@ export class RescueEngine {
     }
   }
 
+  /** Whether a rescue on this account is between its balance check and its settlement. */
+  inFlightOn(accountId: number): boolean {
+    return this.#accountBusy.has(accountId);
+  }
+
+  /** Waits for this account's rescue in flight to settle, up to `timeoutMs`. True when nothing is left in flight. */
+  async settleAccount(accountId: number, timeoutMs: number): Promise<boolean> {
+    const until = this.#now() + timeoutMs;
+    while (this.#accountBusy.has(accountId)) {
+      if (this.#now() >= until) return false;
+      await this.#sleep(25);
+    }
+    return true;
+  }
+
   /** Waits until no attempt is in flight. For tests and shutdown; the tick does not wait. */
   async settle(): Promise<void> {
     while (this.#inFlight.size > 0) await this.#sleep(10);
