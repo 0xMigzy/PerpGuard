@@ -101,9 +101,7 @@ import {
   capOf,
   freshDraft,
   parseRescueAmount,
-  parseTriggerPct,
   RESCUE_AMOUNTS_AUSD,
-  RESCUE_TRIGGERS_PCT,
   RescueDraftStore,
   rescueAmountScreen,
   rescueLimitScreen,
@@ -813,8 +811,8 @@ export function createBot(deps: BotDeps): Bot {
       await sendScreen(ctx, badged(deps, closeAllResultScreen(report, deps.killSwitch?.stopped(verdict.link.accountId) ?? true)));
       return;
     }
-    if (question?.kind === 'rescue-trigger' || question?.kind === 'rescue-amount') {
-      await handleRescueAnswer(ctx, question.kind, text);
+    if (question?.kind === 'rescue-amount') {
+      await handleRescueAnswer(ctx, text);
       return;
     }
     if (question?.kind === 'warning-levels') {
@@ -1223,8 +1221,6 @@ export function createBot(deps: BotDeps): Bot {
       case 'rescue':
       case 'rescue-pos':
       case 'rescue-cfg':
-      case 'rescue-trig':
-      case 'rescue-trig-custom':
       case 'rescue-amt':
       case 'rescue-amt-custom':
       case 'rescue-review':
@@ -1572,28 +1568,13 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, rescueAmountScreen(a, draft));
         return;
       }
-      case 'rescue-trig': {
-        const d = await needDraft();
-        if (d === undefined) return;
-        const p = RESCUE_TRIGGERS_PCT[route.level];
-        const a = account.view.snapshot().find((x) => x.marketId === d.marketId && x.positionId === d.positionId);
-        if (p === undefined) return answer(ctx, 'I do not know that trigger.');
-        if (a === undefined) return gone();
-        const next = { ...d, triggerPct: p / 100 };
-        drafts.set(chatId, telegramUserId, next);
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, rescueAmountScreen(a, next));
-        return;
-      }
-      case 'rescue-trig-custom':
       case 'rescue-amt-custom': {
         if ((await needDraft()) === undefined) return;
         await ctx.answerCallbackQuery();
         amounts.delete(telegramUserId);
-        const trigger = route.to === 'rescue-trig-custom';
-        questions.ask(chatId, telegramUserId, { kind: trigger ? 'rescue-trigger' : 'rescue-amount' });
-        await ctx.reply(trigger ? 'Rescue at what distance from liquidation? Send a percentage, like 4 or 3.5.' : 'How much margin each time? Send an amount in AUSD, like 25 or 150.', {
-          reply_markup: { force_reply: true, input_field_placeholder: trigger ? '4' : '150' },
+        questions.ask(chatId, telegramUserId, { kind: 'rescue-amount' });
+        await ctx.reply('How much margin each time? Send an amount in AUSD, like 25 or 150.', {
+          reply_markup: { force_reply: true, input_field_placeholder: '150' },
         });
         return;
       }
@@ -1673,7 +1654,7 @@ export function createBot(deps: BotDeps): Bot {
   }
 
   /** A typed trigger or amount for a rescue draft. Linked chat only; the link is resolved again. */
-  async function handleRescueAnswer(ctx: Context, kind: 'rescue-trigger' | 'rescue-amount', text: string): Promise<void> {
+  async function handleRescueAnswer(ctx: Context, text: string): Promise<void> {
     const chatId = ctx.chat?.id;
     const telegramUserId = ctx.from?.id;
     if (chatId === undefined || telegramUserId === undefined) return;
@@ -1700,18 +1681,6 @@ export function createBot(deps: BotDeps): Bot {
       questions.close(chatId, telegramUserId);
       drafts.delete(chatId, telegramUserId);
       await sendScreen(ctx, { html: 'That position is not open any more.', buttons: [[{ text: '🛟 Rescue', route: { to: 'rescue' } }]] });
-      return;
-    }
-    if (kind === 'rescue-trigger') {
-      const parsed = parseTriggerPct(text);
-      if ('error' in parsed) {
-        await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
-        return;
-      }
-      const next = { ...draft, triggerPct: parsed.pct };
-      drafts.set(chatId, telegramUserId, next);
-      questions.close(chatId, telegramUserId);
-      await sendScreen(ctx, rescueAmountScreen(a, next));
       return;
     }
     const parsed = parseRescueAmount(text, draft.collateralDecimals);

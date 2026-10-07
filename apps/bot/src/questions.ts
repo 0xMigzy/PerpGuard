@@ -19,7 +19,6 @@ export type Question =
   /** "Send up to five levels, like 15 8 3." */
   | { readonly kind: 'warning-levels' }
   /** 🛟 A custom rescue trigger, in percent. */
-  | { readonly kind: 'rescue-trigger' }
   /** 🛟 A custom rescue amount, in AUSD. */
   | { readonly kind: 'rescue-amount' }
   /** 🔔 A custom alert distance, in percent. */

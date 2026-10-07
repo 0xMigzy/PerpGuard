@@ -132,7 +132,6 @@ test('B cannot act from A\'s chat either: a link is for one person in one chat',
 test('RESCUE RULES: A\'s rule is A\'s; B\'s menu shows nothing of it and B\'s stop cannot reach it', async () => {
   const w = world();
   await w.tap(A, { to: 'rescue-cfg', marketId: w.base.marketId });
-  await w.tap(A, { to: 'rescue-trig', level: 2 });
   await w.tap(A, { to: 'rescue-amt', level: 0 });
   await w.tap(A, { to: 'rescue-on' });
   assert.equal(w.rescueStore.enabledRules().length, 1);
@@ -151,7 +150,6 @@ test('KILL SWITCH: A stopping automation stops A only; B can still turn Rescue o
   assert.equal(w.automation.automationStopped(A.accountId), true);
   assert.equal(w.automation.automationStopped(B.accountId), false);
   await w.tap(B, { to: 'rescue-cfg', marketId: w.base.marketId });
-  await w.tap(B, { to: 'rescue-trig', level: 0 });
   await w.tap(B, { to: 'rescue-amt', level: 0 });
   await w.tap(B, { to: 'rescue-on' });
   assert.equal(w.rescueStore.enabledRules().filter((r) => r.accountId === B.accountId).length, 1, 'B is unaffected');

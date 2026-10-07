@@ -76,8 +76,6 @@ export type Route =
   | { readonly to: 'rescue' }
   | { readonly to: 'rescue-pos'; readonly marketId: number }
   | { readonly to: 'rescue-cfg'; readonly marketId: number }
-  | { readonly to: 'rescue-trig'; readonly level: number }
-  | { readonly to: 'rescue-trig-custom' }
   | { readonly to: 'rescue-amt'; readonly level: number }
   | { readonly to: 'rescue-amt-custom' }
   | { readonly to: 'rescue-review' }
@@ -114,6 +112,8 @@ export type Route =
 // The close-all kill switch ('kq', 'kx') is RETIRED (6 Oct 2026): Close All is
 // cut and the kill switch returns in Phase 20 as "stop automation". Its codes
 // decode to nothing, so an old button in a chat fires nothing; see `isNavShaped`.
+// So do 'rt' and 'rtc' (7 Oct 2026): the trigger picker was retired when Auto
+// began acting at the account's alert distance, and its screen was never shown.
 
 type RouteName = Route['to'];
 
@@ -162,8 +162,6 @@ const CODE: Readonly<Record<RouteName, string>> = {
   rescue: 'r',
   'rescue-pos': 'rp',
   'rescue-cfg': 'rc',
-  'rescue-trig': 'rt',
-  'rescue-trig-custom': 'rtc',
   'rescue-amt': 'ra',
   'rescue-amt-custom': 'rac',
   'rescue-review': 'rr',
@@ -213,7 +211,6 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'warn-set': 'level',
   'rescue-pos': 'marketId',
   'rescue-cfg': 'marketId',
-  'rescue-trig': 'level',
   'rescue-amt': 'level',
   'rescue-limit': 'level',
   'rescue-lim': 'level',

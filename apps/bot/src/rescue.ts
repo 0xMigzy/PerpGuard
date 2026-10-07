@@ -80,7 +80,6 @@ export interface RescueControl {
 
 /** One whole collateral unit (1 AUSD) in the token's own decimals. Never assumed to be 6. */
 export const unitOf = (collateralDecimals: number): bigint => 10n ** BigInt(collateralDecimals);
-export const RESCUE_TRIGGERS_PCT = [10, 5, 3, 2] as const;
 export const RESCUE_AMOUNTS_AUSD = [100, 250, 500, 1_000] as const;
 /** The four limits, each its own choice. Max total is NEVER derived once picked. */
 export const RESCUE_LIMITS = [
@@ -123,14 +122,6 @@ export function applyLimit(d: RescueDraft, level: number): RescueDraft | undefin
     default:
       return { ...d, cooldownMs: value * 60_000 };
   }
-}
-
-/** "4" or "4%" or "3.5" -> 0.04 / 0.035. Between 0.5% and 20%. */
-export function parseTriggerPct(text: string): { readonly pct: number } | { readonly error: string } {
-  const m = /^\s*(\d+(?:\.\d{1,2})?)\s*%?\s*$/.exec(text);
-  const v = m === null ? NaN : Number(m[1]);
-  if (!Number.isFinite(v) || v < 0.5 || v > 20) return { error: 'Send a percentage between 0.5 and 20, like 4 or 3.5.' };
-  return { pct: v / 100 };
 }
 
 /** "25" or "25.5" AUSD -> the token's units. Between 1 and 100,000 AUSD, up to two decimals. */
@@ -244,18 +235,7 @@ function ruleLines(r: RescueRuleView, d: number): string[] {
   ];
 }
 
-// ── 40 trigger, 41 amount ───────────────────────────────────────────────────
-
-export function rescueTriggerScreen(a: RiskAssessment): Screen {
-  return {
-    html: [`🛟 <b>${esc(a.symbol)}</b> is ${distance(a.liqBufferPct)}.`, '', 'Rescue when it gets this close to liquidation:'].join('\n'),
-    buttons: [
-      RESCUE_TRIGGERS_PCT.map((p, i) => ({ text: `${p}%`, route: { to: 'rescue-trig', level: i } }) as Button),
-      [{ text: '🎛 Custom', route: { to: 'rescue-trig-custom' } }],
-      [{ text: '← Back', route: { to: 'rescue-pos', marketId: a.marketId } }],
-    ],
-  };
-}
+// ── 41 amount ───────────────────────────────────────────────────
 
 export function rescueAmountScreen(a: RiskAssessment, d: RescueDraft): Screen {
   return {

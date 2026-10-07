@@ -672,8 +672,7 @@ for (const k of ['act', 'custom', 'confirm', 'blocked', 'cancel']) {
 for (const c of commands) if (![...screens.values()].some((s) => s.name.startsWith(c))) gaps.push(`Command \`${c}\` produced no screen.`);
 for (const q of new Set(questionKinds)) {
   if (coveredQuestions.has(q)) continue;
-  if (q === 'rescue-trigger') dead.push('question `rescue-trigger`: asked only from `rescue-trig-custom`, which nothing reaches');
-  else gaps.push(`Typed answer to question \`${q}\` is not driven by the map (its prompt is shown; the answer's screens are not).`);
+  gaps.push(`Typed answer to question \`${q}\` is not driven by the map (its prompt is shown; the answer's screens are not).`);
 }
 const menu = BOT_MENU_COMMANDS.map((c) => `/${c.command}`);
 for (const m of menu) if (!commands.includes(m)) gaps.push(`Menu command \`${m}\` has no handler.`);
