@@ -75,6 +75,7 @@ import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
 import {
   applyLimit,
+  unitOf,
   capOf,
   freshDraft,
   parseRescueAmount,
@@ -1157,7 +1158,9 @@ export function createBot(deps: BotDeps): Bot {
         const a = account.view.snapshot().find((x) => x.marketId === route.marketId);
         if (a === undefined || a.positionId === undefined) return gone();
         const rule = control.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
-        drafts.set(chatId, telegramUserId, freshDraft(a, rule));
+        const market = deps.configs.get(a.marketId);
+        if (market === undefined) return answer(ctx, 'I have no market details for that position, so I cannot set amounts for it.');
+        drafts.set(chatId, telegramUserId, freshDraft(a, rule, market.collateralDecimals));
         await ctx.answerCallbackQuery();
         await showScreen(ctx, rescueTriggerScreen(a));
         return;
@@ -1192,7 +1195,7 @@ export function createBot(deps: BotDeps): Bot {
         if (d === undefined) return;
         const n = RESCUE_AMOUNTS_AUSD[route.level];
         if (n === undefined) return answer(ctx, 'I do not know that amount.');
-        const next = { ...d, amountCNS: BigInt(n) * 1_000_000n };
+        const next = { ...d, amountCNS: BigInt(n) * unitOf(d.collateralDecimals) };
         drafts.set(chatId, telegramUserId, next);
         const screen = rescueReview(account, next);
         if (screen === undefined) return gone();
@@ -1303,7 +1306,7 @@ export function createBot(deps: BotDeps): Bot {
       await sendScreen(ctx, rescueAmountScreen(a, next));
       return;
     }
-    const parsed = parseRescueAmount(text);
+    const parsed = parseRescueAmount(text, draft.collateralDecimals);
     if ('error' in parsed) {
       await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '150' } });
       return;

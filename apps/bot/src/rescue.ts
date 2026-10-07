@@ -39,6 +39,8 @@ export interface RescueRuleView {
 
 export interface RescueDraft {
   readonly marketId: number;
+  /** The collateral token's decimals, from the venue's context. Every amount here is in its units. */
+  readonly collateralDecimals: number;
   readonly positionId: number;
   readonly triggerPct: number | undefined;
   readonly amountCNS: bigint | undefined;
@@ -63,7 +65,8 @@ export interface RescueControl {
   resume(accountId: number, marketId: number): Promise<RescueResult>;
 }
 
-const AUSD = 1_000_000n;
+/** One whole collateral unit (1 AUSD) in the token's own decimals. Never assumed to be 6. */
+export const unitOf = (collateralDecimals: number): bigint => 10n ** BigInt(collateralDecimals);
 export const RESCUE_TRIGGERS_PCT = [10, 5, 3, 2] as const;
 export const RESCUE_AMOUNTS_AUSD = [100, 250, 500, 1_000] as const;
 /** The four limits, each its own choice. Max total is NEVER derived once picked. */
@@ -73,21 +76,24 @@ export const RESCUE_LIMITS = [
   { name: 'Minimum remaining', options: [100, 250, 500, 1_000, 2_500] },
   { name: 'Cooldown', options: [5, 15, 30, 60] },
 ] as const;
-export const RESCUE_DEFAULTS = { triggerPct: 0.03, amountCNS: 100n * AUSD, maxRescues: 2, minRemainingCNS: 500n * AUSD, cooldownMs: 15 * 60_000 } as const;
+/** Defaults in WHOLE AUSD; turned into the token's units with `unitOf`. */
+export const RESCUE_DEFAULTS = { triggerPct: 0.03, amountAusd: 100n, maxRescues: 2, minRemainingAusd: 500n, cooldownMs: 15 * 60_000 } as const;
+const defaultAmount = (d: Pick<RescueDraft, 'collateralDecimals'>): bigint => RESCUE_DEFAULTS.amountAusd * unitOf(d.collateralDecimals);
 
-export const freshDraft = (a: Pick<RiskAssessment, 'marketId' | 'positionId'>, rule: RescueRuleView | undefined): RescueDraft => ({
+export const freshDraft = (a: Pick<RiskAssessment, 'marketId' | 'positionId'>, rule: RescueRuleView | undefined, collateralDecimals: number): RescueDraft => ({
   marketId: a.marketId,
+  collateralDecimals,
   positionId: a.positionId ?? 0,
   triggerPct: undefined,
   amountCNS: undefined,
   maxRescues: rule?.maxRescues ?? RESCUE_DEFAULTS.maxRescues,
   maxTotalCNS: undefined,
-  minRemainingCNS: rule?.minRemainingCNS ?? RESCUE_DEFAULTS.minRemainingCNS,
+  minRemainingCNS: rule?.minRemainingCNS ?? RESCUE_DEFAULTS.minRemainingAusd * unitOf(collateralDecimals),
   cooldownMs: rule?.cooldownMs ?? RESCUE_DEFAULTS.cooldownMs,
 });
 
 /** The cap shown and sent: the person's pick, or count x amount until they pick one. */
-export const capOf = (d: RescueDraft): bigint => d.maxTotalCNS ?? BigInt(d.maxRescues) * (d.amountCNS ?? RESCUE_DEFAULTS.amountCNS);
+export const capOf = (d: RescueDraft): bigint => d.maxTotalCNS ?? BigInt(d.maxRescues) * (d.amountCNS ?? defaultAmount(d));
 
 /** Applies a limit choice. `level` = limit index x 100 + option index. Undefined when out of range. */
 export function applyLimit(d: RescueDraft, level: number): RescueDraft | undefined {
@@ -98,9 +104,9 @@ export function applyLimit(d: RescueDraft, level: number): RescueDraft | undefin
     case 0:
       return { ...d, maxRescues: value };
     case 1:
-      return { ...d, maxTotalCNS: BigInt(value) * AUSD };
+      return { ...d, maxTotalCNS: BigInt(value) * unitOf(d.collateralDecimals) };
     case 2:
-      return { ...d, minRemainingCNS: BigInt(value) * AUSD };
+      return { ...d, minRemainingCNS: BigInt(value) * unitOf(d.collateralDecimals) };
     default:
       return { ...d, cooldownMs: value * 60_000 };
   }
@@ -114,18 +120,27 @@ export function parseTriggerPct(text: string): { readonly pct: number } | { read
   return { pct: v / 100 };
 }
 
-/** "25" or "25.5" AUSD -> micros. Between 1 and 100,000 AUSD, up to two decimals. */
-export function parseRescueAmount(text: string): { readonly amountCNS: bigint } | { readonly error: string } {
+/** "25" or "25.5" AUSD -> the token's units. Between 1 and 100,000 AUSD, up to two decimals. */
+export function parseRescueAmount(text: string, collateralDecimals: number): { readonly amountCNS: bigint } | { readonly error: string } {
+  const AUSD = unitOf(collateralDecimals);
   const m = /^\s*(\d{1,6})(?:\.(\d{1,2}))?\s*(?:ausd)?\s*$/i.exec(text.replace(/,/g, ''));
   if (m === null) return { error: 'Send an amount in AUSD, like 25 or 150.' };
-  const cns = BigInt(m[1]!) * AUSD + BigInt((m[2] ?? '').padEnd(2, '0')) * 10_000n;
+  if (collateralDecimals < 2) return { error: 'This collateral cannot take hundredths. Send a whole amount.' };
+  const cns = BigInt(m[1]!) * AUSD + (BigInt((m[2] ?? '').padEnd(2, '0')) * AUSD) / 100n;
   if (cns < AUSD || cns > 100_000n * AUSD) return { error: 'Send an amount between 1 and 100,000 AUSD.' };
   return { amountCNS: cns };
 }
 
 const minutes = (ms: number): string => `${Math.round(ms / 60_000)} minutes`;
+/** ON, PAUSED (on, waiting for the person) or OFF (ended), with the reason when there is one. */
 const ruleStatus = (r: RescueRuleView | undefined): string =>
-  r === undefined ? '⚪ OFF' : r.pausedReason !== undefined ? `⏸ PAUSED (${esc(r.pausedReason)})` : r.enabled ? '🟢 ON' : '⚪ OFF';
+  r === undefined
+    ? '⚪ OFF'
+    : !r.enabled
+      ? `⚪ OFF${r.pausedReason === undefined ? '' : ` (${esc(r.pausedReason)})`}`
+      : r.pausedReason !== undefined
+        ? `⏸ PAUSED (${esc(r.pausedReason)})`
+        : '🟢 ON';
 
 // ── 38 the menu ─────────────────────────────────────────────────────────────
 
@@ -165,10 +180,19 @@ export function rescueMenuScreen(input: {
 export function rescuePositionScreen(input: { readonly assessment: RiskAssessment; readonly market: MarketRiskConfig | undefined; readonly rule: RescueRuleView | undefined }): Screen {
   const { assessment: a, rule: r } = input;
   const lines = ['🛟 <b>RESCUE</b>', '', ...positionCard(a, input.market), '', `Rescue: ${ruleStatus(r)}`];
-  if (r !== undefined) lines.push(...ruleLines(r));
+  if (r !== undefined) {
+    // Amounts need the collateral's decimals, which come with the market's config; without it no figure is shown.
+    if (input.market === undefined) lines.push('   No market details, so no amounts to show.');
+    else lines.push(...ruleLines(r, input.market.collateralDecimals));
+  }
   const buttons: Button[][] = [];
-  if (r?.pausedReason === 'unknown outcome') {
-    lines.push('', 'Paused because a rescue could not be confirmed. Check the margin above before resuming: it may already have landed.');
+  if (r?.enabled === true && r.pausedReason !== undefined) {
+    lines.push(
+      '',
+      r.pausedReason === 'unknown outcome'
+        ? 'Paused because a rescue could not be confirmed. Check the margin above before resuming: it may already have landed.'
+        : 'Paused because the same refusal came back twice. Nothing was sent. Resume once the cause has cleared.',
+    );
     buttons.push([{ text: '▶️ Resume Rescue', route: { to: 'rescue-resume', marketId: a.marketId } }]);
   }
   buttons.push([{ text: r?.enabled === true ? '⚙️ Change Rescue' : '⚙️ Configure Rescue', route: { to: 'rescue-cfg', marketId: a.marketId } }]);
@@ -178,11 +202,11 @@ export function rescuePositionScreen(input: { readonly assessment: RiskAssessmen
   return { html: lines.join('\n'), buttons };
 }
 
-function ruleLines(r: RescueRuleView): string[] {
+function ruleLines(r: RescueRuleView, d: number): string[] {
   return [
-    `   Trigger ≤ <b>${pct(r.triggerPct)}</b> · add ${money(r.amountCNS, 'ceil')}`,
-    `   Rescues used ${r.rescueCount} / ${r.maxRescues} · added ${held(r.totalRescuedCNS)} of ${money(r.maxTotalCNS, 'floor')}`,
-    `   Keeps ${money(r.minRemainingCNS, 'floor')} free · ${minutes(r.cooldownMs)} apart`,
+    `   Trigger ≤ <b>${pct(r.triggerPct)}</b> · add ${money(r.amountCNS, 'ceil', d)}`,
+    `   Rescues used ${r.rescueCount} / ${r.maxRescues} · added ${held(r.totalRescuedCNS, d)} of ${money(r.maxTotalCNS, 'floor', d)}`,
+    `   Keeps ${money(r.minRemainingCNS, 'floor', d)} free · ${minutes(r.cooldownMs)} apart`,
   ];
 }
 
@@ -213,18 +237,19 @@ export function rescueAmountScreen(a: RiskAssessment, d: RescueDraft): Screen {
 // ── 42 the rule and its limits ──────────────────────────────────────────────
 
 export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { readonly stopped: boolean; readonly free: bigint | undefined }): Screen {
-  const amount = d.amountCNS ?? RESCUE_DEFAULTS.amountCNS;
+  const amount = d.amountCNS ?? defaultAmount(d);
+  const dp = d.collateralDecimals;
   const lines = [
     '🛟 <b>RESCUE RULE</b>',
     '',
     `<b>${esc(a.symbol)}${a.side === undefined ? '' : ` ${a.side}`}</b> · now ${distance(a.liqBufferPct)}`,
     '',
     `Trigger: ≤ <b>${pct(d.triggerPct ?? 0)}</b> from liquidation, on two looks a second apart`,
-    `Action: add ${money(amount, 'ceil')} margin`,
+    `Action: add ${money(amount, 'ceil', dp)} margin`,
     '',
     `Maximum rescues: <b>${d.maxRescues}</b>`,
-    `Maximum total: ${money(capOf(d), 'floor')}${d.maxTotalCNS === undefined ? ' (rescues × amount until you pick one)' : ''}`,
-    `Minimum remaining: ${money(d.minRemainingCNS, 'floor')} free, never spent`,
+    `Maximum total: ${money(capOf(d), 'floor', dp)}${d.maxTotalCNS === undefined ? ' (rescues × amount until you pick one)' : ''}`,
+    `Minimum remaining: ${money(d.minRemainingCNS, 'floor', dp)} free, never spent`,
     `Cooldown: <b>${minutes(d.cooldownMs)}</b>`,
   ];
   if (a.liqBufferPct !== undefined && d.triggerPct !== undefined && a.liqBufferPct <= d.triggerPct) {
@@ -232,7 +257,7 @@ export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { r
   }
   if (capOf(d) < amount) lines.push('', '⚠️ The maximum total is below one rescue, so this rule could never act. Raise it.');
   if (input.free !== undefined && input.free - amount < d.minRemainingCNS) {
-    lines.push('', `⚠️ Your free balance is ${held(input.free)}. A rescue now would take it below the minimum kept, so it would wait, not send less.`);
+    lines.push('', `⚠️ Your free balance is ${held(input.free, dp)}. A rescue now would take it below the minimum kept, so it would wait, not send less.`);
   }
   if (input.stopped) lines.push('', '⛔ Automation is stopped (kill switch). The rule is saved but nothing acts until it is turned back on.');
   lines.push('', 'Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.');
@@ -254,7 +279,7 @@ export function rescueLimitScreen(index: number, d: RescueDraft): Screen | undef
   const options = limit.options
     .map((v, i) => ({ v, i }))
     // A cap below one rescue could never act: not offered.
-    .filter(({ v }) => index !== 1 || BigInt(v) * AUSD >= (d.amountCNS ?? RESCUE_DEFAULTS.amountCNS));
+    .filter(({ v }) => index !== 1 || BigInt(v) * unitOf(d.collateralDecimals) >= (d.amountCNS ?? defaultAmount(d)));
   return {
     html: `🛟 <b>${limit.name}</b>`,
     buttons: [

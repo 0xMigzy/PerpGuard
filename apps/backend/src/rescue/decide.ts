@@ -20,16 +20,36 @@
  *
  * Only then `fire`. Max total is its own limit, never count x amount: a rule
  * whose next amount would take the total past it is exhausted, not trimmed.
+ *
+ * A POSITION IS GONE ONLY WHEN A FULLY LOADED POSITION LIST OMITS IT (owner,
+ * 7 Oct 2026). Not when it has no risk reading: a quiet market after a
+ * restart has no price yet, a market dropped from the context has no config,
+ * and in both the position is still open. Saying "no longer open" about an
+ * open position destroys trust in everything else the bot says, so the list
+ * of open position ids decides, and a missing reading is a hold.
  */
 import type { RiskAssessment } from '../risk/types.ts';
 import type { RescueRule } from './store.ts';
 
 export const RESCUE_CONFIRM_MS = 1_000;
 
-export type HoldReason = 'stopped' | 'feed-down' | 'positions-untrusted' | 'cooldown' | 'balance-unknown' | 'balance-low' | 'no-session' | 'in-flight' | 'refused';
+export type HoldReason =
+  | 'stopped'
+  | 'feed-down'
+  | 'positions-untrusted'
+  /** The position is open, but there is no risk reading for it (no price yet, no market config). */
+  | 'unassessed'
+  /** The venue has the market closed (paused). Waits without writing an attempt row. */
+  | 'market-closed'
+  | 'cooldown'
+  | 'balance-unknown'
+  | 'balance-low'
+  | 'no-session'
+  | 'in-flight'
+  | 'refused';
 
 /** Reasons that clear themselves (a reconnect, a first snapshot): said only once they have lasted. */
-export const TRANSIENT_HOLDS: ReadonlySet<HoldReason> = new Set<HoldReason>(['feed-down', 'positions-untrusted', 'balance-unknown', 'no-session', 'in-flight']);
+export const TRANSIENT_HOLDS: ReadonlySet<HoldReason> = new Set<HoldReason>(['feed-down', 'positions-untrusted', 'unassessed', 'balance-unknown', 'no-session', 'in-flight']);
 
 export type RescueDecision =
   /** Not at the trigger. `armed` is true when this look is the first at or below it. */
@@ -45,15 +65,19 @@ export type RescueDecision =
 
 export interface RescueFacts {
   readonly rule: RescueRule;
-  /** The account's current assessment of the rule's market, or undefined when the position is not in the set. */
+  /** The account's current risk reading of the rule's market. Undefined says nothing about whether the position is open. */
   readonly assessment: RiskAssessment | undefined;
+  /**
+   * The ids of every open position on the account, from a FULLY LOADED list
+   * (the source is `live`). Undefined when the list is not fully loaded: then
+   * nothing can be concluded about any position, and nothing is ended.
+   */
+  readonly openPositionIds: ReadonlySet<number> | undefined;
   /** When the engine first saw this position at or below the trigger, in this run. */
   readonly belowSinceMs: number | undefined;
   readonly automationStopped: boolean;
   readonly feedConnected: boolean;
-  /** The account's position set is `live`. Anything else and a missing position proves nothing. */
-  readonly positionsLive: boolean;
-  /** The free-balance FLOOR (`b - lb`), or undefined when not known. */
+  /** The free-balance FLOOR (`b - lb`) LESS this account's open reservations, or undefined when not known. */
   readonly freeFloorCNS: bigint | undefined;
   readonly nowMs: number;
 }
@@ -66,18 +90,17 @@ export function atOrBelowTrigger(rule: Pick<RescueRule, 'triggerPct'>, assessmen
 
 export function decide(f: RescueFacts): RescueDecision {
   const { rule, assessment } = f;
-  // A set we cannot vouch for says nothing about whether the position is still
+  // A list we cannot vouch for says nothing about whether the position is still
   // there: never END a rule, or act, on it.
-  if (!f.positionsLive) return hold('positions-untrusted');
+  if (f.openPositionIds === undefined) return hold('positions-untrusted');
 
-  // The position must be the one the rule was made for: a closed and reopened
-  // position has a new id, and a rescue rule never carries over to it.
-  if (assessment === undefined || assessment.positionId === undefined) {
+  // GONE ONLY ON PROOF: the fully loaded list omits the rule's position id. A
+  // closed and reopened position has a new id, so the old rule ends with it.
+  if (!f.openPositionIds.has(rule.positionId)) {
     return { kind: 'ended', detail: `the ${rule.symbol} position this rule was for is no longer open` };
   }
-  if (assessment.positionId !== rule.positionId) {
-    return { kind: 'ended', detail: `the ${rule.symbol} position this rule was for is no longer open (a new position has taken its place)` };
-  }
+  // Open, but no reading for THIS position: wait. Never "closed".
+  if (assessment === undefined || assessment.positionId !== rule.positionId) return hold('unassessed');
 
   if (assessment.state === 'POSITIONS_UNTRUSTED') return hold('positions-untrusted');
   if (!atOrBelowTrigger(rule, assessment)) return { kind: 'idle' };
@@ -112,6 +135,8 @@ const HOLD_DETAIL: Record<HoldReason, (waitMs?: number) => string> = {
   stopped: () => 'automation is stopped (the kill switch is on)',
   'feed-down': () => 'the price feed is not connected, so every price held is frozen',
   'positions-untrusted': () => 'the position list cannot be trusted right now',
+  unassessed: () => 'the position is open, but I have no price or market details for it yet',
+  'market-closed': () => 'the exchange has this market closed right now',
   cooldown: (w) => `the cooldown since the last rescue has ${Math.ceil((w ?? 0) / 60_000)} min left`,
   'balance-unknown': () => 'the free balance is not known',
   'balance-low': () => 'adding the amount would take the free balance below the minimum kept',

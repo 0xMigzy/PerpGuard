@@ -38,7 +38,7 @@ const facts = (o: Partial<RescueFacts> = {}): RescueFacts => ({
   belowSinceMs: NOW - RESCUE_CONFIRM_MS,
   automationStopped: false,
   feedConnected: true,
-  positionsLive: true,
+  openPositionIds: new Set([4508933292033]),
   freeFloorCNS: 9_000n * AUSD,
   nowMs: NOW,
   ...o,
@@ -76,17 +76,22 @@ test('a feed that is not connected holds: a frozen price decides nothing', () =>
   assert.ok(d.kind === 'hold' && d.reason === 'feed-down');
 });
 
-test('a position set that is not live holds, and never ends the rule on a missing position', () => {
-  const d = decide(facts({ positionsLive: false, assessment: undefined }));
+test('a position list that is not fully loaded holds, and never ends the rule on a missing position', () => {
+  const d = decide(facts({ openPositionIds: undefined, assessment: undefined }));
   assert.ok(d.kind === 'hold' && d.reason === 'positions-untrusted');
 });
 
-test('the position gone from a live set ends the rule', () => {
-  assert.equal(decide(facts({ assessment: undefined })).kind, 'ended');
+test('the position gone from a FULLY LOADED list ends the rule', () => {
+  assert.equal(decide(facts({ assessment: undefined, openPositionIds: new Set() })).kind, 'ended');
 });
 
 test('a NEW position on the same market ends the rule: it never carries over', () => {
-  assert.equal(decide(facts({ assessment: at(0.02, { positionId: 999 }) })).kind, 'ended');
+  assert.equal(decide(facts({ assessment: at(0.02, { positionId: 999 }), openPositionIds: new Set([999]) })).kind, 'ended');
+});
+
+test('GONE ONLY ON PROOF: open in the list but no risk reading (no price yet after a restart) holds, never ends', () => {
+  const d = decide(facts({ assessment: undefined }));
+  assert.ok(d.kind === 'hold' && d.reason === 'unassessed', JSON.stringify(d));
 });
 
 test('MAX RESCUES spent is exhausted', () => {

@@ -16,7 +16,7 @@
  *   held         triggered, and something says not now. Said once per reason.
  *   ended        the position is gone, so its rule is.
  */
-import { distance, esc, money, held as heldMoney } from '../alerts/plain.ts';
+import { distance, esc, money as moneyIn, held as heldIn } from '../alerts/plain.ts';
 import type { RiskAssessment } from '../risk/types.ts';
 import type { HoldReason } from './decide.ts';
 import type { RescueRule } from './store.ts';
@@ -38,9 +38,16 @@ export type RescueNotice =
     }
   | { readonly kind: 'not-applied'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly cooldownMs: number }
   | { readonly kind: 'paused'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly detail: string }
+  /** Refused before sending, the same way twice in a row: nothing was sent either time. */
+  | { readonly kind: 'paused-refused'; readonly rule: RescueRule; readonly detail: string }
   | { readonly kind: 'exhausted'; readonly rule: RescueRule; readonly assessment: RiskAssessment; readonly why: string }
   | { readonly kind: 'held'; readonly rule: RescueRule; readonly reason: HoldReason; readonly detail: string; readonly assessment: RiskAssessment | undefined }
-  | { readonly kind: 'ended'; readonly rule: RescueRule; readonly detail: string };
+  /**
+   * `cause` says WHAT ended it. 'position': the fully loaded list no longer has
+   * it. 'market': the exchange no longer lists the market, which says nothing
+   * about the position and is never worded as if it did.
+   */
+  | { readonly kind: 'ended'; readonly rule: RescueRule; readonly detail: string; readonly cause: 'position' | 'market' };
 
 export interface RenderedRescue {
   readonly html: string;
@@ -51,7 +58,13 @@ const name = (r: RescueRule): string => esc(r.symbol);
 const minutes = (ms: number): string => `${Math.round(ms / 60_000)} minute${Math.round(ms / 60_000) === 1 ? '' : 's'}`;
 const used = (r: RescueRule): string => `${r.rescueCount} / ${r.maxRescues}`;
 
-export function renderRescue(n: RescueNotice): RenderedRescue {
+/**
+ * `collateralDecimals` comes from the venue's own context (the collateral
+ * token's decimals), never assumed to be 6.
+ */
+export function renderRescue(n: RescueNotice, collateralDecimals: number): RenderedRescue {
+  const money = (cns: bigint, mode: 'floor' | 'ceil'): string => moneyIn(cns, mode, collateralDecimals);
+  const heldMoney = (cns: bigint): string => heldIn(cns, collateralDecimals);
   switch (n.kind) {
     case 'rescued': {
       const lines = [
@@ -105,6 +118,20 @@ export function renderRescue(n: RescueNotice): RenderedRescue {
         ].join('\n'),
         buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
+    case 'paused-refused':
+      return {
+        html: [
+          `🛟 <b>RESCUE PAUSED</b>`,
+          '',
+          `<b>${name(n.rule)}</b>`,
+          '',
+          'Rescue was refused twice in a row for the same reason, before anything was sent. Nothing was added either time.',
+          'It is paused on this position so it does not keep trying against the same wall. Resume it from 🛟 Rescue once the cause has cleared.',
+          '',
+          `<i>${esc(n.detail)}</i>`,
+        ].join('\n'),
+        buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+      };
     case 'exhausted':
       return {
         html: [
@@ -121,36 +148,53 @@ export function renderRescue(n: RescueNotice): RenderedRescue {
           '• Add margin yourself',
           '• Reduce the position (the closing price does not move: margin is released in proportion)',
           '• Close it',
+          '',
+          'Rescue is now off for this position. A new rule, with new limits, is one tap away under 🛟 Rescue.',
         ].join('\n'),
-        buttons: [{ text: '📊 Open the position', route: 'position' }],
+        buttons: [{ text: '📊 Open the position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
     case 'held':
       return {
         html: [
           `🛟 <b>RESCUE WAITING</b>`,
           '',
-          `<b>${name(n.rule)}</b>${n.assessment === undefined ? '' : ` is <b>${distance(n.assessment.liqBufferPct)}</b>`}, at its rescue trigger.`,
+          BEFORE_TRIGGER.has(n.reason)
+            ? `Rescue for <b>${name(n.rule)}</b> cannot judge the position right now.`
+            : `<b>${name(n.rule)}</b>${n.assessment === undefined ? '' : ` is <b>${distance(n.assessment.liqBufferPct)}</b>`}, at its rescue trigger.`,
           '',
           `Nothing was sent: ${esc(n.detail)}.`,
-          HOLD_NEXT[n.reason](n.rule),
+          HOLD_NEXT[n.reason](n.rule, heldMoney),
         ].join('\n'),
         buttons: [{ text: '📊 View Position', route: 'position' }],
       };
     case 'ended':
       return {
-        html: [`🛟 <b>RESCUE ENDED</b>`, '', `Rescue for <b>${name(n.rule)}</b> has ended: ${esc(n.detail)}.`, 'A new position needs its own rule.'].join('\n'),
+        html: (n.cause === 'market'
+          ? [
+              `🛟 <b>RESCUE ENDED</b>`,
+              '',
+              `Rescue for <b>${name(n.rule)}</b> has ended: ${esc(n.detail)}.`,
+              'Nothing can be sent to a market the exchange no longer lists. This says nothing about the position itself: check it on Perpl.',
+            ]
+          : [`🛟 <b>RESCUE ENDED</b>`, '', `Rescue for <b>${name(n.rule)}</b> has ended: ${esc(n.detail)}.`, 'A new position needs its own rule.']
+        ).join('\n'),
         buttons: [{ text: '🛟 Rescue', route: 'rescue' }],
       };
   }
 }
 
-const HOLD_NEXT: Record<HoldReason, (r: RescueRule) => string> = {
+/** Holds decided before the trigger is even looked at: the message must not claim it is at its trigger. */
+const BEFORE_TRIGGER: ReadonlySet<HoldReason> = new Set<HoldReason>(['positions-untrusted', 'unassessed']);
+
+const HOLD_NEXT: Record<HoldReason, (r: RescueRule, heldMoney: (cns: bigint) => string) => string> = {
   stopped: () => 'Automation is stopped. Rescue acts again once you turn it back on.',
   'feed-down': () => 'It will act once prices are live again.',
   'positions-untrusted': () => 'It will act once I can see your positions again.',
+  unassessed: () => 'It will act once I can price the position. It is not closed.',
+  'market-closed': () => 'It will act once the exchange reopens the market. Nothing is recorded as an attempt meanwhile.',
   cooldown: (r) => `Rescues on one position are at least ${minutes(r.cooldownMs)} apart. Add margin yourself if it cannot wait.`,
   'balance-unknown': () => 'It will act once I can see your balance.',
-  'balance-low': (r) => `Rescue never takes your free balance below ${heldMoney(r.minRemainingCNS)}. Add margin yourself if you want to go below it.`,
+  'balance-low': (r, heldMoney) => `Rescue never takes your free balance below ${heldMoney(r.minRemainingCNS)}. Add margin yourself if you want to go below it.`,
   'no-session': () => 'It will act once the account reconnects.',
   'in-flight': () => 'It will look again once that action has settled.',
   refused: () => 'It will look again in a minute.',

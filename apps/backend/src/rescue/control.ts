@@ -25,8 +25,12 @@ export interface RescueDraftInput {
 
 type Result = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly text: string };
 
-const AUSD = 1_000_000n;
-const fmt = (cns: bigint): string => `${(cns / AUSD).toLocaleString('en-US')}${cns % AUSD === 0n ? '' : `.${String(cns % AUSD).padStart(6, '0').replace(/0+$/, '')}`} AUSD`;
+/** An amount in the collateral's own units, as words: `25 AUSD`, `25.5 AUSD`. */
+const fmtIn = (cns: bigint, decimals: number): string => {
+  const unit = 10n ** BigInt(decimals);
+  const rest = cns % unit;
+  return `${(cns / unit).toLocaleString('en-US')}${rest === 0n ? '' : `.${String(rest).padStart(decimals, '0').replace(/0+$/, '')}`} AUSD`;
+};
 
 export class RescueControlService {
   readonly #store: RescueStore;
@@ -34,8 +38,11 @@ export class RescueControlService {
   readonly #snapshot: (accountId: number) => readonly RiskAssessment[] | undefined;
   readonly #now: () => number;
   readonly #log: (line: string) => void;
+  /** The collateral token's decimals, from the venue's context. Never assumed to be 6. */
+  readonly #decimals: number;
 
   constructor(o: {
+    readonly collateralDecimals: number;
     readonly store: RescueStore;
     readonly automation: AutomationStore;
     /** The account's live assessments, or undefined when it has no session. */
@@ -48,6 +55,8 @@ export class RescueControlService {
     this.#snapshot = o.snapshot;
     this.#now = o.now ?? Date.now;
     this.#log = o.log ?? (() => {});
+    if (!Number.isInteger(o.collateralDecimals) || o.collateralDecimals < 0 || o.collateralDecimals > 18) throw new RangeError(`collateral decimals must be 0..18, got ${o.collateralDecimals}`);
+    this.#decimals = o.collateralDecimals;
   }
 
   /** The current rule per market: the enabled one, else the most recent paused or ended one for an OPEN position. */
@@ -79,6 +88,7 @@ export class RescueControlService {
     const amount = d.amountCNS;
     const cap = d.maxTotalCNS;
     if (d.triggerPct === undefined || !(d.triggerPct >= 0.005 && d.triggerPct <= 0.2)) return { ok: false, text: 'The trigger must be between 0.5% and 20%. Nothing was turned on.' };
+    const AUSD = 10n ** BigInt(this.#decimals);
     if (amount === undefined || amount < AUSD || amount > 100_000n * AUSD) return { ok: false, text: 'The amount must be between 1 and 100,000 AUSD. Nothing was turned on.' };
     if (!Number.isInteger(d.maxRescues) || d.maxRescues < 1 || d.maxRescues > 10) return { ok: false, text: 'Maximum rescues must be between 1 and 10. Nothing was turned on.' };
     if (cap === undefined || cap < amount) return { ok: false, text: 'The maximum total must cover at least one rescue. Nothing was turned on.' };
@@ -114,7 +124,7 @@ export class RescueControlService {
     this.#log(
       `rescue rule ${rule.id} ENABLED on account ${accountId} ${a.symbol} position ${d.positionId}: trigger ${(d.triggerPct * 100).toFixed(2)}%, amount ${amount}, max ${d.maxRescues} rescues / ${cap} total, keeps ${d.minRemainingCNS}, cooldown ${d.cooldownMs} ms`,
     );
-    return { ok: true, text: `Rescue is on for ${a.symbol}: at ${(d.triggerPct * 100).toFixed(1)}% it adds ${fmt(amount)}, at most ${d.maxRescues} times and ${fmt(cap)} in all.` };
+    return { ok: true, text: `Rescue is on for ${a.symbol}: at ${(d.triggerPct * 100).toFixed(1)}% it adds ${fmtIn(amount, this.#decimals)}, at most ${d.maxRescues} times and ${fmtIn(cap, this.#decimals)} in all.` };
   }
 
   async disable(accountId: number, marketId: number): Promise<Result> {

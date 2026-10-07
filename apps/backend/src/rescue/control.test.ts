@@ -12,7 +12,7 @@ const draft = (o: Partial<RescueDraftInput> = {}): RescueDraftInput => ({ market
 function rig(snapshot: readonly RiskAssessment[] | 'no-session' = open) {
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore();
-  return { store, automation, control: new RescueControlService({ store, automation, snapshot: () => (snapshot === 'no-session' ? undefined : snapshot) }) };
+  return { store, automation, control: new RescueControlService({ store, automation, collateralDecimals: 6, snapshot: () => (snapshot === 'no-session' ? undefined : snapshot) }) };
 }
 
 test('enable creates the rule with its four limits as sent, and moves the account into Rescue', async () => {
@@ -67,4 +67,24 @@ test('stop turns it off and frees the mode; resume clears only a self-imposed pa
   await r.control.disable(710, 16);
   assert.equal(r.store.enabledRules().length, 0);
   assert.equal(r.automation.get(710).mode, 'NONE');
+});
+
+// ── spec 79: the critical concurrency test ─────────────────────────────────
+
+test('SPEC 79: Rescue active -> Copy must fail; Copy active -> Rescue must fail; both at once -> exactly one succeeds', async () => {
+  const active = rig();
+  assert.equal((await active.control.enable(710, draft())).ok, true);
+  assert.equal(await active.automation.transition(710, 'NONE', 'COPY_TRADING'), false, 'Rescue active: Copy fails');
+
+  const copying = rig();
+  await copying.automation.transition(710, 'NONE', 'COPY_TRADING');
+  assert.equal((await copying.control.enable(710, draft())).ok, false, 'Copy active: Rescue fails');
+
+  for (let round = 0; round < 50; round++) {
+    const r = rig();
+    const [rescue, copy] = await Promise.all([r.control.enable(710, draft()), r.automation.transition(710, 'NONE', 'COPY_TRADING')]);
+    assert.equal(Number(rescue.ok) + Number(copy), 1, `round ${round}: exactly one of the two, never both`);
+    assert.equal(r.automation.get(710).mode, rescue.ok ? 'LIQUIDATION_RESCUE' : 'COPY_TRADING');
+    assert.equal(r.store.enabledRules().length, rescue.ok ? 1 : 0, 'a refused Rescue leaves no rule behind');
+  }
 });

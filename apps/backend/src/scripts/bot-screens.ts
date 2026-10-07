@@ -96,7 +96,7 @@ function build() {
       traders: sampleTraders,
     },
     // The real control over in-memory stores, so the document shows the real Rescue screens.
-    rescue: new RescueControlService({ store: new InMemoryRescueStore(), automation: new InMemoryAutomationStore(), snapshot: () => view.assessments }),
+    rescue: new RescueControlService({ store: new InMemoryRescueStore(), automation: new InMemoryAutomationStore(), collateralDecimals: 6, snapshot: () => view.assessments }),
   });
   telegram.install(built.api);
   return { bot: built, telegram };

@@ -86,6 +86,7 @@ import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './re
 import { RescueControlService } from './rescue/control.ts';
 import { RescueEngine } from './rescue/engine.ts';
 import { renderRescue } from './rescue/render.ts';
+import { applyMarketRefresh } from './ingest/marketRefresh.ts';
 import {
   ActionsExecutor,
   InMemoryActionLog,
@@ -216,7 +217,11 @@ const userId = botConfig?.userId ?? process.env['PERPGUARD_USER_ID']?.trim() ?? 
 const venue = new PerplVenue(network, { logger: { log, warn } });
 
 const markets: readonly VenueMarket[] = await venue.getMarkets();
-const riskConfigs: ReadonlyMap<number, MarketRiskConfig> = await venue.getRiskConfigs();
+// MUTABLE BEHIND A READONLY FACE: the market refresh below updates it in place,
+// so every loop holding this map sees a changed maintenance margin at once.
+const riskConfigs: ReadonlyMap<number, MarketRiskConfig> = new Map(await venue.getRiskConfigs());
+/** The collateral token's decimals, from the context. Every rescue amount is in its units. */
+const collateralDecimals = (await venue.getCollateralToken()).decimals;
 log(
   `${markets.length} market(s) on ${network.name}: ` +
     markets.map((m) => `${m.symbol}#${m.marketId}`).join(', '),
@@ -625,6 +630,7 @@ const traderFigures = {
 const rescueControl = new RescueControlService({
   store: rescueStore,
   automation,
+  collateralDecimals,
   snapshot: (accountId) => registry.get(accountId)?.view.snapshot(),
   log,
 });
@@ -700,7 +706,12 @@ const rescueEngine = new RescueEngine({
     return {
       snapshot: () => session.view.snapshot(),
       feedConnected: () => session.view.feedStatus().state === 'connected',
-      positionsLive: () => session.view.positionsStatus().state === 'live',
+      // GONE ONLY ON PROOF: the ids of a FULLY LOADED list, or nothing at all.
+      openPositionIds: () =>
+        session.view.positionsStatus().state === 'live'
+          ? new Set(session.positionSource.snapshot().flatMap((p) => (p.positionId === undefined ? [] : [p.positionId])))
+          : undefined,
+      availability: (market) => session.venue.getActionAvailability(market),
       freeFloorCNS: () => {
         const b = session.balance.freeBalance();
         return b.known ? b.floorCNS : undefined;
@@ -709,7 +720,7 @@ const rescueEngine = new RescueEngine({
     };
   },
   notify: async (accountId, notice) => {
-    const rendered = renderRescue(notice);
+    const rendered = renderRescue(notice, collateralDecimals);
     const keyboard = rendered.buttons.map((b) => ({
       text: b.text,
       // Fresh: a rescue report is the record of what happened to someone's money, never edited away.
@@ -728,6 +739,22 @@ const rescueEngine = new RescueEngine({
   logger: { info: log, warn },
 });
 rescueEngine.start();
+
+// ── the market list, re-read every 10 minutes ───────────────────────────────
+// A maintenance margin Perpl changes while we run is applied in place and
+// LOGGED, never discovered by a missed rescue (owner, 7 Oct 2026).
+const MARKET_REFRESH_MS = 10 * 60_000;
+const marketRefreshTimer = setInterval(() => {
+  void venue
+    .getRiskConfigs()
+    .then((fresh) => {
+      const changes = applyMarketRefresh(riskConfigs as Map<number, MarketRiskConfig>, fresh);
+      for (const c of changes) (c.severity === 'warn' ? warn : log)(`markets: ${c.line}`);
+    })
+    .catch((error: unknown) => warn(`markets: the 10-minute re-read of the market list did not answer (${error instanceof Error ? error.message : String(error)}); keeping the last one`));
+}, MARKET_REFRESH_MS);
+marketRefreshTimer.unref();
+log(`markets: re-read every ${MARKET_REFRESH_MS / 60_000} minutes; maintenance-margin changes are logged as warnings`);
 log(`rescue engine up: ${rescueStore.enabledRules().length} enabled rule(s), judged every second`);
 
 // ── linking: proof on the page, sessions in the registry ───────────────────
@@ -1201,6 +1228,7 @@ shutdown
   // cannot grow, rather than racing one that still can.
   .add('stop the watch loop and timers', () => {
     rescueEngine.stop();
+    clearInterval(marketRefreshTimer);
     treasuryScanner?.stop();
     watchLoop?.stop();
     feedPoller?.stop();

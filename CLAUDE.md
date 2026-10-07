@@ -762,6 +762,32 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     has stopped, what the trader can still do. Never "failed".
   - ENABLE is re-validated server-side (`control.ts`) against the live
     position; a second rule on a position replaces the first.
+  - THE FLOOR IS ACCOUNT-WIDE (7 Oct 2026): ONE RESCUE IN FLIGHT PER
+    ACCOUNT, locked from the balance check through settlement, and every
+    amount sent is RESERVED off the balance `decide` sees. Released on a
+    refusal and on not-applied (nothing left), on applied once the exchange's
+    figure has fallen by the amount (2-minute limit, then released WITH a
+    warning: a deposit can hide the fall). HELD on unknown. In memory on
+    purpose: at boot the exchange balance is the truth, no phantom holds.
+    Without this, two positions triggering together took 540 to 490 against
+    a 500 minimum (test "THE FLOOR IS ACCOUNT-WIDE").
+  - A POSITION IS GONE ONLY WHEN A FULLY LOADED LIST OMITS ITS ID. No risk
+    reading (no price yet after a restart, no market config) is a hold,
+    "It is not closed". A message calling an open position closed is the
+    failure that destroys trust in every other message.
+  - THE MARKET IS CHECKED BEFORE ANY ATTEMPT IS CLAIMED, by id: not listed
+    ends the rule, worded as the MARKET ("says nothing about the position
+    itself"); closed holds with no attempt row. The same refusal twice in a
+    row pauses the rule: a dead cause writes at most two rows.
+  - SPENT LIMITS END THE RULE with ONE handover (until 7 Oct it stayed on
+    and repeated the handover on every dip: four times in one night).
+  - Amounts are in the collateral's own decimals, read from the context
+    (`getCollateralToken`), never assumed to be 6.
+- THE MARKET LIST IS RE-READ EVERY 10 MINUTES (`ingest/marketRefresh.ts`):
+  changed configs are applied IN PLACE to the map the loops hold, and a
+  maintenance-margin change is logged as a warning naming both figures. A
+  market the venue drops is KEPT for monitoring; actions on it are refused by
+  id.
 - `pnpm watch:demo` (mainnet, read-only) and `pnpm bot:account-demo`
   (testnet, MOVES REAL TESTNET COLLATERAL; stop the backend first, two
   clients on one key collide on request ids) drive the real bot with only
