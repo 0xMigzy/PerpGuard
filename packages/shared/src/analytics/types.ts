@@ -1354,6 +1354,11 @@ export interface CopySource {
   readonly openedInWindow: number;
   /** Opened inside the window, oldest first, at most the cap asked for. */
   readonly positions: readonly CopySourcePosition[];
+  /**
+   * THE INDEX'S OWN BOOKS NOW, for reconciliation: the free balance, the
+   * margin in open positions, and those open positions' results so far.
+   */
+  readonly now: { readonly freeCNS: bigint; readonly openMarginCNS: bigint; readonly openResultCNS: bigint };
 }
 
 /** Reads a copy replay's source. Implemented by the Postgres analytics. */

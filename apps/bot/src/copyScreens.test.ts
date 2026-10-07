@@ -21,6 +21,7 @@ const replayed: ReplayResult = {
   followerStartCNS: 1_000n * AUSD,
   leaderStartCNS: 97_776n * AUSD,
   curve: [],
+  books: { rebuiltCNS: 97_776n * AUSD, indexCNS: 97_776n * AUSD, gapCNS: 0n, reconciled: true },
   trades: [
     { key: 'a', symbol: 'BTC', side: 'long', status: 'closed', openedAtMs: T0 + 1, closedAtMs: T0 + 2, leader: { peakLotLNS: 1n, lotDecimals: 5, peakMarginCNS: 1n, netPnlCNS: 1n, leverage: 10 }, copy: { kind: 'copied', actingMarketId: 16, sizeUnits: 2_000n, sizeDecimals: 5, marginCNS: 200n * AUSD, feeCNS: 1n, resultCNS: -64_800_000n, estimate: false, scale: 0.01 } },
     { key: 'b', symbol: 'HYPE', side: 'short', status: 'closed', openedAtMs: T0 + 3, closedAtMs: T0 + 4, leader: { peakLotLNS: 1n, lotDecimals: 5, peakMarginCNS: 1n, netPnlCNS: 1n, leverage: 10 }, copy: { kind: 'skipped', reason: 'not-listed', text: 'HYPE is not listed on testnet.' } },
@@ -61,4 +62,12 @@ test('the replay route is PUBLIC (it reads the index) and round-trips', () => {
   const route = { to: 'copy-sim', accountId: 4886 } as const;
   assert.equal(isPublicRoute(route), true);
   assert.deepEqual(decodeNav(encodeNav(route)), route);
+});
+
+test('NOT RECONCILED is said with the gap, before any figure', () => {
+  const s = copyReplayScreen({ result: { ...replayed, books: { rebuiltCNS: 2_007_404_211n, indexCNS: 4_211n, gapCNS: 2_007_400_000n, reconciled: false } }, size: { kind: 'default' }, webUrl: undefined, back: { to: 'top' }, ageMs: 0 });
+  assert.match(s.html, /⚠️ <b>NOT RECONCILED<\/b>: this trader's balance rebuilt from deposits, withdrawals, results and fees is <b>2,007\.40 AUSD<\/b> off the index's own \(2,007\.40 AUSD against 0\.00 AUSD\)/);
+  assert.ok(s.html.indexOf('NOT RECONCILED') < s.html.indexOf('📊'), 'said before the result');
+  const ok = copyReplayScreen({ result: replayed, size: { kind: 'default' }, webUrl: undefined, back: { to: 'top' }, ageMs: 0 });
+  assert.match(ok.html, /✅ Books reconciled: .* to within 0\.00 AUSD\./);
 });

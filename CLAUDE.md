@@ -918,6 +918,16 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     daily fees at each day's end. With that, the rebuilt equity matched the
     index to the micro on #4532 and within 0.31 AUSD on #5213; #4886 is 2%
     off, unexplained.
+  - EVERY REPLAY RECONCILES THE LEADER'S BOOKS: its balance walked to today
+    by the replay's own rule against the index's (free + open margin), within
+    1 AUSD or 0.1%; outside that the page and bot say NOT RECONCILED with the
+    gap, before any figure. 7 Oct 2026, top 10 by 30-day P&L: 2 of the 7
+    replayable reconcile (#4532 exact, #5213 within 0.31); 5 do not, gaps both
+    ways from 16 to 3,218 AUSD (#4886 2,007.40, flat). Ruled out on #4886:
+    per-position fees, builder fees (40 of 40 sampled taker fills had none),
+    recycle fees (one clearing, 0 AUSD, in six active hours). Cause not found;
+    a full-history scan of the unindexed events would take ~12 h on the
+    shared HyperSync token. Demo leader: #5213.
   - Half B (live copy onto testnet) is NOT BUILT; wait for the owner.
 
 ## Account sessions: one of everything PER LINKED ACCOUNT

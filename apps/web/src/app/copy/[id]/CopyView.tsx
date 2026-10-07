@@ -103,8 +103,18 @@ function Replayed({ r, ageMs }: { readonly r: CopyReplayed; readonly ageMs: numb
     );
   }
 
+  const b = r.books;
   return (
     <>
+      {b.reconciled ? (
+        <div className="mb-4 text-[12.5px] text-muted" title={`Rebuilt ${b.rebuilt}; the index's own books (free balance plus open margin) ${b.onRecord}.`}>
+          ✅ Books reconciled: #{r.accountId}&rsquo;s balance rebuilt from deposits, withdrawals, results and fees matches the index&rsquo;s own to within {b.gap}.
+        </div>
+      ) : (
+        <div role="status" className="mb-4 rounded-[10px] border border-watch/40 bg-watch/10 px-4 py-3 text-[13px]">
+          <b>⚠️ Not reconciled.</b> #{r.accountId}&rsquo;s balance rebuilt from deposits, withdrawals, results and fees is <b className="num">{b.gap}</b> off the index&rsquo;s own books ({b.rebuilt} against {b.onRecord}), and nothing the index records explains it. Every copy below is scaled off that balance, so read these figures as approximate.
+        </div>
+      )}
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Result on closed copies · after fees" value={t.closedResult} valueColor={gainColor(t.closedResultAusd)} secondary={<>{t.fees} of fees · the leader made {t.leaderResultOnCopiedBeforeFees} on the same positions, before fees</>} />
         <StatTile label="Account" value={t.followerEnd} secondary={<>from {r.followerStart} · lowest free balance {t.lowestFree}</>} />

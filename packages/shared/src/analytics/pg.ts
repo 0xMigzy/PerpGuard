@@ -701,6 +701,12 @@ select day + interval '1 day' as ends, "feesCNS"::text as fees
   from "TraderDay" where trader_id = $1 and day + interval '1 day' > $2 and day <= $3 and "feesCNS" <> 0
  order by day
 `;
+const COPY_BOOKS_NOW_SQL = `
+select t."freeBalanceCNS"::text as free,
+       (select coalesce(sum("depositCNS"), 0) from "Position" where trader_id = $1 and status = 'OPEN')::text as open_margin,
+       (select coalesce(sum("netPnlCNS"), 0) from "Position" where trader_id = $1 and status = 'OPEN')::text as open_result
+  from "Trader" t where t.id = $1
+`;
 const COPY_FLOWS_SQL = `
 select kind, "amountCNS"::text as amount, "timestamp"
   from "CollateralFlow" where trader_id = $1 and "timestamp" >= $2 and "timestamp" <= $3
@@ -1427,7 +1433,8 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // Counted first: a leader with more opens than the cap is refused whole, so its rows are never read.
     const counts = await this.#one(COPY_COUNTS_SQL, [id, from, to]);
     const tooMany = count(counts?.['opened']) > cap;
-    const [start, fees, flows, before, rows] = await Promise.all([
+    const [books, start, fees, flows, before, rows] = await Promise.all([
+      this.#one(COPY_BOOKS_NOW_SQL, [id]),
       this.#one(COPY_START_EQUITY_SQL, [id, from]),
       this.#rows(COPY_FEES_SQL, [id, from, to]),
       this.#rows(COPY_FLOWS_SQL, [id, from, to]),
@@ -1445,6 +1452,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       closedFromBefore: before.map((r) => ({ atMs: requireMs(r['closedAt']), netPnlCNS: bigintOrZero(r['pnl']) })),
       openAtStart: count(counts?.['open_at_start']),
       openedInWindow: count(counts?.['opened']),
+      now: { freeCNS: bigintOrZero(books?.['free']), openMarginCNS: bigintOrZero(books?.['open_margin']), openResultCNS: bigintOrZero(books?.['open_result']) },
       positions: rows.map((r): CopySourcePosition => {
         const status = String(r['status']);
         const closedAtMs = toMs(r['closedAt']);

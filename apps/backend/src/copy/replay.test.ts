@@ -55,6 +55,7 @@ function source(positions: CopySourcePosition[], extra: Partial<CopySource> = {}
     openAtStart: 0,
     openedInWindow: positions.length,
     positions,
+    now: { freeCNS: 0n, openMarginCNS: 0n, openResultCNS: 0n },
     ...extra,
   };
 }
@@ -220,4 +221,20 @@ test('the leader\'s daily fees come off its equity when each day ends, and so mo
   const r = run(source([pos({ openedH: 1, closedH: 2 }), pos({ openedH: 30, closedH: 31 })], { feesByDay: [{ atMs: T0 + 24 * H, feesCNS: 50_000n * AUSD }] }));
   assert.equal(copied(r.trades[0]!).sizeUnits, 2_000n, 'before the day ended: 1%');
   assert.equal(copied(r.trades[1]!).sizeUnits, 4_000n, 'after: 1,000 of 50,000 is 2%');
+});
+
+test('THE LEADER\'S BOOKS: rebuilt to today and set against the index; a gap past 1 AUSD or 0.1% is NOT RECONCILED and carries its size', async () => {
+  const { reconcile } = await import('./replay.ts');
+  // #4886, measured 7 Oct 2026: rebuilt 2,007.40 against 0.004 on record.
+  const r4886 = reconcile(2_007_404_211n, 4_211n, 6);
+  assert.equal(r4886.reconciled, false);
+  assert.equal(r4886.gapCNS, 2_007_400_000n);
+  // #5213: 0.31 AUSD out.
+  assert.equal(reconcile(-310_000n, 0n, 6).reconciled, true);
+  // 0.1% of 40,000 is 40 AUSD.
+  assert.equal(reconcile(40_030_000_000n, 40_000_000_000n, 6).reconciled, true);
+  assert.equal(reconcile(40_050_000_000n, 40_000_000_000n, 6).reconciled, false);
+  // In a replay: the walk is start + flows + results − fees + open results, against free + open margin.
+  const books = run(source([pos({ openedH: 1, closedH: 2, netPnlCNS: 5_000n * AUSD })], { now: { freeCNS: 105_000n * AUSD, openMarginCNS: 0n, openResultCNS: 0n } })).books;
+  assert.deepEqual(books, { rebuiltCNS: 105_000n * AUSD, indexCNS: 105_000n * AUSD, gapCNS: 0n, reconciled: true });
 });

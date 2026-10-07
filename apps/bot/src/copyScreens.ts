@@ -67,9 +67,16 @@ export function copyReplayScreen(input: { readonly result: ReplayResult | { read
   const sizeLine = input.size.kind === 'linked'
     ? `Sized to your account #${input.size.accountId} on ${esc(input.size.network)}: <b>${ausdText(r.followerStartCNS, 'floor', d)}</b> (free balance plus margin in positions).`
     : `Sized to an account of <b>${ausdText(r.followerStartCNS, 'floor', d)}</b>. Link your account and this uses yours.`;
+  const b = r.books;
+  const gap = ausdText(b.gapCNS < 0n ? -b.gapCNS : b.gapCNS, 'ceil', d);
+  const booksLine = b.reconciled
+    ? `✅ Books reconciled: this trader's balance rebuilt from deposits, withdrawals, results and fees matches the index's own to within ${gap}.`
+    : `⚠️ <b>NOT RECONCILED</b>: this trader's balance rebuilt from deposits, withdrawals, results and fees is <b>${gap}</b> off the index's own (${ausdText(b.rebuiltCNS, 'floor', d)} against ${ausdText(b.indexCNS, 'floor', d)}), and nothing indexed explains it. Every copy is scaled off that balance, so read these figures as approximate.`;
   const lines = [
     head,
     '<i>A replay from indexed data. Nothing was or will be sent.</i>',
+    '',
+    booksLine,
     '',
     sizeLine,
     `Each copy is the leader's position scaled by your equity over theirs at that moment (theirs was <b>${ausdText(r.leaderStartCNS, 'floor', d)}</b> when the 30 days began).`,

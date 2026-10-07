@@ -70,7 +70,7 @@ const sampleTraders = {
     });
     const result = replayCopy({
       source: {
-        accountId, fromMs: from, toMs: from + 30 * 24 * H, collateralDecimals: 6, equityAtStartCNS: 100_000_000_000n, feesByDay: [], flows: [], closedFromBefore: [], openAtStart: 1, openedInWindow: 3,
+        accountId, fromMs: from, toMs: from + 30 * 24 * H, collateralDecimals: 6, equityAtStartCNS: 100_000_000_000n, feesByDay: [], flows: [], closedFromBefore: [], openAtStart: 1, openedInWindow: 3, now: { freeCNS: 105_280_000_000n, openMarginCNS: 0n, openResultCNS: 0n },
         positions: [position(1, 1, 'BTC', 'long', 10, 40, 6_480_000_000n), position(2, 60, 'HYPE', 'short', 50, 60, 900_000_000n), position(3, 2, 'ETH', 'short', 100, 130, -2_100_000_000n)],
       },
       followerEquityCNS,

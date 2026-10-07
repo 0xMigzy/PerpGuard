@@ -34,6 +34,13 @@
  *     size at the entry price, rounded up. Adds and reduces in between are not
  *     in the index, so this is the least the copy would have paid. The
  *     leader's own daily fees come off the leader's equity, for the scale.
+ *   - THE LEADER'S BOOKS ARE RECONCILED, AND A GAP IS SAID (owner, 7 Oct
+ *     2026). Its equity walked to today by this file's own rule (start +
+ *     deposits − withdrawals + results − fees, plus open positions' results so
+ *     far) must meet the index's books (free balance + open margin) within
+ *     1 AUSD or 0.1%. When it does not, the replay is marked NOT RECONCILED
+ *     with the gap in AUSD: #4886 is 2,007.40 AUSD out with nothing indexed
+ *     to explain it, and its every copy is scaled off that equity.
  *   - A LEADER TOO BUSY TO REPLAY (more opens than the cap) is refused whole,
  *     never replayed in part: a partial replay's totals would mislead.
  */
@@ -128,6 +135,23 @@ export interface ReplayTotals {
   readonly lowestFreeCNS: bigint;
 }
 
+export interface ReplayBooks {
+  readonly rebuiltCNS: bigint;
+  readonly indexCNS: bigint;
+  /** Rebuilt minus the index's. */
+  readonly gapCNS: bigint;
+  readonly reconciled: boolean;
+}
+
+/** Within 1 AUSD or 0.1% of the larger side, whichever is wider. */
+export function reconcile(rebuiltCNS: bigint, indexCNS: bigint, collateralDecimals: number): ReplayBooks {
+  const gap = rebuiltCNS - indexCNS;
+  const abs = gap < 0n ? -gap : gap;
+  const larger = (rebuiltCNS > indexCNS ? rebuiltCNS : indexCNS);
+  const tolerance = [10n ** BigInt(collateralDecimals), (larger < 0n ? -larger : larger) / 1_000n].reduce((a, b) => (a > b ? a : b));
+  return { rebuiltCNS, indexCNS, gapCNS: gap, reconciled: abs <= tolerance };
+}
+
 export type ReplayResult =
   | {
       readonly kind: 'replayed';
@@ -140,6 +164,8 @@ export type ReplayResult =
       readonly leaderStartCNS: bigint;
       readonly trades: readonly ReplayTrade[];
       readonly totals: ReplayTotals;
+      /** The leader's equity rebuilt to today against the index's own books. */
+      readonly books: ReplayBooks;
       /** The follower's equity after each copy closed, oldest first, starting at the window's start. */
       readonly curve: readonly { readonly atMs: number; readonly equityCNS: bigint }[];
     }
@@ -339,6 +365,16 @@ export function replayCopy(input: ReplayInput): ReplayResult {
   // never before the event that scheduled it (a close can share its open's instant).
   for (cursor = 0; cursor < events.length; cursor += 1) events[cursor]!.apply();
 
+  // The leader's books, walked to today by the same rule that scaled every copy.
+  const rebuiltNow =
+    s.equityAtStartCNS +
+    s.flows.reduce((a, f) => a + f.deltaCNS, 0n) +
+    s.closedFromBefore.reduce((a, c) => a + c.netPnlCNS, 0n) +
+    s.positions.filter((p) => p.status !== 'open').reduce((a, p) => a + p.netPnlCNS, 0n) -
+    s.feesByDay.reduce((a, f) => a + f.feesCNS, 0n) +
+    s.now.openResultCNS;
+  const books = reconcile(rebuiltNow, s.now.freeCNS + s.now.openMarginCNS, d);
+
   const copiedCount = trades.filter((t) => t.copy.kind === 'copied').length;
   if (s.openAtStart > 0) skippedBy['open-at-start'] = s.openAtStart;
   return {
@@ -351,6 +387,7 @@ export function replayCopy(input: ReplayInput): ReplayResult {
     followerStartCNS: input.followerEquityCNS,
     leaderStartCNS: s.equityAtStartCNS,
     trades,
+    books,
     curve,
     totals: {
       copied: copiedCount,

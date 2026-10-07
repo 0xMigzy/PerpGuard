@@ -49,6 +49,7 @@ for (const id of leaders) {
   const openMargin = BigInt(now.rows[0].m);
   console.log(`  equity check: rebuilt (realised, after daily fees) ${ausdText(rebuilt, 'floor')} vs index free + open margin ${ausdText(indexEquity, 'floor')} (open margin ${ausdText(openMargin, 'floor')}; the gap is open positions' realised-so-far and anything the index cannot attribute)`);
   console.log(`\n#${id}  (${ms} ms)  leader equity at start ${ausdText(result.leaderStartCNS, 'floor')}, index equity now ${ausdText(indexEquity, 'floor')}`);
+  console.log(`  books: ${result.books.reconciled ? 'RECONCILED' : 'NOT RECONCILED'}, rebuilt ${ausdText(result.books.rebuiltCNS, 'floor')} vs on record ${ausdText(result.books.indexCNS, 'floor')} (gap ${ausdText(result.books.gapCNS, 'floor')})`);
   console.log(`  copied ${t.copied}, skipped ${t.skipped} ${JSON.stringify(t.skippedBy)}  not listed: ${t.notListed.map((x) => `${x.symbol}×${x.count}`).join(', ') || 'none'}`);
   console.log(`  copy result ${ausdText(t.closedResultCNS, 'floor')} closed (+ ${ausdText(t.openEstimateCNS, 'floor')} open, estimate); ${t.wins} won, ${t.losses} lost, ${t.forcedExits} forced exits`);
   console.log(`  ${ausdText(result.followerStartCNS, 'floor')} -> ${ausdText(t.followerEndEquityCNS, 'floor')}; lowest free ${ausdText(t.lowestFreeCNS, 'floor')}; leader made ${ausdText(t.leaderResultOnCopiedCNS, 'floor')} on the same positions`);

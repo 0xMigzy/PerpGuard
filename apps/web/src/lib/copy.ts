@@ -58,6 +58,7 @@ export interface CopyReplayed {
     readonly followerEnd: string;
     readonly lowestFree: string;
   };
+  readonly books: { readonly rebuilt: string; readonly onRecord: string; readonly gap: string; readonly reconciled: boolean };
   readonly curve: readonly { readonly atMs: number; readonly equityAusd: number }[];
   readonly trades: readonly CopyTrade[];
 }

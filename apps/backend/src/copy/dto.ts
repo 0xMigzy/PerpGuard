@@ -47,6 +47,8 @@ export interface CopyReplayDto {
           readonly followerEnd: string;
           readonly lowestFree: string;
         };
+        /** The leader's balance rebuilt to today against the index's books. */
+        readonly books: { readonly rebuilt: string; readonly onRecord: string; readonly gap: string; readonly reconciled: boolean };
         readonly curve: readonly { readonly atMs: number; readonly equityAusd: number }[];
         readonly trades: readonly {
           readonly key: string;
@@ -95,6 +97,13 @@ export function copyReplayDto(answer: { readonly computedAtMs: number; readonly 
         leaderResultOnCopiedBeforeFees: signed(t.leaderResultOnCopiedCNS, d),
         followerEnd: ausdText(t.followerEndEquityCNS, 'floor', d),
         lowestFree: ausdText(t.lowestFreeCNS, 'floor', d),
+      },
+      books: {
+        rebuilt: ausdText(r.books.rebuiltCNS, 'floor', d),
+        onRecord: ausdText(r.books.indexCNS, 'floor', d),
+        // The gap's size, rounded up: never smaller than it is.
+        gap: ausdText(r.books.gapCNS < 0n ? -r.books.gapCNS : r.books.gapCNS, 'ceil', d),
+        reconciled: r.books.reconciled,
       },
       curve: r.curve.map((c) => ({ atMs: c.atMs, equityAusd: num(c.equityCNS, d) })),
       trades: r.trades.map((x) => ({

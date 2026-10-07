@@ -19,7 +19,7 @@ function rig() {
       if (accountId === 404) return undefined;
       return {
         accountId, fromMs: window.fromMs, toMs: window.toMs, collateralDecimals: 6,
-        equityAtStartCNS: 100_000_000_000n, feesByDay: [], flows: [], closedFromBefore: [], openAtStart: 0, openedInWindow: 1,
+        equityAtStartCNS: 100_000_000_000n, feesByDay: [], flows: [], closedFromBefore: [], openAtStart: 0, openedInWindow: 1, now: { freeCNS: 95_000_000_000n, openMarginCNS: 0n, openResultCNS: 0n },
         positions: [{
           key: '1-4886-1', market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, side: 'long', status: 'closed', lotDecimals: 5, priceDecimals: 1,
           peakLotLNS: 200_000n, lotLNS: 0n, entryPricePNS: 1_000_000n, peakMarginCNS: 20_000_000_000n, netPnlCNS: -5_000_000_000n, leverageHdths: 1000n,
