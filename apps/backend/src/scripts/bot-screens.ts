@@ -40,6 +40,7 @@ import { InMemoryAutomationStore } from '../rescue/automation.ts';
 import { RescueControlService } from '../rescue/control.ts';
 import { InMemoryRescueStore } from '../rescue/store.ts';
 import { KillSwitch } from '../rescue/killSwitch.ts';
+import { ArmSigner } from '../rescue/arming.ts';
 
 const OUT = resolve(import.meta.dirname, '../../../../docs/bot-screens.html');
 const STRANGER_CHAT = 7_777;
@@ -101,7 +102,7 @@ function build() {
       traders: sampleTraders,
     },
     // The real control over in-memory stores, so the document shows the real Rescue screens.
-    rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, snapshot: () => view.assessments }),
+    rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('00'.repeat(32)), isLinked: () => true, alertPctOf: () => 5, snapshot: () => view.assessments }),
     // Previewed from the sample position; nothing in the document closes anything.
     emergency: {
       preview: () => view.assessments.map((a) => ({ marketId: a.marketId, symbol: a.symbol, positionId: a.positionId ?? 1, side: a.side ?? 'long', sizeLNS: a.lotLNS ?? 0n, lotDecimals: CONFIGS.get(a.marketId)?.lotDecimals ?? 0, unrealisedPnlCNS: a.metrics.unrealisedPnlCNS })),

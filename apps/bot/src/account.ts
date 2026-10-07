@@ -17,7 +17,7 @@ import type { AlertAction, AlertActionIntent } from '@perpguard/backend/alerts';
 import { formatPricePNS } from '@perpguard/backend/alerts/render';
 import { distance, dot, esc, held, money, pct, positionName, shortDistance, signedPnl } from '@perpguard/backend/alerts/plain';
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
-import { WARN_LEVELS, warnLevelInfo, type WarnLevel } from '@perpguard/backend/risk/warn';
+import { ALERT_DISTANCE_PRESETS, distanceLabel } from '@perpguard/backend/manual/distance';
 import type { FreeBalanceReading } from './balance.ts';
 import type { ExecutionOutcome } from './actions.ts';
 import type { AccountSettings } from './settings.ts';
@@ -458,23 +458,30 @@ export function outcomeScreen(input: OutcomeInput): Screen {
 // ── settings ────────────────────────────────────────────────────────────────
 
 export function settingsScreen(accountId: number, settings: AccountSettings): Screen {
-  const level = warnLevelInfo(settings.warnLevel);
   return {
     html: `⚙️ <b>SETTINGS</b> · account #${accountId}\nEach button shows what it is set to now. Tap to change it.`,
     buttons: [
-      [{ text: `⚠️ Warn me at: ${level.label} (${pct(level.firstWarningPct).replace('.0%', '%')})`, route: { to: 'warn-ask' } }],
+      [{ text: `🔔 Alert me at: ${distanceLabel(settings.alertPct)} from liquidation`, route: { to: 'warn-ask' } }],
       [{ text: '← Back', route: { to: 'home' } }],
     ],
   };
 }
 
-export function warnAskScreen(current: WarnLevel): Screen {
+/**
+ * THE ALERT DISTANCE (Part 2): one number. At it, each position gets one
+ * message with its distance and your free balance and the amounts to add;
+ * a position with AUTO top-up armed is topped up there instead.
+ */
+export function warnAskScreen(currentPct: number): Screen {
   return {
-    html: '<b>How early should I warn you?</b>\nHow far the price still has to move against you when the first warning arrives. The last warning, at 3%, comes whatever you pick.',
+    html: [
+      '<b>Alert me at what distance from liquidation?</b>',
+      'When a position gets this close, I message you once: its distance, your free balance, and amounts to add. Nothing is ever added unless you tap it and confirm.',
+      'If you turn on Auto top-up for a position, it acts at this same distance.',
+    ].join('\n'),
     buttons: [
-      ...WARN_LEVELS.map((l): Button[] => [
-        { text: `${l.label} · ${pct(l.firstWarningPct).replace('.0%', '%')} — ${l.level === current ? 'currently set' : l.note}`, route: { to: 'warn-set', level: l.index } },
-      ]),
+      ALERT_DISTANCE_PRESETS.map((p, i): Button => ({ text: `${p === currentPct ? '✅ ' : ''}${p}%`, route: { to: 'warn-set', level: i } })),
+      [{ text: `🎛 Custom${(ALERT_DISTANCE_PRESETS as readonly number[]).includes(currentPct) ? '' : ` (now ${distanceLabel(currentPct)})`}`, route: { to: 'alert-custom' } }],
       [{ text: '← Back', route: { to: 'settings' } }],
     ],
   };

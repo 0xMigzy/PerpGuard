@@ -11,12 +11,17 @@ import { InMemoryAutomationStore } from './automation.ts';
 import { RescueControlService } from './control.ts';
 import { RescueEngine, type RescueAccount } from './engine.ts';
 import { KillSwitch } from './killSwitch.ts';
+import { ArmSigner } from './arming.ts';
+
+/** The tap that arms: the linked person, from their own chat. */
+const TAP = { telegramUserId: 7, chatId: 7 };
 import { InMemoryRescueStore, type NewRule } from './store.ts';
 
 const AUSD = 1_000_000n;
 const PID = 4508933292033;
 
 const rule = (o: Partial<NewRule> = {}): NewRule => ({
+  armedBy: 1, armedChat: 1, armedAtMs: 0, armProof: 'test-armed',
   accountId: 710, marketId: 16, symbol: 'BTC', positionId: PID, triggerPct: 0.04, amountCNS: 25n * AUSD,
   maxRescues: 2, maxTotalCNS: 50n * AUSD, minRemainingCNS: 500n * AUSD, cooldownMs: 900_000, ...o,
 });
@@ -61,9 +66,9 @@ function rig(stores?: { automation: InMemoryAutomationStore; rescueStore: InMemo
   const rescueStore = stores?.rescueStore ?? new InMemoryRescueStore();
   const account = new Account();
   const logs: string[] = [];
-  const engine = new RescueEngine({ store: rescueStore, automation, account: () => account, notify: async () => {}, logger: { info: () => {}, warn: () => {} }, now: () => clock.t, remeasureMs: 0, transientHoldMs: 0 });
+  const engine = new RescueEngine({ armProblem: (rule) => control.armProblem(rule), store: rescueStore, automation, account: () => account, notify: async () => {}, logger: { info: () => {}, warn: () => {} }, now: () => clock.t, remeasureMs: 0, transientHoldMs: 0 });
   const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: engine, log: (l) => logs.push(l), now: () => clock.t, settleWaitMs: 2_000 });
-  const control = new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, snapshot: () => account.snapshot() });
+  const control = new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat, acct) => tg === 7 && chat === 7 && acct === 710, alertPctOf: () => 4, snapshot: () => account.snapshot() });
   const look = async () => {
     await engine.tick();
     clock.t += 1_000;
@@ -75,7 +80,7 @@ function rig(stores?: { automation: InMemoryAutomationStore; rescueStore: InMemo
 
 /** A real enable through the control, as the bot does it. */
 async function enable(r: ReturnType<typeof rig>) {
-  const res = await r.control.enable(710, { marketId: 16, positionId: PID, triggerPct: 0.04, amountCNS: 25n * AUSD, maxRescues: 2, maxTotalCNS: 50n * AUSD, minRemainingCNS: 500n * AUSD, cooldownMs: 900_000 });
+  const res = await r.control.enable(710, { marketId: 16, positionId: PID, triggerPct: 0.04, amountCNS: 25n * AUSD, maxRescues: 2, maxTotalCNS: 50n * AUSD, minRemainingCNS: 500n * AUSD, cooldownMs: 900_000 }, TAP);
   assert.equal(res.ok, true, res.text);
 }
 
@@ -102,7 +107,7 @@ test('SPEC 80: the Kill Switch stops Copy — whatever strategy held the account
 test('SPEC 80: the Kill Switch blocks NEW automation — Rescue cannot be turned on until it is resumed', async () => {
   const r = rig();
   await r.killSwitch.stop(710, 'test');
-  const res = await r.control.enable(710, { marketId: 16, positionId: PID, triggerPct: 0.04, amountCNS: 25n * AUSD, maxRescues: 2, maxTotalCNS: 50n * AUSD, minRemainingCNS: 500n * AUSD, cooldownMs: 900_000 });
+  const res = await r.control.enable(710, { marketId: 16, positionId: PID, triggerPct: 0.04, amountCNS: 25n * AUSD, maxRescues: 2, maxTotalCNS: 50n * AUSD, minRemainingCNS: 500n * AUSD, cooldownMs: 900_000 }, TAP);
   assert.equal(res.ok, false);
   assert.match(res.text, /Automation is stopped/);
   await r.killSwitch.resume(710, 'test');

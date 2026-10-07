@@ -26,6 +26,7 @@ const rule = (o: Partial<RescueRule> = {}): RescueRule => ({
   lastAttemptAtMs: undefined,
   lastNotice: undefined,
   createdAtMs: 0,
+  armedBy: 1, armedChat: 1, armedAtMs: 0, armProof: 'test-armed',
   ...o,
 });
 

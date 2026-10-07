@@ -151,7 +151,7 @@ export function homeScreen(input: HomeInput): Screen {
     `🔐 Trading Account: <b>#${a.accountId}</b> · ${networkLabel(a.network)}`,
     `Execution: ${a.execution.dot} ${esc(a.execution.label)}`,
     `Automation: ${a.automation ?? '⚪ None'}`,
-    `Alerts: 🟢 ON · first warning at ${a.warnAt}`,
+    `Alerts: 🟢 ON at ${a.warnAt} from liquidation`,
   ];
   if (watchingLine !== undefined) lines.push(watchingLine);
   const closest = closestOf(input.assessments);

@@ -17,6 +17,7 @@ import { CONFIGS, FakeBalance, FakeExecutor, FakeView, OWNER_CHAT, OWNER_ID, TES
 import { decodeCallback } from '@perpguard/bot';
 import { InMemoryAutomationStore } from './rescue/automation.ts';
 import { RescueControlService } from './rescue/control.ts';
+import { ArmSigner } from './rescue/arming.ts';
 import { KillSwitch } from './rescue/killSwitch.ts';
 import { InMemoryRescueStore } from './rescue/store.ts';
 import type { RiskAssessment } from './risk/types.ts';
@@ -49,9 +50,17 @@ function world() {
   const automation = new InMemoryAutomationStore();
   const rescueStore = new InMemoryRescueStore();
   const byAccount = new Map([[A.accountId, viewA], [B.accountId, viewB]]);
-  const rescue = new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, snapshot: (id) => byAccount.get(id)?.snapshot() });
-  const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: { inFlightOn: () => false, settleAccount: async () => true }, log: () => {} });
   const settings = new InMemoryAccountSettingsStore();
+  const rescue = new RescueControlService({
+    store: rescueStore,
+    automation,
+    collateralDecimals: 6,
+    signer: new ArmSigner('22'.repeat(32)),
+    isLinked: (tg, chat, acct) => links.byTelegramUserId(tg)?.accountId === acct && links.byTelegramUserId(tg)?.chatId === chat,
+    alertPctOf: (id) => settings.get(id).alertPct,
+    snapshot: (id) => byAccount.get(id)?.snapshot(),
+  });
+  const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: { inFlightOn: () => false, settleAccount: async () => true }, log: () => {} });
   const built = createBot({
     config: { token: TEST_TOKEN, userId: 'tg:A', ownerTelegramUserId: undefined },
     links,
@@ -130,7 +139,7 @@ test('RESCUE RULES: A\'s rule is A\'s; B\'s menu shows nothing of it and B\'s st
   assert.equal(w.rescueStore.enabledRules()[0]?.accountId, A.accountId);
 
   await w.tap(B, { to: 'rescue' });
-  assert.match(lastIn(w.telegram, B.chatId), /Account: <b>#711<\/b>[\s\S]*Status: ⚪ OFF/);
+  assert.match(lastIn(w.telegram, B.chatId), /Account: <b>#711<\/b>[\s\S]*Auto top-up: ⚪ off everywhere/);
   // B taps Stop on the SAME market id: it is B's account that is asked, and B has no rule there.
   await w.tap(B, { to: 'rescue-stop', marketId: w.base.marketId });
   assert.equal(w.rescueStore.enabledRules().length, 1, "A's rule is still on");
@@ -148,20 +157,21 @@ test('KILL SWITCH: A stopping automation stops A only; B can still turn Rescue o
   assert.equal(w.rescueStore.enabledRules().filter((r) => r.accountId === B.accountId).length, 1, 'B is unaffected');
 });
 
-test('SETTINGS: A changing "warn me at" leaves B\'s untouched', async () => {
+test('SETTINGS: A changing the alert distance leaves B\'s untouched', async () => {
   const w = world();
-  const before = w.settings.get(B.accountId).warnLevel;
+  const before = w.settings.get(B.accountId).alertPct;
   await w.tap(A, { to: 'warn-set', level: 0 });
-  assert.equal(w.settings.get(A.accountId).warnLevel, 'early');
-  assert.equal(w.settings.get(B.accountId).warnLevel, before);
+  assert.equal(w.settings.get(A.accountId).alertPct, 2);
+  assert.equal(w.settings.get(B.accountId).alertPct, before);
 });
 
-test('TYPED ANSWERS: a custom amount A is asked for is heard from A only', async () => {
+test('TYPED ANSWERS: a custom alert distance A is asked for is heard from A only', async () => {
   const w = world();
-  await w.tap(A, { to: 'rescue-cfg', marketId: w.base.marketId });
-  await w.tap(A, { to: 'rescue-trig-custom' });
-  // B types a number in B's own chat: it must not become A's trigger.
+  const before = w.settings.get(B.accountId).alertPct;
+  await w.tap(A, { to: 'alert-custom' });
+  // B types a number in B's own chat: it must not become A's distance, nor B's.
   await w.say(B, '4');
   await w.say(A, '6');
-  assert.match(lastIn(w.telegram, A.chatId), /trigger ≤ <b>6\.0%<\/b>/);
+  assert.equal(w.settings.get(A.accountId).alertPct, 6);
+  assert.equal(w.settings.get(B.accountId).alertPct, before);
 });

@@ -12,6 +12,7 @@ const AUSD = 1_000_000n;
 const PID = 4508933292033;
 
 const newRule = (o: Partial<NewRule> = {}): NewRule => ({
+  armedBy: 1, armedChat: 1, armedAtMs: 0, armProof: 'test-armed',
   accountId: 710,
   marketId: 16,
   symbol: 'BTC',
@@ -95,6 +96,8 @@ function rig(o: { clock?: { t: number } } = {}) {
   const notices: RescueNotice[] = [];
   const logs: string[] = [];
   const engine = new RescueEngine({
+    // These tests are about the engine's logic; rules here count as tap-armed. Arming has its own tests.
+    armProblem: () => undefined,
     store,
     automation,
     account: (id) => (id === 710 ? acct : undefined),
@@ -384,6 +387,8 @@ function twoRig(floorAusd: bigint) {
   const notices: RescueNotice[] = [];
   const logs: string[] = [];
   const engine = new RescueEngine({
+    // These tests are about the engine's logic; rules here count as tap-armed. Arming has its own tests.
+    armProblem: () => undefined,
     store,
     automation: new InMemoryAutomationStore(() => clock.t),
     account: () => acct,
@@ -484,7 +489,7 @@ test('RESERVATION, UNKNOWN: held (the money may have left), and gone after a res
   await r.engine.tick();
   assert.equal(r.engine.reservedCNS(710), 50n * AUSD, 'no timer releases an unknown');
   // A restart: a new engine over the same store trusts the exchange balance alone.
-  const after = new RescueEngine({ store: r.store, automation: new InMemoryAutomationStore(), account: () => r.acct, notify: async () => {}, logger: { info: () => {}, warn: () => {} } });
+  const after = new RescueEngine({ armProblem: () => undefined, store: r.store, automation: new InMemoryAutomationStore(), account: () => r.acct, notify: async () => {}, logger: { info: () => {}, warn: () => {} } });
   assert.equal(after.reservedCNS(710), 0n, 'no phantom hold survives a restart');
 });
 
@@ -575,6 +580,8 @@ test('ONE PERSON\'S SLOW MESSAGE NEVER HOLDS ANOTHER\'S RULE: a handover that ne
   const store = new InMemoryRescueStore();
   const acct = new TwoPositions(9_000n);
   const engine = new RescueEngine({
+    // These tests are about the engine's logic; rules here count as tap-armed. Arming has its own tests.
+    armProblem: () => undefined,
     store,
     automation: new InMemoryAutomationStore(() => clock.t),
     account: () => acct,
@@ -595,4 +602,55 @@ test('ONE PERSON\'S SLOW MESSAGE NEVER HOLDS ANOTHER\'S RULE: a handover that ne
   await engine.settle();
   assert.equal(acct.commands.length, 1, "711's rescue went");
   assert.equal(acct.commands[0]?.accountId, 711);
+});
+
+test('TAP-ARMED ONLY: the engine never acts on a rule that fails the arming check; it switches it off and says why in the log', async () => {
+  const clock = { t: 1_000_000 };
+  const store = new InMemoryRescueStore();
+  const acct = new FakeAccount();
+  const logs: string[] = [];
+  const engine = new RescueEngine({
+    armProblem: (rule) => (rule.armProof === 'test-armed' ? undefined : 'not armed by a tap in the bot'),
+    store,
+    automation: new InMemoryAutomationStore(() => clock.t),
+    account: () => acct,
+    notify: async () => {},
+    logger: { info: (m) => logs.push(m), warn: (m) => logs.push(`WARN ${m}`) },
+    now: () => clock.t,
+    remeasureMs: 0,
+  });
+  const scripted = await store.create(newRule({ armProof: undefined, armedBy: undefined }), clock.t);
+  await engine.tick();
+  clock.t += 1_000;
+  await engine.tick();
+  await engine.settle();
+  assert.equal(acct.commands.length, 0, 'nothing sent');
+  assert.equal(store.rule(scripted.id)?.enabled, false);
+  assert.match(store.rule(scripted.id)?.pausedReason ?? '', /^ignored: not armed by a tap/);
+  assert.ok(logs.some((l) => /IGNORED and switched off/.test(l)));
+});
+
+test('TAP-ARMED ONLY: a rule that stops verifying mid-flight is stopped at the executor\'s last gate', async () => {
+  const r = rig();
+  let valid = true;
+  const engine = new RescueEngine({
+    armProblem: () => (valid ? undefined : 'the person who armed it is no longer linked to this account'),
+    store: r.store,
+    automation: new InMemoryAutomationStore(() => r.clock.t),
+    account: () => r.acct,
+    notify: async () => {},
+    logger: { info: () => {}, warn: () => {} },
+    now: () => r.clock.t,
+    remeasureMs: 0,
+  });
+  await r.store.create(newRule(), r.clock.t);
+  r.acct.during = () => {
+    valid = false; // unlinked while the rescue was being prepared
+  };
+  await engine.tick();
+  r.clock.t += 1_000;
+  await engine.tick();
+  await engine.settle();
+  assert.equal(r.store.attempts(1)[0]?.outcome, 'refused');
+  assert.equal(r.store.attempts(1)[0]?.receiptReason, 'automation-stopped');
 });

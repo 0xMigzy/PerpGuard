@@ -17,6 +17,7 @@ import type { MarketRiskConfig } from '@perpguard/shared';
 import { distance, esc, held, money, pct, shortDistance } from '@perpguard/backend/alerts/plain';
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import { positionCard } from './account.ts';
+import { distanceLabel } from '@perpguard/backend/manual/distance';
 import type { Button, Screen } from './screens.ts';
 import type { ExecutionState } from './trading.ts';
 
@@ -35,6 +36,15 @@ export interface RescueRuleView {
   readonly enabled: boolean;
   /** Set when the rule stopped itself: 'unknown outcome', 'position closed'. */
   readonly pausedReason: string | undefined;
+  /** Who armed it with a tap, and when. Undefined on a rule armed any other way (never acted on). */
+  readonly armedBy?: number | undefined;
+  readonly armedAtMs?: number | undefined;
+}
+
+/** Who tapped, from which chat: the only thing that can arm Auto top-up. */
+export interface ArmTap {
+  readonly telegramUserId: number;
+  readonly chatId: number;
 }
 
 export interface RescueDraft {
@@ -60,9 +70,12 @@ export interface RescueControl {
   stopped(accountId: number): boolean;
   /** Another automation runs on this account (Copy Trading), named, or undefined. */
   otherAutomation(accountId: number): string | undefined;
-  enable(accountId: number, draft: RescueDraft): Promise<RescueResult>;
+  /** Arms Auto top-up. ONLY ever called from the tap's handler, with that tap. */
+  enable(accountId: number, draft: RescueDraft, arm: ArmTap): Promise<RescueResult>;
   disable(accountId: number, marketId: number): Promise<RescueResult>;
-  resume(accountId: number, marketId: number): Promise<RescueResult>;
+  resume(accountId: number, marketId: number, arm: ArmTap): Promise<RescueResult>;
+  /** ONE NUMBER: every armed AUTO top-up on the account moves to the alert distance (a fraction). */
+  followAlertDistance?(accountId: number, triggerPct: number): Promise<void>;
 }
 
 /** One whole collateral unit (1 AUSD) in the token's own decimals. Never assumed to be 6. */
@@ -71,7 +84,7 @@ export const RESCUE_TRIGGERS_PCT = [10, 5, 3, 2] as const;
 export const RESCUE_AMOUNTS_AUSD = [100, 250, 500, 1_000] as const;
 /** The four limits, each its own choice. Max total is NEVER derived once picked. */
 export const RESCUE_LIMITS = [
-  { name: 'Maximum rescues', options: [1, 2, 3, 5] },
+  { name: 'Maximum top-ups', options: [1, 2, 3, 5] },
   { name: 'Maximum total', options: [100, 250, 500, 1_000, 2_500, 5_000] },
   { name: 'Minimum remaining', options: [100, 250, 500, 1_000, 2_500] },
   { name: 'Cooldown', options: [5, 15, 30, 60] },
@@ -151,25 +164,29 @@ export function rescueMenuScreen(input: {
   readonly rules: readonly RescueRuleView[];
   readonly stopped: boolean;
   readonly otherAutomation: string | undefined;
+  /** The account's alert distance, percent. */
+  readonly alertPct: number;
 }): Screen {
   const on = input.rules.filter((r) => r.enabled && r.pausedReason === undefined);
   const lines = [
-    '🛟 <b>LIQUIDATION RESCUE</b>',
+    '🛟 <b>RESCUE</b>',
     '',
-    'Adds margin to your own position, automatically, when it gets close to liquidation. Never removes margin. Every rule has limits.',
+    `🔔 <b>Alert</b>, always on: when a position gets within <b>${distanceLabel(input.alertPct)}</b> of liquidation, I message you once with its distance, your free balance and amounts to add. Nothing moves unless you tap and confirm. Change the distance in ⚙️ Settings.`,
+    '',
+    '🤖 <b>Auto top-up</b>, off until you turn it on for a position: at that same distance it adds the amount you chose by itself, within limits you set. One tap turns it off.',
     '',
     `Account: <b>#${input.accountId}</b>`,
     `Execution: ${input.execution.dot} ${esc(input.execution.label)}`,
-    `Status: ${on.length === 0 ? '⚪ OFF' : `🟢 ON for ${on.map((r) => esc(r.symbol)).join(', ')}`}`,
+    `Auto top-up: ${on.length === 0 ? '⚪ off everywhere' : `🟢 on for ${on.map((r) => esc(r.symbol)).join(', ')}`}`,
   ];
-  if (input.stopped) lines.push('', '⛔ <b>Automation is stopped</b> (kill switch). Rescue is off on every position, and nothing can be turned on until automation is resumed from 🔴 Kill Switch.');
-  if (input.otherAutomation !== undefined) lines.push('', `${esc(input.otherAutomation)} is running on this account. One automation at a time: stop it before turning Rescue on.`);
+  if (input.stopped) lines.push('', '🛑 <b>PerpGuard is stopped</b> (🆘 Emergency). Auto top-up is off on every position and cannot be turned on until automation is resumed. Alerts still come.');
+  if (input.otherAutomation !== undefined) lines.push('', `${esc(input.otherAutomation)} is running on this account. One automation at a time: stop it before turning Auto top-up on.`);
   const open = input.assessments.filter((a) => a.positionId !== undefined && !isBlind(a.state));
   const buttons: Button[][] = open.slice(0, 8).map((a) => {
     const r = input.rules.find((x) => x.marketId === a.marketId && x.positionId === a.positionId);
-    return [{ text: `${a.symbol} · ${shortDistance(a.liqBufferPct)} · ${ruleStatus(r).replace(/ \(.*\)/, '')}`, route: { to: 'rescue-pos', marketId: a.marketId } }];
+    return [{ text: `${a.symbol} · ${shortDistance(a.liqBufferPct)} · auto ${ruleStatus(r).replace(/ \(.*\)/, '')}`, route: { to: 'rescue-pos', marketId: a.marketId } }];
   });
-  if (open.length === 0) lines.push('', 'No open positions, so there is nothing to protect yet.');
+  if (open.length === 0) lines.push('', 'No open positions, so there is nothing to watch over yet.');
   else lines.push('', 'Choose a position:');
   buttons.push([{ text: '← Back', route: { to: 'home' } }]);
   return { html: lines.join('\n'), buttons };
@@ -177,9 +194,21 @@ export function rescueMenuScreen(input: {
 
 // ── 39 a position ───────────────────────────────────────────────────────────
 
-export function rescuePositionScreen(input: { readonly assessment: RiskAssessment; readonly market: MarketRiskConfig | undefined; readonly rule: RescueRuleView | undefined }): Screen {
+export function rescuePositionScreen(input: {
+  readonly assessment: RiskAssessment;
+  readonly market: MarketRiskConfig | undefined;
+  readonly rule: RescueRuleView | undefined;
+  /** The account's alert distance, percent. */
+  readonly alertPct: number;
+  /** Who is looking, so "armed by you" is said only to the person who armed it. */
+  readonly viewerTelegramUserId: number;
+}): Screen {
   const { assessment: a, rule: r } = input;
-  const lines = ['🛟 <b>RESCUE</b>', '', ...positionCard(a, input.market), '', `Rescue: ${ruleStatus(r)}`];
+  const lines = ['🛟 <b>RESCUE</b>', '', ...positionCard(a, input.market), '', `🔔 Alert: on, at <b>${distanceLabel(input.alertPct)}</b> from liquidation`, `🤖 Auto top-up: ${ruleStatus(r)}`];
+  if (r?.enabled === true && r.armedAtMs !== undefined) {
+    // HOW IT WAS ARMED, on the screen (owner, 7 Oct 2026).
+    lines.push(`   armed by ${r.armedBy === input.viewerTelegramUserId ? 'you' : `Telegram user ${r.armedBy}`} in the bot, ${new Date(r.armedAtMs).toISOString().slice(0, 16).replace('T', ' ')} UTC`);
+  }
   if (r !== undefined) {
     // Amounts need the collateral's decimals, which come with the market's config; without it no figure is shown.
     if (input.market === undefined) lines.push('   No market details, so no amounts to show.');
@@ -195,8 +224,13 @@ export function rescuePositionScreen(input: { readonly assessment: RiskAssessmen
     );
     buttons.push([{ text: '▶️ Resume Rescue', route: { to: 'rescue-resume', marketId: a.marketId } }]);
   }
-  buttons.push([{ text: r?.enabled === true ? '⚙️ Change Rescue' : '⚙️ Configure Rescue', route: { to: 'rescue-cfg', marketId: a.marketId } }]);
-  if (r?.enabled === true) buttons.push([{ text: '⛔ Stop Rescue', route: { to: 'rescue-stop', marketId: a.marketId } }]);
+  // ONE TAP OFF; turning on goes through the setup and its review.
+  if (r?.enabled === true) {
+    buttons.push([{ text: '⛔ Turn off auto', route: { to: 'rescue-stop', marketId: a.marketId } }]);
+    buttons.push([{ text: '⚙️ Change auto', route: { to: 'rescue-cfg', marketId: a.marketId } }]);
+  } else {
+    buttons.push([{ text: '🤖 Turn on auto', route: { to: 'rescue-cfg', marketId: a.marketId } }]);
+  }
   buttons.push([{ text: '➕ Add Margin Now', route: { to: 'margin-add', marketId: a.marketId } }]);
   buttons.push([{ text: '← Back', route: { to: 'rescue' } }]);
   return { html: lines.join('\n'), buttons };
@@ -204,8 +238,8 @@ export function rescuePositionScreen(input: { readonly assessment: RiskAssessmen
 
 function ruleLines(r: RescueRuleView, d: number): string[] {
   return [
-    `   Trigger ≤ <b>${pct(r.triggerPct)}</b> · add ${money(r.amountCNS, 'ceil', d)}`,
-    `   Rescues used ${r.rescueCount} / ${r.maxRescues} · added ${held(r.totalRescuedCNS, d)} of ${money(r.maxTotalCNS, 'floor', d)}`,
+    `   Adds ${money(r.amountCNS, 'ceil', d)} at ≤ <b>${pct(r.triggerPct)}</b>`,
+    `   Top-ups used ${r.rescueCount} / ${r.maxRescues} · added ${held(r.totalRescuedCNS, d)} of ${money(r.maxTotalCNS, 'floor', d)}`,
     `   Keeps ${money(r.minRemainingCNS, 'floor', d)} free · ${minutes(r.cooldownMs)} apart`,
   ];
 }
@@ -225,11 +259,17 @@ export function rescueTriggerScreen(a: RiskAssessment): Screen {
 
 export function rescueAmountScreen(a: RiskAssessment, d: RescueDraft): Screen {
   return {
-    html: [`🛟 <b>${esc(a.symbol)}</b> · trigger ≤ <b>${pct(d.triggerPct ?? 0)}</b>`, '', 'Add this much margin each time:'].join('\n'),
+    html: [
+      `🤖 <b>AUTO TOP-UP · ${esc(a.symbol)}</b>`,
+      '',
+      `It acts where your alert fires: <b>${pct(d.triggerPct ?? 0)}</b> from liquidation (change it in ⚙️ Settings).`,
+      '',
+      'Add this much margin each time:',
+    ].join('\n'),
     buttons: [
       RESCUE_AMOUNTS_AUSD.map((n, i) => ({ text: `+${n.toLocaleString('en-US')}`, route: { to: 'rescue-amt', level: i } }) as Button),
       [{ text: '🎛 Custom', route: { to: 'rescue-amt-custom' } }],
-      [{ text: '← Back', route: { to: 'rescue-cfg', marketId: a.marketId } }],
+      [{ text: '← Back', route: { to: 'rescue-pos', marketId: a.marketId } }],
     ],
   };
 }
@@ -240,34 +280,34 @@ export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { r
   const amount = d.amountCNS ?? defaultAmount(d);
   const dp = d.collateralDecimals;
   const lines = [
-    '🛟 <b>RESCUE RULE</b>',
+    '🤖 <b>AUTO TOP-UP</b>',
     '',
     `<b>${esc(a.symbol)}${a.side === undefined ? '' : ` ${a.side}`}</b> · now ${distance(a.liqBufferPct)}`,
     '',
-    `Trigger: ≤ <b>${pct(d.triggerPct ?? 0)}</b> from liquidation, on two looks a second apart`,
-    `Action: add ${money(amount, 'ceil', dp)} margin`,
+    `Acts at: ≤ <b>${pct(d.triggerPct ?? 0)}</b> from liquidation (your alert distance), on two looks a second apart`,
+    `Adds: ${money(amount, 'ceil', dp)} each time`,
     '',
-    `Maximum rescues: <b>${d.maxRescues}</b>`,
-    `Maximum total: ${money(capOf(d), 'floor', dp)}${d.maxTotalCNS === undefined ? ' (rescues × amount until you pick one)' : ''}`,
+    `Maximum top-ups: <b>${d.maxRescues}</b>`,
+    `Maximum total: ${money(capOf(d), 'floor', dp)}${d.maxTotalCNS === undefined ? ' (top-ups × amount until you pick one)' : ''}`,
     `Minimum remaining: ${money(d.minRemainingCNS, 'floor', dp)} free, never spent`,
     `Cooldown: <b>${minutes(d.cooldownMs)}</b>`,
   ];
   if (a.liqBufferPct !== undefined && d.triggerPct !== undefined && a.liqBufferPct <= d.triggerPct) {
-    lines.push('', `⚠️ It is already at or below the trigger, so the first rescue goes out about a second after you enable it.`);
+    lines.push('', `⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.`);
   }
-  if (capOf(d) < amount) lines.push('', '⚠️ The maximum total is below one rescue, so this rule could never act. Raise it.');
+  if (capOf(d) < amount) lines.push('', '⚠️ The maximum total is below one top-up, so it could never act. Raise it.');
   if (input.free !== undefined && input.free - amount < d.minRemainingCNS) {
-    lines.push('', `⚠️ Your free balance is ${held(input.free, dp)}. A rescue now would take it below the minimum kept, so it would wait, not send less.`);
+    lines.push('', `⚠️ Your free balance is ${held(input.free, dp)}. A top-up now would take it below the minimum kept, so it would wait, not send less.`);
   }
-  if (input.stopped) lines.push('', '⛔ Automation is stopped (kill switch), so this rule cannot be turned on. Resume automation from 🔴 Kill Switch first.');
-  lines.push('', 'Rescue sends one top-up at a time, checks the position itself for the result, and never sends the same one twice.');
+  if (input.stopped) lines.push('', '🛑 PerpGuard is stopped (🆘 Emergency), so Auto top-up cannot be turned on. Resume automation first.');
+  lines.push('', 'It sends one top-up at a time, checks the position itself for the result, never sends the same one twice, and messages you each time. One tap turns it off.');
   return {
     html: lines.join('\n'),
     buttons: [
-      [{ text: '🔢 Rescues', route: { to: 'rescue-limit', level: 0 } }, { text: '💵 Total', route: { to: 'rescue-limit', level: 1 } }],
+      [{ text: '🔢 Top-ups', route: { to: 'rescue-limit', level: 0 } }, { text: '💵 Total', route: { to: 'rescue-limit', level: 1 } }],
       [{ text: '🏦 Keep free', route: { to: 'rescue-limit', level: 2 } }, { text: '⏱ Cooldown', route: { to: 'rescue-limit', level: 3 } }],
       // While automation is stopped the way on is to resume it, not a button the server would refuse.
-      input.stopped ? [{ text: '🔴 Kill Switch', route: { to: 'kill' } }] : [{ text: '🟢 ENABLE RESCUE', route: { to: 'rescue-on' } }],
+      input.stopped ? [{ text: '🆘 Emergency', route: { to: 'kill' } }] : [{ text: '🟢 TURN ON AUTO', route: { to: 'rescue-on' } }],
       [{ text: 'Cancel', route: { to: 'rescue-pos', marketId: a.marketId } }],
     ],
   };

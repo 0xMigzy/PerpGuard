@@ -50,7 +50,7 @@ import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './setti
 import { buildMessage } from '@perpguard/backend/alerts/render';
 import { esc, pct } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
-import { warnLevelByIndex, warnLevelInfo } from '@perpguard/backend/risk/warn';
+import { ALERT_DISTANCE_PRESETS, MAX_ALERT_DISTANCE_PCT, MIN_ALERT_DISTANCE_PCT, distanceLabel, parseAlertDistance } from '@perpguard/backend/manual/distance';
 import { OFF_LEVEL, decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
 import { EXECUTION_UNKNOWN, executionState, type ExecutionState } from './trading.ts';
 import {
@@ -106,7 +106,6 @@ import {
   rescueMenuScreen,
   rescuePositionScreen,
   rescueReviewScreen,
-  rescueTriggerScreen,
   type RescueControl,
   type RescueDraft,
 } from './rescue.ts';
@@ -309,6 +308,21 @@ export function createBot(deps: BotDeps): Bot {
   const identities = deps.identities ?? new InMemoryIdentityStore();
   const questions = deps.questions ?? new PendingQuestionStore({ now });
   const drafts = new RescueDraftStore(now);
+
+  /**
+   * ONE NUMBER: saves the account's alert distance, and moves every armed AUTO
+   * top-up on the account to it (they act where the alert fires). False, and
+   * nothing changed, when it could not be saved.
+   */
+  async function saveAlertDistance(accountId: number, alertPct: number): Promise<boolean> {
+    try {
+      await settings.set(accountId, { ...settings.get(accountId), alertPct });
+    } catch {
+      return false;
+    }
+    await deps.rescue?.followAlertDistance?.(accountId, alertPct / 100);
+    return true;
+  }
   /** One pending retry per chat, person and market: minted when its confirm screen is shown, consumed by the tap. */
   const retryRequests = new Map<string, string>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
@@ -449,7 +463,7 @@ export function createBot(deps: BotDeps): Bot {
               accountId: link.accountId,
               network: session?.view.network ?? deps.tradingNetwork,
               execution: executionFor(link),
-              warnAt: pct(warnLevelInfo(settings.get(link.accountId).warnLevel).firstWarningPct).replace('.0%', '%'),
+              warnAt: distanceLabel(settings.get(link.accountId).alertPct),
               automation: automationLine(link.accountId),
             },
       rescue: deps.rescue !== undefined && link !== undefined,
@@ -715,6 +729,26 @@ export function createBot(deps: BotDeps): Bot {
     if (commandOf(text) !== undefined) return;
 
     const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'alert-distance') {
+      const verdict = authorise(deps.links, telegramUserId, chatId);
+      if (!verdict.ok) {
+        questions.close(chatId, telegramUserId);
+        await ctx.reply(verdict.text);
+        return;
+      }
+      const parsed = parseAlertDistance(text);
+      if ('error' in parsed) {
+        await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
+        return;
+      }
+      questions.close(chatId, telegramUserId);
+      if (!(await saveAlertDistance(verdict.link.accountId, parsed.pct))) {
+        await ctx.reply('I could not save that, so nothing changed. Try again in a moment.');
+        return;
+      }
+      await sendScreen(ctx, settingsScreen(verdict.link.accountId, settings.get(verdict.link.accountId)));
+      return;
+    }
     if (question?.kind === 'close-all') {
       // THE TYPED CONFIRMATION. Closed first, whatever was typed: one answer per question, so a
       // second "CLOSE ALL" finds nothing open and sends nothing.
@@ -1001,6 +1035,15 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
         return;
       }
+      case 'dismiss':
+        // The alert's words stay as the record; its buttons go, so nothing on it can be tapped later.
+        await ctx.answerCallbackQuery({ text: 'Dismissed. Nothing was sent.' });
+        try {
+          await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        } catch {
+          // An old or deleted message: nothing to take the buttons off.
+        }
+        return;
       case 'kill':
       case 'kill-confirm':
       case 'kill-stop':
@@ -1114,22 +1157,29 @@ export function createBot(deps: BotDeps): Bot {
         return;
       case 'warn-ask':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, warnAskScreen(settings.get(account.accountId).warnLevel));
+        await showScreen(ctx, warnAskScreen(settings.get(account.accountId).alertPct));
         return;
       case 'warn-set': {
-        const level = warnLevelByIndex(route.level);
-        if (level === undefined) {
+        const pctChosen = ALERT_DISTANCE_PRESETS[route.level];
+        if (pctChosen === undefined) {
           await answer(ctx, 'I do not know that setting.');
           return;
         }
-        try {
-          await settings.set(account.accountId, { ...settings.get(account.accountId), warnLevel: level });
-        } catch {
+        if (!(await saveAlertDistance(account.accountId, pctChosen))) {
           await answer(ctx, 'I could not save that, so nothing changed. Try again in a moment.');
           return;
         }
-        await ctx.answerCallbackQuery({ text: `Saved: ${warnLevelInfo(level).label}.` });
+        await ctx.answerCallbackQuery({ text: `Saved: alerts at ${distanceLabel(pctChosen)}.` });
         await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
+        return;
+      }
+      case 'alert-custom': {
+        const chatId = ctx.chat?.id;
+        if (chatId === undefined) return;
+        await ctx.answerCallbackQuery();
+        amounts.delete(telegramUserId);
+        questions.ask(chatId, telegramUserId, { kind: 'alert-distance' });
+        await ctx.reply(`Alert me at what distance from liquidation? Send a percentage between ${MIN_ALERT_DISTANCE_PCT} and ${MAX_ALERT_DISTANCE_PCT}, like 4 or 3.5.`, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
         return;
       }
       case 'disconnect-ask':
@@ -1244,14 +1294,15 @@ export function createBot(deps: BotDeps): Bot {
       rules: control.rules(account.accountId),
       stopped: control.stopped(account.accountId),
       otherAutomation: control.otherAutomation(account.accountId),
+      alertPct: settings.get(account.accountId).alertPct,
     });
   }
 
-  function rescuePosition(account: AccountView, marketId: number): Screen | undefined {
+  function rescuePosition(account: AccountView, marketId: number, viewer: number): Screen | undefined {
     const a = account.view.snapshot().find((x) => x.marketId === marketId);
     if (a === undefined) return undefined;
     const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === marketId && r.positionId === a.positionId);
-    return rescuePositionScreen({ assessment: a, market: deps.configs.get(marketId), rule });
+    return rescuePositionScreen({ assessment: a, market: deps.configs.get(marketId), rule, alertPct: settings.get(account.accountId).alertPct, viewerTelegramUserId: viewer });
   }
 
   function rescueReview(account: AccountView, draft: RescueDraft): Screen | undefined {
@@ -1288,7 +1339,7 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, rescueMenu(account, link));
         return;
       case 'rescue-pos': {
-        const screen = rescuePosition(account, route.marketId);
+        const screen = rescuePosition(account, route.marketId, telegramUserId);
         if (screen === undefined) return gone();
         await ctx.answerCallbackQuery();
         await showScreen(ctx, screen);
@@ -1300,9 +1351,11 @@ export function createBot(deps: BotDeps): Bot {
         const rule = control.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
         const market = deps.configs.get(a.marketId);
         if (market === undefined) return answer(ctx, 'I have no market details for that position, so I cannot set amounts for it.');
-        drafts.set(chatId, telegramUserId, freshDraft(a, rule, market.collateralDecimals));
+        // ONE NUMBER: Auto acts at the alert distance, so there is no trigger to pick.
+        const draft = { ...freshDraft(a, rule, market.collateralDecimals), triggerPct: settings.get(account.accountId).alertPct / 100 };
+        drafts.set(chatId, telegramUserId, draft);
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, rescueTriggerScreen(a));
+        await showScreen(ctx, rescueAmountScreen(a, draft));
         return;
       }
       case 'rescue-trig': {
@@ -1380,22 +1433,22 @@ export function createBot(deps: BotDeps): Bot {
           await answer(ctx, 'Execution is not authorized on this account, so Rescue could not act. Open the Trading Account to fix it first.');
           return;
         }
-        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) });
+        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) }, { telegramUserId, chatId });
         if (!result.ok) {
           await answer(ctx, result.text);
           return;
         }
         drafts.delete(chatId, telegramUserId);
         await ctx.answerCallbackQuery({ text: 'Rescue is on.' });
-        const screen = rescuePosition(account, d.marketId) ?? rescueMenu(account, link);
+        const screen = rescuePosition(account, d.marketId, telegramUserId) ?? rescueMenu(account, link);
         await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
         return;
       }
       case 'rescue-stop':
       case 'rescue-resume': {
-        const result = route.to === 'rescue-stop' ? await control.disable(account.accountId, route.marketId) : await control.resume(account.accountId, route.marketId);
+        const result = route.to === 'rescue-stop' ? await control.disable(account.accountId, route.marketId) : await control.resume(account.accountId, route.marketId, { telegramUserId, chatId });
         await ctx.answerCallbackQuery({ text: result.text.slice(0, 190) });
-        const screen = rescuePosition(account, route.marketId) ?? rescueMenu(account, link);
+        const screen = rescuePosition(account, route.marketId, telegramUserId) ?? rescueMenu(account, link);
         await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
         return;
       }

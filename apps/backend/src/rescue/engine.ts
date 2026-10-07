@@ -58,6 +58,13 @@ export interface RescueEngineOptions {
   readonly store: RescueStore;
   readonly automation: AutomationStore;
   readonly account: (accountId: number) => RescueAccount | undefined;
+  /**
+   * TAP-ARMED ONLY: why a rule must not be acted on (no valid arming
+   * signature, or its armer is no longer linked), or undefined when it may.
+   * Asked before every judgement and again right before every send. Required:
+   * an engine that could act on an unsigned rule is the 01:55 failure.
+   */
+  readonly armProblem: (rule: RescueRule) => string | undefined;
   readonly notify: (accountId: number, notice: RescueNotice) => Promise<void>;
   readonly logger: { info(message: string): void; warn(message: string): void };
   readonly now?: () => number;
@@ -127,6 +134,43 @@ export class RescueEngine {
     this.#timer = undefined;
   }
 
+  /**
+   * WHAT AUTO WILL DO AT THIS CROSSING, for the manual alert's words: adding
+   * (with the amount and which top-up of how many), waiting (and why), or off.
+   * Judged by the same `decide` the engine acts on, as if the trigger were
+   * already confirmed, so the alert never says "adding" when the rule will hold.
+   */
+  autoNow(accountId: number, assessment: RiskAssessment): { readonly kind: 'off' } | { readonly kind: 'adding'; readonly amountCNS: bigint; readonly used: number; readonly max: number } | { readonly kind: 'waiting'; readonly why: string } {
+    const rule = this.#o.store.enabledRules().find((r) => r.accountId === accountId && r.positionId === assessment.positionId);
+    if (rule === undefined) return { kind: 'off' };
+    if (rule.pausedReason !== undefined) return { kind: 'waiting', why: `it is paused (${rule.pausedReason})` };
+    if (this.#o.armProblem(rule) !== undefined) return { kind: 'off' };
+    const account = this.#o.account(accountId);
+    if (account === undefined) return { kind: 'waiting', why: 'the account is not connected' };
+    if (this.#inFlight.has(rule.id) || this.#accountBusy.has(accountId)) return { kind: 'waiting', why: 'another top-up on this account is being sent' };
+    const now = this.#now();
+    const d = decide({
+      rule,
+      assessment,
+      openPositionIds: account.openPositionIds(),
+      belowSinceMs: now - 60_000,
+      automationStopped: this.#o.automation.automationStopped(accountId),
+      feedConnected: account.feedConnected(),
+      freeFloorCNS: this.#availableFloor(accountId, account.freeFloorCNS()),
+      nowMs: now,
+    });
+    switch (d.kind) {
+      case 'fire':
+        return { kind: 'adding', amountCNS: d.amountCNS, used: rule.rescueCount, max: rule.maxRescues };
+      case 'hold':
+        return { kind: 'waiting', why: d.detail };
+      case 'exhausted':
+        return { kind: 'waiting', why: 'its limits are used up, so it hands this one back to you' };
+      default:
+        return { kind: 'off' };
+    }
+  }
+
   /** Whether a rule has an attempt in flight right now. */
   busy(ruleId: number): boolean {
     return this.#inFlight.has(ruleId);
@@ -185,6 +229,14 @@ export class RescueEngine {
       return;
     }
     this.#noSessionLogged.delete(rule.id);
+    // NOT ARMED BY A TAP: never acted on. Switched off once, said in the log and on the position screen.
+    const armProblem = this.#o.armProblem(rule);
+    if (armProblem !== undefined) {
+      await this.#o.store.update(rule.id, { enabled: false, pausedReason: `ignored: ${armProblem}` });
+      this.#o.logger.warn(`rescue rule ${rule.id} on account ${rule.accountId} ${rule.symbol} IGNORED and switched off: ${armProblem}`);
+      await this.#releaseModeIfIdle(rule.accountId);
+      return;
+    }
     const assessment = account.snapshot().find((a) => a.marketId === rule.marketId);
 
     // The trigger's two looks: remembered from the first look at or below, forgotten the moment it is above.
@@ -329,6 +381,8 @@ export class RescueEngine {
           if (automation.automationStopped(rule.accountId)) return 'Automation was stopped (the kill switch is on) while this rescue was being prepared.';
           const now = store.rule(rule.id);
           if (now === undefined || !now.enabled) return 'Rescue was switched off for this position while this rescue was being prepared.';
+          const problem = this.#o.armProblem(now);
+          if (problem !== undefined) return `The rule cannot be acted on: ${problem}.`;
           sentAtMs = this.#now();
           return undefined;
         },

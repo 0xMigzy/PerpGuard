@@ -80,12 +80,17 @@ import {
   type WatchStore,
   type WatchTarget,
   encodeNav,
+  createManualAlertSender,
 } from '@perpguard/bot';
+import { DEFAULT_ALERT_CONFIG } from './alerts/types.ts';
 import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore } from './rescue/automation.ts';
 import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
 import { RescueControlService } from './rescue/control.ts';
 import { RescueEngine } from './rescue/engine.ts';
 import { KillSwitch } from './rescue/killSwitch.ts';
+import { ArmSigner } from './rescue/arming.ts';
+import { replacedByManualAlert } from './manual/replaced.ts';
+import { InMemoryManualAlertState, ManualAlerts, PostgresManualAlertState, type ManualAlertStateStore } from './manual/alerts.ts';
 import { CloseEverything } from './emergency/closeAll.ts';
 import { InMemoryCloseAllRunStore, PostgresCloseAllRunStore, type CloseAllRunStore } from './emergency/store.ts';
 import type { OpenPosition } from './emergency/verify.ts';
@@ -523,6 +528,18 @@ const forwardingTransport = new StartupDeliveryGate({
 });
 forwardingTransport.start();
 
+/**
+ * THE MANUAL ALERT SPEAKS FOR A CROSSING (Part 2): a linked account's own
+ * WATCH and DANGER alerts, and a "recovered" from them, are not sent; past its
+ * closing price, blindness and seeing again still are.
+ */
+const linkedAccountTransport: AlertTransport = {
+  send: async (recipient, message) => {
+    if (replacedByManualAlert(message)) return { ok: false, suppressed: true, reason: 'a crossing is said by the manual alert, once', retryable: false };
+    return forwardingTransport.send(recipient, message);
+  },
+};
+
 // ── each linked account's own settings ("Warn me at") ─────────────────────
 // Loaded before the registry opens anything, so a session opens with its
 // account's own thresholds; a change applies to the live loop at once.
@@ -577,7 +594,10 @@ const registry = new AccountRegistry({
     feedStatus: () => venue.feedStatus(),
     actionLog,
     alertLog: activity,
-    transport: forwardingTransport,
+    // A linked account's crossings are said by the MANUAL ALERT (Part 2), once,
+    // with the amounts to add; this engine keeps "past its closing price" and
+    // "I cannot see your positions" (and seeing them again).
+    transport: linkedAccountTransport,
     // Whoever is linked to the account RIGHT NOW, with actions. Asked per
     // alert, so a link made after boot is honoured and an unlink is immediate.
     recipients: (accountId) => links.byAccountId(accountId).map((link) => ({ userId: link.userId, rights: 'act' as const })),
@@ -678,10 +698,31 @@ const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
   return out;
 };
 
+// AUTO TOP-UP IS ARMED ONLY BY A TAP, signed with a key derived from the
+// server's key (`rescue/arming.ts`). Without that key nothing can be armed.
+let armSigner: ArmSigner | undefined;
+if (keyEncryptionHex !== undefined && keyEncryptionHex !== '') {
+  try {
+    armSigner = new ArmSigner(keyEncryptionHex);
+  } catch (error) {
+    warn(`auto top-up: no arming key (${error instanceof Error ? error.message : String(error)}); nothing can be armed`);
+  }
+} else {
+  warn('auto top-up: PERPGUARD_KEY_ENCRYPTION_KEY is not set, so nothing can be armed (manual alerts are unaffected)');
+}
+/** This Telegram user, in this chat, is linked to this account: the arming check, asked at the tap and at every judgement. */
+const isLinkedHere = (telegramUserId: number, chatId: number, accountId: number): boolean => {
+  const link = links.byTelegramUserId(telegramUserId);
+  return link !== undefined && link.accountId === accountId && link.chatId === chatId;
+};
+
 const rescueControl = new RescueControlService({
   store: rescueStore,
   automation,
   collateralDecimals,
+  signer: armSigner,
+  isLinked: isLinkedHere,
+  alertPctOf: (accountId) => accountSettings.get(accountId).alertPct,
   snapshot: (accountId) => registry.get(accountId)?.view.snapshot(),
   log,
 });
@@ -768,6 +809,7 @@ transport =
 const rescueEngine = new RescueEngine({
   store: rescueStore,
   automation,
+  armProblem: (rule) => rescueControl.armProblem(rule),
   account: (accountId) => {
     const session = registry.get(accountId);
     if (session === undefined) return undefined;
@@ -807,6 +849,40 @@ const rescueEngine = new RescueEngine({
   logger: { info: log, warn },
 });
 rescueEngine.start();
+
+// ── 🔔 manual alerts: every linked account, at its alert distance ───────────
+// One message per position per crossing (re-armed after a quarter-level
+// recovery), remembered across restarts, held while blind. Amounts to add,
+// each through the two-step confirm; or, with Auto armed, "adding now".
+let manualState: ManualAlertStateStore = new InMemoryManualAlertState();
+if (alertDb !== undefined) {
+  try {
+    manualState = await PostgresManualAlertState.load(alertDb);
+  } catch (error) {
+    warn(`manual alerts: crossings cannot be remembered in Postgres (${error instanceof Error ? error.message : String(error)}); a restart may repeat one`);
+  }
+}
+const sendManualAlert =
+  bot === undefined
+    ? undefined
+    : createManualAlertSender({ api: bot.api, store: pendingActions, links, sessions: registry, configs: riskConfigs, alerts: DEFAULT_ALERT_CONFIG });
+const manualAlerts = new ManualAlerts({
+  accounts: () =>
+    registry.list().map((session) => ({
+      accountId: session.accountId,
+      positionsLive: () => session.view.positionsStatus().state === 'live',
+      assessments: () => session.view.snapshot(),
+    })),
+  alertPctOf: (accountId) => accountSettings.get(accountId).alertPct,
+  state: manualState,
+  deliver: async (accountId, assessment, alertPct) => {
+    if (sendManualAlert === undefined) return;
+    await sendManualAlert({ accountId, assessment, alertPct, auto: rescueEngine.autoNow(accountId, assessment) });
+  },
+  logger: { info: log, warn },
+});
+manualAlerts.start();
+log('manual alerts up: every linked account at its own alert distance, once per crossing');
 // 🔴 THE KILL SWITCH: the persisted flag first, then every Rescue rule off and
 // the mode to NONE. Database only: it works with no session at all.
 killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine, log });
@@ -1325,6 +1401,7 @@ shutdown
   // cannot grow, rather than racing one that still can.
   .add('stop the watch loop and timers', () => {
     rescueEngine.stop();
+    manualAlerts.stop();
     clearInterval(marketRefreshTimer);
     treasuryScanner?.stop();
     watchLoop?.stop();

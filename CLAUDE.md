@@ -764,13 +764,51 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     can never be read as the new meaning. The executor's old
     `fireKillSwitch` is reachable from no bot path; Close everything is the
     new module above, not that one.
-- "WARN ME AT" (`apps/backend/src/risk/warn.ts`) is a real per-account
-  threshold on that account's loop: Early 10%, Normal 8% (today's default),
-  Last minute 3% (no WATCH band). DANGER stays at 3% for every level.
-  Persisted in `account_settings`, applied when the session opens and at once
-  on change. Quiet hours and a daily summary are in the layout but NOT
-  BUILT: they need a timezone Telegram does not give and a rule for DANGER
-  during quiet hours.
+- RESCUE IS TWO MODES (Part 2, owner, 7 Oct 2026). ONE NUMBER per account,
+  THE ALERT DISTANCE (`apps/backend/src/manual/distance.ts`, `account_settings
+  .alert_pct`): presets 2/3/5/8/10% or custom 0.5-20%, default 5% for new
+  accounts (an existing "Warn me at" kept the distance it first warned at:
+  Normal = 8%). Set in ⚙️ Settings ("Alert me at"), shown on home.
+  - 🔔 MANUAL, ON FOR EVERYONE, NOTHING TO ARM (`manual/alerts.ts`, bot
+    `manualAlert.ts`): at the distance, ONE message per position per crossing
+    (re-armed after recovering a quarter of the distance, at least half a
+    point; remembered in `manual_alert_state`, so a restart does not repeat
+    it; held while blind): the position, distance, P&L, free balance, and
+    +100/+250/+500/+1,000 (priced by the engine), Custom, View position,
+    Dismiss. Every amount goes through the TWO-STEP confirm: a tap only shows
+    ⚠️ CONFIRM ADD MARGIN. PerpGuard sends nothing on its own in this mode. A
+    linked account's own WATCH/DANGER alerts (and their "recovered") are not
+    sent any more (`manual/replaced.ts`): the crossing is said once, here.
+    Past liquidation and "cannot see" still go out. Changing the distance
+    starts fresh: a position already below the new line is told at once.
+  - 🤖 AUTO, OFF UNTIL A TAP TURNS IT ON, PER POSITION: the Rescue engine
+    above, unchanged in every safety (limits, total cap, floor, cooldown,
+    reservation, idempotency, `sr 32`, one handover, the Kill Switch), acting
+    AT THE ALERT DISTANCE (no trigger to pick; armed rules follow a change).
+    The person picks the amount (default 100) and the maximum top-ups
+    (default 2). For an armed position the crossing message says it is
+    ADDING (with a one-tap Turn off), or that Auto is waiting and why
+    (`RescueEngine.autoNow`, the same `decide`), never "adding" when it holds.
+    The position screen shows Alert and Auto separately, how and when Auto
+    was armed, and ⛔ Turn off auto in one tap.
+  - AUTO IS ARMED BY A TAP AND ONLY BY A TAP (`rescue/arming.ts`), after a
+    script-armed rule topped up 710 at 01:55 with nobody watching. Only the
+    bot's handler arms, passing the tap (Telegram user, chat); the control
+    checks both are linked to the account and SIGNS the rule (HMAC under a
+    key derived from `PERPGUARD_KEY_ENCRYPTION_KEY`) over every field that
+    matters, storing `armed_by`, `armed_chat`, `armed_at`, `arm_proof`. The
+    engine checks the signature and that the armer is still linked before
+    every judgement and right before every send; a rule that fails (a script,
+    an operator tool, a database insert, an edited amount, an unlinked
+    armer) is NEVER ACTED ON: switched off as `ignored: …` and logged. NO
+    SCRIPT ARMS A RULE ON A REAL ACCOUNT; test rules go on a test account or
+    database. Limit, said once: whoever holds the server key on the box could
+    sign; this closes every path that does not.
+- The bands on the screens (WATCH 8%, DANGER 3%: `risk/warn.ts`) still come
+  from each account's loop; "Warn me at" is no longer a screen, the alert
+  distance replaced it. Quiet hours and a daily summary are NOT BUILT: they
+  need a timezone Telegram does not give and a rule for DANGER during quiet
+  hours.
 - 🛟 LIQUIDATION RESCUE (Phase 17, `apps/backend/src/rescue/`, bot half
   `apps/bot/src/rescue.ts`). A rule is ONE POSITION (venue pid; a reopened
   position is a new one and its rule ends) with a trigger, an amount and FOUR

@@ -92,6 +92,10 @@ export type Route =
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
+  /** 🔔 A custom alert distance, typed. */
+  | { readonly to: 'alert-custom' }
+  /** 🔔 Dismiss a manual alert: its buttons go, its words stay, nothing is sent. */
+  | { readonly to: 'dismiss' }
   | { readonly to: 'disconnect-ask' }
   | { readonly to: 'disconnect' };
 // The close-all kill switch ('kq', 'kx') is RETIRED (6 Oct 2026): Close All is
@@ -157,6 +161,8 @@ const CODE: Readonly<Record<RouteName, string>> = {
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
+  'alert-custom': 'acu',
+  dismiss: 'dm',
   'disconnect-ask': 'dq',
   disconnect: 'dx',
 };

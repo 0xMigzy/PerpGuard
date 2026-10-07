@@ -1330,7 +1330,7 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   const fake = fakeLinkService();
   const h = harness({ link: fake.service });
   await tapNav(h, { to: 'settings' });
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['⚠️ Warn me at: Normal (8%)', '← Back'], 'Settings no longer holds Disconnect');
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔔 Alert me at: 5% from liquidation', '← Back'], 'Settings no longer holds Disconnect');
   await tapNav(h, { to: 'account' });
   const account = lastScreen(h.telegram);
   assert.match(String(account.payload['text']), new RegExp(`Account: <b>#710</b>\nNetwork: Monad ${h.view.network}\nWallet: None on record\nOwnership: ⚪ Not verified: linked as this deployment's owner\nExecution: 🟢 Authorized · this deployment's own key\nAutomation: ⚪ None`));
@@ -1348,23 +1348,23 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   assert.deepEqual(fake.unlinked, [USER_ID]);
 });
 
-test('Warn me at: three choices, the current one marked, a tap saves it and the label follows', async () => {
-  const saved: Array<[number, string]> = [];
-  const settings = new InMemoryAccountSettingsStore({ onChange: (id, v) => saved.push([id, v.warnLevel]) });
+test('ALERT DISTANCE: one number, presets with the current one marked, custom typed, a tap saves it and the label follows', async () => {
+  const saved: Array<[number, number]> = [];
+  const settings = new InMemoryAccountSettingsStore({ onChange: (id, v) => saved.push([id, v.alertPct]) });
   const h = harness({ settings });
   await tapNav(h, { to: 'warn-ask' });
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), [
-    'Early · 10% — most time to react',
-    'Normal · 8% — currently set',
-    'Last minute · 3% — fewest messages',
-    '← Back',
-  ]);
-  await tapNav(h, { to: 'warn-set', level: 0 });
-  assert.deepEqual(saved, [[710, 'early']]);
-  assert.equal(keyboardOf(lastScreen(h.telegram))[0]!.text, '⚠️ Warn me at: Early (10%)');
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['2%', '3%', '✅ 5%', '8%', '10%', '🎛 Custom', '← Back']);
+  await tapNav(h, { to: 'warn-set', level: 1 });
+  assert.deepEqual(saved, [[710, 3]]);
+  assert.equal(keyboardOf(lastScreen(h.telegram))[0]!.text, '🔔 Alert me at: 3% from liquidation');
   await tapNav(h, { to: 'warn-set', level: 9 });
   assert.match(answers(h.telegram).at(-1)!, /do not know that setting/);
-  assert.deepEqual(saved, [[710, 'early']]);
+  await tapNav(h, { to: 'alert-custom' });
+  await h.bot.handleUpdate(messageUpdate('42'));
+  assert.match(texts(h.telegram).at(-1)!, /between 0\.5 and 20/, 'out of range asks again');
+  await h.bot.handleUpdate(messageUpdate('4.5%'));
+  assert.deepEqual(saved.at(-1), [710, 4.5]);
+  assert.equal(keyboardOf(lastScreen(h.telegram))[0]!.text, '🔔 Alert me at: 4.5% from liquidation');
 });
 
 test('the retired close-all kill switch: an old kill button in a chat fires NOTHING, and no screen offers one', async () => {
@@ -1506,9 +1506,10 @@ async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat
 }
 
 import { decodeNav as decodeNavTapForTest } from './nav.ts';
-import type { RescueControl, RescueDraft, RescueRuleView } from './rescue.ts';
+import type { ArmTap, RescueControl, RescueDraft, RescueRuleView } from './rescue.ts';
 import type { KillSwitchControl, StopReportView } from './killSwitch.ts';
 import type { EmergencyControl, EmergencyPosition, EmergencyReport } from './emergency.ts';
+import { createManualAlertSender, type AutoNow } from './manualAlert.ts';
 
 /** Still unbuilt after Phase 20: these must not appear as buttons anywhere. */
 const UNBUILT = /copy|close all|funding|remove margin/i;
@@ -1518,7 +1519,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'margin-add', 'margin-pos', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'margin', 'margin-add', 'margin-pos', 'position', 'positions', 'settings', 'top', 'top-pnl', 'top-roi', 'trader', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-id', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1528,7 +1529,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   }
   // Home, linked: the spec's status block, with the network and an honest execution line.
   const home = seen.get('home')!;
-  assert.match(home.html, /^🛡 <b>PERPGUARD<\/b>\nAnalyse\. Watch\. Act\.\n\n🔐 Trading Account: <b>#710<\/b> · Monad \w+\nExecution: 🟢 Authorized\nAutomation: ⚪ None\nAlerts: 🟢 ON · first warning at 8%/);
+  assert.match(home.html, /^🛡 <b>PERPGUARD<\/b>\nAnalyse\. Watch\. Act\.\n\n🔐 Trading Account: <b>#710<\/b> · Monad \w+\nExecution: 🟢 Authorized\nAutomation: ⚪ None\nAlerts: 🟢 ON at 5% from liquidation/);
   assert.deepEqual(home.labels, ['👁 Watch & Alerts', '📊 My Positions', '💰 Margin', '🔐 Trading Account', '⚙️ Settings', '🌐 Open PerpGuard']);
   assert.equal(h.executor.calls.length, 0, 'walking the menu sends nothing');
 });
@@ -1777,7 +1778,7 @@ test('PHASE 15: an amount over the free floor is offered WITH a warning; a blind
 // ── 🛟 Rescue (Phase 17) ────────────────────────────────────────────────────
 
 class FakeRescue implements RescueControl {
-  enabled: Array<{ accountId: number; draft: RescueDraft }> = [];
+  enabled: Array<{ accountId: number; draft: RescueDraft; arm: ArmTap }> = [];
   ruleViews: RescueRuleView[] = [];
   stoppedFlag = false;
   rules(): readonly RescueRuleView[] {
@@ -1789,8 +1790,8 @@ class FakeRescue implements RescueControl {
   otherAutomation(): string | undefined {
     return undefined;
   }
-  async enable(accountId: number, draft: RescueDraft) {
-    this.enabled.push({ accountId, draft });
+  async enable(accountId: number, draft: RescueDraft, arm: ArmTap) {
+    this.enabled.push({ accountId, draft, arm });
     this.ruleViews = [{ marketId: draft.marketId, symbol: 'BTC', positionId: draft.positionId, triggerPct: draft.triggerPct!, amountCNS: draft.amountCNS!, maxRescues: draft.maxRescues, maxTotalCNS: draft.maxTotalCNS!, minRemainingCNS: draft.minRemainingCNS, cooldownMs: draft.cooldownMs, rescueCount: 0, totalRescuedCNS: 0n, enabled: true, pausedReason: undefined }];
     return { ok: true as const, text: 'Rescue is on for BTC.' };
   }
@@ -1803,7 +1804,7 @@ class FakeRescue implements RescueControl {
   }
 }
 
-test('RESCUE: home offers it to a linked chat; the owner sets 4% and 25 AUSD by typing, sees the four limits, and ENABLE hands the server one draft', async () => {
+test('AUTO TOP-UP: acts at the alert distance (no trigger to pick); 25 AUSD typed; the four limits shown; TURN ON hands the server one draft WITH THE TAP that armed it', async () => {
   const rescue = new FakeRescue();
   const h = harness({ rescue });
   const a = dangerAssessment();
@@ -1813,20 +1814,23 @@ test('RESCUE: home offers it to a linked chat; the owner sets 4% and 25 AUSD by 
   assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🛟 Rescue'), 'home has the Rescue button once it is built');
 
   await tapNav(h, { to: 'rescue' });
-  assert.match(String(lastScreen(h.telegram).payload['text']), /LIQUIDATION RESCUE[\s\S]*Account: <b>#710<\/b>[\s\S]*Execution: 🟢[\s\S]*Status: ⚪ OFF/);
+  const menu = String(lastScreen(h.telegram).payload['text']);
+  assert.match(menu, /🔔 <b>Alert<\/b>, always on: when a position gets within <b>5%<\/b>/);
+  assert.match(menu, /🤖 <b>Auto top-up<\/b>, off until you turn it on/);
+  assert.match(menu, /Account: <b>#710<\/b>[\s\S]*Execution: 🟢[\s\S]*Auto top-up: ⚪ off everywhere/);
   await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
+  const pos = String(lastScreen(h.telegram).payload['text']);
+  assert.match(pos, /🔔 Alert: on, at <b>5%<\/b> from liquidation\n🤖 Auto top-up: ⚪ OFF/);
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🤖 Turn on auto'));
   await tapNav(h, { to: 'rescue-cfg', marketId: a.marketId });
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['10%', '5%', '3%', '2%', '🎛 Custom', '← Back']);
-
-  await tapNav(h, { to: 'rescue-trig-custom' });
-  await h.bot.handleUpdate(messageUpdate('4'));
+  assert.match(String(lastScreen(h.telegram).payload['text']), /It acts where your alert fires: <b>5\.0%<\/b>/);
   assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['+100', '+250', '+500', '+1,000', '🎛 Custom', '← Back'], 'no "% of balance": not built, so no button');
   await tapNav(h, { to: 'rescue-amt-custom' });
   await h.bot.handleUpdate(messageUpdate('25'));
   const review = String(lastScreen(h.telegram).payload['text']);
-  assert.match(review, /Trigger: ≤ <b>4\.0%<\/b>/);
-  assert.match(review, /Action: add <b>25 AUSD<\/b> margin/);
-  assert.match(review, /Maximum rescues: <b>2<\/b>/);
+  assert.match(review, /Acts at: ≤ <b>5\.0%<\/b> from liquidation \(your alert distance\)/);
+  assert.match(review, /Adds: <b>25 AUSD<\/b> each time/);
+  assert.match(review, /Maximum top-ups: <b>2<\/b>/);
   assert.match(review, /Maximum total: <b>50 AUSD<\/b>/);
   assert.match(review, /Minimum remaining: <b>500 AUSD<\/b>/);
   assert.match(review, /Cooldown: <b>15 minutes<\/b>/);
@@ -1841,7 +1845,8 @@ test('RESCUE: home offers it to a linked chat; the owner sets 4% and 25 AUSD by 
   assert.equal(rescue.enabled.length, 1);
   const sent = rescue.enabled[0]!;
   assert.equal(sent.accountId, 710);
-  assert.equal(sent.draft.triggerPct, 0.04);
+  assert.deepEqual(sent.arm, { telegramUserId: OWNER_ID, chatId: OWNER_CHAT }, 'armed by THIS tap, from THIS chat');
+  assert.equal(sent.draft.triggerPct, 0.05, 'the alert distance');
   assert.equal(sent.draft.amountCNS, 25_000_000n);
   assert.equal(sent.draft.maxTotalCNS, 100_000_000n);
   assert.equal(sent.draft.positionId, a.positionId);
@@ -2061,4 +2066,82 @@ test('CLOSE EVERYTHING: a stranger cannot reach it', async () => {
   await h.bot.handleUpdate(messageUpdate('CLOSE ALL', { from: STRANGER_ID, chat: STRANGER_CHAT }));
   await tapNav(h, { to: 'close-retry-go', marketId: 16 }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   assert.equal(emergency.runs.length, 0);
+});
+
+
+// ── 🔔 the manual alert (Part 2) ─────────────────────────────────────────────
+
+async function sendAlert(h: Harness, auto: AutoNow): Promise<FakeTelegram['calls'][number]> {
+  const scenario = dangerScenario();
+  h.view.loop = scenario.loop;
+  h.view.assessments = [scenario.assessment];
+  const send = createManualAlertSender({
+    api: h.bot.api,
+    store: h.store,
+    links: h.links,
+    sessions: new StaticSessionRouter([{ accountId: 710, view: h.view, executor: h.executor, balance: h.balance, status: () => h.sessionStatus }]),
+    configs: CONFIGS,
+    alerts: { bufferDecimals: 1 },
+  });
+  await send({ accountId: 710, assessment: scenario.assessment, alertPct: 5, auto });
+  return h.telegram.last('sendMessage');
+}
+
+test('MANUAL ALERT: the position, its distance, the free balance and P&L; amounts, Custom, View position, Dismiss; nothing sent', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'off' });
+  const text = String(msg.payload['text']);
+  assert.match(text, /^🔔 <b>BTC long is 2\.7% from being closed<\/b> · your alert: 5%/);
+  assert.match(text, /Free balance: at least <b>10,000 AUSD<\/b>/);
+  assert.match(text, /P&amp;L <b>−\d+ AUSD<\/b>/);
+  assert.match(text, /Tap an amount, then confirm\. Nothing is sent until you do\./);
+  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['+100', '+250', '+500', '+1,000', '✏️ Custom', '📊 View position', 'Dismiss']);
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('MANUAL ALERT: TWO TAPS — tapping +100 only shows the confirmation; the confirm sends, once', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'off' });
+  const plus100 = keyboardOf(msg).find((b) => b.text === '+100')!;
+  await h.bot.handleUpdate(callbackUpdate(plus100.callback_data));
+  assert.equal(h.executor.calls.length, 0, 'a mis-tap on a notification sends nothing');
+  assert.match(shown(h.telegram).at(-1)!, /CONFIRM ADD MARGIN/);
+  const send = keyboardOf(h.telegram.last('sendMessage'))[0]!;
+  await h.bot.handleUpdate(callbackUpdate(send.callback_data));
+  assert.equal(h.executor.calls.length, 1);
+  assert.equal(h.executor.calls[0]?.action.amountCNS, 100_000_000n);
+});
+
+test('MANUAL ALERT: a button on it is issued to the linked person only', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'off' });
+  const plus100 = keyboardOf(msg).find((b) => b.text === '+100')!;
+  await h.bot.handleUpdate(callbackUpdate(plus100.callback_data, { from: STRANGER_ID, chat: STRANGER_CHAT }));
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('MANUAL ALERT, AUTO ARMED: the same crossing says it is ADDING, not asking, with a one-tap Turn off', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'adding', amountCNS: 100_000_000n, used: 0, max: 2 });
+  const text = String(msg.payload['text']);
+  assert.match(text, /🤖 <b>AUTO TOP-UP<\/b> · BTC long is <b>2\.7% from being closed<\/b> \(your alert: 5%\)/);
+  assert.match(text, /Adding <b>100 AUSD<\/b> now \(top-up 1 of 2\)/);
+  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['📊 View position', '⛔ Turn off auto']);
+});
+
+test('MANUAL ALERT, AUTO ARMED BUT HELD: says why, and offers the amounts', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'waiting', why: 'the cooldown since the last rescue has 9 min left' });
+  assert.match(String(msg.payload['text']), /Auto top-up is on for this position but is not adding right now: the cooldown since the last rescue has 9 min left\./);
+  assert.ok(keyboardOf(msg).some((b) => b.text === '+100'));
+});
+
+test('MANUAL ALERT: Dismiss takes the buttons off and sends nothing', async () => {
+  const h = harness();
+  const msg = await sendAlert(h, { kind: 'off' });
+  const dismiss = keyboardOf(msg).find((b) => b.text === 'Dismiss')!;
+  await h.bot.handleUpdate(callbackUpdate(dismiss.callback_data));
+  assert.equal(answers(h.telegram).at(-1), 'Dismissed. Nothing was sent.');
+  assert.ok(h.telegram.of('editMessageReplyMarkup').length >= 1);
+  assert.equal(h.executor.calls.length, 0);
 });

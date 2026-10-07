@@ -116,7 +116,7 @@ await rec.tap(rec.labels().find((l) => l.startsWith('⚠️ Warn me at'))!);
 rec.frame('8. Warn me at: three choices');
 await rec.tap(rec.labels().find((l) => l.startsWith('Early'))!);
 rec.frame(`9. Saved: the loop now warns at ${(session.loop.thresholds.watchEnterPct * 100).toFixed(0)}%`);
-await settings.set(accountId, { warnLevel: 'normal' });
+await settings.set(accountId, { ...settings.get(accountId), warnLevel: 'normal' });
 
 await rec.tap('← Back');
 await rec.tap('← Back');

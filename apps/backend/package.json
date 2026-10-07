@@ -18,7 +18,8 @@
     "./actions/types": "./src/actions/types.ts",
     "./protect": "./src/server/protect/types.ts",
     "./events/preferences": "./src/events/preferences.ts",
-    "./events/warnings": "./src/events/warnings.ts"
+    "./events/warnings": "./src/events/warnings.ts",
+    "./manual/distance": "./src/manual/distance.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

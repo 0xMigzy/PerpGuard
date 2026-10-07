@@ -22,6 +22,8 @@ export type Question =
   | { readonly kind: 'rescue-trigger' }
   /** 🛟 A custom rescue amount, in AUSD. */
   | { readonly kind: 'rescue-amount' }
+  /** 🔔 A custom alert distance, in percent. */
+  | { readonly kind: 'alert-distance' }
   /** 🚪 "Type CLOSE ALL to confirm." Carries the request it confirms and when the list was shown. */
   | { readonly kind: 'close-all'; readonly requestId: string; readonly shownAtMs: number };
 

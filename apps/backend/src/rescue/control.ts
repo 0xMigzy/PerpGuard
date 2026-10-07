@@ -9,13 +9,15 @@
  * position's previous rule is ended and replaced, never stacked.
  */
 import type { RiskAssessment } from '../risk/types.ts';
+import type { ArmContext, ArmSigner } from './arming.ts';
 import type { AutomationStore } from './automation.ts';
 import type { RescueRule, RescueStore } from './store.ts';
 
 export interface RescueDraftInput {
   readonly marketId: number;
   readonly positionId: number;
-  readonly triggerPct: number | undefined;
+  /** IGNORED since Part 2: AUTO acts at the account's alert distance, one number. */
+  readonly triggerPct?: number | undefined;
   readonly amountCNS: bigint | undefined;
   readonly maxRescues: number;
   readonly maxTotalCNS: bigint | undefined;
@@ -40,9 +42,18 @@ export class RescueControlService {
   readonly #log: (line: string) => void;
   /** The collateral token's decimals, from the venue's context. Never assumed to be 6. */
   readonly #decimals: number;
+  readonly #signer: ArmSigner | undefined;
+  readonly #isLinked: (telegramUserId: number, chatId: number, accountId: number) => boolean;
+  readonly #alertPctOf: (accountId: number) => number;
 
   constructor(o: {
     readonly collateralDecimals: number;
+    /** Signs a rule at the tap that arms it. Without it nothing can be armed. */
+    readonly signer: ArmSigner | undefined;
+    /** Whether this Telegram user, in this chat, is linked to this account. Asked at arming and at every check. */
+    readonly isLinked: (telegramUserId: number, chatId: number, accountId: number) => boolean;
+    /** The account's alert distance, in percent: where AUTO acts. */
+    readonly alertPctOf: (accountId: number) => number;
     readonly store: RescueStore;
     readonly automation: AutomationStore;
     /** The account's live assessments, or undefined when it has no session. */
@@ -55,6 +66,9 @@ export class RescueControlService {
     this.#snapshot = o.snapshot;
     this.#now = o.now ?? Date.now;
     this.#log = o.log ?? (() => {});
+    this.#signer = o.signer;
+    this.#isLinked = o.isLinked;
+    this.#alertPctOf = o.alertPctOf;
     if (!Number.isInteger(o.collateralDecimals) || o.collateralDecimals < 0 || o.collateralDecimals > 18) throw new RangeError(`collateral decimals must be 0..18, got ${o.collateralDecimals}`);
     this.#decimals = o.collateralDecimals;
   }
@@ -80,7 +94,34 @@ export class RescueControlService {
     return this.#automation.get(accountId).mode === 'COPY_TRADING' ? 'Copy Trading' : undefined;
   }
 
-  async enable(accountId: number, d: RescueDraftInput): Promise<Result> {
+  /**
+   * Why this rule must NOT be acted on, or undefined when it may. Asked by the
+   * engine before it judges a rule and again right before any send: the
+   * signature must be this server's over exactly these fields, and the person
+   * who armed it must still be linked to the account from the same chat.
+   */
+  armProblem(rule: RescueRule): string | undefined {
+    if (rule.armProof === undefined || rule.armedBy === undefined || rule.armedChat === undefined) return 'not armed by a tap in the bot';
+    if (this.#signer === undefined || !this.#signer.verify(rule, rule.armProof)) return 'its arming signature does not verify';
+    if (!this.#isLinked(rule.armedBy, rule.armedChat, rule.accountId)) return 'the person who armed it is no longer linked to this account';
+    return undefined;
+  }
+
+  /** ONE NUMBER: every armed rule on the account moves to the alert distance (a fraction). */
+  async followAlertDistance(accountId: number, triggerPct: number): Promise<void> {
+    for (const r of this.#store.rulesFor(accountId)) {
+      if (r.enabled && r.triggerPct !== triggerPct) await this.#store.update(r.id, { triggerPct });
+    }
+  }
+
+  /**
+   * ARMS AUTO TOP-UP on one position. ONLY the bot's tap handler calls this,
+   * with the `ArmContext` of the tap: who tapped and from which chat. Both
+   * must be linked to the account, and the rule is SIGNED with them.
+   */
+  async enable(accountId: number, d: RescueDraftInput, arm: ArmContext): Promise<Result> {
+    if (this.#signer === undefined) return { ok: false, text: 'Auto top-up cannot be turned on here: the server has no key to sign it with. Nothing was turned on.' };
+    if (!this.#isLinked(arm.telegramUserId, arm.chatId, accountId)) return { ok: false, text: 'Only the person linked to this account, from their own chat, can turn Auto top-up on. Nothing was turned on.' };
     // THE KILL SWITCH BLOCKS NEW AUTOMATION: nothing is turned on while it is on.
     if (this.#automation.automationStopped(accountId)) {
       return { ok: false, text: 'Automation is stopped (kill switch). Turn it back on from 🔴 Kill Switch first. Nothing was turned on.' };
@@ -91,7 +132,9 @@ export class RescueControlService {
     if (a === undefined || a.positionId !== d.positionId) return { ok: false, text: 'That position is not open any more, so nothing was turned on.' };
     const amount = d.amountCNS;
     const cap = d.maxTotalCNS;
-    if (d.triggerPct === undefined || !(d.triggerPct >= 0.005 && d.triggerPct <= 0.2)) return { ok: false, text: 'The trigger must be between 0.5% and 20%. Nothing was turned on.' };
+    // ONE NUMBER: AUTO acts at the account's alert distance.
+    const triggerPct = this.#alertPctOf(accountId) / 100;
+    if (!(triggerPct >= 0.005 && triggerPct <= 0.2)) return { ok: false, text: 'Your alert distance must be between 0.5% and 20%. Nothing was turned on.' };
     const AUSD = 10n ** BigInt(this.#decimals);
     if (amount === undefined || amount < AUSD || amount > 100_000n * AUSD) return { ok: false, text: 'The amount must be between 1 and 100,000 AUSD. Nothing was turned on.' };
     if (!Number.isInteger(d.maxRescues) || d.maxRescues < 1 || d.maxRescues > 10) return { ok: false, text: 'Maximum rescues must be between 1 and 10. Nothing was turned on.' };
@@ -110,40 +153,42 @@ export class RescueControlService {
     for (const old of this.#store.rulesFor(accountId)) {
       if (old.marketId === d.marketId && old.enabled) await this.#store.update(old.id, { enabled: false, pausedReason: 'replaced' });
     }
-    const rule = await this.#store.create(
-      {
-        accountId,
-        marketId: d.marketId,
-        symbol: a.symbol,
-        positionId: d.positionId,
-        triggerPct: d.triggerPct,
-        amountCNS: amount,
-        maxRescues: d.maxRescues,
-        maxTotalCNS: cap,
-        minRemainingCNS: d.minRemainingCNS,
-        cooldownMs: d.cooldownMs,
-      },
-      this.#now(),
-    );
+    const armedAtMs = this.#now();
+    const fields = {
+      accountId,
+      marketId: d.marketId,
+      positionId: d.positionId,
+      amountCNS: amount,
+      maxRescues: d.maxRescues,
+      maxTotalCNS: cap,
+      minRemainingCNS: d.minRemainingCNS,
+      cooldownMs: d.cooldownMs,
+      armedBy: arm.telegramUserId,
+      armedChat: arm.chatId,
+      armedAtMs,
+    };
+    const rule = await this.#store.create({ ...fields, symbol: a.symbol, triggerPct, armProof: this.#signer.sign(fields) }, armedAtMs);
     this.#log(
-      `rescue rule ${rule.id} ENABLED on account ${accountId} ${a.symbol} position ${d.positionId}: trigger ${(d.triggerPct * 100).toFixed(2)}%, amount ${amount}, max ${d.maxRescues} rescues / ${cap} total, keeps ${d.minRemainingCNS}, cooldown ${d.cooldownMs} ms`,
+      `rescue rule ${rule.id} ARMED by tg:${arm.telegramUserId} in chat ${arm.chatId} on account ${accountId} ${a.symbol} position ${d.positionId}: acts at ${(triggerPct * 100).toFixed(2)}% (the alert distance), amount ${amount}, max ${d.maxRescues} top-ups / ${cap} total, keeps ${d.minRemainingCNS}, cooldown ${d.cooldownMs} ms`,
     );
-    return { ok: true, text: `Rescue is on for ${a.symbol}: at ${(d.triggerPct * 100).toFixed(1)}% it adds ${fmtIn(amount, this.#decimals)}, at most ${d.maxRescues} times and ${fmtIn(cap, this.#decimals)} in all.` };
+    return { ok: true, text: `Auto top-up is on for ${a.symbol}: at ${(triggerPct * 100).toFixed(1)}% from liquidation it adds ${fmtIn(amount, this.#decimals)}, at most ${d.maxRescues} times and ${fmtIn(cap, this.#decimals)} in all.` };
   }
 
   async disable(accountId: number, marketId: number): Promise<Result> {
     const on = this.#store.rulesFor(accountId).filter((r) => r.marketId === marketId && r.enabled);
-    if (on.length === 0) return { ok: true, text: 'Rescue was already off for this position.' };
-    for (const r of on) await this.#store.update(r.id, { enabled: false, pausedReason: 'stopped by you' });
+    if (on.length === 0) return { ok: true, text: 'Auto top-up was already off for this position.' };
+    for (const r of on) await this.#store.update(r.id, { enabled: false, pausedReason: 'turned off by you' });
     if (!this.#store.rulesFor(accountId).some((r) => r.enabled)) await this.#automation.transition(accountId, 'LIQUIDATION_RESCUE', 'NONE');
     this.#log(`rescue rule(s) ${on.map((r) => r.id).join(', ')} stopped by the person on account ${accountId} market ${marketId}`);
-    return { ok: true, text: `Rescue is off for ${on[0]!.symbol}. Nothing more will be added automatically.` };
+    return { ok: true, text: `Auto top-up is off for ${on[0]!.symbol}. Nothing more will be added automatically. You still get the alert.` };
   }
 
   /** Clears a pause the rule put on itself (an unknown outcome). Counts and limits are kept. */
-  async resume(accountId: number, marketId: number): Promise<Result> {
+  async resume(accountId: number, marketId: number, arm: ArmContext): Promise<Result> {
+    if (!this.#isLinked(arm.telegramUserId, arm.chatId, accountId)) return { ok: false, text: 'Only the person linked to this account, from their own chat, can resume it.' };
     const r = this.#store.rulesFor(accountId).find((x) => x.marketId === marketId && x.enabled && x.pausedReason !== undefined);
     if (r === undefined) return { ok: false, text: 'There is no paused rule on this position.' };
+    if (this.armProblem(r) !== undefined) return { ok: false, text: 'That rule was not armed by a tap in the bot, so it cannot be resumed. Turn Auto top-up on again instead.' };
     await this.#store.update(r.id, { pausedReason: undefined, lastNotice: undefined });
     this.#log(`rescue rule ${r.id} resumed by the person on account ${accountId}`);
     return { ok: true, text: `Rescue resumed for ${r.symbol}. Rescues used so far: ${r.rescueCount} / ${r.maxRescues}.` };

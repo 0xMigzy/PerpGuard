@@ -11,12 +11,19 @@
  * DANGER during quiet hours; they are not offered until those are decided.
  */
 import { DEFAULT_WARN_LEVEL, type WarnLevel } from '@perpguard/backend/risk/warn';
+import { DEFAULT_ALERT_DISTANCE_PCT } from '@perpguard/backend/manual/distance';
 
 export interface AccountSettings {
+  /** The risk bands on the screens (WATCH, DANGER). No longer chosen on a screen: the alert distance replaced it. */
   readonly warnLevel: WarnLevel;
+  /**
+   * THE ALERT DISTANCE, in percent (Part 2): where MANUAL alerts fire and
+   * where an armed AUTO top-up acts. One number per account.
+   */
+  readonly alertPct: number;
 }
 
-export const DEFAULT_SETTINGS: AccountSettings = { warnLevel: DEFAULT_WARN_LEVEL };
+export const DEFAULT_SETTINGS: AccountSettings = { warnLevel: DEFAULT_WARN_LEVEL, alertPct: DEFAULT_ALERT_DISTANCE_PCT };
 
 export interface AccountSettingsStore {
   get(accountId: number): AccountSettings;
