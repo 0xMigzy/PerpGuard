@@ -569,3 +569,30 @@ test('THE HANDOVER IS SAID ONCE: the rule ends, and a recovery and a second dip 
   assert.equal(r.store.rule(rule.id)?.pausedReason, 'limits reached');
   assert.equal(r.acct.commands.length, 1);
 });
+
+test('ONE PERSON\'S SLOW MESSAGE NEVER HOLDS ANOTHER\'S RULE: a handover that never sends does not stop the next account firing in the same tick', async () => {
+  const clock = { t: 1_000_000 };
+  const store = new InMemoryRescueStore();
+  const acct = new TwoPositions(9_000n);
+  const engine = new RescueEngine({
+    store,
+    automation: new InMemoryAutomationStore(() => clock.t),
+    account: () => acct,
+    // Account 710's messages never finish sending.
+    notify: (id) => (id === 710 ? new Promise<void>(() => {}) : Promise.resolve()),
+    logger: { info: () => {}, warn: () => {} },
+    now: () => clock.t,
+    remeasureMs: 0,
+  });
+  const spent = await store.create(newRule({ accountId: 710, marketId: 16, positionId: 1, symbol: 'BTC' }), clock.t);
+  await store.update(spent.id, { rescueCount: 2, totalRescuedCNS: 50n * AUSD });
+  await store.create(newRule({ accountId: 711, marketId: 32, positionId: 2, symbol: 'ETH' }), clock.t);
+  await engine.tick();
+  clock.t += 1_000;
+  const tick = engine.tick();
+  const finished = await Promise.race([tick.then(() => true), new Promise((r) => setTimeout(() => r(false), 500))]);
+  assert.equal(finished, true, 'the tick did not wait on the stuck message');
+  await engine.settle();
+  assert.equal(acct.commands.length, 1, "711's rescue went");
+  assert.equal(acct.commands[0]?.accountId, 711);
+});

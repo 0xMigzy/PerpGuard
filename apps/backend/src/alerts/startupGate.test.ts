@@ -40,7 +40,7 @@ test('while holding nothing is sent; a clean open drops the startup blindness an
   assert.deepEqual((await recovered).suppressed, true);
   assert.deepEqual(await danger, { ok: true });
   assert.deepEqual(r.inner.sent.map((s) => s.message.kind), ['danger']);
-  assert.match(r.logger.infos.at(-1)!, /opened \(clean\) after 0s: 4 held, 3 startup blindness alert\(s\) dropped, 1 delivered/);
+  assert.match(r.logger.infos.at(-1)!, /opened for account:710 \(clean\) after 0s: 4 held, 3 startup blindness alert\(s\) dropped, 1 delivered/);
 });
 
 test('after a clean open, the first recovery for a position whose blind alert was dropped is dropped too; a later real outage is delivered', async () => {
@@ -89,4 +89,26 @@ test('through the real engine: a suppressed alert writes no alert_log row and ra
   assert.equal(log.rows.length, 0, JSON.stringify(log.rows.map((x) => [x.kind, x.outcome, x.lastError])));
   assert.equal(failures.length, 0);
   assert.equal(r.inner.sent.length, 0);
+});
+
+test('PER ACCOUNT: one account still blind at boot does not hold another account\'s alerts', async () => {
+  const inner = new FakeTransport();
+  const state = { now: 0, clean710: true, clean711: false };
+  const gate = new StartupDeliveryGate({
+    inner,
+    isClean: (scope) => (scope === 'account:710' ? state.clean710 : scope === 'account:711' ? state.clean711 : true),
+    deadlineMs: 180_000,
+    now: () => state.now,
+  });
+  const forB = gate.send(OWNER, { ...msg('danger', 'DANGER'), accountId: 711 } as AlertMessage);
+  const forA = gate.send(OWNER, msg('danger', 'DANGER'));
+  await forA;
+  assert.equal(inner.sent.length, 1, "710's alert went at once");
+  assert.equal(gate.heldCount, 1, "711's waits for 711");
+  assert.equal(gate.scopeState('account:711'), undefined);
+  state.clean711 = true;
+  gate.check();
+  await forB;
+  assert.equal(inner.sent.length, 2);
+  assert.equal(gate.scopeState('account:711'), 'clean');
 });

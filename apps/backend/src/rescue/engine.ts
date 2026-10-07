@@ -234,7 +234,7 @@ export class RescueEngine {
         this.#belowSince.delete(rule.id);
         this.#o.logger.info(`rescue rule ${rule.id}: limits reached on account ${rule.accountId} ${rule.symbol} (${decision.detail}); handed over, rule ended`);
         await this.#releaseModeIfIdle(rule.accountId);
-        await this.#o.notify(rule.accountId, { kind: 'exhausted', rule: ended, assessment, why: decision.detail });
+        this.#tell(rule.accountId, { kind: 'exhausted', rule: ended, assessment, why: decision.detail });
         return;
       }
       case 'ended':
@@ -339,7 +339,7 @@ export class RescueEngine {
       reservation.unknown = true;
       await store.record(rule.id, attemptNo, { sentAtMs, outcome: 'unknown', detail, verifiedAtMs: this.#now() });
       const paused = await store.update(rule.id, { pausedReason: 'unknown outcome', lastNotice: 'paused' });
-      await this.#o.notify(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail });
+      this.#tell(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail });
       return;
     }
 
@@ -357,7 +357,7 @@ export class RescueEngine {
         this.#lastRefusal.delete(rule.id);
         const paused = await store.update(rule.id, { pausedReason: `refused twice: ${outcome.code}`, lastNotice: 'paused' });
         logger.warn(`rescue rule ${rule.id}: refused twice in a row (${outcome.code}); paused until the person resumes it`);
-        await this.#o.notify(rule.accountId, { kind: 'paused-refused', rule: paused, detail: outcome.detail });
+        this.#tell(rule.accountId, { kind: 'paused-refused', rule: paused, detail: outcome.detail });
         return;
       }
       this.#lastRefusal.set(rule.id, outcome.code);
@@ -392,7 +392,7 @@ export class RescueEngine {
         totalRescuedCNS: rule.totalRescuedCNS + amountCNS,
       });
       logger.warn(`rescue ${idempotencyKey}: UNKNOWN — rule paused, ${amountCNS} stays reserved until a restart. ${outcome.detail}`);
-      await this.#o.notify(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail: outcome.nextStep });
+      this.#tell(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail: outcome.nextStep });
       return;
     }
 
@@ -400,7 +400,7 @@ export class RescueEngine {
       // The position shows nothing landed, so nothing left the account.
       this.#release(rule.accountId, idempotencyKey, 'not applied: the position did not move');
       logger.info(`rescue ${idempotencyKey}: not applied — the position's margin did not move. ${outcome.detail}`);
-      await this.#o.notify(rule.accountId, { kind: 'not-applied', rule: store.rule(rule.id) ?? rule, amountCNS, cooldownMs: rule.cooldownMs });
+      this.#tell(rule.accountId, { kind: 'not-applied', rule: store.rule(rule.id) ?? rule, amountCNS, cooldownMs: rule.cooldownMs });
       return;
     }
 
@@ -418,7 +418,7 @@ export class RescueEngine {
         `${outcome.reported.reason === undefined ? '' : ` (${outcome.reported.reason})`}; distance now ${distanceAfterPct === undefined ? 'not re-measured' : `${(distanceAfterPct * 100).toFixed(2)}%`}; rescues ${updated.rescueCount}/${updated.maxRescues}`,
     );
     this.#belowSince.delete(rule.id);
-    await this.#o.notify(rule.accountId, {
+    this.#tell(rule.accountId, {
       kind: 'rescued',
       rule: updated,
       triggerDistancePct: trigger.liqBufferPct ?? 0,
@@ -483,7 +483,7 @@ export class RescueEngine {
     this.#belowSince.delete(rule.id);
     this.#o.logger.info(`rescue rule ${rule.id}: ended (${detail})`);
     await this.#releaseModeIfIdle(rule.accountId);
-    await this.#o.notify(rule.accountId, { kind: 'ended', rule: ended, detail, cause });
+    this.#tell(rule.accountId, { kind: 'ended', rule: ended, detail, cause });
   }
 
   async #holdOnce(rule: RescueRule, reason: HoldReason, assessment: RiskAssessment | undefined, detail?: string, now = false): Promise<void> {
@@ -497,7 +497,19 @@ export class RescueEngine {
     }
     await this.#o.store.update(rule.id, { lastNotice: notice });
     this.#o.logger.info(`rescue rule ${rule.id}: holding (${detail ?? holdDetail(reason)})`);
-    await this.#o.notify(rule.accountId, { kind: 'held', rule, reason, detail: detail ?? holdDetail(reason), assessment });
+    this.#tell(rule.accountId, { kind: 'held', rule, reason, detail: detail ?? holdDetail(reason), assessment });
+  }
+
+  /**
+   * Hands a message to the transport WITHOUT WAITING: one person's slow
+   * Telegram send must never hold up another person's rule in the same tick,
+   * or this account's lock. A failure is logged; the decision it reports has
+   * already been recorded.
+   */
+  #tell(accountId: number, notice: RescueNotice): void {
+    void this.#o.notify(accountId, notice).catch((error: unknown) => {
+      this.#o.logger.warn(`rescue: the ${notice.kind} message for account ${accountId} did not go: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   async #releaseModeIfIdle(accountId: number): Promise<void> {

@@ -271,7 +271,8 @@ test('the cap refuses a new link with a sentence, and closing a session frees it
   await r.signIn(B);
   const third = r.registry.open(712, { apiKey: 'k', secret });
   assert.ok(!third.ok);
-  assert.match(third.reason, /already running 2 linked account sessions/);
+  assert.match(third.reason, /This PerpGuard instance is full: it is already watching 2 linked accounts/);
+  assert.match(third.reason, /self-hostable/);
   assert.equal(r.registry.size, 2);
 
   assert.equal(await r.registry.close(A), true);
@@ -317,6 +318,6 @@ export type _Result = ActionResult;
 test('MAINNET TRADING SWITCHED OFF: every open is refused with the sentence, before anything is built', () => {
   const registry = new AccountRegistry({ deps: {} as never, tradingOff: 'Trading on mainnet is switched off for this deployment.' });
   const result = registry.open(710, {} as never);
-  assert.deepEqual(result, { ok: false, reason: 'Trading on mainnet is switched off for this deployment.' });
+  assert.deepEqual(result, { ok: false, reason: 'Trading on mainnet is switched off for this deployment.', code: 'trading-off' });
   assert.equal(registry.size, 0);
 });

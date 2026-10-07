@@ -476,27 +476,40 @@ const telegramTransport: AlertTransport = {
 // blindness is dropped and every real severity delivered. Past the deadline
 // it is an outage, not a restart, and everything held goes out as decided.
 const STARTUP_GATE_DEADLINE_MS = Number(process.env['STARTUP_ALERT_HOLD_MS'] ?? 180_000);
-const startupClean = (): boolean => {
+const startupClean = (scope: string): boolean => {
   // Polled from boot, while later declarations may not exist yet: anything
   // not yet there is simply not clean yet.
   try {
-    return startupCleanNow();
+    return startupCleanNow(scope);
   } catch {
     return false;
   }
 };
-const startupCleanNow = (): boolean => {
+/** One linked account's session has come up clean: signed in, positions live, assessed, nothing blind. */
+const sessionClean = (session: { status(): { positions: { state: string }; assessing: boolean }; loop: { snapshot(): readonly { state: string }[] } }): boolean => {
+  const status = session.status();
+  if (status.positions.state !== 'live' || !status.assessing) return false;
+  return !session.loop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED');
+};
+const watchClean = (): boolean => {
+  if (!process.env['INDEXER_DATABASE_URL']?.trim()) return true;
+  if (watchLoop?.lastRunAtMs === undefined || watchLoop.lastHealth?.serveAsCurrent !== true) return false;
+  return !watchLoop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED');
+};
+/**
+ * PER SCOPE (7 Oct 2026): an account's alerts wait for THAT account's session,
+ * the watch tier's for the watch loop, never for everyone. Until then one
+ * person's broken key held every user's alerts for the whole deadline.
+ */
+const startupCleanNow = (scope: string): boolean => {
   if (venue.feedStatus().state !== 'connected') return false;
-  for (const session of registry.list()) {
-    const status = session.status();
-    if (status.positions.state !== 'live' || !status.assessing) return false;
-    if (session.loop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED')) return false;
+  if (scope === 'watch') return watchClean();
+  const account = /^account:(\d+)$/.exec(scope);
+  if (account !== null) {
+    const session = registry.get(Number(account[1]));
+    return session !== undefined && sessionClean(session);
   }
-  if (process.env['INDEXER_DATABASE_URL']?.trim()) {
-    if (watchLoop?.lastRunAtMs === undefined || watchLoop.lastHealth?.serveAsCurrent !== true) return false;
-    if (watchLoop.snapshot().some((a) => a.state === 'FEED_DOWN' || a.state === 'POSITIONS_UNTRUSTED')) return false;
-  }
-  return true;
+  return registry.list().every(sessionClean) && watchClean();
 };
 const forwardingTransport = new StartupDeliveryGate({
   inner: telegramTransport,

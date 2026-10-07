@@ -5,6 +5,7 @@
  * re-link rather than a silent failure.
  */
 import { test } from 'node:test';
+import { instanceFullText } from '../../sessions/registry.ts';
 import assert from 'node:assert/strict';
 import { ApiSecret, type AccountLookup } from '@perpguard/shared';
 import { InMemoryIdentityStore, InMemoryLinkStore, type TelegramIdentity } from '@perpguard/bot';
@@ -57,7 +58,7 @@ function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: I
     vault: 'vault' in options ? options.vault : new KeyVault(KEY_A),
     registry: {
       open: (accountId, credentials) => {
-        if (state.running.size >= (options.maxSessions ?? 20) && !state.running.has(accountId)) return { ok: false, reason: 'PerpGuard is already running 20 linked account sessions, which is its limit on this host.' };
+        if (state.running.size >= (options.maxSessions ?? 20) && !state.running.has(accountId)) return { ok: false, reason: instanceFullText(options.maxSessions ?? 20), code: 'full' as const };
         const already = state.running.has(accountId);
         state.running.add(accountId);
         state.opened.push({ accountId, apiKey: credentials.apiKey });
@@ -157,8 +158,10 @@ test('the cap passes through as a refusal with the registry’s sentence, and no
   const r = rig({ maxSessions: 1 });
   const proof = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   assert.equal(proof.kind, 'refused');
-  assert.match(proof.kind === 'refused' ? proof.reason : '', /^PerpGuard can't connect another account right now\. Try again later\.$/);
-  assert.ok(r.logs.some((l) => /limit on this host/.test(l)), 'the operator detail is in the log');
+  // The person is told the instance is full and that they can run their own.
+  assert.match(proof.kind === 'refused' ? proof.reason : '', /^This PerpGuard instance is full: it is already watching 1 linked accounts/);
+  assert.match(proof.kind === 'refused' ? proof.reason : '', /self-hostable \(https:\/\/github\.com\/0xMigzy\/PerpGuard\)/);
+  assert.ok(r.logs.some((l) => /instance is full/.test(l)), 'and the log has it too');
   assert.equal(r.keys.get(r.identity.userId), undefined);
   assert.equal(r.links.byTelegramUserId(4242), undefined);
 });

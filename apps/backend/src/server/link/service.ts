@@ -30,7 +30,7 @@
  */
 import type { AccountLookup } from '@perpguard/shared';
 import type { IdentityStore, LinkStore, TelegramIdentity } from '@perpguard/bot';
-import type { OpenResult } from '../../sessions/registry.ts';
+import { instanceFullText, type OpenResult } from '../../sessions/registry.ts';
 import type { SessionStatus } from '../../sessions/session.ts';
 import type { LinkCodeStore } from '../protect/session.ts';
 import { KeyRotatedError, type KeyVault, type SealedCredentials } from './crypto.ts';
@@ -53,6 +53,8 @@ export interface LinkServiceDeps {
     open(accountId: number, credentials: { apiKey: string; secret: import('@perpguard/shared').ApiSecret }): OpenResult;
     close(accountId: number): Promise<boolean>;
     get(accountId: number): { status(): SessionStatus } | undefined;
+    /** The cap, so a full link store says the same sentence the registry does. */
+    readonly maxSessions?: number;
   };
   /** Signs in with a key once and reports whose it is. The caller closes it. */
   readonly probe: (credentials: SealedCredentials) => Promise<Probe>;
@@ -259,7 +261,8 @@ export class LinkService {
     const opened = this.#deps.registry.open(accountId, { apiKey: credentials.apiKey.trim(), secret });
     if (!opened.ok) {
       this.#deps.logger.warn(`link: could not open a session for account ${accountId}: ${opened.reason}`);
-      return { kind: 'refused', reason: 'PerpGuard can\'t connect another account right now. Try again later.' };
+      // A full instance says so, as the registry wrote it; anything else stays generic (its detail is in the log).
+      return { kind: 'refused', reason: 'code' in opened && opened.code === 'full' ? opened.reason : 'PerpGuard can\'t connect another account right now. Try again later.' };
     }
 
     // SEALED, then stored; the plaintext goes nowhere else from here.
@@ -344,7 +347,7 @@ export class LinkService {
     const network = this.#deps.network === 'mainnet' || this.#deps.network === 'testnet' ? this.#deps.network : undefined;
     const result = this.#deps.links.link({ userId: identity.userId, accountId, telegramUserId: identity.telegramUserId, chatId: identity.chatId, linkedAtMs: this.#now(), ...(network === undefined ? {} : { network }) });
     if (result.ok) return { ok: true };
-    return { ok: false, reason: result.refusal === 'at-capacity' ? 'PerpGuard can\'t connect another account right now. Try again later.' : 'PerpGuard couldn\'t save the connection. Try again in a moment.' };
+    return { ok: false, reason: result.refusal === 'at-capacity' ? instanceFullText(this.#deps.registry.maxSessions ?? 20) : 'PerpGuard couldn\'t save the connection. Try again in a moment.' };
   }
 
   async #notify(chatId: number, text: string): Promise<void> {

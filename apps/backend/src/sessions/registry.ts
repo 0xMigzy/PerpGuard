@@ -25,7 +25,18 @@ export const DEFAULT_MAX_SESSIONS = 20;
 
 export type OpenResult =
   | { readonly ok: true; readonly session: AccountSession; readonly already: boolean }
-  | { readonly ok: false; readonly reason: string };
+  /** `full`: the instance is at its cap, and the reason is fit to show the person as is. */
+  | { readonly ok: false; readonly reason: string; readonly code?: 'full' | 'trading-off' };
+
+/**
+ * What someone is told when this instance has no room (owner, 7 Oct 2026):
+ * that it is full, and that PerpGuard is self-hostable. Shown on the link page
+ * as written.
+ */
+export const instanceFullText = (max: number): string =>
+  `This PerpGuard instance is full: it is already watching ${max} linked accounts, its limit. ` +
+  `Nothing was changed. PerpGuard is open source and self-hostable (https://github.com/0xMigzy/PerpGuard), ` +
+  `so you can run your own; or try again later, when a place frees up.`;
 
 export interface AccountRegistryOptions {
   readonly deps: SessionDeps;
@@ -65,16 +76,11 @@ export class AccountRegistry implements SessionRouter {
    * already has one; refused at the cap.
    */
   open(accountId: number, credentials: SessionCredentials): OpenResult {
-    if (this.#tradingOff !== undefined) return { ok: false, reason: this.#tradingOff };
+    if (this.#tradingOff !== undefined) return { ok: false, reason: this.#tradingOff, code: 'trading-off' };
     const existing = this.#sessions.get(accountId);
     if (existing !== undefined) return { ok: true, session: existing, already: true };
     if (this.#sessions.size >= this.#maxSessions) {
-      return {
-        ok: false,
-        reason:
-          `PerpGuard is already running ${this.#maxSessions} linked account sessions, which is its limit on this host. ` +
-          `Nothing was changed; try again later or ask the operator to raise MAX_ACCOUNT_SESSIONS.`,
-      };
+      return { ok: false, reason: instanceFullText(this.#maxSessions), code: 'full' };
     }
     const session = new AccountSession(accountId, credentials, this.#deps);
     session.onMismatch(() => {

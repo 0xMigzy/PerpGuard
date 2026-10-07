@@ -819,9 +819,27 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   session reports a mismatch and the registry tears it down. The environment
   key's session is keyed by `PERPL_ACCOUNT_ID`, which is therefore required.
 - `MAX_ACCOUNT_SESSIONS` (default 20) is a REFUSAL at the cap with a sentence,
-  never a slowdown for everyone. The bound is attention, not memory: a session
-  is a socket, a position set and a loop ticking every second; 20 keeps every
-  tick trivial on this box and the venue's per-host limits far away.
+  never a slowdown for everyone: "This PerpGuard instance is full … PerpGuard
+  is open source and self-hostable", shown on the link page as written
+  (`instanceFullText`). A session is a socket, a position set and a loop
+  ticking every second.
+  - PERPL'S CONNECTION LIMIT, MEASURED (7 Oct 2026,
+    `docs/notes/perpl-connection-limit-2026-10-07.md`, `pnpm
+    probe:connections`, backend stopped): the docs' "~5 per IP" is NOT
+    enforced (24 public sockets and 7 signed-in ones all held). The real limit
+    is at SIGN-IN, about 7 to 11 signed-in sessions on ONE key, refused with
+    `1008 (too many connections)`, existing sockets never dropped; unsigned
+    connections from the same IP were accepted while that key was full. One
+    trading socket per linked account, each on its own key, so no
+    instance-wide socket ceiling on this evidence. Per key vs per IP for
+    signed-in sessions needs a second key to settle.
+- ALERTS WAIT PER SCOPE AT BOOT (`alerts/startupGate.ts`): a linked
+  account's alerts wait for THAT account's session to come up clean, the
+  watch tier's for the watch loop, never for everyone. One person's broken
+  key no longer holds every user's alerts for the 3-minute deadline.
+- RESCUE MESSAGES ARE SENT WITHOUT WAITING (`#tell` in `rescue/engine.ts`):
+  one person's slow Telegram send never holds another person's rule in the
+  same tick, or the account's lock.
 - `/unlink` must tear the session down immediately: `registry.close()`
   unreferences first (no request routed from then on finds it), then stops the
   loop, drains the engine, closes the socket. `/health` reports every session
@@ -973,9 +991,10 @@ says drop it. "All" is named from the index's real start ("since Feb 11,
 2026"), never "all time" on trust. The rescuable finding over all time
 is 2,318 of 3,463 (66.9%) against 467 of 637 (73.3%) over 30 days, captured
 in `docs/liquidation-finding-2026-10-01.md`; always quote one with its window.
-- A RESTART NEVER SENDS "I CANNOT SEE THIS POSITION": every alert is held
-  until each loop has assessed cleanly (`alerts/startupGate.ts`), then the
-  startup blindness is dropped; past 3 minutes it is an outage and goes out.
+- A RESTART NEVER SENDS "I CANNOT SEE THIS POSITION": each alert is held
+  until ITS scope (its account's session, the watch loop) has assessed
+  cleanly (`alerts/startupGate.ts`), then the startup blindness is dropped;
+  past 3 minutes it is an outage and goes out.
 - EVERY WEB BUILD IS CLEAN (`apps/web/scripts/build-web.sh` deletes the dist
   dir and `tsconfig.tsbuildinfo`), and CI runs it. Deploy by building into
   `NEXT_DIST_DIR=.next-staged` and swapping it for `.next`: seconds of
