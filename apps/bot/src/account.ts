@@ -15,7 +15,7 @@
 import { scaledToNumber, type ActionAvailability, type FeedHealth, type MarketRiskConfig, type PositionSourceStatus } from '@perpguard/shared';
 import type { AlertAction, AlertActionIntent } from '@perpguard/backend/alerts';
 import { formatPricePNS } from '@perpguard/backend/alerts/render';
-import { distance, dot, esc, held, money, pct, positionName, shortDistance } from '@perpguard/backend/alerts/plain';
+import { distance, dot, esc, held, money, pct, positionName, shortDistance, signedPnl } from '@perpguard/backend/alerts/plain';
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import { WARN_LEVELS, warnLevelInfo, type WarnLevel } from '@perpguard/backend/risk/warn';
 import type { FreeBalanceReading } from './balance.ts';
@@ -57,13 +57,9 @@ export function bandOf(state: RiskAssessment['state']): string {
   }
 }
 
-/** "−112 AUSD" / "+48 AUSD", bold, floored toward zero (what someone holds or would lose); "under 1 AUSD" below one. */
+/** "−113 AUSD" / "+48 AUSD", bold. A loss rounds away from zero, a gain toward it (`signedPnl`). */
 function signedHeld(cns: bigint, decimals: number): string {
-  const unit = 10n ** BigInt(decimals);
-  const abs = cns < 0n ? -cns : cns;
-  const sign = cns < 0n ? '−' : '+';
-  if (abs > 0n && abs < unit) return `<b>${sign}under 1 AUSD</b>`;
-  return `<b>${sign}${(abs / unit).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')} AUSD</b>`;
+  return `<b>${signedPnl(cns, decimals)}</b>`;
 }
 
 /**

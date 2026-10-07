@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distance, esc, freeVerdict, money, renderWatchAlertHtml, shortDistance, watchedPositionLines, wholeAusd } from './plain.ts';
+import { distance, esc, freeVerdict, money, renderWatchAlertHtml, shortDistance, watchedPositionLines, wholeAusd, signedPnl } from './plain.ts';
 import { buildMessage } from './render.ts';
 import { DEFAULT_ALERT_CONFIG } from './types.ts';
 import { BTC, FIXTURE_BTC, FIXTURE_BTC_MARK, assessOne } from './testSupport.ts';
@@ -106,4 +106,14 @@ test('a position with under one AUSD behind it says "under 1 AUSD", never "lose 
   const tiny = watched({}, { marginCNS: 268_340n });
   assert.match(renderWatchAlertHtml(tiny, 'danger', BTC), /they lose the <b>under 1 AUSD<\/b> behind it/);
   assert.ok(watchedPositionLines(tiny, BTC).includes('They would lose <b>under 1 AUSD</b>'));
+});
+
+test('P&L ROUNDS AGAINST THE READER: a loss away from zero, a gain toward it, never a smaller loss than the real one', () => {
+  assert.equal(signedPnl(-64_800_000n), '−65 AUSD');
+  assert.equal(signedPnl(-64_000_000n), '−64 AUSD', 'a whole loss is exact');
+  assert.equal(signedPnl(-64_000_001n), '−65 AUSD', 'a micro over is the next whole AUSD');
+  assert.equal(signedPnl(31_700_000n), '+31 AUSD');
+  assert.equal(signedPnl(-1_234_500_000n), '−1,235 AUSD');
+  assert.equal(signedPnl(-300_000n), '−under 1 AUSD');
+  assert.equal(signedPnl(0n), '+0 AUSD');
 });

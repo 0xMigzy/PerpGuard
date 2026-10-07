@@ -673,8 +673,10 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   (`watchRecipients`): its wallet screen has just shown every position, and
   the first live run sent six alerts on top of it. Real changes go to all.
 - PLAIN VOICE (`apps/backend/src/alerts/plain.ts`), shared by screens and
-  watch alerts: money first and in bold; what someone HOLDS or would LOSE is
-  floored, what something NEEDS is ceiled; under one AUSD is "under 1 AUSD",
+  watch alerts: money first and in bold; what someone HOLDS is floored, what
+  something NEEDS is ceiled, and P&L ROUNDS AGAINST THE READER: a loss AWAY
+  from zero, a gain toward it (`signedPnl`; owner, 7 Oct 2026: −64.8 reads
+  −65, never a smaller loss than the real one); under one AUSD is "under 1 AUSD",
   never "0 AUSD"; never the word "safe"; a negative buffer is "past its
   closing price". Watch alerts carry freshness and "No buttons" every time.
 - MY POSITIONS IS THE SCREEN A JUDGE READS LONGEST (Phase 14, `positionCard`
@@ -740,8 +742,8 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     SEPARATE actions, never one button: 🔴 STOP PERPGUARD (the switch above,
     unchanged) and 🚪 CLOSE EVERYTHING (`apps/backend/src/emergency/`, bot
     half `apps/bot/src/emergency.ts`). Close everything:
-    - lists every position (side, size, unrealised P&L, floored like every
-      amount someone would lose) and the total, says prices move, and is
+    - lists every position (side, size, unrealised P&L, a loss rounded away
+      from zero) and the total, says prices move, and is
       confirmed by TYPING "CLOSE ALL" (a parked `force_reply` question, good
       for two minutes, closed by the first answer whatever it is);
     - STOPS PERPGUARD FIRST, then closes one at a time through the account's

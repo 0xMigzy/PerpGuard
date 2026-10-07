@@ -11,8 +11,11 @@
  *   - A NEGATIVE BUFFER IS "past the closing price", never a negative number.
  *
  * Money is integer micros all the way to the string. A figure shown as what
- * someone HAS or would LOSE is floored, so it never overstates; a figure shown
- * as what something NEEDS is ceiled, so it never understates.
+ * someone HAS is floored, so it never overstates; a figure shown as what
+ * something NEEDS is ceiled, so it never understates. P&L ROUNDS AGAINST THE
+ * READER (owner, 7 Oct 2026): a LOSS rounds AWAY from zero, a GAIN toward it,
+ * so nobody deciding whether to exit is ever shown a smaller loss (or a bigger
+ * gain) than the real one: −64.8 reads −65, +31.7 reads +31 (`signedPnl`).
  *
  * Every string that did not come from this file is escaped. A market symbol or
  * a label is data, and HTML parse mode would otherwise read a `<` in one as
@@ -28,7 +31,21 @@ export function esc(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Whole AUSD, grouped. `floor` for what someone has or would lose, `ceil` for what is needed. */
+/**
+ * Signed P&L as text, "−65 AUSD" / "+31 AUSD". A LOSS ROUNDS AWAY FROM ZERO, a
+ * gain toward it: never a smaller loss or a bigger gain than the real one.
+ * Under one AUSD either way is "under 1 AUSD", which is true and overstates
+ * nothing.
+ */
+export function signedPnl(cns: bigint, collateralDecimals = 6): string {
+  const unit = 10n ** BigInt(collateralDecimals);
+  const abs = cns < 0n ? -cns : cns;
+  const sign = cns < 0n ? '−' : '+';
+  if (abs > 0n && abs < unit) return `${sign}under 1 AUSD`;
+  return `${sign}${wholeAusd(abs, cns < 0n ? 'ceil' : 'floor', collateralDecimals)} AUSD`;
+}
+
+/** Whole AUSD, grouped. `floor` for what someone has, `ceil` for what is needed (and for a loss: see `signedPnl`). */
 export function wholeAusd(amountCNS: bigint, mode: 'floor' | 'ceil', collateralDecimals = 6): string {
   const unit = 10n ** BigInt(collateralDecimals);
   const negative = amountCNS < 0n;

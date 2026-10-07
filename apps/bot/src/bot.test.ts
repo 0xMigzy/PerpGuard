@@ -1982,10 +1982,11 @@ test('CLOSE EVERYTHING: the list, the total, the warning, and a TYPED confirmati
   await tapNav(h, { to: 'close-all' });
   const confirm = texts(h.telegram).at(-1)!;
   assert.match(confirm, /About to close <b>3 positions<\/b>/);
-  assert.match(confirm, /BTC +long +0\.02 +−84 AUSD/);
+  // A LOSS ROUNDS AWAY FROM ZERO, a gain toward it: −84.4 reads −85, +31.7 reads +31.
+  assert.match(confirm, /BTC +long +0\.02 +−85 AUSD/);
   assert.match(confirm, /SOL +long +14\.2 +\+31 AUSD/);
-  // −84.4 − 12.1 + 31.7 = −64.8, floored toward zero like every amount someone would lose (plain voice).
-  assert.match(confirm, /Realised now +−64 AUSD/);
+  // −84.4 − 12.1 + 31.7 = −64.8: shown as −65, never a smaller loss than the real one.
+  assert.match(confirm, /Realised now +−65 AUSD/);
   assert.match(confirm, /Prices move while this runs, so the real figure will differ/);
   assert.match(confirm, /Type CLOSE ALL to confirm/);
   assert.equal(emergency.runs.length, 0, 'nothing runs on the tap');

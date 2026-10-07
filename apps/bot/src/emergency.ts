@@ -13,7 +13,7 @@
  * The bot formats; the backend (`apps/backend/src/emergency/`) closes and
  * judges. This file never decides that anything closed.
  */
-import { esc, wholeAusd } from '@perpguard/backend/alerts/plain';
+import { esc, signedPnl } from '@perpguard/backend/alerts/plain';
 import type { Button, Screen } from './screens.ts';
 
 export interface EmergencyPosition {
@@ -56,14 +56,8 @@ const sizeOf = (lns: bigint, dp: number): string => {
   const frac = (lns % unit).toString().padStart(dp, '0').replace(/0+$/, '');
   return `${whole.toLocaleString('en-US')}${frac === '' ? '' : `.${frac}`}`;
 };
-/** Signed P&L, floored toward zero (what someone has or would lose); "under 1" below one AUSD. */
-const pnl = (cns: bigint | undefined): string => {
-  if (cns === undefined) return 'not priced';
-  const abs = cns < 0n ? -cns : cns;
-  const sign = cns < 0n ? '−' : '+';
-  if (abs > 0n && abs < 1_000_000n) return `${sign}under 1 AUSD`;
-  return `${sign}${wholeAusd(abs, 'floor')} AUSD`;
-};
+/** Signed P&L: a loss rounds away from zero, a gain toward it. Never a smaller loss than the real one. */
+const pnl = (cns: bigint | undefined): string => (cns === undefined ? 'not priced' : signedPnl(cns));
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + ' '.repeat(n - s.length));
 const lpad = (s: string, n: number): string => (s.length >= n ? s : ' '.repeat(n - s.length) + s);
 

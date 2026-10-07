@@ -18,7 +18,7 @@ test('PHASE 14: closest to liquidation first; each card leads with its distance 
 
 test('PHASE 14: every card carries size, value, leverage, margin, PnL, mark and liquidation price, in that order', () => {
   const card = positionCard(base, CONFIGS.get(base.marketId)).join('\n');
-  assert.match(card, /^🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER\n   Size 0\.5 BTC · value <b>42,003 AUSD<\/b> · <b>14\.9x<\/b>\n   Margin <b>2,810 AUSD<\/b> · PnL <b>−11 AUSD<\/b>\n   Mark 84,007\.3 · liquidation price 81,770\.1$/);
+  assert.match(card, /^🔴 <b>2\.7% from liquidation<\/b> · BTC long · DANGER\n   Size 0\.5 BTC · value <b>42,003 AUSD<\/b> · <b>14\.9x<\/b>\n   Margin <b>2,810 AUSD<\/b> · PnL <b>−12 AUSD<\/b>\n   Mark 84,007\.3 · liquidation price 81,770\.1$/);
 });
 
 test('PHASE 14: past liquidation is said in words, never as a negative percentage; a blind position shows no figure at all', () => {
