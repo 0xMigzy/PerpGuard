@@ -1,0 +1,46 @@
+{
+  "network": "testnet",
+  "market": "PUMP",
+  "marketId": 320,
+  "results": [
+    {
+      "round": 1,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 98,
+      "lfrAfter": 99,
+      "ms": 1246,
+      "closed": true
+    },
+    {
+      "round": 2,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 100,
+      "lfrAfter": 101,
+      "ms": 1242,
+      "closed": true
+    },
+    {
+      "round": 3,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 102,
+      "lfrAfter": 103,
+      "ms": 1407,
+      "closed": true
+    },
+    {
+      "round": 4,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 104,
+      "lfrAfter": 105,
+      "ms": 1348,
+      "closed": true
+    }
+  ],
+  "tally": {
+    "landed": 4
+  }
+}

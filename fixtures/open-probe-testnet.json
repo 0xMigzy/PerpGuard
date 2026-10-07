@@ -1,0 +1,82 @@
+{
+  "network": "testnet",
+  "market": "MON",
+  "marketId": 64,
+  "results": [
+    {
+      "round": 1,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 82,
+      "lfrAfter": 83,
+      "ms": 1434,
+      "closed": true
+    },
+    {
+      "round": 2,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 84,
+      "lfrAfter": 85,
+      "ms": 1411,
+      "closed": true
+    },
+    {
+      "round": 3,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 86,
+      "lfrAfter": 87,
+      "ms": 1443,
+      "closed": true
+    },
+    {
+      "round": 4,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 88,
+      "lfrAfter": 89,
+      "ms": 1276,
+      "closed": true
+    },
+    {
+      "round": 5,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 90,
+      "lfrAfter": 91,
+      "ms": 1059,
+      "closed": true
+    },
+    {
+      "round": 6,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 92,
+      "lfrAfter": 93,
+      "ms": 1387,
+      "closed": true
+    },
+    {
+      "round": 7,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 94,
+      "lfrAfter": 95,
+      "ms": 1375,
+      "closed": true
+    },
+    {
+      "round": 8,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 96,
+      "lfrAfter": 97,
+      "ms": 1342,
+      "closed": true
+    }
+  ],
+  "tally": {
+    "landed": 8
+  }
+}

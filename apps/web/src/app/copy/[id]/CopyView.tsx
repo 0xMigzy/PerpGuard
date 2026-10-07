@@ -100,6 +100,9 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
   // The line runs to today: the account holds its last figure until the next close.
   const last = r.curve.at(-1);
   const curve = last === undefined || last.atMs >= r.toMs ? r.curve : [...r.curve, { atMs: r.toMs, equityAusd: last.equityAusd }];
+  // A small account's line moves by cents: the axis then shows cents, never five identical "$1K" ticks.
+  const values = curve.map((c) => c.equityAusd);
+  const spread = values.length === 0 ? 0 : Math.max(...values) - Math.min(...values);
   const gainColor = (n: number) => (n > 0 ? VAR.safe : n < 0 ? VAR.danger : undefined);
 
   if (r.trades.length === 0) {
@@ -138,7 +141,7 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
             <LineChart data={curve as { atMs: number; equityAusd: number }[]} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke={VAR.border} />
               <XAxis dataKey="atMs" type="number" domain={[r.fromMs, r.toMs]} scale="time" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-              <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={64} domain={['auto', 'auto']} />
+              <YAxis tickFormatter={(v: number) => (spread < 50 ? v.toFixed(2) : formatMoney(v))} tickLine={false} axisLine={false} width={64} domain={['auto', 'auto']} />
               <Tooltip
                 content={({ active, payload }) => {
                   const p = active ? (payload?.[0]?.payload as { atMs: number; equityAusd: number } | undefined) : undefined;

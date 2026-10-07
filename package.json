@@ -20,6 +20,7 @@
     "actions:live": "node --env-file-if-exists=.env apps/backend/src/scripts/live-action-run.ts",
     "close:probe": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-close.ts",
     "analytics:live": "node --env-file-if-exists=.env apps/backend/src/scripts/analytics-live.ts",
+    "probe:opens": "node --env-file-if-exists=.env apps/backend/src/scripts/probe-opens.ts",
     "copy:replay": "node --env-file-if-exists=.env apps/backend/src/scripts/copy-replay-live.ts",
     "watch:demo": "node --env-file-if-exists=.env apps/backend/src/scripts/watch-e2e-demo.ts",
     "bot:account-demo": "node --env-file-if-exists=.env apps/backend/src/scripts/bot-account-demo.ts",

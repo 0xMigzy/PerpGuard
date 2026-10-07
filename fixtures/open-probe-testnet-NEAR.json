@@ -1,0 +1,46 @@
+{
+  "network": "testnet",
+  "market": "NEAR",
+  "marketId": 336,
+  "results": [
+    {
+      "round": 1,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 106,
+      "lfrAfter": 107,
+      "ms": 1205,
+      "closed": true
+    },
+    {
+      "round": 2,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 108,
+      "lfrAfter": 109,
+      "ms": 1384,
+      "closed": true
+    },
+    {
+      "round": 3,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 110,
+      "lfrAfter": 111,
+      "ms": 1442,
+      "closed": true
+    },
+    {
+      "round": 4,
+      "verdict": "landed",
+      "receipt": "confirmed: st: 4 Filled, sr: 43 TakerOrderFilled",
+      "lfrBefore": 112,
+      "lfrAfter": 113,
+      "ms": 1308,
+      "closed": true
+    }
+  ],
+  "tally": {
+    "landed": 4
+  }
+}
