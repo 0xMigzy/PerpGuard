@@ -75,6 +75,8 @@ export type Route =
   | { readonly to: 'rescue-limit'; readonly level: number }
   | { readonly to: 'rescue-lim'; readonly level: number }
   | { readonly to: 'rescue-on' }
+  /** Turn Auto on for a position already inside the line, acting only from the next crossing. */
+  | { readonly to: 'rescue-on-next' }
   | { readonly to: 'rescue-stop'; readonly marketId: number }
   | { readonly to: 'rescue-resume'; readonly marketId: number }
   /**
@@ -151,6 +153,7 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'rescue-limit': 'rl',
   'rescue-lim': 'rlv',
   'rescue-on': 'ro',
+  'rescue-on-next': 'ron',
   'rescue-stop': 'rs',
   'rescue-resume': 'rv',
   kill: 'ks',

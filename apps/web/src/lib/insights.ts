@@ -99,8 +99,8 @@ export function walletInsights(input: InsightInputs): InsightsResult {
       label: 'Hold time',
       text:
         facts.losingTripsHeldOver === 0
-          ? `None of the ${formatCount(facts.losingTrips)} losing round trips was held over ${h} hours.`
-          : `${capitalise(share(facts.losingTripsHeldOver, facts.losingTrips))} of losing round trips were held over ${h} hours.`,
+          ? `None of the ${formatCount(facts.losingTrips)} losing round trips (before fees) was held over ${h} hours.`
+          : `${capitalise(share(facts.losingTripsHeldOver, facts.losingTrips))} of losing round trips (before fees) were held over ${h} hours.`,
       detail: `${formatCount(facts.losingTripsHeldOver)} of ${formatCount(facts.losingTrips)} losses; ${formatCount(facts.tripsHeldOver)} of all ${formatCount(facts.roundTrips)} round trips were held that long.`,
       tone: 'neutral',
     });
@@ -119,11 +119,11 @@ export function walletInsights(input: InsightInputs): InsightsResult {
       // "best market (−9)".
       text:
         best.netPnlAusd < 0
-          ? `Lost on every market traded: least on ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), most on ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`
+          ? `Behind on every market traded, before fees: least on ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), most on ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`
           : worst.netPnlAusd > 0
-            ? `Made money on every market traded: most on ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), least on ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`
-            : `Best market ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), worst ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`,
-      detail: `Net PnL (realised + funding − fees) over ${formatCount(best.roundTrips)} and ${formatCount(worst.roundTrips)} round trips.`,
+            ? `Ahead on every market traded, before fees: most on ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), least on ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`
+            : `Before fees, best market ${marketName(best.market)} (${sign(best.netPnlAusd)}${money(best.netPnlAusd)}), worst ${marketName(worst.market)} (${sign(worst.netPnlAusd)}${money(worst.netPnlAusd)}).`,
+      detail: `Realised P&L plus funding over ${formatCount(best.roundTrips)} and ${formatCount(worst.roundTrips)} round trips, BEFORE trading fees: the index records fees per account per day, not per position or market.`,
       tone: 'neutral',
     });
   }
@@ -134,8 +134,8 @@ export function walletInsights(input: InsightInputs): InsightsResult {
     out.push({
       key: 'direction',
       label: 'Direction',
-      text: `${formatPct(facts.longTrips / sided)} of round trips were long. Longs ${madeOrLost(facts.longNetPnlAusd)}, shorts ${madeOrLost(facts.shortNetPnlAusd)}.`,
-      detail: `${formatCount(facts.longTrips)} long and ${formatCount(facts.shortTrips)} short round trips; net PnL per side.`,
+      text: `${formatPct(facts.longTrips / sided)} of round trips were long. Before fees, longs ${madeOrLost(facts.longNetPnlAusd)}, shorts ${madeOrLost(facts.shortNetPnlAusd)}.`,
+      detail: `${formatCount(facts.longTrips)} long and ${formatCount(facts.shortTrips)} short round trips; realised P&L plus funding per side, before trading fees (the index keeps fees per account per day, not per position).`,
       tone: 'neutral',
     });
   }

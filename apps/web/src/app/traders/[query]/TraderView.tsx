@@ -297,7 +297,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
                   <div>
                     {(t === 'all' ? p.performance.winRate : windowWinRate) === undefined
                       ? `win rate withheld under ${formatCount(floor ?? 0)} round trips`
-                      : `win rate ${formatPct((t === 'all' ? p.performance.winRate : windowWinRate)!)} of ${formatCount(t === 'all' ? p.performance.roundTrips : window.roundTrips)}`}
+                      : `win rate ${formatPct((t === 'all' ? p.performance.winRate : windowWinRate)!)} of ${formatCount(t === 'all' ? p.performance.roundTrips : window.roundTrips)}, before fees`}
                   </div>
                 </>
               }
@@ -430,10 +430,10 @@ function Performance({ profile: p }: { readonly profile: WalletProfile }) {
     {
       label: 'Profit factor',
       value: perf.profitFactor === undefined ? (perf.roundTrips >= perf.minRoundTripsForRatios && perf.losses === 0 && perf.wins > 0 ? 'no losses' : '—') : perf.profitFactor.toFixed(3),
-      title: 'gross profit over gross loss',
+      title: 'gross profit over gross loss, per round trip, before fees',
       sub: perf.roundTrips < perf.minRoundTripsForRatios ? `under ${formatCount(perf.minRoundTripsForRatios)} trips` : undefined,
     },
-    { label: 'Max drawdown', value: perf.maxDrawdownAusd === 0 ? '0' : `−${formatMoney(perf.maxDrawdownAusd)}`, color: perf.maxDrawdownAusd > 0 ? COLORS.danger : undefined, title: 'largest peak-to-trough fall in cumulative net PnL' },
+    { label: 'Max drawdown', value: perf.maxDrawdownAusd === 0 ? '0' : `−${formatMoney(perf.maxDrawdownAusd)}`, color: perf.maxDrawdownAusd > 0 ? COLORS.danger : undefined, title: 'largest peak-to-trough fall in the running total of round-trip results, before fees' },
     { label: 'Best streak', value: `${formatCount(perf.longestWinStreak)} wins` },
     { label: 'Worst streak', value: `${formatCount(perf.longestLossStreak)} losses` },
     { label: 'Avg hold', value: perf.averageHoldMs === undefined ? '—' : formatDuration(perf.averageHoldMs) },
@@ -448,7 +448,11 @@ function Performance({ profile: p }: { readonly profile: WalletProfile }) {
     },
   ];
   return (
-    <section className="card mb-4 grid grid-cols-2 gap-x-4 gap-y-3 px-[18px] py-[14px] sm:grid-cols-4 lg:grid-cols-8" aria-label="Lifetime performance">
+    <section className="card mb-4 px-[18px] py-[14px]" aria-label="Lifetime performance">
+      <p className="m-0 mb-3 text-[12px] text-muted">
+        <b className="font-semibold text-text">Per round trip, before fees.</b> These count each position from open to close by its realised P&amp;L and funding. Perpl&rsquo;s index records trading fees per account per day, not per position, so a round trip&rsquo;s result leaves them out; the net P&amp;L above includes them.
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4 lg:grid-cols-8">
       {cells.map((c) => (
         <div key={c.label} title={c.title}>
           <div className="text-[11px] font-medium tracking-[0.02em] text-muted uppercase">{c.label}</div>
@@ -458,6 +462,7 @@ function Performance({ profile: p }: { readonly profile: WalletProfile }) {
           {c.sub !== undefined && <div className="text-[11px] text-muted2">{c.sub}</div>}
         </div>
       ))}
+      </div>
     </section>
   );
 }
@@ -561,7 +566,7 @@ function PositionsTable({
   );
 }
 
-const TRIP_COLUMNS = ['Closed (UTC)', 'Market', 'Side', 'Size', 'Entry', 'Hold', 'Net PnL', 'Outcome'] as const;
+const TRIP_COLUMNS = ['Closed (UTC)', 'Market', 'Side', 'Size', 'Entry', 'Hold', 'PnL before fees', 'Outcome'] as const;
 
 function TripsTable({ rows }: { readonly rows: readonly RoundTrip[] | undefined }) {
   const cell = 'num px-[10px] py-[10px] text-right whitespace-nowrap';

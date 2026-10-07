@@ -333,6 +333,16 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   it; `skew.test.ts` asserts the equality and keeps a notional share out of
   the served type. The crowding threshold (70% of margin, funding paying that
   side) was re-derived for margin; see `docs/methodology.md`.
+- A ROUND TRIP'S RESULT IS BEFORE FEES, AND SAYS SO (7 Oct 2026). The
+  indexer never writes `Position.feesCNS`, so `Position.netPnlCNS` is realised
+  plus funding only, and everything built on it is BEFORE trading fees: wins,
+  losses and win rate (`Trader`/`TraderDay` count them off `isWin`), best and
+  worst round trip, profit factor, max drawdown and streaks, per-market
+  results, the insights' long/short split, the round-trip list. Account net
+  P&L, ROI and Top PnL come from `Trader`/`TraderDay`, which DO include maker
+  and taker fees. Every before-fees figure is labelled "before fees" where it
+  is shown (profile, Traders list, Compare, insights, bot trader card); the
+  Liquidations hero says it leaves out trading and liquidation fees.
 - ORDER BY THE NUMERIC COLUMN, NEVER A `::text` OUTPUT ALIAS. Money columns
   are selected as text so node-pg cannot round them, and Postgres resolves a
   bare name in ORDER BY against the output list first — `order by net_pnl`
@@ -802,6 +812,13 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     (`RescueEngine.autoNow`, the same `decide`), never "adding" when it holds.
     The position screen shows Alert and Auto separately, how and when Auto
     was armed, and ⛔ Turn off auto in one tap.
+  - ARMED INSIDE THE LINE IS A CHOICE (owner's finding, 7 Oct 2026: arming
+    at the line fired within two seconds): the review offers "add now" or
+    "from the next crossing" (`waitForCrossing`, persisted; the engine does
+    nothing until it has SEEN the position above the line). Turning Auto off
+    while a top-up is on its way says it cannot be recalled and its result
+    will come. EVERY BUTTON TAP IS LOGGED (`describeTap`): who, chat, linked
+    or not, the screen or the action's kind, market and amount, never a token.
   - AUTO IS ARMED BY A TAP AND ONLY BY A TAP (`rescue/arming.ts`), after a
     script-armed rule topped up 710 at 01:55 with nobody watching. Only the
     bot's handler arms, passing the tap (Telegram user, chat); the control

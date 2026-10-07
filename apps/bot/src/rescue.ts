@@ -71,7 +71,7 @@ export interface RescueControl {
   /** Another automation runs on this account (Copy Trading), named, or undefined. */
   otherAutomation(accountId: number): string | undefined;
   /** Arms Auto top-up. ONLY ever called from the tap's handler, with that tap. */
-  enable(accountId: number, draft: RescueDraft, arm: ArmTap): Promise<RescueResult>;
+  enable(accountId: number, draft: RescueDraft, arm: ArmTap, options?: { readonly fromNextCrossing?: boolean }): Promise<RescueResult>;
   disable(accountId: number, marketId: number): Promise<RescueResult>;
   resume(accountId: number, marketId: number, arm: ArmTap): Promise<RescueResult>;
   /** ONE NUMBER: every armed AUTO top-up on the account moves to the alert distance (a fraction). */
@@ -292,8 +292,9 @@ export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { r
     `Minimum remaining: ${money(d.minRemainingCNS, 'floor', dp)} free, never spent`,
     `Cooldown: <b>${minutes(d.cooldownMs)}</b>`,
   ];
-  if (a.liqBufferPct !== undefined && d.triggerPct !== undefined && a.liqBufferPct <= d.triggerPct) {
-    lines.push('', `⚠️ It is already at or below that distance, so the first top-up goes out about a second after you turn it on.`);
+  const inside = a.liqBufferPct !== undefined && a.liqBufferPct !== null && d.triggerPct !== undefined && a.liqBufferPct <= d.triggerPct;
+  if (inside) {
+    lines.push('', `⚠️ <b>It is already inside that distance.</b> Choose: add ${money(amount, 'ceil', dp)} now, or wait and act only after it has been back above ${pct(d.triggerPct ?? 0)} and falls to it again.`);
   }
   if (capOf(d) < amount) lines.push('', '⚠️ The maximum total is below one top-up, so it could never act. Raise it.');
   if (input.free !== undefined && input.free - amount < d.minRemainingCNS) {
@@ -307,7 +308,11 @@ export function rescueReviewScreen(a: RiskAssessment, d: RescueDraft, input: { r
       [{ text: '🔢 Top-ups', route: { to: 'rescue-limit', level: 0 } }, { text: '💵 Total', route: { to: 'rescue-limit', level: 1 } }],
       [{ text: '🏦 Keep free', route: { to: 'rescue-limit', level: 2 } }, { text: '⏱ Cooldown', route: { to: 'rescue-limit', level: 3 } }],
       // While automation is stopped the way on is to resume it, not a button the server would refuse.
-      input.stopped ? [{ text: '🆘 Emergency', route: { to: 'kill' } }] : [{ text: '🟢 TURN ON AUTO', route: { to: 'rescue-on' } }],
+      ...(input.stopped
+        ? [[{ text: '🆘 Emergency', route: { to: 'kill' } } as Button]]
+        : inside
+          ? [[{ text: `🟢 Turn on · add ${money(amount, 'ceil', dp).replace(/<\/?b>/g, '')} now`, route: { to: 'rescue-on' } } as Button], [{ text: '🟢 Turn on · from the next crossing', route: { to: 'rescue-on-next' } } as Button]]
+          : [[{ text: '🟢 TURN ON AUTO', route: { to: 'rescue-on' } } as Button]]),
       [{ text: 'Cancel', route: { to: 'rescue-pos', marketId: a.marketId } }],
     ],
   };

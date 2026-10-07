@@ -149,6 +149,12 @@ import {
 
 export interface BotDeps {
   readonly config: BotConfig;
+  /**
+   * One line per button tap: who, from which chat, linked or not, and what the
+   * button names (a screen, or an action's kind, market and amount). NEVER the
+   * token. Owner's finding, 7 Oct 2026: a recorded session's taps left no trace.
+   */
+  readonly log?: (line: string) => void;
   readonly links: LinkStore;
   readonly store: PendingActionStore;
   /**
@@ -379,6 +385,16 @@ export function createBot(deps: BotDeps): Bot {
   // button tap from an unlinked chat is refused right here, whatever its
   // payload says: this is the server-side rule that a watcher cannot act, and
   // the renderer leaving the keyboard off a watch alert is only its echo.
+  // ── every tap, logged before anything decides about it ────────────────────
+  bot.use(async (ctx, next) => {
+    const data = ctx.callbackQuery?.data;
+    if (data !== undefined && deps.log !== undefined) {
+      const linked = authorise(deps.links, ctx.from?.id, ctx.chat?.id).ok;
+      deps.log(`tap tg:${ctx.from?.id ?? '?'} chat ${ctx.chat?.id ?? '?'} (${linked ? 'linked' : 'not linked'}): ${describeTap(data)}`);
+    }
+    await next();
+  });
+
   bot.use(async (ctx, next) => {
     const verdict = authorise(deps.links, ctx.from?.id, ctx.chat?.id);
     if (verdict.ok) {
@@ -1187,6 +1203,7 @@ export function createBot(deps: BotDeps): Bot {
       case 'rescue-limit':
       case 'rescue-lim':
       case 'rescue-on':
+      case 'rescue-on-next':
       case 'rescue-stop':
       case 'rescue-resume':
         await rescueNav(ctx, route, account, link);
@@ -1472,14 +1489,15 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, screen);
         return;
       }
-      case 'rescue-on': {
+      case 'rescue-on':
+      case 'rescue-on-next': {
         const d = await needDraft();
         if (d === undefined) return;
         if (executionFor(link).dot !== '🟢') {
           await answer(ctx, 'Execution is not authorized on this account, so Rescue could not act. Open the Trading Account to fix it first.');
           return;
         }
-        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) }, { telegramUserId, chatId });
+        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) }, { telegramUserId, chatId }, { fromNextCrossing: route.to === 'rescue-on-next' });
         if (!result.ok) {
           await answer(ctx, result.text);
           return;
@@ -1963,4 +1981,18 @@ async function editOrSend(ctx: Context, screen: Screen): Promise<void> {
     }
   }
   await ctx.reply(screen.html, options);
+}
+
+/** What a button names, for the tap log: a screen and its argument, or an action's kind, market and amount. Never a token. */
+export function describeTap(data: string): string {
+  const tap = decodeNavTap(data);
+  if (tap !== undefined) {
+    const { to, ...args } = tap.route as { to: string } & Record<string, unknown>;
+    const arg = Object.entries(args).map(([k, v]) => `${k} ${String(v)}`).join(' ');
+    return `screen ${to}${arg === '' ? '' : ` (${arg})`}${tap.fresh ? ', new message' : ''}`;
+  }
+  if (isNavShaped(data)) return 'a button from an older menu';
+  const decoded = decodeCallback(data);
+  if (!decoded.ok) return 'an unreadable button';
+  return `action ${decoded.payload.kind} on market ${decoded.payload.marketId}, amount ${decoded.payload.amountCNS} (micros)`;
 }

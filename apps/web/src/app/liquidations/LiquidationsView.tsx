@@ -108,7 +108,7 @@ export function LiquidationsView() {
               <Explain className="mt-[6px]" label="Why this matters, and what the loss figure counts">
                 Perpl uses isolated margin, so that balance never moves on its own. A top-up would have kept the position open; it would not have undone the price move.
                 What it avoids for certain is being closed out at the worst moment. The figure is realised loss (PnL + funding) on liquidations where the trader&rsquo;s free
-                balance covered the shortfall. Excludes liquidation fees, so the true figure is slightly higher.
+                balance covered the shortfall. It leaves out trading and liquidation fees (the index records fees per account per day, not per position), so the true loss is higher.
               </Explain>
               <p className="mt-[10px] mb-0 text-[12.5px] text-text/85">
                 <span className="eyebrow mr-2">Window</span>

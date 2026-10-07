@@ -654,3 +654,22 @@ test('TAP-ARMED ONLY: a rule that stops verifying mid-flight is stopped at the e
   assert.equal(r.store.attempts(1)[0]?.outcome, 'refused');
   assert.equal(r.store.attempts(1)[0]?.receiptReason, 'automation-stopped');
 });
+
+test('FROM THE NEXT CROSSING: a rule turned on inside the line waits until the position is seen above it, then acts on the next fall', async () => {
+  const r = rig();
+  const rule = await r.store.create({ ...newRule(), waitForCrossing: true }, r.clock.t);
+  await r.fireTwice();
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 0, 'inside the line on arming: nothing sent, however long it stays there');
+  assert.equal(r.store.rule(rule.id)!.waitForCrossing, true);
+  assert.equal(r.engine.autoNow(710, r.acct.snapshot()[0]!).kind, 'waiting', 'the alert never says "adding" while it waits');
+
+  r.acct.buffer = 0.06; // back above the 4% line
+  await r.engine.tick();
+  assert.equal(r.store.rule(rule.id)!.waitForCrossing, false, 'seen above: from now on it acts');
+  assert.equal(r.acct.commands.length, 0);
+
+  r.acct.buffer = 0.0316; // the next crossing
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 1, 'acts on the crossing, once');
+});

@@ -109,7 +109,7 @@ export function TradersIndex() {
     { key: 'account', label: 'Account', sub: '' },
     { key: 'netPnl', label: 'Net PnL', sub: windowed, title: `Realised + funding − fees over the window.${spanNote}` },
     { key: 'volume', label: 'Volume', sub: windowed, title: `The account’s own traded volume.${spanNote}` },
-    { key: 'winRate', label: 'Win rate', sub: windowed, title: `Withheld below ${floor} round trips.${spanNote}` },
+    { key: 'winRate', label: 'Win rate, before fees', sub: windowed, title: `Round trips won, by realised P&L plus funding BEFORE trading fees: Perpl's index records fees per account per day, not per position. Net PnL includes fees. Withheld below ${floor} round trips.${spanNote}` },
     { key: 'liquidations', label: 'Liquidations', sub: windowed, title: `Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.${spanNote}` },
   ];
   const columns = flows ? flowColumns : tradeColumns;

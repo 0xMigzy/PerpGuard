@@ -25,10 +25,10 @@ test('every rule states its numbers, and the thesis rule uses the Liquidations p
   assert.match(by.rescuable!.detail, /^30 of 32 liquidations/);
   assert.equal(by.leverage!.text, "9.2× average leverage at open, 0.9× the median trader's 10.2×.");
   assert.match(by.leverage!.detail, /3,231 accounts with 10\+ round trips/);
-  assert.equal(by.hold!.text, '0.9% of losing round trips were held over 48 hours.');
+  assert.equal(by.hold!.text, '0.9% of losing round trips (before fees) were held over 48 hours.');
   assert.match(by.hold!.detail, /27 of 3,111 losses; 40 of all 5,679/);
-  assert.equal(by.markets!.text, 'Best market BTC (+$1.2K), worst MON (−$90K).');
-  assert.equal(by.direction!.text, '50.0% of round trips were long. Longs lost $17.6K, shorts lost $134.6K.');
+  assert.equal(by.markets!.text, 'Before fees, best market BTC (+$1.2K), worst MON (−$90K).');
+  assert.equal(by.direction!.text, '50.0% of round trips were long. Before fees, longs lost $17.6K, shorts lost $134.6K.');
   assert.equal(by.sizing!.text, 'Largest open position: BTC long, $147.6K notional, 3.9× equity.');
   assert.deepEqual(r.insights.map((i) => i.key), ['rescuable', 'leverage', 'hold', 'markets', 'direction', 'sizing'], 'the thesis leads');
 });
@@ -58,8 +58,8 @@ test('liquidated but never rescuable says so; no losses and no long holds read p
   const by = Object.fromEntries(r.insights.map((i) => [i.key, i]));
   assert.equal(by.rescuable!.text, 'Liquidated 3 times, never while holding enough free AUSD to prevent it.');
   assert.equal(by.rescuable!.tone, 'neutral');
-  assert.equal(by.hold!.text, 'None of the 3,111 losing round trips was held over 48 hours.');
-  assert.equal(by.direction!.text, '50.0% of round trips were long. Longs made $500.00, shorts broke even.');
+  assert.equal(by.hold!.text, 'None of the 3,111 losing round trips (before fees) was held over 48 hours.');
+  assert.equal(by.direction!.text, '50.0% of round trips were long. Before fees, longs made $500.00, shorts broke even.');
   assert.equal(by.sizing, undefined);
   const once = walletInsights({ ...base, rescues: { count: 1, judgeableCount: 1, rescuableCount: 1 } });
   if (once.kind !== 'ok') return assert.fail();
@@ -69,14 +69,14 @@ test('liquidated but never rescuable says so; no losses and no long holds read p
 test('a share that is not zero never prints as 0.0% (account #10: 2 of 824,883 losses held long)', () => {
   const r = walletInsights({ ...base, facts: { ...base.facts, losingTrips: 824_883, losingTripsHeldOver: 2 } });
   if (r.kind !== 'ok') return assert.fail();
-  assert.equal(r.insights.find((i) => i.key === 'hold')!.text, 'Under 0.1% of losing round trips were held over 48 hours.');
+  assert.equal(r.insights.find((i) => i.key === 'hold')!.text, 'Under 0.1% of losing round trips (before fees) were held over 48 hours.');
 });
 
 test('"best market" is never a loss: all markets down, or all up, is said as such', () => {
   const allDown = walletInsights({ ...base, bestMarket: { market: BTC, netPnlAusd: -9, roundTrips: 10 } });
   if (allDown.kind !== 'ok') return assert.fail();
-  assert.equal(allDown.insights.find((i) => i.key === 'markets')!.text, 'Lost on every market traded: least on BTC (−$9.00), most on MON (−$90K).');
+  assert.equal(allDown.insights.find((i) => i.key === 'markets')!.text, 'Behind on every market traded, before fees: least on BTC (−$9.00), most on MON (−$90K).');
   const allUp = walletInsights({ ...base, worstMarket: { market: MON, netPnlAusd: 40, roundTrips: 10 } });
   if (allUp.kind !== 'ok') return assert.fail();
-  assert.equal(allUp.insights.find((i) => i.key === 'markets')!.text, 'Made money on every market traded: most on BTC (+$1.2K), least on MON (+$40.00).');
+  assert.equal(allUp.insights.find((i) => i.key === 'markets')!.text, 'Ahead on every market traded, before fees: most on BTC (+$1.2K), least on MON (+$40.00).');
 });

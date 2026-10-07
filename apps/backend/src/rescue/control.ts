@@ -44,6 +44,7 @@ export class RescueControlService {
   readonly #decimals: number;
   readonly #signer: ArmSigner | undefined;
   readonly #isLinked: (telegramUserId: number, chatId: number, accountId: number) => boolean;
+  readonly #busy: (ruleId: number) => boolean;
   readonly #alertPctOf: (accountId: number) => number;
 
   constructor(o: {
@@ -58,6 +59,8 @@ export class RescueControlService {
     readonly automation: AutomationStore;
     /** The account's live assessments, or undefined when it has no session. */
     readonly snapshot: (accountId: number) => readonly RiskAssessment[] | undefined;
+    /** Whether a rule has a top-up on its way right now (the engine's). Absent: never. */
+    readonly busy?: (ruleId: number) => boolean;
     readonly now?: () => number;
     readonly log?: (line: string) => void;
   }) {
@@ -69,6 +72,7 @@ export class RescueControlService {
     this.#signer = o.signer;
     this.#isLinked = o.isLinked;
     this.#alertPctOf = o.alertPctOf;
+    this.#busy = o.busy ?? (() => false);
     if (!Number.isInteger(o.collateralDecimals) || o.collateralDecimals < 0 || o.collateralDecimals > 18) throw new RangeError(`collateral decimals must be 0..18, got ${o.collateralDecimals}`);
     this.#decimals = o.collateralDecimals;
   }
@@ -119,7 +123,11 @@ export class RescueControlService {
    * with the `ArmContext` of the tap: who tapped and from which chat. Both
    * must be linked to the account, and the rule is SIGNED with them.
    */
-  async enable(accountId: number, d: RescueDraftInput, arm: ArmContext): Promise<Result> {
+  /**
+   * `fromNextCrossing`: the position is already inside the alert distance and
+   * the person chose to wait for the next crossing rather than add now.
+   */
+  async enable(accountId: number, d: RescueDraftInput, arm: ArmContext, options: { readonly fromNextCrossing?: boolean } = {}): Promise<Result> {
     if (this.#signer === undefined) return { ok: false, text: 'Auto top-up cannot be turned on here: the server has no key to sign it with. Nothing was turned on.' };
     if (!this.#isLinked(arm.telegramUserId, arm.chatId, accountId)) return { ok: false, text: 'Only the person linked to this account, from their own chat, can turn Auto top-up on. Nothing was turned on.' };
     // THE KILL SWITCH BLOCKS NEW AUTOMATION: nothing is turned on while it is on.
@@ -167,19 +175,29 @@ export class RescueControlService {
       armedChat: arm.chatId,
       armedAtMs,
     };
-    const rule = await this.#store.create({ ...fields, symbol: a.symbol, triggerPct, armProof: this.#signer.sign(fields) }, armedAtMs);
+    const inside = a.liqBufferPct !== undefined && a.liqBufferPct !== null && Number.isFinite(a.liqBufferPct) && a.liqBufferPct <= triggerPct;
+    const waitForCrossing = inside && options.fromNextCrossing === true;
+    const rule = await this.#store.create({ ...fields, symbol: a.symbol, triggerPct, armProof: this.#signer.sign(fields), waitForCrossing }, armedAtMs);
     this.#log(
       `rescue rule ${rule.id} ARMED by tg:${arm.telegramUserId} in chat ${arm.chatId} on account ${accountId} ${a.symbol} position ${d.positionId}: acts at ${(triggerPct * 100).toFixed(2)}% (the alert distance), amount ${amount}, max ${d.maxRescues} top-ups / ${cap} total, keeps ${d.minRemainingCNS}, cooldown ${d.cooldownMs} ms`,
     );
-    return { ok: true, text: `Auto top-up is on for ${a.symbol}: at ${(triggerPct * 100).toFixed(1)}% from liquidation it adds ${fmtIn(amount, this.#decimals)}, at most ${d.maxRescues} times and ${fmtIn(cap, this.#decimals)} in all.` };
+    const base = `Auto top-up is on for ${a.symbol}: at ${(triggerPct * 100).toFixed(1)}% from liquidation it adds ${fmtIn(amount, this.#decimals)}, at most ${d.maxRescues} times and ${fmtIn(cap, this.#decimals)} in all.`;
+    if (waitForCrossing) return { ok: true, text: `${base} It is already inside that distance, so as you chose it waits: it acts only after the position has been back above ${(triggerPct * 100).toFixed(1)}% and falls to it again.` };
+    if (inside) return { ok: true, text: `${base} It is already inside that distance, so as you chose the first top-up goes out now. You get its result, checked against the position.` };
+    return { ok: true, text: base };
   }
 
   async disable(accountId: number, marketId: number): Promise<Result> {
     const on = this.#store.rulesFor(accountId).filter((r) => r.marketId === marketId && r.enabled);
     if (on.length === 0) return { ok: true, text: 'Auto top-up was already off for this position.' };
+    // A top-up already on its way cannot be recalled: say so, never "nothing more" alone.
+    const sending = on.some((r) => this.#busy(r.id));
     for (const r of on) await this.#store.update(r.id, { enabled: false, pausedReason: 'turned off by you' });
     if (!this.#store.rulesFor(accountId).some((r) => r.enabled)) await this.#automation.transition(accountId, 'LIQUIDATION_RESCUE', 'NONE');
-    this.#log(`rescue rule(s) ${on.map((r) => r.id).join(', ')} stopped by the person on account ${accountId} market ${marketId}`);
+    this.#log(`rescue rule(s) ${on.map((r) => r.id).join(', ')} stopped by the person on account ${accountId} market ${marketId}${sending ? ' while a top-up was in flight' : ''}`);
+    if (sending) {
+      return { ok: true, text: `Auto top-up is off for ${on[0]!.symbol}. One top-up was already on its way when you tapped: it cannot be recalled, and you will get its result, checked against the position. Nothing more will be added automatically after it. You still get the alert.` };
+    }
     return { ok: true, text: `Auto top-up is off for ${on[0]!.symbol}. Nothing more will be added automatically. You still get the alert.` };
   }
 

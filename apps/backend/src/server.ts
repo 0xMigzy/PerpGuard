@@ -732,6 +732,8 @@ const rescueControl = new RescueControlService({
   isLinked: isLinkedHere,
   alertPctOf: (accountId) => accountSettings.get(accountId).alertPct,
   snapshot: (accountId) => registry.get(accountId)?.view.snapshot(),
+  // The engine is built below; a turn-off only ever asks after both exist.
+  busy: (ruleId: number): boolean => rescueEngine.busy(ruleId),
   log,
 });
 
@@ -740,6 +742,7 @@ const bot =
     ? undefined
     : createBot({
         config: botConfig,
+        log,
         links,
         store: pendingActions,
         sessions: registry,

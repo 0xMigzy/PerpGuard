@@ -51,6 +51,13 @@ export interface RescueRule {
   readonly armedChat: number | undefined;
   readonly armedAtMs: number | undefined;
   readonly armProof: string | undefined;
+  /**
+   * Turned on while the position was ALREADY inside the alert distance, and
+   * asked to act only from the next crossing (owner's finding, 7 Oct 2026:
+   * arming at the line fired within two seconds). The engine does nothing
+   * until it has seen the position above the line, then clears this.
+   */
+  readonly waitForCrossing?: boolean | undefined;
 }
 
 export type AttemptOutcome = 'applied' | 'not-applied' | 'unknown' | 'refused';
@@ -93,7 +100,7 @@ export interface RescueStore {
   rule(id: number): RescueRule | undefined;
   create(rule: NewRule, nowMs: number): Promise<RescueRule>;
   /** `triggerPct` moves with the account's alert distance; the signature does not cover it, so it stays valid. */
-  update(id: number, patch: Partial<Pick<RescueRule, 'rescueCount' | 'totalRescuedCNS' | 'enabled' | 'pausedReason' | 'lastAttemptAtMs' | 'lastNotice' | 'triggerPct'>>): Promise<RescueRule>;
+  update(id: number, patch: Partial<Pick<RescueRule, 'rescueCount' | 'totalRescuedCNS' | 'enabled' | 'pausedReason' | 'lastAttemptAtMs' | 'lastNotice' | 'triggerPct' | 'waitForCrossing'>>): Promise<RescueRule>;
   /** Claims attempt `n` of a rule. False: it was claimed before (a duplicate), and nothing may be sent. */
   claim(attempt: Pick<RescueAttempt, 'ruleId' | 'attemptNo' | 'idempotencyKey' | 'accountId' | 'marketId' | 'positionId' | 'triggerDistancePct' | 'triggerMark' | 'triggeredAtMs' | 'amountCNS'>): Promise<boolean>;
   record(ruleId: number, attemptNo: number, patch: Partial<RescueAttempt>): Promise<void>;
@@ -191,6 +198,7 @@ alter table rescue_rules add column if not exists armed_by bigint;
 alter table rescue_rules add column if not exists armed_chat bigint;
 alter table rescue_rules add column if not exists armed_at timestamptz;
 alter table rescue_rules add column if not exists arm_proof text;
+alter table rescue_rules add column if not exists wait_for_crossing boolean not null default false;
 create table if not exists rescue_attempts (
   rule_id              bigint      not null references rescue_rules (id),
   attempt_no           integer     not null,
@@ -256,9 +264,9 @@ export class PostgresRescueStore implements RescueStore {
 
   async create(rule: NewRule, nowMs: number): Promise<RescueRule> {
     const r = await this.#pool.query(
-      `insert into rescue_rules (account_id, market_id, symbol, position_id, trigger_pct, amount_cns, max_rescues, max_total_cns, min_remaining_cns, cooldown_ms, created_at, armed_by, armed_chat, armed_at, arm_proof)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) returning *`,
-      [rule.accountId, rule.marketId, rule.symbol, rule.positionId, rule.triggerPct, String(rule.amountCNS), rule.maxRescues, String(rule.maxTotalCNS), String(rule.minRemainingCNS), rule.cooldownMs, new Date(nowMs).toISOString(), rule.armedBy ?? null, rule.armedChat ?? null, iso(rule.armedAtMs), rule.armProof ?? null],
+      `insert into rescue_rules (account_id, market_id, symbol, position_id, trigger_pct, amount_cns, max_rescues, max_total_cns, min_remaining_cns, cooldown_ms, created_at, armed_by, armed_chat, armed_at, arm_proof, wait_for_crossing)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) returning *`,
+      [rule.accountId, rule.marketId, rule.symbol, rule.positionId, rule.triggerPct, String(rule.amountCNS), rule.maxRescues, String(rule.maxTotalCNS), String(rule.minRemainingCNS), rule.cooldownMs, new Date(nowMs).toISOString(), rule.armedBy ?? null, rule.armedChat ?? null, iso(rule.armedAtMs), rule.armProof ?? null, rule.waitForCrossing === true],
     );
     const made = fromRuleRow(r.rows[0] as Record<string, unknown>);
     this.#inner.seed([made], []);
@@ -270,8 +278,8 @@ export class PostgresRescueStore implements RescueStore {
     if (current === undefined) throw new Error(`no rescue rule ${id}`);
     const next = { ...current, ...patch };
     await this.#pool.query(
-      `update rescue_rules set rescue_count = $2, total_rescued_cns = $3, enabled = $4, paused_reason = $5, last_attempt_at = $6, last_notice = $7, trigger_pct = $8, updated_at = now() where id = $1`,
-      [id, next.rescueCount, String(next.totalRescuedCNS), next.enabled, next.pausedReason ?? null, iso(next.lastAttemptAtMs), next.lastNotice ?? null, next.triggerPct],
+      `update rescue_rules set rescue_count = $2, total_rescued_cns = $3, enabled = $4, paused_reason = $5, last_attempt_at = $6, last_notice = $7, trigger_pct = $8, wait_for_crossing = $9, updated_at = now() where id = $1`,
+      [id, next.rescueCount, String(next.totalRescuedCNS), next.enabled, next.pausedReason ?? null, iso(next.lastAttemptAtMs), next.lastNotice ?? null, next.triggerPct, next.waitForCrossing === true],
     );
     return this.#inner.update(id, patch);
   }
@@ -329,6 +337,7 @@ function fromRuleRow(r: Record<string, unknown>): RescueRule {
     armedChat: r['armed_chat'] === null || r['armed_chat'] === undefined ? undefined : Number(r['armed_chat']),
     armedAtMs: ms(r['armed_at']),
     armProof: r['arm_proof'] === null || r['arm_proof'] === undefined ? undefined : String(r['arm_proof']),
+    waitForCrossing: r['wait_for_crossing'] === true,
   };
 }
 

@@ -1647,7 +1647,7 @@ test('PHASE 8: Top ROI is ALL TIME and says so; a trader under the floors shows 
   const card = lastScreen(h.telegram);
   const html = String(card.payload['text']);
   assert.match(html, /ROI \(all time\) no ROI: under 100 AUSD deposited \(99\)/);
-  assert.match(html, /Win rate \(30D\) not shown: 4 round trips, under 10/);
+  assert.match(html, /Win rate \(30D, before fees\) not shown: 4 round trips, under 10/);
   assert.deepEqual(keyboardOf(card).map((b) => b.text), ['📊 Full analytics', "🔁 What if I'd copied? · 30D", '👁 Watch', '← Back']);
   assert.equal(h.executor.calls.length, 0);
 });

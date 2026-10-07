@@ -147,3 +147,36 @@ test('ARMING: once the person who armed it is no longer linked, the rule is no l
   linked = false;
   assert.match(control.armProblem(rule) ?? '', /no longer linked/);
 });
+
+test('ARMED AT THE LINE: turned on inside the alert distance, the person chooses "now" or "from the next crossing", and each is said in words', async () => {
+  // open[0] is at 3.16%, inside the 4% alert distance.
+  const now = rig();
+  const a = await now.control.enable(710, draft(), TAP);
+  assert.match(a.text, /already inside that distance, so as you chose the first top-up goes out now/);
+  assert.notEqual(now.store.enabledRules()[0]!.waitForCrossing, true);
+
+  const later = rig();
+  const b = await later.control.enable(710, draft(), TAP, { fromNextCrossing: true });
+  assert.match(b.text, /it acts only after the position has been back above 4\.0% and falls to it again/);
+  assert.equal(later.store.enabledRules()[0]!.waitForCrossing, true);
+
+  // Outside the line the choice means nothing: no wait is stored.
+  const outside = rig([{ ...open[0]!, liqBufferPct: 0.09 } as RiskAssessment]);
+  await outside.control.enable(710, draft(), TAP, { fromNextCrossing: true });
+  assert.notEqual(outside.store.enabledRules()[0]!.waitForCrossing, true);
+});
+
+test('TURNING OFF WHILE A TOP-UP IS ON ITS WAY says it cannot be recalled and that its result will come', async () => {
+  const store = new InMemoryRescueStore();
+  const automation = new InMemoryAutomationStore();
+  let busy = false;
+  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: () => true, alertPctOf: () => 4, snapshot: () => open, busy: () => busy });
+  await control.enable(710, draft(), TAP);
+  busy = true;
+  const off = await control.disable(710, 16);
+  assert.match(off.text, /One top-up was already on its way when you tapped: it cannot be recalled, and you will get its result/);
+  assert.doesNotMatch(off.text, /^Auto top-up is off for BTC\. Nothing more will be added automatically\./);
+  await control.enable(710, draft(), TAP);
+  busy = false;
+  assert.match((await control.disable(710, 16)).text, /^Auto top-up is off for BTC\. Nothing more will be added automatically\./);
+});

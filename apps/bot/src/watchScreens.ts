@@ -201,7 +201,7 @@ export function traderCardScreen(input: { readonly stats: TraderStats; readonly 
   lines.push('', ...statLines(s));
   const month = s.month;
   if (month !== undefined) {
-    lines.push(`Win rate (30D) ${winRatePhrase(month)}`);
+    lines.push(`Win rate (30D, before fees) ${winRatePhrase(month)}`);
     lines.push(`Trades (30D) <b>${grouped(month.tradeCount)}</b>`);
   }
   const open = s.lifetime?.openPositionCount ?? s.month?.openPositionCount;

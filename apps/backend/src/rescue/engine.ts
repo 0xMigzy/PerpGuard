@@ -145,6 +145,7 @@ export class RescueEngine {
     if (rule === undefined) return { kind: 'off' };
     if (rule.pausedReason !== undefined) return { kind: 'waiting', why: `it is paused (${rule.pausedReason})` };
     if (this.#o.armProblem(rule) !== undefined) return { kind: 'off' };
+    if (rule.waitForCrossing === true) return { kind: 'waiting', why: 'you asked it to act from the next crossing, and the position has not been back above your alert distance since you turned it on' };
     const account = this.#o.account(accountId);
     if (account === undefined) return { kind: 'waiting', why: 'the account is not connected' };
     if (this.#inFlight.has(rule.id) || this.#accountBusy.has(accountId)) return { kind: 'waiting', why: 'another top-up on this account is being sent' };
@@ -238,6 +239,18 @@ export class RescueEngine {
       return;
     }
     const assessment = account.snapshot().find((a) => a.marketId === rule.marketId);
+
+    // FROM THE NEXT CROSSING: turned on inside the line and asked to wait. Nothing
+    // is judged until the position is SEEN above the line (a real reading, never a blind one).
+    if (rule.waitForCrossing === true) {
+      this.#belowSince.delete(rule.id);
+      const b = assessment?.liqBufferPct;
+      if (b !== undefined && b !== null && Number.isFinite(b) && !atOrBelowTrigger(rule, assessment)) {
+        await this.#o.store.update(rule.id, { waitForCrossing: false });
+        this.#o.logger.info(`rescue rule ${rule.id} on account ${rule.accountId} ${rule.symbol}: seen above the line, acts from the next crossing`);
+      }
+      return;
+    }
 
     // The trigger's two looks: remembered from the first look at or below, forgotten the moment it is above.
     if (atOrBelowTrigger(rule, assessment)) {
