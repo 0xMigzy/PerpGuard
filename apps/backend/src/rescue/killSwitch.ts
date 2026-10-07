@@ -34,6 +34,8 @@ export interface StopReport {
   readonly alreadyStopped: boolean;
   /** Markets whose Rescue rules this stop turned off. */
   readonly rescueStopped: readonly string[];
+  /** The trader this account was copying, now stopped; its copied positions are left open. */
+  readonly copyStopped?: { readonly leaderAccountId: number; readonly openCopies: number } | undefined;
   /** The strategy that held the account before the stop. */
   readonly modeBefore: string;
   /** What became of a rescue that was in flight at the moment of the stop. */
@@ -46,6 +48,8 @@ export interface KillSwitchOptions {
   readonly automation: AutomationStore;
   readonly rescueStore: RescueStore;
   readonly rescueEngine: Pick<RescueEngine, 'inFlightOn' | 'settleAccount'>;
+  /** Copy Trading: switched off by a stop, its copied positions left open. */
+  readonly copy?: { stopAll(accountId: number): Promise<{ readonly leaderAccountId: number; readonly openCopies: number } | undefined> };
   readonly log: (line: string) => void;
   readonly now?: () => number;
   /** How long to wait for a rescue in flight to settle before reporting it as still settling. */
@@ -88,6 +92,9 @@ export class KillSwitch {
       rescueStopped.push(rule.symbol);
     }
 
+    // 2b. Copying off. Copied positions stay open: a stop never moves money.
+    const copyStopped = await this.#o.copy?.stopAll(accountId);
+
     // 3. No strategy holds the account.
     if (modeBefore !== 'NONE') await automation.transition(accountId, modeBefore, 'NONE');
 
@@ -113,10 +120,11 @@ export class KillSwitch {
       }
     }
 
-    const report: StopReport = { accountId, alreadyStopped, rescueStopped, modeBefore, inFlight, inFlightDetail, atMs: this.#now() };
+    const report: StopReport = { accountId, alreadyStopped, rescueStopped, ...(copyStopped === undefined ? {} : { copyStopped }), modeBefore, inFlight, inFlightDetail, atMs: this.#now() };
     log(
       `KILL SWITCH ${alreadyStopped ? 'pressed again (already on)' : 'ON'} for account ${accountId} by ${by}: ` +
         `mode ${modeBefore} -> NONE; Rescue off on ${rescueStopped.length === 0 ? 'nothing' : rescueStopped.join(', ')}; ` +
+        `${copyStopped === undefined ? '' : `copying #${copyStopped.leaderAccountId} off, ${copyStopped.openCopies} copied position(s) left open; `}` +
         `in flight: ${inFlight}${inFlightDetail === undefined ? '' : ` (${inFlightDetail})`}; positions untouched`,
     );
     return report;

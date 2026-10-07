@@ -928,7 +928,46 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     recycle fees (one clearing, 0 AUSD, in six active hours). Cause not found;
     a full-history scan of the unindexed events would take ~12 h on the
     shared HyperSync token. Demo leader: #5213.
-  - Half B (live copy onto testnet) is NOT BUILT; wait for the owner.
+  - THE REPLAY HAS 7 DAYS BESIDE 30, toggled (`?days=7`, routes `copy-sim7`);
+    the trader card shows ACTIVITY (last open, opens in 24 h and 7 days; a
+    week of silence said) and both windows' copy results side by side. No
+    24-hour P&L, on purpose: too few trades in a day to mean anything.
+- HALF B, LIVE COPY ONTO TESTNET (`apps/backend/src/copy/live/`, bot
+  `apps/bot/src/copyLive.ts`; owner, 7 Oct 2026). OPENS AND CLOSES ONLY, said
+  on every screen and message ("PerpGuard copies when they open and when they
+  close, not every adjustment in between"): the index has no adds and
+  reduces, and a 30-second read would mistime them.
+  - STARTED BY A SIGNED TAP ONLY (`CopyArmSigner`, its own derived key); one
+    leader per follower; Copy and Auto top-up never together; refused while
+    the kill switch is on; A LEADER WHOSE BOOKS DO NOT RECONCILE IS REFUSED:
+    "PerpGuard won't copy a trader whose books it can't verify against the
+    chain." Too-busy leaders are refused too.
+  - NO CAPS on how much is copied. ONE NUMBER: the free balance never spent
+    (default 500 AUSD, settable, 0 allowed); an open that would go under it is
+    SKIPPED AND SAID with the figures.
+  - SIZED BY NOTIONAL at the ACTING mark (prices differ across networks):
+    leader value at entry × follower equity ÷ leader equity, rounded down to
+    the step. Leverage above the acting maximum opens AT the maximum (same
+    size, more margin) and says so. Markets by context ticker, skips named; a
+    market the follower already holds is skipped (a copy would change it).
+  - Every 30 s (`CopyEngine`), steps in time order, ONE ACTION IN FLIGHT PER
+    ACCOUNT. Each leader position is a leg CLAIMED (`copy_legs`, unique per
+    rule and leader position) BEFORE the send; the kill switch is read before
+    the pass, before the claim and by the executor (`stopCheck`). Opens go
+    through the executor's new `open-position` (refused if a position exists;
+    judged by whether a position APPEARS: applied / not-applied when the
+    venue refused / unknown otherwise). NOT OPENED is said and never retried;
+    UNKNOWN pauses copying and says so; Resume settles unknown legs against
+    the position list. Held, never guessed, while the index is not synced or
+    the account is blind (said once).
+  - STOPPING (the button, or the kill switch, which now also stops copying)
+    LEAVES COPIED POSITIONS OPEN AND SAYS SO. It never moves money.
+  - MEASURED: `pnpm probe:opens` landed 16 of 16 testnet market opens
+    (MON 8, PUMP 4, NEAR 4) in 1.1-1.4 s, every close too
+    (`fixtures/open-probe-testnet*.json`). `pnpm copy:live-demo` runs the real
+    copier on testnet with a SYNTHETIC leader and an IN-MEMORY rule (nothing
+    persists; backend stopped): MON copied and verified in 0.9 s, HYPE skipped
+    by name, nothing re-sent on the second pass, the close verified.
 
 ## Account sessions: one of everything PER LINKED ACCOUNT
 - `AccountRegistry` (`apps/backend/src/sessions/registry.ts`) owns an

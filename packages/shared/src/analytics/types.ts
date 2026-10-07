@@ -1373,4 +1373,9 @@ export interface CopySourceReader {
   /** Undefined when the index has no such account. `cap` bounds `positions`; `openedInWindow` is always the true count. */
   copySource(accountId: number, window: { readonly fromMs: number; readonly toMs: number; readonly cap: number }): Promise<CopySource | undefined>;
   openActivity(accountId: number, nowMs: number): Promise<OpenActivity>;
+  /**
+   * A LIVE leader, for Copy Trading: every position opened at or after
+   * `sinceMs` (open or closed, at most `cap`), and the index's books now.
+   */
+  copyLeader(accountId: number, sinceMs: number, cap: number): Promise<{ readonly positions: readonly CopySourcePosition[]; readonly equityCNS: bigint } | undefined>;
 }

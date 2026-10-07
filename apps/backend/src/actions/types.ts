@@ -38,7 +38,7 @@ import type {
 import type { PriceGate } from '../ingest/marketFeed.ts';
 
 /** The actions this layer can take. Reduce and close are declared, not yet live. */
-export type ActionKind = 'add-margin' | 'reduce-position' | 'close-position';
+export type ActionKind = 'add-margin' | 'reduce-position' | 'close-position' | 'open-position';
 
 interface CommandBase {
   /**
@@ -97,7 +97,20 @@ export type ActionCommand =
       /** Lots to close, in the market's own lot scaling. */
       readonly sizeLNS: bigint;
     })
-  | (CommandBase & { readonly kind: 'close-position' });
+  | (CommandBase & { readonly kind: 'close-position' })
+  /**
+   * OPEN at the market (Copy Trading). The one action with NO position yet:
+   * `positionId` is undefined, and a position already on the market is a
+   * refusal, never an add. Judged by whether a position APPEARS.
+   */
+  | (CommandBase & {
+      readonly kind: 'open-position';
+      readonly side: Side;
+      /** Size in the market's own units (`size_decimals`). */
+      readonly sizeLNS: bigint;
+      /** `lv`, hundredths: 1000 = 10x. */
+      readonly leverageHundredths: number;
+    });
 
 /** Which number reconciliation watched. */
 export type WatchedField =
@@ -159,6 +172,8 @@ export type RefusalCode =
   | 'no-position-id'
   /** We hold no position on this market, or the set says so. */
   | 'no-position'
+  /** An OPEN on a market where a position already exists: it would change that position, not open one. */
+  | 'position-exists'
   /** The position set cannot be believed, so neither can a before-figure. */
   | 'positions-untrusted'
   /** The price feed is not `connected`, so every price we hold is frozen. */
@@ -298,6 +313,9 @@ export interface ActingVenue {
     import('@perpguard/shared').ActionResult
   >;
   closePosition(request: import('@perpguard/shared').ClosePositionRequest): Promise<
+    import('@perpguard/shared').ActionResult
+  >;
+  openPosition(request: import('@perpguard/shared').OpenPositionRequest): Promise<
     import('@perpguard/shared').ActionResult
   >;
 }

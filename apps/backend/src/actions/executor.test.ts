@@ -739,3 +739,43 @@ test('MARKET IDENTITY IS THE ID: availability is asked, and the send addressed, 
   assert.deepEqual(h.venue.availabilityAsked, [{ marketId: MARKET, symbol: 'BTC' }]);
   assert.equal(h.venue.sends[0]?.marketId, MARKET);
 });
+
+// ── OPEN (Copy Trading): judged by whether a position APPEARS ──────────────────
+
+const openCmd = (overrides: Partial<ActionCommand> = {}): ActionCommand =>
+  ({ kind: 'open-position', idempotencyKey: 'copy-open-1', userId: 'copier', marketId: MARKET, symbol: 'BTC', positionId: undefined, side: 'long', sizeLNS: 2_000n, leverageHundredths: 500, ...overrides }) as ActionCommand;
+
+test('OPEN: a position that appears is applied, with its size, after exactly one send', async () => {
+  const h = harness({ positions: new FakePositions([]) });
+  h.venue.applyOnSend = () => h.positions.set({ ...position(), sizeLNS: 2_000n, positionId: 777 });
+  const outcome = await h.executor.execute(openCmd());
+  assert.equal(outcome.kind, 'applied');
+  assert.equal(h.venue.sends.length, 1);
+  assert.equal(h.venue.sends[0]!.kind, 'open-position');
+  assert.equal(h.venue.sends[0]!.positionSide, 'long');
+  assert.ok(outcome.kind === 'applied' && outcome.reconciliation.after === 2_000n);
+});
+
+test('OPEN: a market that already holds a position is REFUSED, never added to', async () => {
+  const h = harness();
+  const outcome = await h.executor.execute(openCmd());
+  assert.equal(outcome.kind, 'refused');
+  assert.ok(outcome.kind === 'refused' && outcome.code === 'position-exists');
+  assert.equal(h.venue.sends.length, 0);
+});
+
+test('OPEN: nothing appears and the venue said it refused: NOT APPLIED, certain', async () => {
+  const h = harness({ positions: new FakePositions([]) });
+  h.venue.openResult = rejected('st: 5 Canceled, sr: 38 OrderSizeExceedsAvailableSize');
+  const outcome = await h.executor.execute(openCmd());
+  assert.equal(outcome.kind, 'not-applied');
+  assert.equal(h.venue.sends.length, 1, 'never re-sent');
+});
+
+test('OPEN: nothing appears and the venue said nothing: UNKNOWN, because it may still land', async () => {
+  const h = harness({ positions: new FakePositions([]) });
+  h.venue.openResult = confirmed();
+  const outcome = await h.executor.execute(openCmd());
+  assert.equal(outcome.kind, 'unknown');
+  assert.equal(h.venue.sends.length, 1);
+});

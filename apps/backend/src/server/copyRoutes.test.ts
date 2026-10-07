@@ -15,6 +15,7 @@ function rig() {
   const asked: Array<{ accountId: number; fromMs: number; toMs: number }> = [];
   const source: CopySourceReader = {
     openActivity: async () => ({ lastOpenedAtMs: undefined, opened24h: 0, opened7d: 0 }),
+    copyLeader: async () => undefined,
     copySource: async (accountId, window): Promise<CopySource | undefined> => {
       asked.push({ accountId, fromMs: window.fromMs, toMs: window.toMs });
       if (accountId === 404) return undefined;

@@ -31,6 +31,11 @@
  *   rendered only through `maskApiKey`, the secret lives inside `ApiSecret`, and
  *   the bot token is redacted out of every string the transport hands back.
  */
+import { CopyArmSigner } from './copy/live/arming.ts';
+import { CopyControlService, UNVERIFIED_LEADER_TEXT } from './copy/live/control.ts';
+import { CopyEngine } from './copy/live/engine.ts';
+import { renderCopy } from './copy/live/render.ts';
+import { InMemoryCopyStore, PostgresCopyStore, type CopyStore } from './copy/live/store.ts';
 import { CopyReplayService } from './copy/service.ts';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
@@ -564,10 +569,13 @@ if (alertDb !== undefined) {
 // counts live in memory, so it SAYS so: a restart would forget what was used.
 let automation: AutomationStore = new InMemoryAutomationStore();
 let rescueStore: RescueStore = new InMemoryRescueStore();
+let copyStore: CopyStore = new InMemoryCopyStore();
 if (alertDb !== undefined) {
   try {
     automation = await PostgresAutomationStore.load(alertDb);
     rescueStore = await PostgresRescueStore.load(alertDb);
+    copyStore = await PostgresCopyStore.load(alertDb);
+    log(`copy trading: ${copyStore.enabledRules().length} active copy rule(s) loaded from Postgres`);
     log(`rescue: ${rescueStore.enabledRules().length} enabled rule(s) loaded from Postgres`);
   } catch (error) {
     warn(`rescue: automation state could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); rules and attempts are in memory until the next restart`);
@@ -713,9 +721,11 @@ const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
 // AUTO TOP-UP IS ARMED ONLY BY A TAP, signed with a key derived from the
 // server's key (`rescue/arming.ts`). Without that key nothing can be armed.
 let armSigner: ArmSigner | undefined;
+let copyArmSigner: CopyArmSigner | undefined;
 if (keyEncryptionHex !== undefined && keyEncryptionHex !== '') {
   try {
     armSigner = new ArmSigner(keyEncryptionHex);
+    copyArmSigner = new CopyArmSigner(keyEncryptionHex);
   } catch (error) {
     warn(`auto top-up: no arming key (${error instanceof Error ? error.message : String(error)}); nothing can be armed`);
   }
@@ -741,12 +751,40 @@ const rescueControl = new RescueControlService({
   log,
 });
 
+// 🔁 COPY TRADING (Half B): started only by a signed tap, refuses a leader
+// whose books do not reconcile, stopping leaves copied positions open. The
+// engine is built with the analytics reader (section 7); until then nothing copies.
+let copyEngine: CopyEngine | undefined;
+const copyControl = new CopyControlService({
+  store: copyStore,
+  automation,
+  signer: copyArmSigner,
+  isLinked: isLinkedHere,
+  verifyLeader: async (leaderAccountId) => {
+    if (copyReplay === undefined) return { ok: false, text: 'The index is not available here, so the trader cannot be checked.' };
+    const { result } = await copyReplay.replay(leaderAccountId, 1_000n * 10n ** BigInt(collateralDecimals), 30);
+    if (result.kind === 'unknown-account') return { ok: false, text: `The index has no account #${leaderAccountId}.` };
+    if (result.kind === 'too-busy') return { ok: false, text: `#${leaderAccountId} opened ${result.openedInWindow.toLocaleString('en-US')} positions in 30 days: a bot's pace, too fast to copy.` };
+    if (result.kind === 'replayed' && !result.books.reconciled) return { ok: false, text: UNVERIFIED_LEADER_TEXT };
+    return { ok: true, text: '' };
+  },
+  positions: (accountId) => {
+    const session = registry.get(accountId);
+    if (session === undefined || session.view.positionsStatus().state !== 'live') return undefined;
+    return session.positionSource.snapshot().map((p) => ({ marketId: p.marketId, positionId: p.positionId, side: p.side }));
+  },
+  busy: (accountId) => copyEngine?.busy(accountId) ?? false,
+  collateralDecimals,
+  log,
+});
+
 const bot =
   botConfig === undefined
     ? undefined
     : createBot({
         config: botConfig,
         log,
+        copyLive: copyControl,
         links,
         store: pendingActions,
         sessions: registry,
@@ -902,7 +940,7 @@ manualAlerts.start();
 log('manual alerts up: every linked account at its own alert distance, once per crossing');
 // 🔴 THE KILL SWITCH: the persisted flag first, then every Rescue rule off and
 // the mode to NONE. Database only: it works with no session at all.
-killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine, log });
+killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine, copy: copyControl, log });
 
 // 🚪 CLOSE EVERYTHING: stops first, one run per account, each request once,
 // closes one at a time through the account's own executor, and reads the
@@ -1100,6 +1138,68 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
       actingMarkets: () => markets,
       marks: () => marksVenue.getOpenInterest(),
     });
+
+    // 🔁 THE COPIER: the leader from this index, the follower's own session on the
+    // trading network, testnet marks for sizing. Every 30 seconds.
+    const copyReader = analyticsReader;
+    copyEngine = new CopyEngine({
+      store: copyStore,
+      automation,
+      armProblem: (rule) => copyControl.armProblem(rule),
+      account: (accountId) => {
+        const session = registry.get(accountId);
+        if (session === undefined) return undefined;
+        return {
+          positionsLive: () => session.view.positionsStatus().state === 'live',
+          positions: () => {
+            const assessed = session.view.snapshot();
+            return session.positionSource.snapshot().map((p) => {
+              const a = assessed.find((x) => x.marketId === p.marketId);
+              return { marketId: p.marketId, positionId: p.positionId, side: p.side, marginCNS: a?.marginCNS, unrealisedPnlCNS: a?.metrics.unrealisedPnlCNS };
+            });
+          },
+          freeFloorCNS: () => {
+            const b = session.balance.freeBalance();
+            return b.known ? b.floorCNS : undefined;
+          },
+          execute: (command) => session.executor.execute(command),
+        };
+      },
+      leader: (accountId, sinceMs) => copyReader.copyLeader(accountId, sinceMs, 3_000),
+      indexProblem: async () => {
+        const h = await copyReader.health();
+        return h.state === 'synced' ? undefined : `${h.state}, ${h.blocksBehind.toLocaleString('en-US')} blocks behind`;
+      },
+      actingNetwork: network.name,
+      actingMarkets: () => markets,
+      markOf: (marketId) => feed.get(marketId)?.markPrice,
+      collateralDecimals,
+      notify: (accountId, notice) => {
+        const raw = renderCopy(notice, { collateralDecimals, sizeDecimalsOf: (id) => markets.find((m) => m.marketId === id)?.sizeDecimals ?? 0 });
+        const html = withBadge(raw.html, network.name);
+        const route = (b: (typeof raw.buttons)[number]) =>
+          b === 'stop' ? { text: '⛔ Stop copying', nav: encodeNav({ to: 'copy-stop' }, { fresh: true }) }
+          : b === 'resume' ? { text: '▶️ Resume', nav: encodeNav({ to: 'copy-resume' }, { fresh: true }) }
+          : b === 'positions' ? { text: '📊 My Positions', nav: encodeNav({ to: 'positions' }, { fresh: true }) }
+          : { text: '🔁 Copy Trading', nav: encodeNav({ to: 'copy-status' }, { fresh: true }) };
+        const keyboard = raw.buttons.map(route).map((b) => ({ text: b.text, callback_data: b.nav }));
+        // Not awaited by the engine: one person's slow send never holds another's copy.
+        void (async () => {
+          for (const link of links.byAccountId(accountId)) {
+            if (bot === undefined) break;
+            try {
+              await bot.api.sendMessage(link.chatId, html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: [keyboard] } });
+            } catch (error) {
+              warn(`copy: the ${notice.kind} message to chat ${link.chatId} did not go: ${classifyTelegramError(error, botConfig?.token ?? '').reason ?? 'Telegram refused it'}`);
+            }
+          }
+          log(`copy: told account ${accountId}: ${notice.kind} (rule ${notice.rule.id}${'leg' in notice ? `, ${notice.leg.symbol} ${notice.leg.status}` : ''})`);
+        })();
+      },
+      logger: { info: log, warn },
+    });
+    copyEngine.start();
+    log(`copy trading: running every 30 s, ${copyStore.enabledRules().length} active rule(s)`);
   }
 
   // ── the watch tier's data: the index for positions, the venue for marks ──

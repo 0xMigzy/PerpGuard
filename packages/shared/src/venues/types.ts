@@ -370,6 +370,17 @@ export interface ReducePositionRequest extends PositionExitRequest {}
  */
 export interface ClosePositionRequest extends PositionExitRequest {}
 
+/**
+ * OPEN a position at the market (Copy Trading, 7 Oct 2026): `t: 1`/`t: 2` with
+ * `p: 0` and ImmediateOrCancel, the frame `pnpm probe:opens` measured landing
+ * 16 of 16 times on testnet. `leverageHundredths` is `lv` (1000 = 10x).
+ */
+export interface OpenPositionRequest extends ActionRequest {
+  readonly side: Side;
+  readonly sizeLNS: bigint;
+  readonly leverageHundredths: number;
+}
+
 /** Cancels every open order, optionally limited to one market. */
 export interface CancelAllRequest {
   readonly idempotencyKey: string;
@@ -477,5 +488,6 @@ export interface Venue {
   addMargin(request: AddMarginRequest): Promise<ActionResult>;
   reducePosition(request: ReducePositionRequest): Promise<ActionResult>;
   closePosition(request: ClosePositionRequest): Promise<ActionResult>;
+  openPosition(request: OpenPositionRequest): Promise<ActionResult>;
   cancelAll(request: CancelAllRequest): Promise<ActionResult>;
 }

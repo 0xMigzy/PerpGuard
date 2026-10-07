@@ -187,6 +187,8 @@ function refusedText(outcome: Extract<ActionOutcome, { kind: 'refused' }>): stri
       );
     case 'no-position':
       return `I no longer hold a position on this market, so there was nothing to add margin to. Nothing was sent.`;
+    case 'position-exists':
+      return `Not sent: ${outcome.detail}`;
     case 'no-position-id':
       return (
         `I do not have this position's venue id, so I cannot address the top-up to it. Nothing ` +

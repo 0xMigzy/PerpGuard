@@ -131,6 +131,41 @@ export function reconcileAddMargin(params: {
  * entirely, and the second is `unknown` here rather than applied — see
  * {@link vanished}.
  */
+/**
+ * An OPEN: did a position appear on the market? Its size is the evidence.
+ *
+ * Nothing appeared and the venue said it refused: NOT APPLIED, certain. Nothing
+ * appeared and the venue did not say so (a timeout, a throw, a fill report with
+ * no position): UNKNOWN, because it may still land, and a copier that called
+ * that "not opened" could open it twice.
+ */
+export function reconcileOpen(params: { readonly requestedLNS: bigint; readonly afterLNS: bigint | undefined; readonly venueRefused: boolean }): Reconciliation {
+  const { requestedLNS, afterLNS } = params;
+  if (afterLNS !== undefined && afterLNS > 0n) {
+    return {
+      verdict: 'applied',
+      field: 'size',
+      requested: requestedLNS,
+      before: 0n,
+      after: afterLNS,
+      delta: afterLNS,
+      detail: afterLNS >= requestedLNS ? `a position of ${afterLNS} size units opened` : `a position opened PARTLY: ${afterLNS} of ${requestedLNS} size units`,
+    };
+  }
+  if (params.venueRefused) {
+    return { verdict: 'not-applied', field: 'size', requested: requestedLNS, before: 0n, after: undefined, delta: undefined, detail: 'no position appeared, and the venue reported the order did not fill' };
+  }
+  return {
+    verdict: 'unknown',
+    field: 'size',
+    requested: requestedLNS,
+    before: 0n,
+    after: undefined,
+    delta: undefined,
+    detail: 'no position appeared in the wait, and the venue did not say it refused the order: it may still land',
+  };
+}
+
 export function reconcileReduce(params: {
   readonly requestedLNS: bigint;
   readonly beforeLNS: bigint;

@@ -135,7 +135,7 @@ export class FakePrices implements PriceGateSource {
 }
 
 export interface SendRecord {
-  readonly kind: 'add-margin' | 'reduce-position' | 'close-position';
+  readonly kind: 'add-margin' | 'reduce-position' | 'close-position' | 'open-position';
   readonly idempotencyKey: string;
   /** The market the venue was asked to address. The id, never resolved from the symbol. */
   readonly marketId: number;
@@ -176,6 +176,7 @@ export class FakeVenue implements ActingVenue {
    */
   reduceResult: ActionResult | Error = confirmed();
   closeResult: ActionResult | Error = confirmed();
+  openResult: ActionResult | Error = confirmed();
 
   /**
    * Called on every send, before the result is returned or thrown.
@@ -244,6 +245,22 @@ export class FakeVenue implements ActingVenue {
         positionSide: request.positionSide,
       },
       this.closeResult,
+    );
+  }
+
+  async openPosition(request: import('@perpguard/shared').OpenPositionRequest): Promise<ActionResult> {
+    return this.#send(
+      {
+        kind: 'open-position',
+        idempotencyKey: request.idempotencyKey,
+        marketId: request.marketId,
+        symbol: request.symbol,
+        positionId: undefined,
+        amountCNS: undefined,
+        sizeLNS: request.sizeLNS,
+        positionSide: request.side,
+      },
+      this.openResult,
     );
   }
 

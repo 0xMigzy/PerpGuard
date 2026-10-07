@@ -12,6 +12,9 @@
  * Buttons that change something (unlink, stop watching, a setting, minting a
  * link code) are shown on their screen but not tapped.
  */
+import { CopyArmSigner } from '../copy/live/arming.ts';
+import { CopyControlService } from '../copy/live/control.ts';
+import { InMemoryCopyStore } from '../copy/live/store.ts';
 import { replayCopy } from '../copy/replay.ts';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -132,6 +135,17 @@ function build() {
       closeAll: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
       closeOne: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
     },
+    // The real copy control over an in-memory store: the document shows the real Copy Trading screens.
+    copyLive: new CopyControlService({
+      store: new InMemoryCopyStore(),
+      automation,
+      signer: new CopyArmSigner('33'.repeat(32)),
+      isLinked: () => true,
+      verifyLeader: async () => ({ ok: true, text: '' }),
+      positions: () => [],
+      busy: () => false,
+      collateralDecimals: 6,
+    }),
     killSwitch: {
       stopped: (id) => automation.automationStopped(id),
       changedAtMs: (id) => killSwitch.changedAtMs(id),

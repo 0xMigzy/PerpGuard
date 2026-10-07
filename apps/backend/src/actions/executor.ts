@@ -37,7 +37,7 @@ import {
   type Unsubscribe,
 } from '@perpguard/shared';
 import { ForwardingNotAllowedError } from '@perpguard/shared';
-import { reconcileAddMargin, reconcileClose, reconcileReduce } from './reconcile.ts';
+import { reconcileAddMargin, reconcileClose, reconcileOpen, reconcileReduce } from './reconcile.ts';
 import { InFlightRegistry, type Lease } from './inflight.ts';
 import type {
   ActingVenue,
@@ -186,7 +186,11 @@ export class ActionsExecutor {
           `Nothing was sent; nothing on either account was touched.`,
       );
     }
-    if (command.positionId === undefined) {
+    if (command.kind === 'open-position') {
+      if (command.sizeLNS <= 0n || !Number.isInteger(command.leverageHundredths) || command.leverageHundredths < 100) {
+        return this.#refuse(command, 'invalid-command', `an open needs a positive size and a leverage of at least 1x, got size ${command.sizeLNS} at ${command.leverageHundredths / 100}x.`);
+      }
+    } else if (command.positionId === undefined) {
       return this.#refuse(
         command,
         'no-position-id',
@@ -225,7 +229,11 @@ export class ActionsExecutor {
     }
 
     const position = this.#positions.read(command.marketId);
-    if (position === undefined) {
+    if (command.kind === 'open-position') {
+      if (position !== undefined) {
+        return this.#refuse(command, 'position-exists', `there is already a position on ${command.symbol} (market ${command.marketId}); an open there would change it, not open a new one. Nothing was sent.`);
+      }
+    } else if (position === undefined) {
       return this.#refuse(
         command,
         'no-position',
@@ -274,7 +282,11 @@ export class ActionsExecutor {
     // pre-flight may be one fill out of date, and the before-figure is the whole
     // basis of the verdict.
     const position = this.#positions.read(command.marketId);
-    if (position === undefined) {
+    if (command.kind === 'open-position') {
+      if (position !== undefined) {
+        return this.#refuse(command, 'position-exists', `a position on ${command.symbol} appeared while I was checking the market, so an open would change it. Nothing was sent.`);
+      }
+    } else if (position === undefined) {
       return this.#refuse(
         command,
         'no-position',
@@ -284,7 +296,7 @@ export class ActionsExecutor {
     }
 
     const field = watchedField(command);
-    const before = field === 'margin' ? position.marginCNS : position.sizeLNS;
+    const before = position === undefined ? 0n : field === 'margin' ? position.marginCNS : position.sizeLNS;
     const requested = requestedAmount(command, position);
 
     try {
@@ -354,7 +366,7 @@ export class ActionsExecutor {
    */
   async #send(
     command: ActionCommand,
-    position: ReconcilablePosition,
+    position: ReconcilablePosition | undefined,
   ): Promise<
     | { readonly reported: ReportedStatus }
     | { readonly refused: RefusalCode; readonly detail: string }
@@ -385,17 +397,25 @@ export class ActionsExecutor {
             // THE POSITION'S SIDE, read off the position we just looked at, not
             // derived from the action. A close of a long is itself a sell, and
             // handing the venue the order's direction doubles the position.
-            positionSide: position.side,
+            positionSide: position!.side,
             sizeLNS: command.sizeLNS,
+          });
+          break;
+        case 'open-position':
+          result = await this.#venue.openPosition({
+            ...base,
+            side: command.side,
+            sizeLNS: command.sizeLNS,
+            leverageHundredths: command.leverageHundredths,
           });
           break;
         case 'close-position':
           result = await this.#venue.closePosition({
             ...base,
             positionId,
-            positionSide: position.side,
+            positionSide: position!.side,
             // The whole of it, as the position reports it right now.
-            sizeLNS: position.sizeLNS,
+            sizeLNS: position!.sizeLNS,
           });
           break;
       }
@@ -489,6 +509,8 @@ export class ActionsExecutor {
         }
         const position = this.#positions.read(command.marketId);
         if (position === undefined) {
+          // For an OPEN, absence is "not yet": keep watching until it appears or the wait ends.
+          if (command.kind === 'open-position') return;
           finish({ after: undefined, untrustedReason: undefined, changed: true });
           return;
         }
@@ -614,6 +636,8 @@ export class ActionsExecutor {
           beforeLNS: before,
           afterLNS: observation.after,
         });
+      case 'open-position':
+        return reconcileOpen({ requestedLNS: requested, afterLNS: observation.after, venueRefused: reported.status === 'rejected' });
       case 'close-position':
         return reconcileClose({
           beforeLNS: before,
@@ -668,15 +692,16 @@ function watchedField(command: ActionCommand): WatchedField {
 }
 
 /** What was asked for, in the units of the watched field. */
-function requestedAmount(command: ActionCommand, position: ReconcilablePosition): bigint {
+function requestedAmount(command: ActionCommand, position: ReconcilablePosition | undefined): bigint {
   switch (command.kind) {
     case 'add-margin':
       return command.amountCNS;
     case 'reduce-position':
+    case 'open-position':
       return command.sizeLNS;
     case 'close-position':
       // A close asks for all of it, so the request IS the current size.
-      return position.sizeLNS;
+      return position?.sizeLNS ?? 0n;
   }
 }
 

@@ -37,6 +37,14 @@ export type Route =
   /** 🔁 What if I'd copied this trader for 30 days? A replay from the index; sends nothing. */
   | { readonly to: 'copy-sim'; readonly accountId: number }
   | { readonly to: 'copy-sim7'; readonly accountId: number }
+  /** 🔁 Copy Trading, live (Half B). LINKED ONLY: each resolves the chat's link at tap time. */
+  | { readonly to: 'copy-setup'; readonly accountId: number }
+  | { readonly to: 'copy-keep'; readonly level: number }
+  | { readonly to: 'copy-start' }
+  | { readonly to: 'copy-status' }
+  | { readonly to: 'copy-stop' }
+  | { readonly to: 'copy-resume' }
+  | { readonly to: 'copy-keep-set'; readonly level: number }
   /** 💥 / 🐋 The feeds' thresholds: `level` is the preset's index, or OFF_LEVEL. */
   | { readonly to: 'liq' }
   | { readonly to: 'liq-set'; readonly level: number }
@@ -125,6 +133,13 @@ const CODE: Readonly<Record<RouteName, string>> = {
   trader: 'tc',
   'copy-sim': 'cs',
   'copy-sim7': 'cs7',
+  'copy-setup': 'cpu',
+  'copy-keep': 'cpk',
+  'copy-start': 'cpg',
+  'copy-status': 'cps',
+  'copy-stop': 'cpx',
+  'copy-resume': 'cpr',
+  'copy-keep-set': 'cpf',
   liq: 'lq',
   'liq-set': 'lqs',
   big: 'lt',
@@ -184,6 +199,9 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   trader: 'accountId',
   'copy-sim': 'accountId',
   'copy-sim7': 'accountId',
+  'copy-setup': 'accountId',
+  'copy-keep': 'level',
+  'copy-keep-set': 'level',
   'liq-set': 'level',
   'big-set': 'level',
   'warn-preset': 'level',

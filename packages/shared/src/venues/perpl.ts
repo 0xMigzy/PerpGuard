@@ -18,6 +18,7 @@ import {
 import {
   buildAddMarginFrame,
   buildClosePositionFrame,
+  buildMarketOrderFrame,
   buildCancelFrame,
   buildLimitOrderFrame,
   computeLastExecBlock,
@@ -47,6 +48,7 @@ import type {
   MarketOpenInterest,
   CancelOrderRequest,
   ClosePositionRequest,
+  OpenPositionRequest,
   PlaceLimitOrderRequest,
   PriceUpdate,
   ReducePositionRequest,
@@ -966,6 +968,44 @@ export class PerplVenue implements Venue {
       symbol: request.symbol,
       // The outcome carries our own `rq`, which matchPlacement prefers over every
       // other correlator. Verified on all three measured round trips.
+      matches: matchPlacement(frame, socket.knownOrderIds),
+      onForwarded: request.onForwarded,
+      timeoutMs: request.timeoutMs,
+    });
+  }
+
+  /**
+   * OPEN at the market: one `t: 1`/`t: 2` IOC frame, sent once. The outcome is
+   * never taken from this: the executor reads the position list.
+   */
+  async openPosition(request: OpenPositionRequest): Promise<ActionResult> {
+    if (request.sizeLNS <= 0n || request.sizeLNS > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new VenueError(VENUE_ID, `an open must name a positive size in the market's own units, got ${request.sizeLNS}`);
+    }
+    if (!Number.isInteger(request.leverageHundredths) || request.leverageHundredths < 100) {
+      throw new VenueError(VENUE_ID, `leverage must be whole hundredths of at least 1x, got ${request.leverageHundredths}`);
+    }
+    const market = await this.#requireActionable(request);
+    const socket = await this.connectTrading();
+    const accountId = socket.accountId;
+    if (accountId === undefined) {
+      throw new VenueError(VENUE_ID, 'no account id: the WalletSnapshot carried none, so this key has no on-chain account on this network yet');
+    }
+    const frame = buildMarketOrderFrame({
+      sn: socket.nextSequenceNumber(),
+      rq: socket.reserveRequestId(),
+      marketId: market.marketId,
+      accountId,
+      side: request.side,
+      sizeScaled: Number(request.sizeLNS),
+      leverageHundredths: request.leverageHundredths,
+      lastExecBlock: computeLastExecBlock(await this.#headBlock(socket), market.orderTtlBlocks, LAST_EXEC_BLOCK_SAFETY),
+    });
+    return this.#execute({
+      frame,
+      intent: 'place',
+      idempotencyKey: request.idempotencyKey,
+      symbol: request.symbol,
       matches: matchPlacement(frame, socket.knownOrderIds),
       onForwarded: request.onForwarded,
       timeoutMs: request.timeoutMs,

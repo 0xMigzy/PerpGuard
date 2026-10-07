@@ -22,6 +22,7 @@ import type { Button, Screen } from './screens.ts';
 export interface StopReportView {
   readonly alreadyStopped: boolean;
   readonly rescueStopped: readonly string[];
+  readonly copyStopped?: { readonly leaderAccountId: number; readonly openCopies: number } | undefined;
   readonly modeBefore: string;
   readonly inFlight: 'none' | 'stopped-before-send' | 'already-sent' | 'still-settling';
   readonly inFlightDetail: string | undefined;
@@ -103,7 +104,9 @@ export function killResultScreen(report: StopReportView): Screen {
     '🛑 <b>PERPGUARD STOPPED</b>',
     '',
     `Liquidation Rescue: ⚪ OFF${report.rescueStopped.length === 0 ? '' : ` (turned off on ${report.rescueStopped.map(esc).join(', ')})`}`,
-    'Copy Trading: ⚪ OFF',
+    report.copyStopped === undefined
+      ? 'Copy Trading: ⚪ OFF'
+      : `Copy Trading: ⚪ OFF (stopped copying #${report.copyStopped.leaderAccountId}; ${report.copyStopped.openCopies} copied position${report.copyStopped.openCopies === 1 ? '' : 's'} left open)`,
     'New automated actions: 🔴 <b>BLOCKED</b>',
     'Existing positions: <b>UNCHANGED</b>',
     'Pending orders: none were PerpGuard’s to cancel',
@@ -120,7 +123,7 @@ export function killResumeAskScreen(): Screen {
       '▶️ <b>RESUME AUTOMATION?</b>',
       '',
       'This lifts the block on automated actions.',
-      'Nothing starts by itself: Liquidation Rescue stays off on every position until you turn it on again.',
+      'Nothing starts by itself: Liquidation Rescue stays off on every position, and Copy Trading stays off, until you turn them on again.',
     ].join('\n'),
     buttons: [[{ text: '▶️ Resume', route: { to: 'kill-resume' } }], [{ text: 'Cancel', route: { to: 'kill' } }]],
   };

@@ -207,6 +207,8 @@ export interface TraderCardExtras {
   readonly nowMs?: number;
   /** Each window's replay in a few words (`copySummary`), and the size they were replayed at. */
   readonly copied?: { readonly d30: string; readonly d7: string; readonly size: string } | undefined;
+  /** A linked chat with Copy Trading available: it may start copying this trader. */
+  readonly canCopy?: boolean;
 }
 
 export function traderCardScreen(input: { readonly stats: TraderStats; readonly watching: boolean; readonly starred: boolean; readonly webUrl: string | undefined; readonly back: Route } & TraderCardExtras): Screen {
@@ -241,6 +243,7 @@ export function traderCardScreen(input: { readonly stats: TraderStats; readonly 
   const buttons: Button[][] = [];
   if (input.webUrl !== undefined) buttons.push([{ text: '📊 Full analytics', url: `${input.webUrl.replace(/\/$/, '')}/traders/${id}` }]);
   buttons.push([{ text: "🔁 What if I'd copied? · 30D", route: { to: 'copy-sim', accountId: id } }]);
+  if (input.canCopy === true) buttons.push([{ text: '🔁 Copy this trader', route: { to: 'copy-setup', accountId: id } }]);
   if (!input.watching) buttons.push([{ text: '👁 Watch', route: { to: 'watch-id', accountId: id } }]);
   else buttons.push([input.starred ? { text: '⭐ Remove from Watchlist', route: { to: 'unstar', accountId: id } } : { text: '⭐ Add to Watchlist', route: { to: 'star', accountId: id } }]);
   buttons.push([{ text: '← Back', route: input.back }]);

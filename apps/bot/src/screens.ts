@@ -100,6 +100,8 @@ export interface HomeInput {
   readonly rescue?: boolean;
   /** The Kill Switch is built and wired, so a linked chat gets its button. */
   readonly killSwitch?: boolean;
+  /** Copy Trading is built and wired, so a linked chat gets its button. */
+  readonly copy?: boolean;
 }
 
 const TITLE = '🛡 <b>PERPGUARD</b>\nAnalyse. Watch. Act.';
@@ -177,7 +179,9 @@ export function homeScreen(input: HomeInput): Screen {
           { text: '🔐 Trading Account', route: { to: 'account' } },
         ]
       : [{ text: '🔐 Trading Account', route: { to: 'account' } }],
-    [{ text: '⚙️ Settings', route: { to: 'settings' } }],
+    input.copy === true
+      ? [{ text: '🔁 Copy Trading', route: { to: 'copy-status' } }, { text: '⚙️ Settings', route: { to: 'settings' } }]
+      : [{ text: '⚙️ Settings', route: { to: 'settings' } }],
   ];
   if (open.length > 0) buttons.push(open);
   return { html: lines.join('\n'), buttons };

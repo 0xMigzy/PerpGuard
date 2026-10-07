@@ -1476,6 +1476,13 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     };
   }
 
+  async copyLeader(accountId: number, sinceMs: number, cap: number): Promise<{ readonly positions: readonly CopySourcePosition[]; readonly equityCNS: bigint } | undefined> {
+    const now = this.#now();
+    const source = await this.copySource(accountId, { fromMs: sinceMs, toMs: now + 60_000, cap });
+    if (source === undefined) return undefined;
+    return { positions: source.positions, equityCNS: source.now.freeCNS + source.now.openMarginCNS };
+  }
+
   async openActivity(accountId: number, nowMs: number): Promise<OpenActivity> {
     const row = await this.#one(
       `select (select max("openedAt") from "Position" where trader_id = $1) as last_opened,

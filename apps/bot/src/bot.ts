@@ -18,6 +18,7 @@
  */
 import type { ReplayResult } from '@perpguard/backend/copy/replay';
 import { copyReplayScreen, copySummary, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
+import { copySetupScreen, copyStatusScreen, DEFAULT_KEEP_FREE_INDEX, KEEP_FREE_PRESETS_AUSD, type CopyLiveControl } from './copyLive.ts';
 import { ausdText } from '@perpguard/backend/copy/replay';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
@@ -156,6 +157,8 @@ export interface BotDeps {
    * token. Owner's finding, 7 Oct 2026: a recorded session's taps left no trace.
    */
   readonly log?: (line: string) => void;
+  /** 🔁 Copy Trading, live (Half B). Absent: no copy buttons anywhere. */
+  readonly copyLive?: CopyLiveControl;
   readonly links: LinkStore;
   readonly store: PendingActionStore;
   /**
@@ -478,6 +481,8 @@ export function createBot(deps: BotDeps): Bot {
     if (deps.rescue.stopped(accountId)) return '🛑 STOPPED (kill switch)';
     const on = deps.rescue.rules(accountId).filter((r) => r.enabled && r.pausedReason === undefined);
     if (on.length > 0) return `🛟 Rescue ON · ${on.map((r) => esc(r.symbol)).join(', ')}`;
+    const copying = deps.copyLive?.status(accountId).rule;
+    if (copying?.enabled === true) return `🔁 Copying #${copying.leaderAccountId}${copying.pausedReason === undefined ? '' : ' · ⏸ paused'}`;
     const other = deps.rescue.otherAutomation(accountId);
     return other === undefined ? undefined : esc(other);
   };
@@ -502,6 +507,7 @@ export function createBot(deps: BotDeps): Bot {
             },
       rescue: deps.rescue !== undefined && link !== undefined,
       killSwitch: deps.killSwitch !== undefined && link !== undefined,
+      copy: deps.copyLive !== undefined && link !== undefined,
       tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
       webUrl: deps.webUrl,
@@ -954,7 +960,7 @@ export function createBot(deps: BotDeps): Bot {
           ctx,
           stats === undefined
             ? { html: `I cannot read #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] }
-            : traderCardScreen({ stats, activity, copied, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
+            : traderCardScreen({ stats, activity, copied, canCopy: deps.copyLive !== undefined && linkHere(ctx.from?.id, chatId) !== undefined, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
         );
         return;
       }
@@ -1109,6 +1115,15 @@ export function createBot(deps: BotDeps): Bot {
         } catch {
           // An old or deleted message: nothing to take the buttons off.
         }
+        return;
+      case 'copy-setup':
+      case 'copy-keep':
+      case 'copy-start':
+      case 'copy-status':
+      case 'copy-stop':
+      case 'copy-resume':
+      case 'copy-keep-set':
+        await copyNav(ctx, route);
         return;
       case 'kill':
       case 'kill-confirm':
@@ -1273,6 +1288,129 @@ export function createBot(deps: BotDeps): Bot {
   // Resolved from the chat's LINK, never its session: stopping must work when
   // the trading account is down or its key needs re-linking (spec 54). The
   // gate has already refused every unlinked chat (these routes are not public).
+  /** Setup drafts: which trader this chat is about to copy, and the free balance it keeps. */
+  const copyDrafts = new Map<number, { readonly leaderAccountId: number; readonly keepFreeCNS: bigint }>();
+
+  // ── 🔁 copy trading: LINKED ONLY, the link resolved at tap time ─────────────
+  async function copyNav(ctx: Context, route: Route): Promise<void> {
+    // THE NETWORK ON EVERY ACTION SCREEN.
+    const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
+    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
+    const telegramUserId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const link = linkHere(telegramUserId, chatId);
+    const control = deps.copyLive;
+    if (link === undefined || control === undefined || telegramUserId === undefined || chatId === undefined) {
+      await answer(ctx, control === undefined ? 'Copy Trading is not available here.' : REFUSAL_TEXT);
+      return;
+    }
+    const accountId = link.accountId;
+    const arm = { telegramUserId, chatId };
+    const keepOf = (level: number): bigint | undefined => {
+      const a = KEEP_FREE_PRESETS_AUSD[level];
+      return a === undefined ? undefined : BigInt(a) * 1_000_000n;
+    };
+    const setup = async (leaderAccountId: number, keepFreeCNS: bigint): Promise<Screen> => {
+      const traders = deps.watch?.traders;
+      const { equityCNS } = followerSize(telegramUserId);
+      const [d30, d7, activity] = await Promise.all([
+        traders?.copy?.(leaderAccountId, equityCNS, 30).catch(() => undefined),
+        traders?.copy?.(leaderAccountId, equityCNS, 7).catch(() => undefined),
+        traders?.activity?.(leaderAccountId).catch(() => undefined),
+      ]);
+      const r = d30?.result;
+      const verified =
+        r === undefined
+          ? undefined
+          : r.kind === 'unknown-account'
+            ? { ok: false, text: `The index has no account #${leaderAccountId}.` }
+            : r.kind === 'too-busy'
+              ? { ok: false, text: `#${leaderAccountId} opens positions at a bot's pace (${r.openedInWindow.toLocaleString('en-US')} in 30 days): too fast to copy.` }
+              : r.kind === 'replayed' && !r.books.reconciled
+                ? { ok: false, text: "PerpGuard won't copy a trader whose books it can't verify against the chain." }
+                : { ok: true, text: '' };
+      const now = Date.now();
+      const activityLine =
+        activity === undefined
+          ? undefined
+          : activity.lastOpenedAtMs === undefined
+            ? 'Activity: never opened a position.'
+            : `Activity: last opened a position ${Math.round((now - activity.lastOpenedAtMs) / 3_600_000)} h ago · ${activity.opened24h} in 24 h · ${activity.opened7d} in 7 days${now - activity.lastOpenedAtMs > 7 * 86_400_000 ? ' · ⚠️ nothing in over a week: copying would copy nothing' : ''}`;
+      const copiedLine = traders?.copy === undefined ? undefined : `What copying would have done, after fees: 30D ${copySummary(d30?.result)} · 7D ${copySummary(d7?.result)}`;
+      const current = control.status(accountId).rule;
+      return copySetupScreen({
+        leaderAccountId,
+        network: deps.tradingNetwork ?? 'testnet',
+        keepFreeCNS,
+        verified,
+        activityLine,
+        copiedLine,
+        copyingOther: current?.enabled === true && current.leaderAccountId !== leaderAccountId ? current.leaderAccountId : undefined,
+        stopped: deps.killSwitch?.stopped(accountId) === true,
+      });
+    };
+    switch (route.to) {
+      case 'copy-setup': {
+        const keep = copyDrafts.get(chatId)?.keepFreeCNS ?? BigInt(KEEP_FREE_PRESETS_AUSD[DEFAULT_KEEP_FREE_INDEX]) * 1_000_000n;
+        copyDrafts.set(chatId, { leaderAccountId: route.accountId, keepFreeCNS: keep });
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, await setup(route.accountId, keep));
+        return;
+      }
+      case 'copy-keep': {
+        const draft = copyDrafts.get(chatId);
+        const keep = keepOf(route.level);
+        if (draft === undefined || keep === undefined) return answer(ctx, 'That setup has expired. Open the trader again.');
+        copyDrafts.set(chatId, { ...draft, keepFreeCNS: keep });
+        await ctx.answerCallbackQuery({ text: 'Set.' });
+        await showScreen(ctx, await setup(draft.leaderAccountId, keep));
+        return;
+      }
+      case 'copy-start': {
+        const draft = copyDrafts.get(chatId);
+        if (draft === undefined) return answer(ctx, 'That setup has expired. Open the trader again.');
+        const result = await control.start(accountId, draft.leaderAccountId, draft.keepFreeCNS, arm);
+        if (!result.ok) return answer(ctx, result.text);
+        copyDrafts.delete(chatId);
+        await ctx.answerCallbackQuery({ text: 'Copying.' });
+        const s = control.status(accountId);
+        await showScreen(ctx, (() => { const screen = copyStatusScreen(s); return { ...screen, html: `${esc(result.text)}\n\n${screen.html}` }; })());
+        return;
+      }
+      case 'copy-status':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, copyStatusScreen(control.status(accountId)));
+        return;
+      case 'copy-stop': {
+        const result = await control.stop(accountId);
+        await ctx.answerCallbackQuery({ text: 'Copying stopped.' });
+        const screen = copyStatusScreen(control.status(accountId));
+        // A NEW message: the record that copying stopped, and what it left open.
+        await sendScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
+        return;
+      }
+      case 'copy-resume': {
+        const result = await control.resume(accountId, arm);
+        if (!result.ok) return answer(ctx, result.text);
+        await ctx.answerCallbackQuery({ text: 'Resumed.' });
+        const screen = copyStatusScreen(control.status(accountId));
+        await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
+        return;
+      }
+      case 'copy-keep-set': {
+        const keep = keepOf(route.level);
+        if (keep === undefined) return answer(ctx, 'I do not know that amount.');
+        const result = await control.setKeepFree(accountId, keep, arm);
+        if (!result.ok) return answer(ctx, result.text);
+        await ctx.answerCallbackQuery({ text: 'Set.' });
+        await showScreen(ctx, copyStatusScreen(control.status(accountId)));
+        return;
+      }
+      default:
+        await answer(ctx, 'That screen is not available.');
+    }
+  }
+
   async function killNav(ctx: Context, route: Route): Promise<void> {
     // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
     const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
