@@ -292,6 +292,14 @@ export class PerplVenue implements Venue {
       };
     }
 
+    // THE ID DECIDES; A NAME THAT DISAGREES IS SAID, NOT OBEYED (owner, 7 Oct
+    // 2026). A stale symbol must not block a correct action, and must not pass
+    // unseen either: it means a caller is holding a name the venue no longer uses.
+    if (market.symbol !== symbol) {
+      this.#options.logger?.warn(
+        `market ${ref.marketId} on Perpl ${network} is ${market.symbol}, but the caller named it ${symbol}; acting on market ${ref.marketId} (the id decides)`,
+      );
+    }
     return { actionable: true, network, marketId: market.marketId };
   }
 

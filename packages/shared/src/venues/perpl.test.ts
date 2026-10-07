@@ -306,9 +306,15 @@ describe('PerplVenue.getActionAvailability', () => {
     assert.deepEqual(live, { actionable: true, network: 'mainnet', marketId: 31 });
   });
 
-  it('a symbol that does not match the id changes nothing: the id decides', async () => {
-    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext) });
+  it('a symbol that does not match the id: acts on the id, and warns naming both', async () => {
+    const warnings: string[] = [];
+    const logger = { log: () => {}, warn: (m: string) => void warnings.push(m) };
+    const venue = new PerplVenue(testnet, { fetchImpl: stubFetch(testnetContext), logger });
     assert.deepEqual(await venue.getActionAvailability({ marketId: 16, symbol: 'ETH' }), { actionable: true, network: 'testnet', marketId: 16 });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /market 16 on Perpl testnet is BTC, but the caller named it ETH; acting on market 16/);
+    await venue.getActionAvailability({ marketId: 16, symbol: 'BTC' });
+    assert.equal(warnings.length, 1, 'a matching name says nothing');
     assert.equal((await venue.getActionAvailability({ marketId: 32_000, symbol: 'BTC' })).actionable, false);
   });
 

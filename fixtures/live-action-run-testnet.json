@@ -3,121 +3,77 @@
   "chainId": 10143,
   "transcript": [
     {
-      "atMs": 3990,
+      "atMs": 2252,
       "kind": "before",
-      "positionId": 4404183105537,
-      "marginCNS": "55701",
-      "sizeLNS": "1",
-      "state": "DANGER",
-      "liqBufferPct": 0.026668215357424255,
-      "liquidationPricePNS": "812843",
-      "markPricePNS": "835114",
-      "amountCNS": "11133"
+      "positionId": 4508933292033,
+      "marginCNS": "172278858",
+      "sizeLNS": "2000",
+      "state": "WATCH",
+      "liqBufferPct": 0.043848195556316624,
+      "liquidationPricePNS": "804051",
+      "markPricePNS": "840924",
+      "amountCNS": "25000000"
     },
     {
-      "atMs": 6908,
+      "atMs": 5344,
       "kind": "after",
       "outcome": "applied",
       "reportedStatus": "rejected",
       "reportedReason": "st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send",
       "reconciliation": {
         "verdict": "applied",
-        "before": "55701",
-        "after": "66834",
-        "delta": "11133",
-        "requested": "11133",
-        "detail": "margin is now 66834 (was 55701): 11133 micros applied, 11133 requested — LANDED"
+        "before": "172278858",
+        "after": "197278858",
+        "delta": "25000000",
+        "requested": "25000000",
+        "detail": "margin is now 197278858 (was 172278858): 25000000 micros applied, 25000000 requested — LANDED"
       },
-      "detail": "add-margin on BTC LANDED: margin is now 66834 (was 55701): 11133 micros applied, 11133 requested — LANDED. The venue reported it as rejected — rejected (st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send) — which for this order type is the normal report for a top-up that worked. The position is the evidence; nothing was re-sent.",
+      "detail": "add-margin on BTC LANDED: margin is now 197278858 (was 172278858): 25000000 micros applied, 25000000 requested — LANDED. The venue reported it as rejected — rejected (st: 7 Failed, sr: 32 OrderDescIdTooLow — this order type reports failure even when the collateral is credited in full — reconcile against the position’s margin, and never re-send) — which for this order type is the normal report for a top-up that worked. The position is the evidence; nothing was re-sent.",
       "t6OutcomeFrames": 1,
-      "marginAfterAusd": 0.066834,
-      "state": "DANGER",
-      "liqBufferPct": 0.039999329432867846
+      "marginAfterAusd": 197.278858,
+      "state": "WATCH",
+      "liqBufferPct": 0.058712796875817555
     }
   ],
   "orderFrames": [
     {
-      "atMs": 1908,
+      "atMs": 1932,
       "mt": 23,
       "sid": 30,
-      "sn": 67202495,
+      "sn": 68916902,
       "at": {
-        "b": 67202495,
-        "t": 1790841155000
+        "b": 68916902,
+        "t": 1791359874000
       },
       "d": []
     },
     {
-      "atMs": 3739,
+      "atMs": 5326,
       "mt": 24,
       "sid": 30,
-      "sn": 67202501,
+      "sn": 68916914,
       "at": {
-        "b": 67202501,
-        "t": 1790841157000
+        "b": 68916914,
+        "t": 1791359878000
       },
       "d": [
         {
           "at": {
-            "b": 67202501,
-            "t": 1790841157000,
+            "b": 68916914,
+            "t": 1791359878000,
             "tx": 1,
-            "txid": "d7ef3d4304d332091ec13ba70026eb4d81f753761377f08ad8162724d6718591",
-            "l": 4
-          },
-          "c": {
-            "b": 67202501,
-            "t": 1790841157000,
-            "tx": 1
-          },
-          "rq": 43,
-          "mkt": 16,
-          "acc": 710,
-          "oid": 4404183105536,
-          "scid": 0,
-          "st": 4,
-          "sr": 43,
-          "t": 1,
-          "r": true,
-          "os": 1,
-          "fp": 835139,
-          "fs": 1,
-          "f": "289",
-          "bfa": "0",
-          "fl": 4,
-          "mm": 10,
-          "lv": 1500,
-          "mnp": 1000
-        }
-      ]
-    },
-    {
-      "atMs": 6906,
-      "mt": 24,
-      "sid": 30,
-      "sn": 67202512,
-      "at": {
-        "b": 67202512,
-        "t": 1790841160000
-      },
-      "d": [
-        {
-          "at": {
-            "b": 67202512,
-            "t": 1790841160000,
-            "tx": 1,
-            "txid": "99219ffc4abbdacb294636b100002606a7b4e24895c9687ec3d7c5cb766d3a8c",
+            "txid": "50c9c16e83b87a4556739d55a6509cf06a190f38a65b612484f9e5b755354787",
             "l": 1
           },
           "c": {
-            "b": 67202512,
-            "t": 1790841160000,
+            "b": 68916914,
+            "t": 1791359878000,
             "tx": 1
           },
-          "rq": 44,
+          "rq": 72,
           "mkt": 16,
           "acc": 710,
-          "oid": 4404183826432,
+          "oid": 4516538875904,
           "scid": 0,
           "st": 7,
           "sr": 32,

@@ -38,7 +38,9 @@ import {
 import { MarketFeed } from '../ingest/marketFeed.ts';
 import { RiskLoop } from '../risk/loop.ts';
 import { ActionsExecutor } from '../actions/executor.ts';
-import { InMemoryActionLog } from '../actions/log.pg.ts';
+import { InMemoryActionLog, PostgresActionLog } from '../actions/log.pg.ts';
+import type { ActionLog } from '../actions/types.ts';
+import { Pool } from 'pg';
 import { LoopPositionReader } from '../actions/positionReader.ts';
 import type { ActionCommand } from '../actions/types.ts';
 
@@ -149,9 +151,21 @@ loop.start();
 
 // ── the actions layer, wired exactly as the server wires it ──────────────────
 
-const actionLog = new InMemoryActionLog();
+// THE REAL action_log when there is a database (7 Oct 2026): a live run is a
+// real action on a real position, and its row belongs with the others.
+const databaseUrl = process.env['DATABASE_URL']?.trim();
+const pgPool = databaseUrl === undefined || databaseUrl === '' ? undefined : new Pool({ connectionString: databaseUrl });
+let actionLog: ActionLog = new InMemoryActionLog();
+if (pgPool !== undefined) {
+  const durable = new PostgresActionLog(pgPool);
+  await durable.migrate();
+  actionLog = durable;
+  log('action_log: Postgres (this run leaves a real row)');
+}
+const actingAccountId = Number(process.env['PERPL_ACCOUNT_ID']);
 const executor = new ActionsExecutor({
   venue,
+  ...(Number.isSafeInteger(actingAccountId) && actingAccountId > 0 ? { accountId: actingAccountId } : {}),
   positions: new LoopPositionReader({
     source: positionSource,
     configs,
@@ -293,6 +307,7 @@ try {
     kind: 'add-margin',
     idempotencyKey: `live:${Date.now()}:${market.marketId}`,
     userId: 'live-run',
+    ...(Number.isSafeInteger(actingAccountId) && actingAccountId > 0 ? { accountId: actingAccountId } : {}),
     marketId: market.marketId,
     symbol: market.symbol,
     positionId: position.positionId,
@@ -354,19 +369,23 @@ try {
   }
 
   rule('the action_log rows');
-  for (const row of actionLog.rows) {
-    console.log(
-      `  ${row.row.idempotencyKey}  ${row.row.kind}  ${row.row.field} ` +
-        `requested=${row.row.requested} before=${row.row.before}`,
-    );
-    console.log(
-      row.settlement === undefined
-        ? `    UNSETTLED — this is the row a human should go looking at`
-        : `    settled: outcome=${row.settlement.outcome} reported=${row.settlement.reportedStatus} ` +
-          `after=${row.settlement.after}`,
-    );
+  if (actionLog instanceof InMemoryActionLog) {
+    for (const row of actionLog.rows) {
+      console.log(
+        `  ${row.row.idempotencyKey}  ${row.row.kind}  ${row.row.field} ` +
+          `requested=${row.row.requested} before=${row.row.before}`,
+      );
+      console.log(
+        row.settlement === undefined
+          ? `    UNSETTLED — this is the row a human should go looking at`
+          : `    settled: outcome=${row.settlement.outcome} reported=${row.settlement.reportedStatus} ` +
+            `after=${row.settlement.after}`,
+      );
+    }
+    console.log(`unsettled rows: ${actionLog.unsettled().length}`);
+  } else {
+    console.log(`  in Postgres: select * from action_log where idempotency_key = '${command.idempotencyKey}'`);
   }
-  console.log(`unsettled rows: ${actionLog.unsettled().length}`);
 
   rule('the position, after');
   loop.evaluate();
@@ -445,4 +464,5 @@ try {
   positionSource.stop();
   unsubscribePrices();
   venue.disconnect();
+  await pgPool?.end();
 }
