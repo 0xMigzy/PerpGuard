@@ -172,7 +172,7 @@ export function homeScreen(input: HomeInput): Screen {
       : [{ text: '💰 Margin', route: { to: 'margin' } }],
     input.killSwitch === true
       ? [
-          { text: '🔴 Kill Switch', route: { to: 'kill' } },
+          { text: '🆘 Emergency', route: { to: 'kill' } },
           { text: '🔐 Trading Account', route: { to: 'account' } },
         ]
       : [{ text: '🔐 Trading Account', route: { to: 'account' } }],

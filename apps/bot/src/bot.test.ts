@@ -90,7 +90,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -122,6 +122,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     ...(options.rescue === undefined ? {} : { rescue: options.rescue }),
     ...(options.killSwitch === undefined ? {} : { killSwitch: options.killSwitch }),
+    ...(options.emergency === undefined ? {} : { emergency: options.emergency }),
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
@@ -1507,6 +1508,7 @@ async function walkMenu(h: Harness, who: { readonly from?: number; readonly chat
 import { decodeNav as decodeNavTapForTest } from './nav.ts';
 import type { RescueControl, RescueDraft, RescueRuleView } from './rescue.ts';
 import type { KillSwitchControl, StopReportView } from './killSwitch.ts';
+import type { EmergencyControl, EmergencyPosition, EmergencyReport } from './emergency.ts';
 
 /** Still unbuilt after Phase 20: these must not appear as buttons anywhere. */
 const UNBUILT = /copy|close all|funding|remove margin/i;
@@ -1888,12 +1890,12 @@ test('KILL SWITCH: on home for a linked chat; two taps to stop; the result is a 
   const killSwitch = new FakeKillSwitch();
   const h = harness({ killSwitch });
   await h.bot.handleUpdate(messageUpdate('/start'));
-  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🔴 Kill Switch'));
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🆘 Emergency'));
 
   await tapNav(h, { to: 'kill' });
   const first = String(lastScreen(h.telegram).payload['text']);
-  assert.match(first, /EMERGENCY KILL SWITCH/);
-  assert.match(first, /Existing positions remain open/);
+  assert.match(first, /EMERGENCY/);
+  assert.match(first, /Your positions and margin are untouched/);
   assert.equal(killSwitch.stops.length, 0, 'the first tap only explains');
 
   await tapNav(h, { to: 'kill-confirm' });
@@ -1915,6 +1917,7 @@ test('KILL SWITCH: on home for a linked chat; two taps to stop; the result is a 
   assert.match(String(lastScreen(h.telegram).payload['text']), /Automation: 🛑 STOPPED \(kill switch\)/);
   await tapNav(h, { to: 'kill' });
   assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '▶️ Resume automation'));
+  assert.match(String(lastScreen(h.telegram).payload['text']), /PerpGuard is stopped/);
   await tapNav(h, { to: 'kill-resume' });
   assert.equal(killSwitch.on, false);
 });
@@ -1938,4 +1941,123 @@ test('KILL SWITCH: a stranger cannot reach it, and the retired close-all codes s
   assert.equal(killSwitch.stops.length, 0);
   assert.equal(decodeNavTapForTest('n1:kq'), undefined);
   assert.equal(decodeNavTapForTest('n1:kx:1'), undefined);
+});
+
+
+// ── 🆘 Emergency: 🚪 Close everything ───────────────────────────────────────
+
+const ePos = (symbol: string, marketId: number, sizeLNS: bigint, pnl: bigint | undefined): EmergencyPosition => ({ marketId, symbol, positionId: marketId * 10, side: 'long', sizeLNS, lotDecimals: symbol === 'BTC' ? 5 : 3, unrealisedPnlCNS: pnl });
+
+class FakeEmergency implements EmergencyControl {
+  positions: EmergencyPosition[] | undefined = [ePos('BTC', 16, 2_000n, -84_400_000n), ePos('ETH', 32, 310n, -12_100_000n), ePos('SOL', 48, 14_200n, 31_700_000n)];
+  runs: Array<{ requestId: string; marketId?: number }> = [];
+  next: EmergencyReport | undefined;
+  preview(): readonly EmergencyPosition[] | undefined {
+    return this.positions;
+  }
+  async closeAll(_a: number, requestId: string): Promise<EmergencyReport> {
+    this.runs.push({ requestId });
+    return this.next ?? { kind: 'ran', complete: true, replayed: false, results: (this.positions ?? []).map((position) => ({ kind: 'closed' as const, position, exitPrice: 85_102 })) };
+  }
+  async closeOne(_a: number, marketId: number, requestId: string): Promise<EmergencyReport> {
+    this.runs.push({ requestId, marketId });
+    const position = this.positions!.find((p) => p.marketId === marketId)!;
+    return { kind: 'ran', complete: true, replayed: false, results: [{ kind: 'closed', position, exitPrice: 2614 }] };
+  }
+}
+
+test('EMERGENCY: two separate actions, never one button', async () => {
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency: new FakeEmergency() });
+  await tapNav(h, { to: 'kill' });
+  const labels = keyboardOf(lastScreen(h.telegram)).map((b) => b.text);
+  assert.deepEqual(labels, ['🔴 Stop PerpGuard', '🚪 Close everything', '← Back']);
+  const text = String(lastScreen(h.telegram).payload['text']);
+  assert.match(text, /STOP PERPGUARD[\s\S]*Works even if the exchange is unreachable/);
+  assert.match(text, /CLOSE EVERYTHING[\s\S]*Realises your losses\. Cannot be undone\./);
+});
+
+test('CLOSE EVERYTHING: the list, the total, the warning, and a TYPED confirmation; a tap alone sends nothing', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' });
+  const confirm = texts(h.telegram).at(-1)!;
+  assert.match(confirm, /About to close <b>3 positions<\/b>/);
+  assert.match(confirm, /BTC +long +0\.02 +−84 AUSD/);
+  assert.match(confirm, /SOL +long +14\.2 +\+31 AUSD/);
+  // −84.4 − 12.1 + 31.7 = −64.8, floored toward zero like every amount someone would lose (plain voice).
+  assert.match(confirm, /Realised now +−64 AUSD/);
+  assert.match(confirm, /Prices move while this runs, so the real figure will differ/);
+  assert.match(confirm, /Type CLOSE ALL to confirm/);
+  assert.equal(emergency.runs.length, 0, 'nothing runs on the tap');
+
+  await h.bot.handleUpdate(messageUpdate('yes'));
+  assert.equal(emergency.runs.length, 0, 'anything else cancels');
+  assert.match(texts(h.telegram).at(-1)!, /Not confirmed/);
+});
+
+test('CLOSE EVERYTHING: CLOSE ALL runs it once; typing it again sends nothing', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' });
+  await h.bot.handleUpdate(messageUpdate('close all'));
+  assert.equal(emergency.runs.length, 1);
+  const done = texts(h.telegram).at(-1)!;
+  assert.match(done, /CLOSE EVERYTHING — DONE/);
+  assert.match(done, /BTC +closed +0\.02 +at 85,102/);
+  await h.bot.handleUpdate(messageUpdate('CLOSE ALL'));
+  assert.equal(emergency.runs.length, 1, 'the second CLOSE ALL found no open confirmation');
+});
+
+test('CLOSE EVERYTHING: a partial close says what remains and offers Retry for it; Retry runs once', async () => {
+  const emergency = new FakeEmergency();
+  const [btc, eth] = emergency.positions!;
+  emergency.next = { kind: 'ran', complete: false, replayed: false, results: [
+    { kind: 'closed', position: btc!, exitPrice: 85_102 },
+    { kind: 'partial', position: eth!, closedLNS: 230n, remainingLNS: 80n, why: 'the close was sent, but the exchange did not fill it (not enough on the other side, or it expired)' },
+  ] };
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' });
+  await h.bot.handleUpdate(messageUpdate('CLOSE ALL'));
+  const done = texts(h.telegram).at(-1)!;
+  assert.match(done, /NOT ALL CLOSED/);
+  assert.match(done, /ETH +PARTLY closed +0\.08 of 0\.31 left/);
+  assert.match(done, /ETH did not fully close/);
+  assert.doesNotMatch(done, /— DONE/);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['Retry ETH', '📊 View positions', '🏠 Main Menu']);
+
+  await tapNav(h, { to: 'close-retry', marketId: 32 });
+  await tapNav(h, { to: 'close-retry-go', marketId: 32 });
+  await tapNav(h, { to: 'close-retry-go', marketId: 32 });
+  assert.equal(emergency.runs.filter((r) => r.marketId === 32).length, 1, 'two taps, one close');
+});
+
+test('CLOSE EVERYTHING: a position that cannot be seen is NOT SEEN, never closed', async () => {
+  const emergency = new FakeEmergency();
+  const [btc] = emergency.positions!;
+  emergency.next = { kind: 'ran', complete: false, replayed: false, results: [{ kind: 'not-seen', position: btc!, why: 'I cannot see your positions right now, so I cannot say whether it closed. Check it on Perpl.' }] };
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' });
+  await h.bot.handleUpdate(messageUpdate('CLOSE ALL'));
+  const done = texts(h.telegram).at(-1)!;
+  assert.match(done, /BTC +NOT SEEN/);
+  assert.doesNotMatch(done, /BTC +closed|— DONE/);
+});
+
+test('CLOSE EVERYTHING: already flat says so, asks nothing, sends nothing', async () => {
+  const emergency = new FakeEmergency();
+  emergency.positions = [];
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /no open positions[\s\S]*Nothing was sent/);
+  await h.bot.handleUpdate(messageUpdate('CLOSE ALL'));
+  assert.equal(emergency.runs.length, 0);
+});
+
+test('CLOSE EVERYTHING: a stranger cannot reach it', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-all' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  await h.bot.handleUpdate(messageUpdate('CLOSE ALL', { from: STRANGER_ID, chat: STRANGER_CHAT }));
+  await tapNav(h, { to: 'close-retry-go', marketId: 16 }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  assert.equal(emergency.runs.length, 0);
 });

@@ -85,6 +85,10 @@ export type Route =
   | { readonly to: 'kill-stop' }
   | { readonly to: 'kill-resume-ask' }
   | { readonly to: 'kill-resume' }
+  /** 🚪 Close everything (owner, 7 Oct 2026): the list, then a TYPED "CLOSE ALL". Retry is per position. */
+  | { readonly to: 'close-all' }
+  | { readonly to: 'close-retry'; readonly marketId: number }
+  | { readonly to: 'close-retry-go'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
@@ -147,6 +151,9 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'kill-stop': 'ksx',
   'kill-resume-ask': 'ksr',
   'kill-resume': 'ksv',
+  'close-all': 'xa',
+  'close-retry': 'xr',
+  'close-retry-go': 'xg',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
@@ -178,6 +185,8 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'rescue-lim': 'level',
   'rescue-stop': 'marketId',
   'rescue-resume': 'marketId',
+  'close-retry': 'marketId',
+  'close-retry-go': 'marketId',
 };
 
 /**

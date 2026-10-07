@@ -43,7 +43,7 @@ import { KillSwitch } from '../rescue/killSwitch.ts';
 
 const OUT = resolve(import.meta.dirname, '../../../../docs/bot-screens.html');
 const STRANGER_CHAT = 7_777;
-const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts', 'rescue-on', 'rescue-stop', 'rescue-resume', 'rescue-lim', 'kill-stop', 'kill-resume']);
+const CHANGES = new Set(['disconnect', 'unwatch', 'warn-set', 'connect-go', 'watch-id', 'star', 'unstar', 'liq-set', 'big-set', 'warn-preset', 'wallet-alerts', 'rescue-on', 'rescue-stop', 'rescue-resume', 'rescue-lim', 'kill-stop', 'kill-resume', 'close-retry-go']);
 
 /** SAMPLE trader figures: the generator has no index. Labelled as samples on the page. */
 const sampleRow = (accountId: number, netPnlAusd: number, depositedAusd: number, roundTrips: number): TraderRow => ({
@@ -102,6 +102,12 @@ function build() {
     },
     // The real control over in-memory stores, so the document shows the real Rescue screens.
     rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, snapshot: () => view.assessments }),
+    // Previewed from the sample position; nothing in the document closes anything.
+    emergency: {
+      preview: () => view.assessments.map((a) => ({ marketId: a.marketId, symbol: a.symbol, positionId: a.positionId ?? 1, side: a.side ?? 'long', sizeLNS: a.lotLNS ?? 0n, lotDecimals: CONFIGS.get(a.marketId)?.lotDecimals ?? 0, unrealisedPnlCNS: a.metrics.unrealisedPnlCNS })),
+      closeAll: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
+      closeOne: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
+    },
     killSwitch: {
       stopped: (id) => automation.automationStopped(id),
       changedAtMs: (id) => killSwitch.changedAtMs(id),

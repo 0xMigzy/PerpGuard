@@ -86,6 +86,10 @@ import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './re
 import { RescueControlService } from './rescue/control.ts';
 import { RescueEngine } from './rescue/engine.ts';
 import { KillSwitch } from './rescue/killSwitch.ts';
+import { CloseEverything } from './emergency/closeAll.ts';
+import { InMemoryCloseAllRunStore, PostgresCloseAllRunStore, type CloseAllRunStore } from './emergency/store.ts';
+import type { OpenPosition } from './emergency/verify.ts';
+import { toReconcilable } from './actions/positionReader.ts';
 import { renderRescue } from './rescue/render.ts';
 import { applyMarketRefresh } from './ingest/marketRefresh.ts';
 import {
@@ -643,6 +647,36 @@ const traderFigures = {
 
 // Declared before the bot (whose deps close over it), set once the engine exists.
 let killSwitch: KillSwitch | undefined;
+let closeEverything: CloseEverything | undefined;
+
+/**
+ * One account's open positions for 🚪 Close everything: from the FULLY LOADED
+ * list only (undefined otherwise: nothing is closed blind), sizes as exact
+ * lots, P&L from that account's own risk loop when it can price it.
+ */
+const requireCloseEverything = (): CloseEverything => {
+  if (closeEverything === undefined) throw new Error('close-everything is not wired yet');
+  return closeEverything;
+};
+/** The backend's report, in the bot's terms. */
+const toEmergencyReport = (r: Awaited<ReturnType<CloseEverything['closeAll']>>) =>
+  r.kind === 'ran' ? { kind: 'ran' as const, results: r.verified.results, complete: r.verified.complete, replayed: r.replayed } : r;
+
+const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
+  const session = registry.get(accountId);
+  if (session === undefined || session.view.positionsStatus().state !== 'live') return undefined;
+  const assessed = session.view.snapshot();
+  const out: OpenPosition[] = [];
+  for (const p of session.positionSource.snapshot()) {
+    const config = riskConfigs.get(p.marketId);
+    if (config === undefined || p.positionId === undefined) return undefined;
+    const exact = toReconcilable(p, config);
+    const a = assessed.find((x) => x.marketId === p.marketId && x.positionId === p.positionId);
+    const priced = a !== undefined && a.state !== 'FEED_DOWN' && a.state !== 'POSITIONS_UNTRUSTED';
+    out.push({ marketId: p.marketId, symbol: p.symbol, positionId: p.positionId, side: p.side, sizeLNS: exact.sizeLNS, lotDecimals: config.lotDecimals, unrealisedPnlCNS: priced ? a.metrics.unrealisedPnlCNS : undefined });
+  }
+  return out;
+};
 
 const rescueControl = new RescueControlService({
   store: rescueStore,
@@ -689,6 +723,11 @@ const bot =
         },
         settings: accountSettings,
         rescue: rescueControl,
+        emergency: {
+          preview: (accountId) => openPositionsOf(accountId),
+          closeAll: async (accountId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeAll(accountId, requestId, by)),
+          closeOne: async (accountId, marketId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeOne(accountId, marketId, requestId, by)),
+        },
         killSwitch: {
           stopped: (accountId) => automation.automationStopped(accountId),
           changedAtMs: (accountId) => killSwitch?.changedAtMs(accountId),
@@ -771,6 +810,32 @@ rescueEngine.start();
 // 🔴 THE KILL SWITCH: the persisted flag first, then every Rescue rule off and
 // the mode to NONE. Database only: it works with no session at all.
 killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine, log });
+
+// 🚪 CLOSE EVERYTHING: stops first, one run per account, each request once,
+// closes one at a time through the account's own executor, and reads the
+// outcome from the position list afterwards (`emergency/`).
+let closeAllRuns: CloseAllRunStore = new InMemoryCloseAllRunStore();
+if (alertDb !== undefined) {
+  try {
+    closeAllRuns = await PostgresCloseAllRunStore.load(alertDb);
+  } catch (error) {
+    warn(`close-everything: runs cannot be recorded in Postgres (${error instanceof Error ? error.message : String(error)}); the log lines are the record until the next restart`);
+  }
+}
+closeEverything = new CloseEverything({
+  killSwitch,
+  account: (accountId) => {
+    const session = registry.get(accountId);
+    if (session === undefined) return undefined;
+    return {
+      openPositions: () => openPositionsOf(accountId),
+      execute: (command) => session.executor.execute(command),
+      exitPrice: (p) => session.venue.closedPositionExitPrice(p.marketId, p.positionId),
+    };
+  },
+  store: closeAllRuns,
+  log,
+});
 
 // ── the market list, re-read every 10 minutes ───────────────────────────────
 // A maintenance margin Perpl changes while we run is applied in place and

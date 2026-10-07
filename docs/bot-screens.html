@@ -146,7 +146,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · /start</figcaption>
       <div class="chat"><div class="bubble">🛡 <b>PERPGUARD</b><br>Analyse. Watch. Act.<br><br>🔐 Trading Account: <b>#710</b> · Monad testnet<br>Execution: 🟢 Authorized<br>Automation: ⚪ None<br>Alerts: 🟢 ON · first warning at 8%<br>Closest to liquidation <b>2.7%</b></div>
-      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">💰 Margin</span></div><div class="row"><span class="btn">🔴 Kill Switch</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
+      <div class="row"><span class="btn">👁 Watch &amp; Alerts</span><span class="btn">📊 My Positions</span></div><div class="row"><span class="btn">🛟 Rescue</span><span class="btn">💰 Margin</span></div><div class="row"><span class="btn">🆘 Emergency</span><span class="btn">🔐 Trading Account</span></div><div class="row"><span class="btn">⚙️ Settings</span></div><div class="row"><span class="btn url">🌐 Open PerpGuard ↗</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -175,8 +175,8 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · kill</figcaption>
-      <div class="chat"><div class="bubble">🔴 <b>EMERGENCY KILL SWITCH</b><br>Immediately stop PerpGuard automated trading.<br>This will:<br>• stop Liquidation Rescue<br>• stop Copy Trading<br>• block new automated actions<br>• cancel bot-managed pending orders where supported (PerpGuard places none today: Rescue adds margin directly)<br><b>Existing positions remain open.</b> Nothing is closed, reduced or sold.</div>
-      <div class="row"><span class="btn">🔴 STOP AUTOMATION</span></div><div class="row"><span class="btn">Cancel</span></div>
+      <div class="chat"><div class="bubble">🆘 <b>EMERGENCY</b><br><br>Trading Account: <b>#710</b><br><br>🔴 <b>STOP PERPGUARD</b><br>Blocks every automated action right now. Your positions and margin are untouched. Works even if the exchange is unreachable.<br><br>🚪 <b>CLOSE EVERYTHING</b><br>Exits the market. Closes all your positions at whatever price they get. Realises your losses. Cannot be undone.</div>
+      <div class="row"><span class="btn">🔴 Stop PerpGuard</span></div><div class="row"><span class="btn">🚪 Close everything</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -253,6 +253,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · kill-confirm</figcaption>
+      <div class="chat"><div class="bubble">⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
+      <div class="row"><span class="btn changes">🔴 CONFIRM STOP</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-all</figcaption>
       <div class="chat"><div class="bubble">⚠️ <b>CONFIRM EMERGENCY STOP</b><br><br>Trading Account: <b>#710</b><br>Active Strategy: ⚪ None running<br><br>Positions stay open.</div>
       <div class="row"><span class="btn changes">🔴 CONFIRM STOP</span></div><div class="row"><span class="btn">Cancel</span></div>
       </div>

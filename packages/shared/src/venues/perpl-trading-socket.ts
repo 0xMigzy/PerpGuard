@@ -122,6 +122,9 @@ export interface TradingSocketOptions {
   readonly webSocketImpl?: typeof WebSocket;
 }
 
+/** How many closing rows a socket remembers: plenty for one close-everything run. */
+const CLOSED_ROWS_KEPT = 100;
+
 export class PerplTradingSocket {
   readonly #options: TradingSocketOptions;
   readonly #logger: Logger;
@@ -175,6 +178,8 @@ export class PerplTradingSocket {
    * new id, and keying by market would silently merge the two.
    */
   readonly #positions = new Map<number, PositionEntry>();
+  /** Closing rows by pid, newest last, bounded. See `closedRow`. */
+  readonly #closedRows = new Map<number, PositionEntry>();
   #positionsSnapshotReceived = false;
   readonly #positionListeners = new Set<(positions: readonly PositionEntry[]) => void>();
 
@@ -334,6 +339,11 @@ export class PerplTradingSocket {
    */
   get positions(): readonly PositionEntry[] {
     return [...this.#positions.values()];
+  }
+
+  /** The last row this socket saw for a position that is no longer open (closed, liquidated...), if any. */
+  closedRow(positionId: number): PositionEntry | undefined {
+    return this.#closedRows.get(positionId);
   }
 
   /** Whether the `mt: 26` snapshot has arrived. False means we do not know. */
@@ -785,8 +795,13 @@ export class PerplTradingSocket {
     }
     if (isOpenPosition(entry['st'])) {
       this.#positions.set(pid, entry);
+      this.#closedRows.delete(pid);
       return true;
     }
+    // Kept, not just dropped: the closing row carries the exit price (`xp`),
+    // the position stream's own word on what a close filled at.
+    this.#closedRows.set(pid, entry);
+    if (this.#closedRows.size > CLOSED_ROWS_KEPT) this.#closedRows.delete(this.#closedRows.keys().next().value!);
     return this.#positions.delete(pid);
   }
 

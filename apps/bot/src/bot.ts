@@ -73,7 +73,22 @@ import {
 import { DEFAULT_PREFERENCES, InMemoryPreferenceStore, LARGE_TRADE_PRESETS_AUSD, LIQUIDATION_PRESETS_AUSD, type AlertPreferences } from '@perpguard/backend/events/preferences';
 import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
-import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, killSwitchScreen, type KillSwitchControl } from './killSwitch.ts';
+import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, type KillSwitchControl } from './killSwitch.ts';
+import {
+  CLOSE_ALL_CONFIRM_MS,
+  CLOSE_ALL_PHRASE,
+  closeAllConfirmText,
+  closeAllNothingScreen,
+  closeAllResultScreen,
+  closeRetryScreen,
+  emergencyScreen,
+  isCloseAllConfirmation,
+  type EmergencyControl,
+
+} from './emergency.ts';
+
+/** A request id for one close-everything (or one retry): random, used once. */
+const newRequestId = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
 const shortWallet = (address: string | undefined): string | undefined => (address === undefined ? undefined : `${address.slice(0, 6)}…${address.slice(-4)}`);
 import {
@@ -217,6 +232,8 @@ export interface BotDeps {
   readonly rescue?: RescueControl;
   /** 🔴 Kill Switch: stop automation, leave positions open. Absent: no Kill Switch button. */
   readonly killSwitch?: KillSwitchControl;
+  /** 🚪 Close everything, on the 🆘 Emergency screen. Absent: the screen offers the stop only. */
+  readonly emergency?: EmergencyControl;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -292,6 +309,8 @@ export function createBot(deps: BotDeps): Bot {
   const identities = deps.identities ?? new InMemoryIdentityStore();
   const questions = deps.questions ?? new PendingQuestionStore({ now });
   const drafts = new RescueDraftStore(now);
+  /** One pending retry per chat, person and market: minted when its confirm screen is shown, consumed by the tap. */
+  const retryRequests = new Map<string, string>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
   const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
   /** Taps whose screen opens as a new message, leaving the tapped one as it is. */
@@ -696,6 +715,28 @@ export function createBot(deps: BotDeps): Bot {
     if (commandOf(text) !== undefined) return;
 
     const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'close-all') {
+      // THE TYPED CONFIRMATION. Closed first, whatever was typed: one answer per question, so a
+      // second "CLOSE ALL" finds nothing open and sends nothing.
+      questions.close(chatId, telegramUserId);
+      const verdict = authorise(deps.links, telegramUserId, chatId);
+      if (!verdict.ok || deps.emergency === undefined) {
+        await ctx.reply(verdict.ok ? 'Close everything is not available here.' : verdict.text);
+        return;
+      }
+      if (!isCloseAllConfirmation(text)) {
+        await sendScreen(ctx, { html: `Not confirmed: that was not <b>${CLOSE_ALL_PHRASE}</b>. Nothing was closed and nothing was stopped.`, buttons: [[{ text: '🆘 Emergency', route: { to: 'kill' } }, { text: '🏠 Main Menu', route: { to: 'home' } }]] });
+        return;
+      }
+      if (now() - question.shownAtMs > CLOSE_ALL_CONFIRM_MS) {
+        await sendScreen(ctx, { html: 'That confirmation has expired: the list it confirmed is more than two minutes old and prices have moved. Nothing was closed. Open it again to see the current figures.', buttons: [[{ text: '🚪 Close everything', route: { to: 'close-all' } }, { text: '🏠 Main Menu', route: { to: 'home' } }]] });
+        return;
+      }
+      await ctx.reply('🛑 Stopping PerpGuard, then closing your positions one at a time. This takes a few seconds per position…');
+      const report = await deps.emergency.closeAll(verdict.link.accountId, question.requestId, `tg:${telegramUserId}`);
+      await sendScreen(ctx, closeAllResultScreen(report, deps.killSwitch?.stopped(verdict.link.accountId) ?? true));
+      return;
+    }
     if (question?.kind === 'rescue-trigger' || question?.kind === 'rescue-amount') {
       await handleRescueAnswer(ctx, question.kind, text);
       return;
@@ -965,6 +1006,9 @@ export function createBot(deps: BotDeps): Bot {
       case 'kill-stop':
       case 'kill-resume-ask':
       case 'kill-resume':
+      case 'close-all':
+      case 'close-retry':
+      case 'close-retry-go':
         await killNav(ctx, route);
         return;
       default:
@@ -1124,8 +1168,44 @@ export function createBot(deps: BotDeps): Bot {
     switch (route.to) {
       case 'kill':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, killSwitchScreen({ accountId, stopped: control.stopped(accountId), changedAtMs: control.changedAtMs(accountId), rescueOn }));
+        await showScreen(ctx, emergencyScreen({ accountId, stopped: control.stopped(accountId), changedAtMs: control.changedAtMs(accountId), rescueOn, canClose: deps.emergency !== undefined }));
         return;
+      case 'close-all': {
+        const emergency = deps.emergency;
+        if (emergency === undefined || chatId === undefined) return answer(ctx, 'Close everything is not available here.');
+        const positions = emergency.preview(accountId);
+        await ctx.answerCallbackQuery();
+        if (positions === undefined || positions.length === 0) {
+          await showScreen(ctx, closeAllNothingScreen(positions === undefined ? 'cannot-see' : 'already-flat'));
+          return;
+        }
+        // The request this confirmation is for: minted NOW, run at most once.
+        amounts.delete(telegramUserId);
+        questions.ask(chatId, telegramUserId, { kind: 'close-all', requestId: newRequestId(), shownAtMs: now() });
+        await ctx.reply(closeAllConfirmText(positions), { parse_mode: 'HTML', reply_markup: { force_reply: true, input_field_placeholder: CLOSE_ALL_PHRASE } });
+        return;
+      }
+      case 'close-retry': {
+        const emergency = deps.emergency;
+        if (emergency === undefined || chatId === undefined) return answer(ctx, 'Close everything is not available here.');
+        const p = emergency.preview(accountId)?.find((x) => x.marketId === route.marketId);
+        if (p === undefined) return answer(ctx, 'That position is not open any more, or I cannot see it right now. Nothing was sent.');
+        retryRequests.set(`${chatId}:${telegramUserId}:${route.marketId}`, newRequestId());
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, closeRetryScreen(p));
+        return;
+      }
+      case 'close-retry-go': {
+        const emergency = deps.emergency;
+        const key = `${chatId}:${telegramUserId}:${route.marketId}`;
+        const requestId = retryRequests.get(key);
+        if (emergency === undefined || requestId === undefined) return answer(ctx, 'That close was already sent, or has expired. Nothing new was sent.');
+        retryRequests.delete(key);
+        await ctx.answerCallbackQuery({ text: 'Closing…' });
+        const report = await emergency.closeOne(accountId, route.marketId, requestId, by);
+        await showScreen(ctx, closeAllResultScreen(report, control.stopped(accountId)));
+        return;
+      }
       case 'kill-confirm':
         await ctx.answerCallbackQuery();
         await showScreen(ctx, killConfirmScreen({ accountId, wallet: shortWallet(deps.link?.status?.(link.userId)?.wallet?.address), rescueOn }));

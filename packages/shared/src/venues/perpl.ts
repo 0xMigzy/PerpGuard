@@ -29,6 +29,7 @@ import {
   type OrderUpdateEntry,
 } from './perpl-orders.ts';
 import {
+  exitPriceOf,
   parsePositionFrame,
   type PerplPosition,
   type PositionEntry,
@@ -402,6 +403,20 @@ export class PerplVenue implements Venue {
    */
   freeBalanceFloorCNS(): bigint | undefined {
     return this.#socket?.freeBalanceFloorCNS;
+  }
+
+  /**
+   * The exit price of a position that has just closed, from its closing row on
+   * the position stream (`xp`), descaled. Undefined when this socket did not
+   * see it close or the row carried no price. For saying what a close filled
+   * at; whether it closed is the position list's question, never this one's.
+   */
+  closedPositionExitPrice(marketId: number, positionId: number): number | undefined {
+    const row = this.#socket?.closedRow(positionId);
+    // The cached context's markets, by id: no fetch on this path.
+    const raw = this.#cached?.context.markets.find((m) => m.id === marketId);
+    if (row === undefined || raw === undefined) return undefined;
+    return exitPriceOf(row, toVenueMarket(raw, this.network.name));
   }
 
   /** Close both sockets, if they were opened. */

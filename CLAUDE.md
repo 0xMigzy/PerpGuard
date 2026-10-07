@@ -610,8 +610,8 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   from /start, as the owner and as a stranger. Regenerate it after any screen
   change. Home is "🛡 PERPGUARD / Analyse. Watch. Act." with a status block
   (Trading Account + network, Execution, Automation, Alerts) and the buttons
-  Watch & Alerts, My Positions, Rescue and Margin, Kill Switch and Trading
-  Account (Rescue and Kill Switch for linked chats), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
+  Watch & Alerts, My Positions, Rescue and Margin, 🆘 Emergency and Trading
+  Account (Rescue and Emergency for linked chats), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
   (owner, 6 Oct 2026): Copy Trading appears when its phase lands, never as a
   dead button; the roadmap belongs in the README. A test walks every screen
   and fails on any label for an unbuilt feature.
@@ -736,10 +736,32 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   a NEW message. Idempotent. While on, enabling Rescue is refused. RESUME
   only lifts the block: every strategy stays off until turned on per
   position. A person's own taps still work while it is on.
+  - 🆘 EMERGENCY (7 Oct 2026, owner): the Kill Switch's screen now holds TWO
+    SEPARATE actions, never one button: 🔴 STOP PERPGUARD (the switch above,
+    unchanged) and 🚪 CLOSE EVERYTHING (`apps/backend/src/emergency/`, bot
+    half `apps/bot/src/emergency.ts`). Close everything:
+    - lists every position (side, size, unrealised P&L, floored like every
+      amount someone would lose) and the total, says prices move, and is
+      confirmed by TYPING "CLOSE ALL" (a parked `force_reply` question, good
+      for two minutes, closed by the first answer whatever it is);
+    - STOPS PERPGUARD FIRST, then closes one at a time through the account's
+      own executor, key `closeall:<acct>:<request>:<pid>`. One run in flight
+      per account; each request id runs once (the confirmation's, minted when
+      the list was shown; a retry's, minted when its confirm screen was), so
+      two taps or two typed answers send one set of orders. NEVER RE-SENT;
+    - READS THE OUTCOME FROM THE POSITION LIST AFTERWARDS (`verify.ts`):
+      closed (with `xp` from the closing row, which the trading socket now
+      keeps), partly closed with what remains, still open with why, or NOT
+      SEEN when the list is not fully loaded. Never "closed" for anything
+      still open or unseen; DONE only when every one is closed. Retry per
+      position for what is left. Already flat: says so, sends nothing;
+    - logged per run in `close_all_runs` (requested, each receipt, each
+      verified outcome) beside each close's own `action_log` row.
   - The retired close-all's nav codes (`kq`, `kx`) still decode to nothing,
     forever: the new switch uses `ks`/`ksc`/`ksx`/`ksr`/`ksv`, so an old button
-    can never be read as the new meaning. Close All stays cut. The executor's
-    old `fireKillSwitch` (close everything) is reachable from no bot path.
+    can never be read as the new meaning. The executor's old
+    `fireKillSwitch` is reachable from no bot path; Close everything is the
+    new module above, not that one.
 - "WARN ME AT" (`apps/backend/src/risk/warn.ts`) is a real per-account
   threshold on that account's loop: Early 10%, Normal 8% (today's default),
   Last minute 3% (no WATCH band). DANGER stays at 3% for every level.

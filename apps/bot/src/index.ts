@@ -25,3 +25,4 @@ export * from './settings.ts';
 export * from './trading.ts';
 export * from './rescue.ts';
 export * from './killSwitch.ts';
+export * from './emergency.ts';

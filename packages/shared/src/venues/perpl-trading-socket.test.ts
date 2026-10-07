@@ -602,6 +602,16 @@ describe('position tracking', () => {
     assert.deepEqual(socket.positions, []);
   });
 
+  it('KEEPS the closing row, so what a close filled at comes from the position stream (xp)', async () => {
+    const { socket, fake } = await connected();
+    fake.deliver({ mt: 26, sn: 100, d: [openPosition()] });
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition({ st: 2, sr: 13, s: 0, c: '0', xp: 851020 })] });
+    assert.equal(socket.closedRow(4354895577089)?.['xp'], 851020);
+    // Reopened under the same id (never seen, but cheap to get right): no stale closing row.
+    fake.deliver({ mt: 27, sn: 100, d: [openPosition()] });
+    assert.equal(socket.closedRow(4354895577089), undefined);
+  });
+
   for (const [name, st] of [
     ['liquidated', 3],
     ['deleveraged', 4],
