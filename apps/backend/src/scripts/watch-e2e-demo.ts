@@ -266,19 +266,23 @@ await tap(bot, `👁 Watch #${second}`, { to: 'watch-id', accountId: second });
 await engine.drain();
 frame(`6. One tap watches #${second}`);
 
+// Screens edit in place, so each later step starts from a fresh /start (the menu's own entry point).
+await send(bot, '/start');
+await tap(bot, '👁 Watch & Alerts', { to: 'watch-menu' });
 await tap(bot, '⭐ Watchlist', { to: 'watchlist' });
 frame('7. Watchlist');
 
-await tap(bot, '← Back', { to: 'watch-menu' });
-await tap(bot, '← Back', { to: 'home' });
+await send(bot, '/start');
 frame('8. Home, returning: watching, not connected');
 await tap(bot, '🔐 Trading Account', { to: 'account' });
 frame('8b. Trading Account: Not connected, with its network');
-await tap(bot, '← Back', { to: 'home' });
-await tap(bot, '👁 Watch & Alerts', { to: 'watch-menu' });
-await tap(bot, '⭐ Watchlist', { to: 'watchlist' });
 
-await tap(bot, `#${first}`, { to: 'wallet', accountId: first });
+await send(bot, '/start');
+await tap(bot, '👁 Watch & Alerts', { to: 'watch-menu' });
+await tap(bot, '👛 Watch Wallet', { to: 'wallets' });
+const walletLabel = [...chat].reverse().find((m) => m.from === 'bot')?.buttons.flat().find((x) => x.text.includes(`#${first}`))?.text;
+if (walletLabel === undefined) throw new Error(`no button for #${first} on the watched-wallets list`);
+await tap(bot, walletLabel, { to: 'wallet', accountId: first });
 frame(`9. Watched wallet #${first}: no actions`);
 
 const burst = chat.filter((m) => m.from === 'bot' && /^[🔴🟠🟢⚪] <b>#/u.test(m.text));
