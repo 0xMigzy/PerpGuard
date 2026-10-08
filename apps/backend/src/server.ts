@@ -124,6 +124,7 @@ import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { DEFAULT_TTL_MS as RISK_SNAPSHOT_TTL_MS, RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { providerDomain } from './server/infrastructure.ts';
+import { registerKeyTestRoutes } from './server/keytest.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
 import { buildVenueFundingPayload, describeFetchError, VENUE_FUNDING_TTL_MS, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
@@ -1548,6 +1549,26 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
 // ── 10. now serve health, failing cleanly if the port is taken ──────────────
 
 try {
+  // TEMPORARY: the wallet-signed key enrolment test (/_keytest). Only with KEYTEST_TOKEN set.
+  const keytestToken = process.env['KEYTEST_TOKEN']?.trim();
+  if (keytestToken !== undefined && keytestToken.length >= 24) {
+    registerKeyTestRoutes(app, {
+      token: keytestToken,
+      restBaseUrl: network.restBaseUrl,
+      chainId: network.chainId,
+      signIn: async (apiKey, secretHex) => {
+        const probeVenue = new PerplVenue(network, { credentials: { apiKey, secret: ApiSecret.fromHex(secretHex) } });
+        try {
+          const socket = await probeVenue.connectTrading();
+          return { accountId: socket.accountId, forwardingAllowed: socket.forwardingAllowed };
+        } finally {
+          probeVenue.disconnect();
+        }
+      },
+      log,
+    });
+    log('keytest: TEMPORARY key enrolment test routes are mounted (KEYTEST_TOKEN is set)');
+  }
   await app.listen({ host: HEALTH_HOST, port: HEALTH_PORT });
   log(`health on http://${HEALTH_HOST}:${HEALTH_PORT}/health`);
 } catch (error) {
