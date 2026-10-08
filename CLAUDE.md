@@ -359,17 +359,28 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   indexer-health verdict is cached 2s. The envelope carries `computedAtMs`, `ageMs` and `revalidating`,
   and the page says "computed Ns ago" past 45s. Never cache without the age:
   a snapshot presented as the present is the same lie as a frozen price. The
-  default views are warmed at boot and every 10 minutes; the first request for
-  any other window pays its scan once.
+  default views are warmed at boot and HOURLY, with a TTL just past the hour
+  so no reader re-scans them between passes; the first request for any other
+  window pays its scan once. A page shows the age of its OLDEST answer
+  (`worstOf`), never only its headline's.
   - THE HOST CAPPED THIS VPS FOR CPU (8 Oct 2026): Postgres was using ~0.9 of
     a core around the clock, and Hostinger's table blamed "the Envio
     indexer" because the backend's analytics reader logs in as the indexer's
     database user. It was OUR reads: every-minute warming of 16 default views,
     57 hot profiles every 20 minutes (the busiest are bots with up to 207,681
     round trips, ~19 s of Postgres each), each scan split over parallel
-    workers. Cut to: views every 10 min, a 5-min TTL, no busiest-account
-    warming, the leaderboard's top 10 hourly, and no parallel workers for the
-    `envio` role. The indexer itself costs ~2-3% of a core.
+    workers. Cut to: views hourly, a 5-min TTL for the rest, no
+    busiest-account warming, the leaderboard's top 10 hourly, and no parallel
+    workers for the `envio` role. The indexer itself costs ~2-3% of a core.
+  - ROLLING WINDOWS ARE SPLIT, NEVER BUCKETED (`analytics/windowSplit.ts`):
+    volume, trades, maker fees and distinct traders read the WHOLE UTC days
+    inside the window from per-day fill sums (remembered per closed day in
+    the reader; a day is closed once the index has a later fill) and from
+    `TraderDay` for the distinct count, and scan only the two ragged edges
+    fill by fill. Same rows, same answer: checked equal to the old
+    whole-window scan on 24h/7d/30d/all and each previous window (8 Oct
+    2026). 24h holds no whole day and is still one exact scan. The memo
+    costs one history scan per backend start.
 - PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
   reduce, close or kill switch from the web; every action happens in Telegram.
   The backend's `/api/protect/*` routes still exist and no page calls them —

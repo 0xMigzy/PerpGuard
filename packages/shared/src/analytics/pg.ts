@@ -89,6 +89,7 @@ import type {
   HistoryCurve,
 } from './types.ts';
 import type { BackstopHistory } from './exposure.ts';
+import { splitWindow, utcDaysIn, type MsRange } from './windowSplit.ts';
 import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
 import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, CopySource, CopySourcePosition, CopySourceReader, OpenActivity, LeverageBaseline, WalletInsightFacts } from './types.ts';
 import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
@@ -144,14 +145,45 @@ select "collateralDecimals", "volumeCNS", "feesCNS", "tradeCount", "accountCount
  * `$1 is null` makes one query serve both a window and all-time, so the two
  * cannot drift apart in a way a test on one would miss.
  */
+/**
+ * The rolling window's EDGES, scanned fill by fill: at most two ranges (see
+ * `windowSplit.ts`), each absent when its upper bound is null. The whole UTC
+ * days between come from `#closedDayTotals`, so the sum is the same rows the
+ * old whole-window scan read.
+ */
 const WINDOW_TOTALS_SQL = `
-select coalesce(sum("notionalCNS"), 0)::text as volume,
-       coalesce(sum("makerFeeCNS"), 0)::text  as maker_fees,
-       count(*)::text                          as trades
+select coalesce(sum(v), 0)::text as volume,
+       coalesce(sum(f), 0)::text as maker_fees,
+       coalesce(sum(n), 0)::text as trades
+  from (
+    select sum("notionalCNS") as v, sum("makerFeeCNS") as f, count(*) as n
+      from "Trade"
+     where $2::timestamptz is not null
+       and ($1::timestamptz is null or timestamp >= $1::timestamptz)
+       and timestamp < $2::timestamptz
+    union all
+    select sum("notionalCNS"), sum("makerFeeCNS"), count(*)
+      from "Trade"
+     where $4::timestamptz is not null
+       and timestamp >= $3::timestamptz
+       and timestamp < $4::timestamptz
+  ) edges
+`;
+
+/** One row per UTC day of fills in [$1, $2): the closed-day sums, read once per day. */
+const DAY_TOTALS_SQL = `
+select date_trunc('day', timestamp at time zone 'UTC') at time zone 'UTC' as day,
+       sum("notionalCNS")::text as volume,
+       sum("makerFeeCNS")::text as maker_fees,
+       count(*)::text           as trades
   from "Trade"
  where ($1::timestamptz is null or timestamp >= $1::timestamptz)
-   and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+   and timestamp < $2::timestamptz
+ group by 1
 `;
+
+/** The first and last indexed fill: two index lookups. A day is final once the index is past its end. */
+const TRADE_BOUNDS_SQL = `select min(timestamp) as first, max(timestamp) as through from "Trade"`;
 
 /**
  * DISTINCT traders over a window.
@@ -168,14 +200,39 @@ select coalesce(sum("notionalCNS"), 0)::text as volume,
  */
 const ACTIVE_TRADERS_SQL = `
 select count(*)::text as traders from (
+  -- Whole UTC days inside the window: one TraderDay row per account per day,
+  -- measured equal to the maker/taker union over Trade (1,059 = 1,059 over
+  -- the 30 whole days to 8 Oct 2026).
+  select trader_id as t from "TraderDay"
+   where "tradeCount" > 0
+     and $6::timestamptz is not null
+     and ($5::timestamptz is null or day >= $5::timestamptz)
+     and day < $6::timestamptz
+   group by trader_id
+  union
   select maker_id as t from "Trade"
-   where ($1::timestamptz is null or timestamp >= $1::timestamptz)
-     and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+   where $2::timestamptz is not null
+     and ($1::timestamptz is null or timestamp >= $1::timestamptz)
+     and timestamp < $2::timestamptz
    group by maker_id
   union
   select taker_id as t from "Trade"
-   where ($1::timestamptz is null or timestamp >= $1::timestamptz)
-     and ($2::timestamptz is null or timestamp <  $2::timestamptz)
+   where $2::timestamptz is not null
+     and ($1::timestamptz is null or timestamp >= $1::timestamptz)
+     and timestamp < $2::timestamptz
+     and taker_id is not null
+   group by taker_id
+  union
+  select maker_id as t from "Trade"
+   where $4::timestamptz is not null
+     and timestamp >= $3::timestamptz
+     and timestamp < $4::timestamptz
+   group by maker_id
+  union
+  select taker_id as t from "Trade"
+   where $4::timestamptz is not null
+     and timestamp >= $3::timestamptz
+     and timestamp < $4::timestamptz
      and taker_id is not null
    group by taker_id
 ) x
@@ -1003,6 +1060,12 @@ select p.trader_id as account, p.market_id as id, m.name, m."priceDecimals", m."
 export const SIZE_BANDS_AUSD: readonly number[] = [100, 1_000, 10_000, 100_000];
 export const SPARE_BANDS_AUSD: readonly number[] = [1, 100, 1_000, 10_000];
 
+interface DayTotals {
+  readonly volume: bigint;
+  readonly makerFees: bigint;
+  readonly trades: bigint;
+}
+
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();
 
@@ -1083,6 +1146,10 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
   /** The last reading whose processed block DIFFERED. See classifyIndexerHealth. */
   #lastProgress: IndexerProgress | undefined;
   #collateralDecimals: number | undefined;
+  /** Fill sums per CLOSED UTC day, keyed by the day's start. A closed day's fills never change. */
+  readonly #dayTotals = new Map<number, DayTotals>();
+  /** One fill of the day memo at a time, so two windows asking together scan once. */
+  #dayFill: Promise<void> = Promise.resolve();
 
   constructor(options: PostgresAnalyticsOptions) {
     this.#client = options.client;
@@ -1188,6 +1255,79 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
   }
 
   /**
+   * Volume, trades, maker fees and DISTINCT traders over a rolling window,
+   * exactly: whole UTC days from per-day sums, the two ragged edges scanned
+   * fill by fill (`windowSplit.ts`). A 24-hour window has no whole day in it
+   * and is one exact scan, as before.
+   */
+  async #windowTotals(
+    sinceMs: number | undefined,
+    untilMs: number,
+  ): Promise<{ readonly totals: Record<string, unknown>; readonly traders: Record<string, unknown> | undefined }> {
+    // Too short to hold a whole day: skip the bounds probe, scan it whole.
+    const short = sinceMs !== undefined && untilMs - sinceMs <= 86_400_000;
+    const bounds = short ? undefined : await this.#one(TRADE_BOUNDS_SQL);
+    const firstMs = toMs(bounds?.['first']);
+    const split = splitWindow(sinceMs, untilMs, firstMs === undefined ? undefined : toMs(bounds?.['through']));
+    const [e1, e2] = split.edges;
+    const edgeBinds = [iso(e1?.fromMs), iso(e1?.toMs), iso(e2?.fromMs), iso(e2?.toMs)];
+    const [edges, days, traders] = await Promise.all([
+      this.#one(WINDOW_TOTALS_SQL, edgeBinds),
+      split.days === undefined || firstMs === undefined ? undefined : this.#closedDayTotals(split.days, firstMs),
+      this.#one(ACTIVE_TRADERS_SQL, [...edgeBinds, iso(split.days?.fromMs), iso(split.days?.toMs)]),
+    ]);
+    const big = (v: unknown): bigint => BigInt(String(v ?? '0'));
+    return {
+      totals: {
+        volume: (big(edges?.['volume']) + (days?.volume ?? 0n)).toString(),
+        maker_fees: (big(edges?.['maker_fees']) + (days?.makerFees ?? 0n)).toString(),
+        trades: (big(edges?.['trades']) + (days?.trades ?? 0n)).toString(),
+      },
+      traders,
+    };
+  }
+
+  /** The summed fills of whole closed UTC days, each day read from the index once and remembered. */
+  async #closedDayTotals(range: MsRange, firstMs: number): Promise<DayTotals> {
+    const wanted = utcDaysIn(range.fromMs ?? Math.floor(firstMs / 86_400_000) * 86_400_000, range.toMs);
+    const missing = wanted.filter((d) => !this.#dayTotals.has(d));
+    if (missing.length > 0) {
+      const fill = this.#dayFill.then(async () => {
+        // Each run of consecutive missing days is one scan, so a day already held is never re-read.
+        const runs: Array<[number, number]> = [];
+        for (const d of missing.filter((x) => !this.#dayTotals.has(x))) {
+          const last = runs.at(-1);
+          if (last !== undefined && last[1] === d) last[1] = d + 86_400_000;
+          else runs.push([d, d + 86_400_000]);
+        }
+        for (const [from, to] of runs) {
+          const rows = await this.#rows(DAY_TOTALS_SQL, [iso(from), iso(to)]);
+          const found = new Map(rows.map((r) => [toMs(r['day']), r]));
+          // A day with no fills is a closed day of zeros, not a missing one.
+          for (const d of utcDaysIn(from, to)) {
+            const r = found.get(d);
+            this.#dayTotals.set(d, {
+              volume: BigInt(String(r?.['volume'] ?? '0')),
+              makerFees: BigInt(String(r?.['maker_fees'] ?? '0')),
+              trades: BigInt(String(r?.['trades'] ?? '0')),
+            });
+          }
+        }
+      });
+      this.#dayFill = fill.catch(() => undefined);
+      await fill;
+    }
+    const sum: { volume: bigint; makerFees: bigint; trades: bigint } = { volume: 0n, makerFees: 0n, trades: 0n };
+    for (const d of wanted) {
+      const t = this.#dayTotals.get(d)!;
+      sum.volume += t.volume;
+      sum.makerFees += t.makerFees;
+      sum.trades += t.trades;
+    }
+    return sum;
+  }
+
+  /**
    * The headline figures over one bounded window.
    *
    * `untilMs` is a real bound, not decoration: the previous-period query needs
@@ -1215,9 +1355,8 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // went at random (seen 1 Oct 2026: the same 7D read gave 7 days or 8).
     const feesUntil = current ? null : iso(startOfUtcDay(untilMs));
 
-    const [totals, traders, liquidations, flows, fees] = await Promise.all([
-      this.#one(WINDOW_TOTALS_SQL, [since, until]),
-      this.#one(ACTIVE_TRADERS_SQL, [since, until]),
+    const [{ totals, traders }, liquidations, flows, fees] = await Promise.all([
+      this.#windowTotals(sinceMs, untilMs),
       this.#one(LIQUIDATION_SQL, [since, until]),
       this.#one(COLLATERAL_FLOW_SQL, [since, until]),
       this.#one(FEES_SQL, [feesSince, feesUntil]),
@@ -2056,10 +2195,9 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // between midnight and the rolling start). The per-trader figures below
     // stay in whole UTC days: the per-trader record is kept by day.
     const { sinceMs } = windowFor(timeframe, now);
-    const [row, totals, traders] = await Promise.all([
+    const [row, { totals, traders }] = await Promise.all([
       this.#one(traderSummarySql(start === null), [start]),
-      this.#one(WINDOW_TOTALS_SQL, [iso(sinceMs), iso(now)]),
-      this.#one(ACTIVE_TRADERS_SQL, [iso(sinceMs), iso(now)]),
+      this.#windowTotals(sinceMs, now),
     ]);
     const closed = count(row?.['closed']);
     return {

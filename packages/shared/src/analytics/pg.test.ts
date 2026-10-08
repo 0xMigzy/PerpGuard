@@ -124,7 +124,69 @@ test('the day SERIES does read buckets, because there the bucket is the unit', a
 test('all-time passes no window at all, so nothing is filtered out', async () => {
   const sql = new FakeSql();
   await reader(sql).protocolMetrics('all');
-  assert.equal(sql.touching('Trade')[0]!.values[0], null);
+  const totals = sql.touching('Trade').find((c) => /as maker_fees/.test(c.sql) && !/group by 1/.test(c.sql))!;
+  assert.equal(totals.values[0], null);
+});
+
+// ── the rolling window, split: whole days from memory, edges exact ───────────
+
+/** A fake index whose fills run from 1 Sep to now, with canned per-day and edge sums. */
+function splitSql(): FakeSql {
+  return new FakeSql()
+    .on(/max\(timestamp\) as through/, [{ first: new Date('2026-09-01T03:00:00Z'), through: new Date('2026-09-30T05:04:10Z') }])
+    .on(/group by 1/, [
+      { day: new Date('2026-09-28T00:00:00Z'), volume: '1000', maker_fees: '10', trades: '4' },
+      { day: new Date('2026-09-29T00:00:00Z'), volume: '2000', maker_fees: '20', trades: '6' },
+    ])
+    .on(/union all/, [{ volume: '7', maker_fees: '1', trades: '1' }]);
+}
+
+test('THE ROLLING WINDOW IS EXACT: whole days from per-day sums, the ragged edges scanned at their instants', async () => {
+  const sql = splitSql();
+  const metrics = await reader(sql).protocolMetrics('7d');
+  const edges = sql.calls.find((c) => /union all/.test(c.sql) && c.sql.includes('"Trade"'))!;
+  // 7d to 05:04:14 on 30 Sep: 23 Sep 05:04:14 -> 24 Sep 00:00, then 30 Sep 00:00 -> now.
+  assert.deepEqual(edges.values, ['2026-09-23T05:04:14.000Z', '2026-09-24T00:00:00.000Z', '2026-09-30T00:00:00.000Z', '2026-09-30T05:04:14.000Z']);
+  // Days 24-29 Sep come from the memo: 28th and 29th have fills, the rest are zeros.
+  assert.equal(metrics.tradeCount, 4 + 6 + 1);
+  // Distinct traders: TraderDay for the whole days, plus both edges' fills, deduplicated.
+  const traders = sql.calls.find((c) => /as traders/.test(c.sql))!;
+  assert.match(traders.sql, /from "TraderDay"/);
+  assert.deepEqual(traders.values.slice(4), ['2026-09-24T00:00:00.000Z', '2026-09-30T00:00:00.000Z']);
+});
+
+test('a closed day is scanned ONCE, however many windows ask for it', async () => {
+  const sql = splitSql();
+  const r = reader(sql);
+  await r.protocolMetrics('7d');
+  await r.protocolMetrics('7d');
+  await r.protocolMetrics('30d');
+  const dayScans = sql.calls.filter((c) => /group by 1/.test(c.sql) && c.sql.includes('"Trade"'));
+  // First 7d: the current window's days and the previous one's, filled one after the other.
+  // Second 7d: nothing new. 30d: only the days before what is already held.
+  const covered = dayScans.map((c) => c.values);
+  for (let i = 0; i < covered.length; i += 1) {
+    for (let j = i + 1; j < covered.length; j += 1) {
+      const [a0, a1] = covered[i] as [string, string];
+      const [b0, b1] = covered[j] as [string, string];
+      assert.ok(a1 <= b0 || b1 <= a0, `day scans overlap: ${a0}..${a1} and ${b0}..${b1}`);
+    }
+  }
+});
+
+test('a day the index has not passed the end of is never remembered', async () => {
+  const sql = splitSql();
+  await reader(sql).protocolMetrics('7d');
+  for (const c of sql.calls.filter((x) => /group by 1/.test(x.sql) && x.sql.includes('"Trade"'))) {
+    assert.ok(String(c.values[1]) <= '2026-09-30T00:00:00.000Z', 'today is never a closed day');
+  }
+});
+
+test('24 HOURS STAYS ROLLING: one exact scan, no day sums, no bounds probe', async () => {
+  const sql = splitSql();
+  await reader(sql).protocolMetrics('24h');
+  assert.equal(sql.calls.filter((c) => /max\(timestamp\) as through/.test(c.sql)).length, 0);
+  assert.equal(sql.calls.filter((c) => /group by 1/.test(c.sql) && c.sql.includes('"Trade"')).length, 0);
 });
 
 test('active traders are counted DISTINCT across both sides of a match', async () => {
@@ -478,8 +540,9 @@ test('a timeframe carries the window before it, bounded on BOTH ends', async () 
   const trades = sql.touching('Trade').filter((c) => /sum\("notionalCNS"\)/.test(c.sql));
   assert.equal(trades.length, 2, 'one volume query per window');
   const [current, previous] = trades;
-  assert.deepEqual(current!.values, ['2026-09-23T05:04:14.000Z', '2026-09-30T05:04:14.000Z']);
-  assert.deepEqual(previous!.values, ['2026-09-16T05:04:14.000Z', '2026-09-23T05:04:14.000Z']);
+  // No day known final in this fake, so each window is one exact edge.
+  assert.deepEqual(current!.values, ['2026-09-23T05:04:14.000Z', '2026-09-30T05:04:14.000Z', null, null]);
+  assert.deepEqual(previous!.values, ['2026-09-16T05:04:14.000Z', '2026-09-23T05:04:14.000Z', null, null]);
   assert.match(current!.sql, /timestamp <\s+\$2/, 'the upper bound is exclusive');
 
   assert.equal(metrics.previous?.sinceMs, Date.parse('2026-09-16T05:04:14Z'));
