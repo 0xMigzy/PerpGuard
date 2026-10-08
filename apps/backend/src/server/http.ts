@@ -58,6 +58,8 @@ export interface HealthServerOptions {
   /** The stale-while-revalidate cache for indexed answers, owned by the process so it can warm it. */
   readonly analyticsCache?: AnalyticsRouteOptions['cache'];
   readonly analyticsWarmedTtlMs?: number;
+  /** Static facts for /status. */
+  readonly analyticsInfrastructure?: AnalyticsRouteOptions['infrastructure'];
   /** 🔁 The copy replay (Copy Trading, Half A). Read-only. */
   readonly copyReplay?: { readonly service: CopyReplayService; readonly collateralDecimals: number };
   /** The session-gated Protect API. Absent when there is no risk loop to serve. */
@@ -106,6 +108,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       ...(options.fillDirections === undefined ? {} : { fillDirections: options.fillDirections }),
       ...(options.analyticsCache === undefined ? {} : { cache: options.analyticsCache }),
       ...(options.analyticsWarmedTtlMs === undefined ? {} : { warmedTtlMs: options.analyticsWarmedTtlMs }),
+      ...(options.analyticsInfrastructure === undefined ? {} : { infrastructure: options.analyticsInfrastructure }),
     });
   }
 

@@ -52,10 +52,13 @@ import {
   type WalletMatch,
 } from '@perpguard/shared';
 import { SwrCache } from './responseCache.ts';
+import type { InfrastructureFacts } from './infrastructure.ts';
 import type { FillDirections } from './fillDirections.ts';
 
 export interface AnalyticsRouteOptions {
   readonly analytics: Analytics;
+  /** Static facts for the Data & Methodology page; the cache and health TTLs are added here. No query. */
+  readonly infrastructure?: () => Omit<InfrastructureFacts, 'cacheTtlMs' | 'healthTtlMs'>;
   /**
    * The stale-while-revalidate cache for indexed answers. Supplied by the
    * process so it can warm the default views at boot and keep them warm; a
@@ -386,6 +389,14 @@ export function registerAnalyticsRoutes(
    * what a client should read. The envelope is still attached for shape consistency.
    */
   scope.get(`${prefix}/tvl`, async () => envelope(await analytics.tvl()));
+
+  /** How PerpGuard runs, for /status: configuration only, never a query. The RPC is named by provider domain alone. */
+  scope.get(`${prefix}/infrastructure`, async (_request, reply) => {
+    const facts = options.infrastructure?.();
+    if (facts === undefined) return reply.code(503).send({ error: 'no infrastructure facts are configured on this process.' });
+    const payload: InfrastructureFacts = { ...facts, cacheTtlMs: options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS, healthTtlMs: HEALTH_TTL_MS };
+    return envelope(payload);
+  });
 
   scope.get(`${prefix}/history`, async () => served(loaders.history()));
 
@@ -757,6 +768,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/health`,
       `${prefix}/metrics?timeframe=24h|7d|30d|all`,
       `${prefix}/tvl`,
+      `${prefix}/infrastructure`,
       `${prefix}/series?timeframe=30d`,
       `${prefix}/series/markets?timeframe=30d`,
       `${prefix}/open-interest`,

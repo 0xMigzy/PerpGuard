@@ -36,7 +36,7 @@ export interface RiskSnapshotOptions {
   readonly now?: () => number;
 }
 
-const DEFAULT_TTL_MS = 20_000;
+export const DEFAULT_TTL_MS = 20_000;
 
 export class RiskSnapshotSource {
   readonly #options: RiskSnapshotOptions;

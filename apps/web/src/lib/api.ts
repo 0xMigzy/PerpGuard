@@ -45,6 +45,22 @@ import type {
 } from '@perpguard/shared';
 
 /** What every analytics response looks like. Mirrors the backend's envelope. */
+/** /status: how PerpGuard runs, configuration only (apps/backend/src/server/infrastructure.ts). */
+export interface InfrastructureFacts {
+  readonly network: { readonly name: string; readonly chainId: number };
+  /** The RPC provider's domain only, never the URL. */
+  readonly rpcProvider: string | undefined;
+  readonly indexer: string;
+  readonly database: string;
+  readonly cacheTtlMs: number;
+  readonly warmIntervalMs: number;
+  readonly healthTtlMs: number;
+  readonly riskSnapshotTtlMs: number;
+  readonly treasuryScanIntervalMs: number;
+  readonly venueFundingTtlMs: number;
+  readonly perplContextTtlMs: number;
+}
+
 export interface Envelope<T> {
   readonly data: T;
   readonly health: IndexerHealth;
@@ -205,6 +221,7 @@ export const api = {
   indexerHealth: () => getJson<Envelope<IndexerHealth>>(`${A}/health`),
   metrics: (t: Timeframe) => getJson<Envelope<ProtocolMetrics>>(`${A}/metrics?timeframe=${t}`),
   tvl: () => getJson<Envelope<TvlReading>>(`${A}/tvl`),
+  infrastructure: () => getJson<Envelope<InfrastructureFacts>>(`${A}/infrastructure`),
   series: (t: Timeframe) => getJson<Envelope<readonly DailyPoint[]>>(`${A}/series?timeframe=${t}`),
   /** Every UTC month since the index's first event, and where that history starts. */
   history: () => getJson<Envelope<HistoryCurve>>(`${A}/history`),

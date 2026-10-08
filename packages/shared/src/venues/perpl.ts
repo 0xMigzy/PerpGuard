@@ -61,7 +61,7 @@ import type {
 const VENUE_ID = 'perpl' as const;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_CONTEXT_TTL_MS = 60_000;
+export const DEFAULT_CONTEXT_TTL_MS = 60_000;
 
 export interface PerplVenueOptions {
   /** Timeout for REST calls. */

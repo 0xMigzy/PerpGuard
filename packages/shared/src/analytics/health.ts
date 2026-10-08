@@ -102,6 +102,8 @@ export interface IndexerProgress {
    * its absence downgrades the verdict to `unknown` rather than `synced`.
    */
   readonly chainHead?: number;
+  /** When the indexer first reached the head (the end of its backfill), as Envio records it. */
+  readonly caughtUpAtMs?: number;
   /** When this reading was taken. */
   readonly observedAtMs: number;
 }
@@ -130,6 +132,12 @@ export interface IndexerHealth {
   /** How long progress has been stuck, when it is known to be. */
   readonly stalledForMs?: number;
   readonly observedAtMs: number;
+  /** The block the index starts at, as the indexer records it. For /status; read in the same row as the rest. */
+  readonly startBlock?: number;
+  /** Events the indexer has processed, by its own counter (Envio's `num_events_processed`). */
+  readonly eventsProcessed?: number;
+  /** When it first reached the chain head, i.e. finished its backfill. */
+  readonly caughtUpAtMs?: number;
 }
 
 export interface IndexerHealthOptions {
@@ -181,6 +189,9 @@ export function classifyIndexerHealth(
     headIsIndependent,
     observedAtMs: current.observedAtMs,
     ...(current.latestProcessedBlock > 0 ? { latestProcessedBlock: current.latestProcessedBlock } : {}),
+    ...(current.startBlock > 0 ? { startBlock: current.startBlock } : {}),
+    ...(current.eventsProcessed > 0 ? { eventsProcessed: current.eventsProcessed } : {}),
+    ...(current.caughtUpAtMs === undefined ? {} : { caughtUpAtMs: current.caughtUpAtMs }),
   };
 
   if (current.latestProcessedBlock <= 0 || current.eventsProcessed <= 0) {

@@ -126,7 +126,8 @@ export interface PostgresAnalyticsOptions {
 
 /** Reads `chain_metadata`, which Envio maintains rather than our schema. */
 const HEALTH_SQL = `
-select latest_processed_block, block_height, num_events_processed, start_block
+select latest_processed_block, block_height, num_events_processed, start_block,
+       timestamp_caught_up_to_head_or_endblock as caught_up_at
   from chain_metadata where chain_id = $1
 `;
 
@@ -1269,6 +1270,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       blockHeight: count(row['block_height']),
       eventsProcessed: count(row['num_events_processed']),
       ...(head === undefined ? {} : { chainHead: head }),
+      ...(toMs(row['caught_up_at']) === undefined ? {} : { caughtUpAtMs: toMs(row['caught_up_at'])! }),
       observedAtMs,
     };
 

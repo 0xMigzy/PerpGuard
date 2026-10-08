@@ -38,6 +38,7 @@ import {
   ApiSecret,
   assessOpenPositions,
   ConfigError,
+  DEFAULT_CONTEXT_TTL_MS,
   PerplPositionSource,
   PerplVenue,
   PostgresAnalytics,
@@ -118,11 +119,12 @@ import { DeferredPositionSource } from './server/deferredPositionSource.ts';
 import { buildHealth, type HealthReport } from './server/health.ts';
 import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
-import { RiskSnapshotSource } from './server/riskSnapshot.ts';
+import { DEFAULT_TTL_MS as RISK_SNAPSHOT_TTL_MS, RiskSnapshotSource } from './server/riskSnapshot.ts';
+import { providerDomain } from './server/infrastructure.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
-import { buildVenueFundingPayload, describeFetchError, VenueFundingStore } from './funding/venueFundingStore.ts';
+import { buildVenueFundingPayload, describeFetchError, VENUE_FUNDING_TTL_MS, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
-import { TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
+import { TREASURY_SCAN_INTERVAL_MS, TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
 import { OwnerDirectory } from './server/ownerDirectory.ts';
 import { FillDirections } from './server/fillDirections.ts';
 import { EventEngine, type ChatSender } from './events/engine.ts';
@@ -1341,6 +1343,18 @@ const app = createHealthApp({
   // exactly backwards; /health reports the degradation instead.
   // The warmed default views are refreshed only by the hourly pass, never by a reader.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache, analyticsWarmedTtlMs: KEEP_WARM_MS + 5 * 60_000 }),
+  // /status: configuration only. The RPC is reduced to its provider's domain; the URL never leaves the process.
+  analyticsInfrastructure: () => ({
+    network: { name: analyticsNetworkConfig?.name ?? 'unknown', chainId: analyticsNetworkConfig?.chainId ?? 0 },
+    rpcProvider: providerDomain(analyticsNetworkConfig?.rpcUrl),
+    indexer: 'Envio HyperIndex',
+    database: 'PostgreSQL',
+    warmIntervalMs: KEEP_WARM_MS,
+    riskSnapshotTtlMs: RISK_SNAPSHOT_TTL_MS,
+    treasuryScanIntervalMs: TREASURY_SCAN_INTERVAL_MS,
+    venueFundingTtlMs: VENUE_FUNDING_TTL_MS,
+    perplContextTtlMs: DEFAULT_CONTEXT_TTL_MS,
+  }),
   // The treasury's in/out per day, from the incremental scan's own state.
   ...(treasuryScanner === undefined ? {} : { protocolTreasuryDays: async () => treasuryDaysOf(treasuryScanner.movements(), treasuryScanner.status()) }),
   // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same

@@ -536,10 +536,17 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   its colour; a loading wallet is named "loading…" in the legend.
 - NOT BUILT, ON PURPOSE: order book depth, intraday candles. Single-market
   drill-down is a later pass.
-- THE FOOTER HAS NO "Data & methodology" SECTION: taken off the site on 4 Oct
-  2026 at the owner's request, to come back later. `docs/methodology.md` and
-  `apps/web/src/lib/methodology.ts` stay; the section's markup is in git at
-  `11e3eec`. Do not re-add it unasked.
+- DATA & METHODOLOGY IS A PAGE, /status (8 Oct 2026, owner's request). The
+  footer on every page reads "Data sourced from Monad on-chain activity and
+  Perpl exchange events · Data & Methodology" (linking /status) over the
+  not-affiliated line; the AUSD unit is stated on /status. Content lives in
+  `apps/web/src/lib/statusContent.ts`, each metric naming the code that
+  computes it. NOTHING ON IT MAY SCAN: cached answers, the 2-second health a
+  freshly built envelope carries (a cached answer's envelope keeps the health
+  it was computed with), and `/api/analytics/infrastructure` (configuration
+  only; the RPC as its provider domain, never the URL, whose host labels
+  identify the endpoint). A field that would need a query or new indexing is
+  "Awaiting implementation"; one nothing can answer is "Not available".
 - ONE CODE STORE PER PURPOSE, CHECKED (`CodePurpose` in
   `apps/backend/src/server/protect/session.ts`). /link and the protect API
   each get their own `LinkCodeStore`, and each refuses at construction a
