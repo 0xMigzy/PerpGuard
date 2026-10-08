@@ -18,13 +18,10 @@ export type Question =
   | { readonly kind: 'watch-target' }
   /** "Send up to five levels, like 15 8 3." */
   | { readonly kind: 'warning-levels' }
-  /** 🛟 A custom rescue trigger, in percent. */
   /** 🛟 A custom rescue amount, in AUSD. */
   | { readonly kind: 'rescue-amount' }
   /** 🔔 A custom alert distance, in percent. */
-  | { readonly kind: 'alert-distance' }
-  /** 🚪 "Type CLOSE ALL to confirm." Carries the request it confirms and when the list was shown. */
-  | { readonly kind: 'close-all'; readonly requestId: string; readonly shownAtMs: number };
+  | { readonly kind: 'alert-distance' };
 
 interface Parked {
   readonly question: Question;

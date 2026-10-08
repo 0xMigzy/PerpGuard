@@ -31,14 +31,14 @@ test('a negative buffer is words, never a negative percentage', () => {
   assert.equal(distance(0.0313), '3.1% from being closed');
 });
 
-test('the watch alert leads with the account and position, then money, and says it has no buttons', () => {
+test('the watch alert leads with the account and position, then money, and says it is watching only', () => {
   const html = renderWatchAlertHtml(watched({ freeBalanceCNS: 2_910_000_000n }), 'danger', BTC);
   const lines = html.split('\n');
   assert.equal(lines[0], '🔴 <b>#3388 · BTC long is 2.7% from being closed</b>');
   assert.equal(lines[1], 'BTC is 84,007.3. At 81,770.1 the exchange closes this position and they lose the <b>2,810 AUSD</b> behind it.');
   assert.equal(lines[2], 'They hold <b>2,910 AUSD</b> free — enough to survive, if they move it.');
   assert.match(lines[3]!, /^<i>Positions as of block 109,575,809, 12 blocks behind the chain\.<\/i>$/);
-  assert.equal(lines[4], "No buttons. You are watching this account, not holding it: PerpGuard's actions run on testnet only, and this is a mainnet account.");
+  assert.equal(lines[4], 'Watching only — nothing here to press.');
   assert.ok(!/safe/i.test(html));
 });
 
@@ -64,7 +64,7 @@ test('a recovery never says "safe"; past liquidation says "already past"', () =>
 test('blind watch alerts say they cannot see, and still carry freshness and no buttons', () => {
   const html = renderWatchAlertHtml(watched({}, { state: 'POSITIONS_UNTRUSTED' }), 'positions-untrusted', BTC);
   assert.match(html, /^⚪ <b>#3388 · BTC long: I cannot see it right now<\/b>/);
-  assert.match(html, /No buttons\./);
+  assert.match(html, /Watching only — nothing here to press\./);
 });
 
 test('every piece of data is escaped for HTML parse mode', () => {

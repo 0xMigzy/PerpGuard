@@ -68,7 +68,7 @@ export function buttonsFor(
 }
 
 /** The third button's label. A prompt, not an amount: there is no amount yet. */
-export const CUSTOM_BUTTON_LABEL = 'Custom amount';
+export const CUSTOM_BUTTON_LABEL = '🎛 Custom amount';
 
 /**
  * The marker action behind the "Custom amount" button.

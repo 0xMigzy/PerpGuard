@@ -94,17 +94,13 @@ export interface HomeInput {
   readonly tradingNetwork: NetworkName | undefined;
   /** Every position the chat can see: its own and the ones it watches. */
   readonly assessments: readonly RiskAssessment[];
-  /** The public web app, for the "Open PerpGuard" button. */
-  readonly webUrl: string | undefined;
   /** Rescue is built and wired, so a linked chat gets its button. */
   readonly rescue?: boolean;
   /** The Kill Switch is built and wired, so a linked chat gets its button. */
   readonly killSwitch?: boolean;
-  /** Copy Trading is built and wired, so a linked chat gets its button. */
-  readonly copy?: boolean;
 }
 
-const TITLE = '🛡 <b>PERPGUARD</b>\nAnalyse. Watch. Act.';
+const TITLE = '🛡 <b>PERPGUARD</b>';
 
 /**
  * Said only when the index is NOT serving current figures: the menu never
@@ -116,74 +112,60 @@ export function indexLine(health: IndexerHealth | undefined): string | undefined
   return `⚠️ Index ${esc(health.state)}${behind}: watched figures may be late.`;
 }
 
+/** `🔗 testnet #24`: the network, said once. */
+export const accountTag = (network: NetworkName | undefined, accountId: number): string => `🔗 ${network ?? 'testnet'} #${accountId}`;
+
 /**
- * THE MENU SHOWS ONLY WHAT IS BUILT. Rescue, Copy Trading and the Kill Switch
- * are not on it until their phase lands: a dead button is worse than a
- * missing one, and the close-all kill switch it used to carry is retired.
+ * 🏠 THE MENU (owner, 8 Oct 2026). Nothing connected: what PerpGuard does and
+ * how to start, two buttons. Connected: the account's state in four lines and
+ * the six buttons. THE MENU SHOWS ONLY WHAT IS BUILT: a dead button is worse
+ * than a missing one.
  */
 export function homeScreen(input: HomeInput): Screen {
-  const open: Button[] = input.webUrl === undefined ? [] : [{ text: '🌐 Open PerpGuard', url: input.webUrl }];
   const index = indexLine(input.health);
-  const watchingLine = input.watching === 0 ? undefined : `👁 Watching <b>${input.watching} mainnet account${input.watching === 1 ? '' : 's'}</b> · read-only`;
-  const acting = input.account?.network ?? input.tradingNetwork ?? 'testnet';
+  const watching = input.watching === 0 ? undefined : `👁 Watching ${input.watching}`;
 
   if (input.account === undefined) {
-    // THE TWO TIERS, BEFORE ANYTHING ELSE (owner, 7 Oct 2026): what each one is, on which network, and what it can do.
     const lines = [
       TITLE,
       '',
-      'Two ways to use PerpGuard:',
+      'I message you before a Perpl position gets liquidated.',
       '',
-      `👁 <b>WATCH</b> any <b>mainnet</b> account, no key needed. Alerts as it nears liquidation, opens and closes. Read-only: no buttons.`,
-      '',
-      `🔗 <b>LINK</b> your own <b>${acting}</b> account with an API key to also act on it: add margin, reduce, close, Auto top-up. Actions run on ${acting} only, ${acting === 'testnet' ? 'with test funds' : 'with real funds'}.`,
-      '',
-      watchingLine ?? '👁 Not watching anything yet · 🔗 Not linked',
+      'Send me any address or account number to start watching it — no key, nothing to set up.',
     ];
+    if (watching !== undefined) lines.push('', watching);
     if (index !== undefined) lines.push('', index);
     return {
       html: lines.join('\n'),
-      buttons: [[{ text: '👁 Watch & Alerts', route: { to: 'watch-menu' } }], [{ text: '🔐 Trading Account', route: { to: 'account' } }], ...(open.length === 0 ? [] : [open])],
+      buttons: [[{ text: '👁 Watch & Alerts', route: { to: 'watch-menu' } }], [{ text: '🔐 Trading account', route: { to: 'account' } }]],
     };
   }
 
   const a = input.account;
   const lines = [
     TITLE,
-    '',
-    `🔗 Linked: <b>${a.network ?? acting} #${a.accountId}</b> · actions run here${(a.network ?? acting) === 'testnet' ? ', with test funds' : ''}`,
+    accountTag(a.network ?? input.tradingNetwork, a.accountId),
     `Execution: ${a.execution.dot} ${esc(a.execution.label)}`,
-    `Automation: ${a.automation ?? '⚪ None'}`,
-    `Alerts: 🟢 ON at ${a.warnAt} from liquidation`,
+    `Automation: ${a.automation ?? '⚪ Off'}`,
+    `Alerts: 🟢 ${a.warnAt} from liquidation`,
   ];
-  lines.push(watchingLine ?? '👁 Watch any mainnet account read-only from Watch & Alerts');
-  const closest = closestOf(input.assessments);
-  if (closest !== undefined) lines.push(`Closest to liquidation <b>${shortDistance(closest.liqBufferPct)}</b>`);
+  if (watching !== undefined) lines.push(watching);
   if (index !== undefined) lines.push('', index);
 
   const buttons: Button[][] = [
     [
       { text: '👁 Watch & Alerts', route: { to: 'watch-menu' } },
-      { text: '📊 My Positions', route: { to: 'positions' } },
+      { text: '📊 My positions', route: { to: 'positions' } },
     ],
-    // Spec 20's grid, with what is built: Rescue beside Margin, the Kill Switch beside the Trading Account.
-    input.rescue === true
-      ? [
-          { text: '🛟 Rescue', route: { to: 'rescue' } },
-          { text: '💰 Margin', route: { to: 'margin' } },
-        ]
-      : [{ text: '💰 Margin', route: { to: 'margin' } }],
-    input.killSwitch === true
-      ? [
-          { text: '🆘 Emergency', route: { to: 'kill' } },
-          { text: '🔐 Trading Account', route: { to: 'account' } },
-        ]
-      : [{ text: '🔐 Trading Account', route: { to: 'account' } }],
-    input.copy === true
-      ? [{ text: '🔁 Copy Trading', route: { to: 'copy-status' } }, { text: '⚙️ Settings', route: { to: 'settings' } }]
-      : [{ text: '⚙️ Settings', route: { to: 'settings' } }],
+    [
+      ...(input.rescue === true ? [{ text: '🛟 Rescue', route: { to: 'rescue' } } as Button] : []),
+      { text: '🔐 Trading account', route: { to: 'account' } },
+    ],
+    [
+      ...(input.killSwitch === true ? [{ text: '🆘 Kill switch', route: { to: 'kill' } } as Button] : []),
+      { text: '⚙️ Settings', route: { to: 'settings' } },
+    ],
   ];
-  if (open.length > 0) buttons.push(open);
   return { html: lines.join('\n'), buttons };
 }
 
@@ -245,52 +227,33 @@ export interface WalletInput {
   readonly back?: Route;
 }
 
+/**
+ * 👁 ONE WATCHED WALLET (owner, 8 Oct 2026): how many are open and the closest
+ * one, and that there is nothing to press. The detail is on the website.
+ */
 export function walletScreen(input: WalletInput): Screen {
   const id = `#${input.accountId}`;
   const back: Button = { text: '← Back', route: input.back ?? { to: 'wallets' } };
   if (input.sub === undefined) {
-    return { html: `You are not watching ${id} in this chat.`, buttons: [[{ text: `👛 Watch ${id}`, route: { to: 'watch-ask' } }], [back]] };
+    return { html: `You're not watching ${id} in this chat.`, buttons: [[{ text: `👛 Watch ${id}`, route: { to: 'watch-ask' } }], [back]] };
   }
   const lead = input.lead === undefined ? [] : [input.lead, ''];
-  const stop: Button = { text: '🔕 Stop watching', route: { to: 'unwatch', accountId: input.accountId } };
+  const stop: Button = { text: '🗑 Stop watching', route: { to: 'unwatch', accountId: input.accountId } };
+  const head = `👁 <b>mainnet ${id}</b>`;
+  const lines = [...lead];
 
   if (input.facts === undefined && input.assessments.length === 0) {
-    return {
-      html: [...lead, `<b>Account ${id}</b>`, 'I have not read it from the index yet. The first look takes up to half a minute; open it again in a moment.', '', NO_BUTTONS].join('\n'),
-      buttons: [[stop, back]],
-    };
+    lines.push(head, "I haven't read it yet. The first look takes up to 30 seconds — open it again in a moment.");
+  } else if (input.facts?.found === false) {
+    lines.push(head, 'Perpl has no record of this account yet.');
+  } else {
+    const open = input.facts?.openPositions ?? input.assessments.length;
+    lines.push(`${head} · ${open} open`);
+    const closest = closestOf(input.assessments);
+    if (open === 0) lines.push("I'll message you if it opens a position and gets close to liquidation.");
+    else if (closest !== undefined) lines.push(`Closest to liquidation: ${positionName(closest)}, ${closest.liqBufferPct !== undefined && closest.liqBufferPct < 0 ? 'past liquidation' : shortDistance(closest.liqBufferPct)}`);
+    else if (input.assessments.some((a) => isBlind(a.state))) lines.push("I can't see its positions right now.");
   }
-  if (input.facts?.found === false) {
-    return { html: [...lead, `<b>Account ${id}</b>`, 'The index holds nothing for this account yet.', '', NO_BUTTONS].join('\n'), buttons: [[stop, back]] };
-  }
-  if ((input.facts?.openPositions ?? input.assessments.length) === 0) {
-    return {
-      html: [...lead, `<b>Account ${id}</b> · no open positions`, 'I will message this chat when it opens one and it gets close to being closed.', '', NO_BUTTONS].join('\n'),
-      buttons: [[stop, back]],
-    };
-  }
-
-  // Closest first; blind ones (no buffer) first of all, because not knowing is the worst.
-  const ordered = [...input.assessments].sort((a, b) => (a.liqBufferPct ?? -Infinity) - (b.liqBufferPct ?? -Infinity));
-  const closest = closestOf(ordered);
-  const title = closest === undefined ? `<b>Account ${id}</b>` : `<b>Account ${id}</b> · ${distance(closest.liqBufferPct)}`;
-  const lines = [...lead, title];
-  // BOUNDED: Telegram refuses a message over 4,096 characters, and an account
-  // with dozens of positions would lose the whole screen to that.
-  const shown = ordered.slice(0, WALLET_MAX_POSITIONS);
-  for (const a of shown) {
-    lines.push('', ...watchedPositionLines(a, input.configs?.get(a.marketId)));
-  }
-  const rest = ordered.length - shown.length;
-  if (rest > 0) lines.push('', `And ${rest} more position${rest === 1 ? '' : 's'}, all further from being closed.`);
-  const hidden = (input.facts?.unassessable ?? 0);
-  if (hidden > 0) lines.push('', `${hidden} more position${hidden === 1 ? '' : 's'} I cannot price: opened before the index starts, or on a market the venue does not list.`);
-
-  const scope = ordered[0]?.watch;
-  lines.push('');
-  if (scope?.freeBalanceCNS !== undefined) lines.push(`They hold free ${held(scope.freeBalanceCNS)}`);
-  lines.push(freeVerdict(scope, ordered.filter((a) => !isBlind(a.state))));
-  if (scope !== undefined && ordered[0] !== undefined) lines.push(freshness(scope, ordered[0]));
   lines.push('', NO_BUTTONS);
   return { html: lines.join('\n'), buttons: [[stop, back]] };
 }
@@ -302,36 +265,30 @@ export interface AccountScreenInput {
   readonly accountId: number | undefined;
   readonly network: NetworkName | undefined;
   readonly execution: ExecutionState | undefined;
-  /** How the link is backed, FROM RECORDS (link service status). Undefined: not known here. */
-  readonly ownership?: { readonly proof: 'wallet' | 'key' | 'owner'; readonly walletAddress: string | undefined };
-  /** Not linked, but a wallet proved this account: ownership verified, execution waiting for a key. */
+  /** When the account was connected to this chat. */
+  readonly linkedAtMs?: number | undefined;
+  /** Not linked, but a wallet proved this account: execution waits for a key. */
   readonly proven?: { readonly accountId: number; readonly walletAddress: string };
 }
 
 const shortAddress = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
-
-/**
- * THE THREE STATES, NEVER COLLAPSED: which wallet, whether it PROVED it owns
- * the account, and whether PerpGuard may EXECUTE on it (and with whose key).
- */
-function ownershipLines(o: AccountScreenInput['ownership']): string[] {
-  if (o === undefined) return [];
-  return [
-    `Wallet: ${o.walletAddress === undefined ? 'None on record' : `<code>${shortAddress(o.walletAddress)}</code>`}`,
-    `Ownership: ${
-      o.walletAddress !== undefined
-        ? '✅ Verified by wallet signature'
-        : o.proof === 'key'
-          ? '⚪ Not verified by a wallet: connected with an API key'
-          : '⚪ Not verified: linked as this deployment\'s owner'
-    }`,
-  ];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** `8 Oct, 06:48` (UTC). */
+export function shortWhen(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+const CONNECT_BUTTONS: readonly (readonly Button[])[] = [
+  [{ text: '🔗 Connect wallet', route: { to: 'connect-go' } }],
+  [{ text: '🔑 Enter API key', route: { to: 'connect-key' } }],
+  [BACK_HOME],
+];
+
 /**
- * 🔐 TRADING ACCOUNT. The account, its network and its EXECUTION state are
- * shown as separate facts and never folded into one "connected". Wallet and
- * ownership rows join when the proof is persisted (Phase 10–11).
+ * 🔐 TRADING ACCOUNT (owner, 8 Oct 2026). Not connected: what connecting does
+ * and the two ways in, both through the HTTPS page. Connected: the account,
+ * its execution state and when it was connected. A key is never typed here.
  */
 export function accountScreen(input: AccountScreenInput): Screen {
   if (input.accountId === undefined && input.proven !== undefined) {
@@ -340,15 +297,10 @@ export function accountScreen(input: AccountScreenInput): Screen {
       html: [
         '🔐 <b>TRADING ACCOUNT</b>',
         '',
-        `Account: <b>#${p.accountId}</b> · not connected yet`,
-        `Network: ${networkLabel(input.network)}`,
-        `Wallet: <code>${shortAddress(p.walletAddress)}</code>`,
-        'Ownership: ✅ Verified by wallet signature',
-        'Execution: ⚪ No API key yet',
-        '',
-        `Your wallet proved it owns #${p.accountId}. For PerpGuard to act on it, it also needs an API key for #${p.accountId}: paste it on the connect page, never here in Telegram.`,
+        `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${input.network ?? 'testnet'} #${p.accountId}.`,
+        'To add margin for you I also need an API key for it. Enter it on the page, never here.',
       ].join('\n'),
-      buttons: [[{ text: '🔑 Add API key', route: { to: 'connect-go' } }], [BACK_HOME]],
+      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [BACK_HOME]],
     };
   }
   if (input.accountId === undefined) {
@@ -356,55 +308,50 @@ export function accountScreen(input: AccountScreenInput): Screen {
       html: [
         '🔐 <b>TRADING ACCOUNT</b>',
         '',
-        'Account: <b>Not connected</b>',
-        `Network: ${networkLabel(input.network)}`,
-        'Execution: ⚪ Not configured',
+        'No account connected.',
         '',
-        'Connecting lets PerpGuard add margin, reduce or close a position, each time only after you confirm here.',
-        'It can never withdraw or transfer your funds: a Perpl API key has no permission to move money out.',
+        'Connect your Perpl account and I can warn you before a position is liquidated, and add margin the moment you tap.',
+        '',
+        'A Perpl key can trade but can never withdraw or move your funds.',
       ].join('\n'),
-      buttons: [[{ text: '🌈 Connect Wallet', route: { to: 'connect-go' } }], [BACK_HOME]],
+      buttons: CONNECT_BUTTONS,
     };
   }
   const e = input.execution;
   const lines = [
     '🔐 <b>TRADING ACCOUNT</b>',
-    '',
-    `Account: <b>#${input.accountId}</b>`,
-    `Network: ${networkLabel(input.network)}`,
-    ...ownershipLines(input.ownership),
-    `Execution: ${e === undefined ? '⚪ Unknown' : `${e.dot} ${esc(e.label)}${e.dot === '🟢' && input.ownership !== undefined ? (input.ownership.proof === 'key' ? ' · your API key' : " · this deployment's own key") : ''}`}`,
-    'Automation: ⚪ None',
+    accountTag(input.network, input.accountId),
+    `Execution: ${e === undefined ? '⚪ Unknown' : `${e.dot} ${esc(e.label)}`}`,
   ];
+  if (input.linkedAtMs !== undefined) lines.push(`Connected ${shortWhen(input.linkedAtMs)}`);
   if (e?.next !== undefined) lines.push('', esc(e.next));
   // A remedy that runs through the connect page gets its button; forwarding off does not (it needs the owner's wallet on Perpl).
   const fixable = e !== undefined && (e.dot === '🔴' || e.label === 'Not running');
   return {
     html: lines.join('\n'),
     buttons: [
-      ...(fixable ? [[{ text: '🔑 Fix authorization', route: { to: 'connect-go' } } as Button]] : []),
-      [{ text: `🔌 Disconnect account #${input.accountId}`, route: { to: 'disconnect-ask' } }],
+      ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
+      [{ text: '🔌 Disconnect', route: { to: 'disconnect-ask' } }],
       [BACK_HOME],
     ],
   };
 }
 
-/** The one-time page link. The proof happens there; nothing secret is ever typed here. */
-export function connectGoScreen(url: string, minutes: number): Screen {
+/** The one-time page link, for the wallet or for a key. Nothing secret is ever typed here. */
+export function connectGoScreen(url: string, minutes: number, via: 'wallet' | 'key'): Screen {
   return {
     html: [
-      '🌈 <b>Prove the account is yours</b>',
-      `Open the page below. It works once, for ${minutes} minutes, and proves nothing by itself: there you sign with the wallet that owns the account, or paste an API key for it.`,
-      '',
-      'Never paste a key here in Telegram — only on that page.',
+      via === 'wallet' ? '🔗 <b>Connect wallet</b>' : '🔑 <b>Enter API key</b>',
+      `Open this page — it works once, for ${minutes} minutes.`,
+      via === 'wallet' ? 'Sign with the wallet that owns your Perpl account.' : 'Paste your key there. Never paste it here.',
       '',
       esc(url),
     ].join('\n'),
-    buttons: [[{ text: '🌈 Open the connect page', url }], [{ text: '← Back', route: { to: 'account' } }]],
+    buttons: [[{ text: '🔗 Open the page', url }], [{ text: '← Back', route: { to: 'account' } }]],
   };
 }
 
 /** A sentence when a link cannot be offered at all. */
 export function connectUnavailableScreen(): Screen {
-  return { html: 'Connecting an account is not available on this deployment. You can still watch any account.', buttons: [[{ text: '← Back', route: { to: 'account' } }]] };
+  return { html: "Connecting an account isn't available here. You can still watch any account.", buttons: [[{ text: '← Back', route: { to: 'account' } }]] };
 }

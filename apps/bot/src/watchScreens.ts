@@ -61,23 +61,22 @@ export function watchMenuScreen(input: { readonly watching: number; readonly sta
       '👁 <b>WATCH & ALERTS</b>',
       'Read-only. No wallet, no key.',
       '',
-      input.watching === 0 ? 'Not watching any wallet yet.' : `Watching <b>${input.watching} of ${input.maxPerChat}</b> wallets${input.starred === 0 ? '' : `, ${input.starred} on your Watchlist`}.`,
+      input.watching === 0 ? 'Not watching any wallet yet.' : `Watching ${input.watching} of ${input.maxPerChat}${input.starred === 0 ? '' : ` · ${input.starred} on your Watchlist`}`,
       '',
       indexLimitsLine(input.health),
     ].join('\n'),
     buttons: [
       [
-        { text: '👛 Watch Wallet', route: { to: 'wallets' } },
+        { text: '👛 Watch wallet', route: { to: 'wallets' } },
         { text: '⭐ Watchlist', route: { to: 'watchlist' } },
       ],
-      [{ text: '🏆 Top Traders', route: { to: 'top' } }],
       [
         { text: '💥 Liquidations', route: { to: 'liq' } },
-        { text: '🐋 Large Trades', route: { to: 'big' } },
+        { text: '🐋 Large trades', route: { to: 'big' } },
       ],
       [
-        { text: '⚠️ Warning Levels', route: { to: 'warn-levels' } },
-        { text: '⚙️ Alert Settings', route: { to: 'alert-settings' } },
+        { text: '⚠️ Warning levels', route: { to: 'warn-levels' } },
+        { text: '⚙️ Alert settings', route: { to: 'alert-settings' } },
       ],
       [{ text: '← Back', route: { to: 'home' } }],
     ],
@@ -147,8 +146,8 @@ const statLines = (s: TraderStats): string[] => [
 export function watchlistScreen(stats: readonly TraderStats[]): Screen {
   if (stats.length === 0) {
     return {
-      html: '⭐ <b>WATCHLIST</b>\nEmpty. Star a wallet you watch (or a top trader) to follow it here with its PnL and ROI.',
-      buttons: [[{ text: '👛 Watched wallets', route: { to: 'wallets' } }, { text: '🏆 Top Traders', route: { to: 'top' } }], [BACK_TO_WATCH]],
+      html: '⭐ <b>WATCHLIST</b>\nEmpty. Star a wallet you watch to follow it here with its PnL and ROI.',
+      buttons: [[{ text: '👛 Watched wallets', route: { to: 'wallets' } }], [BACK_TO_WATCH]],
     };
   }
   const lines = ['⭐ <b>WATCHLIST</b>', ''];
@@ -156,98 +155,8 @@ export function watchlistScreen(stats: readonly TraderStats[]): Screen {
   lines.push('<i>Past results do not predict future returns.</i>');
   return {
     html: lines.join('\n'),
-    buttons: [...stats.map((s): Button[] => [{ text: `📊 #${s.accountId}`, route: { to: 'trader', accountId: s.accountId } }]), [BACK_TO_WATCH]],
+    buttons: [...stats.map((s): Button[] => [{ text: `👁 #${s.accountId}`, route: { to: 'wallet', accountId: s.accountId } }]), [BACK_TO_WATCH]],
   };
-}
-
-// ── top traders ─────────────────────────────────────────────────────────────
-
-export function topMenuScreen(): Screen {
-  return {
-    html: [
-      '🏆 <b>TOP TRADERS</b>',
-      '',
-      '💰 <b>Top PnL</b>: net PnL over the last 30 days, after fees and funding.',
-      '📈 <b>Top ROI</b>: ALL TIME, net PnL over everything deposited since Perpl launched. Both cover the same period, so the percentage means one thing.',
-      '',
-      '<i>Both leave out traders with fewer than 10 round trips; ROI also leaves out anyone who deposited under 100 AUSD. Past results do not predict future returns.</i>',
-    ].join('\n'),
-    buttons: [[{ text: '💰 Top PnL · 30D', route: { to: 'top-pnl' } }], [{ text: '📈 Top ROI · all time', route: { to: 'top-roi' } }], [BACK_TO_WATCH]],
-  };
-}
-
-export function topListScreen(kind: 'pnl' | 'roi', rows: readonly TraderRow[], windowLabel: string): Screen {
-  const title = kind === 'pnl' ? '💰 <b>TOP PnL — 30D</b>' : '📈 <b>TOP ROI — ALL TIME</b>';
-  if (rows.length === 0) return { html: `${title}\nNo trader clears the floor in this window.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] };
-  const lines = [title, `<i>${esc(windowLabel)}</i>`, ''];
-  rows.forEach((r, i) => {
-    lines.push(`${i + 1}. <b>#${r.accountId}</b> · ${kind === 'pnl' ? signedAusd(r.netPnlAusd) : roiPhrase(r)}`);
-    lines.push(`   ${kind === 'pnl' ? `${r.roundTrips} round trips` : `net ${signedAusd(r.netPnlAusd)} · ${r.roundTrips} round trips`}`);
-  });
-  lines.push('', '<i>Past results do not predict future returns.</i>');
-  const buttons: Button[][] = [];
-  for (let i = 0; i < rows.length; i += 3) buttons.push(rows.slice(i, i + 3).map((r, j) => ({ text: `${i + j + 1}. #${r.accountId}`, route: { to: 'trader', accountId: r.accountId } }) as Button));
-  buttons.push([{ text: '← Back', route: { to: 'top' } }]);
-  return { html: lines.join('\n'), buttons };
-}
-
-/** 👤 TRADER (spec 23): the figures, each with its window or denominator, and where to read more. */
-/** "3 h ago", "2 days ago". */
-const agoText = (ms: number): string => {
-  const m = Math.max(0, Math.round(ms / 60_000));
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h} h ago`;
-  return `${Math.round(h / 24)} days ago`;
-};
-
-/** Activity and the copy replay on the trader card: is this someone worth copying NOW. */
-export interface TraderCardExtras {
-  readonly activity?: { readonly lastOpenedAtMs: number | undefined; readonly opened24h: number; readonly opened7d: number } | undefined;
-  readonly nowMs?: number;
-  /** Each window's replay in a few words (`copySummary`), and the size they were replayed at. */
-  readonly copied?: { readonly d30: string; readonly d7: string; readonly size: string } | undefined;
-  /** A linked chat with Copy Trading available: it may start copying this trader. */
-  readonly canCopy?: boolean;
-}
-
-export function traderCardScreen(input: { readonly stats: TraderStats; readonly watching: boolean; readonly starred: boolean; readonly webUrl: string | undefined; readonly back: Route } & TraderCardExtras): Screen {
-  const s = input.stats;
-  const id = s.accountId;
-  const lines = [`👤 <b>TRADER #${id}</b>`];
-  const address = s.lifetime?.address ?? s.month?.address ?? '';
-  if (address !== '') lines.push(`<code>${esc(address)}</code>`);
-  lines.push('', ...statLines(s));
-  const month = s.month;
-  if (month !== undefined) {
-    lines.push(`Win rate (30D, before fees) ${winRatePhrase(month)}`);
-    lines.push(`Trades (30D) <b>${grouped(month.tradeCount)}</b>`);
-  }
-  const open = s.lifetime?.openPositionCount ?? s.month?.openPositionCount;
-  if (open !== undefined) lines.push(`Open positions now <b>${open}</b>`);
-  const act = input.activity;
-  if (act !== undefined) {
-    const now = input.nowMs ?? Date.now();
-    lines.push(
-      '',
-      act.lastOpenedAtMs === undefined
-        ? 'Activity: <b>never opened a position</b>'
-        : `Activity: last opened a position <b>${agoText(now - act.lastOpenedAtMs)}</b> · <b>${grouped(act.opened24h)}</b> opened in 24 h · <b>${grouped(act.opened7d)}</b> in 7 days`,
-    );
-    if (act.lastOpenedAtMs !== undefined && now - act.lastOpenedAtMs > 7 * 86_400_000) lines.push('⚠️ Nothing opened in over a week: copying would copy nothing.');
-  }
-  if (input.copied !== undefined) {
-    lines.push('', `🔁 If copied at ${input.copied.size}, after fees: 30D ${input.copied.d30} · 7D ${input.copied.d7}`);
-  }
-  lines.push('', '<i>Past results do not predict future returns.</i>');
-  const buttons: Button[][] = [];
-  if (input.webUrl !== undefined) buttons.push([{ text: '📊 Full analytics', url: `${input.webUrl.replace(/\/$/, '')}/traders/${id}` }]);
-  buttons.push([{ text: "🔁 What if I'd copied? · 30D", route: { to: 'copy-sim', accountId: id } }]);
-  if (input.canCopy === true) buttons.push([{ text: '🔁 Copy this trader', route: { to: 'copy-setup', accountId: id } }]);
-  if (!input.watching) buttons.push([{ text: '👁 Watch', route: { to: 'watch-id', accountId: id } }]);
-  else buttons.push([input.starred ? { text: '⭐ Remove from Watchlist', route: { to: 'unstar', accountId: id } } : { text: '⭐ Add to Watchlist', route: { to: 'star', accountId: id } }]);
-  buttons.push([{ text: '← Back', route: input.back }]);
-  return { html: lines.join('\n'), buttons };
 }
 
 // ── the feeds' thresholds ───────────────────────────────────────────────────

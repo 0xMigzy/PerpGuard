@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createBot, encodeNav, InMemoryAccountSettingsStore, InMemoryLinkStore, StaticSessionRouter, type LinkRecord, type Route } from '@perpguard/bot';
-import { CONFIGS, FakeBalance, FakeExecutor, FakeView, OWNER_CHAT, OWNER_ID, TEST_TOKEN, callbackUpdate, dangerAssessment, fakeBot, messageUpdate, newStore, type FakeTelegram } from '@perpguard/bot/test-support';
+import { CONFIGS, FakeBalance, FakeExecutor, FakeView, OWNER_CHAT, OWNER_ID, TEST_TOKEN, callbackUpdate, dangerAssessment, dangerScenario, fakeBot, messageUpdate, newStore, type FakeTelegram } from '@perpguard/bot/test-support';
 import { decodeCallback } from '@perpguard/bot';
 import { InMemoryAutomationStore } from './rescue/automation.ts';
 import { RescueControlService } from './rescue/control.ts';
@@ -38,6 +38,8 @@ function world() {
   // A: close to liquidation. B: same market, a different position, far from it.
   const viewA = new FakeView();
   viewA.assessments = [{ ...base, accountId: A.accountId, liqBufferPct: 0.025 } as RiskAssessment];
+  // A real loop behind A's position, so View position prices its amounts.
+  viewA.loop = dangerScenario().loop;
   const viewB = new FakeView();
   viewB.assessments = [{ ...base, accountId: B.accountId, positionId: 999_999, liqBufferPct: 0.15 } as RiskAssessment];
   const execA = new FakeExecutor();
@@ -94,20 +96,21 @@ test('POSITIONS AND RISK READINGS: each person sees only their own account', asy
   const w = world();
   await w.tap(A, { to: 'positions' });
   await w.tap(B, { to: 'positions' });
-  const a = lastIn(w.telegram, A.chatId);
-  const b = lastIn(w.telegram, B.chatId);
+  // The heading names the account; each position is a button with its distance.
+  const a = `${lastIn(w.telegram, A.chatId)}\n${buttonsIn(w.telegram, A.chatId).map((x) => x.text).join('\n')}`;
+  const b = `${lastIn(w.telegram, B.chatId)}\n${buttonsIn(w.telegram, B.chatId).map((x) => x.text).join('\n')}`;
   assert.match(a, /#710/);
-  assert.match(a, /2\.5% from liquidation/);
+  assert.match(a, /BTC long · 2\.5%/);
   assert.doesNotMatch(a, /15\.0%|#711/);
   assert.match(b, /#711/);
-  assert.match(b, /15\.0% from liquidation/);
+  assert.match(b, /BTC long · 15\.0%/);
   assert.doesNotMatch(b, /2\.5%|#710/);
 });
 
 test('ACTIONS: B cannot use a button issued to A; A\'s action runs on A\'s executor only', async () => {
   const w = world();
   await w.tap(A, { to: 'position', marketId: w.base.marketId });
-  const aButton = buttonsIn(w.telegram, A.chatId).find((x) => decodeCallback(x.callback_data).ok);
+  const aButton = buttonsIn(w.telegram, A.chatId).find((x) => x.text.startsWith('+100') && decodeCallback(x.callback_data).ok);
   assert.ok(aButton !== undefined, 'A was offered a top-up');
   // B replays A's exact payload from B's own chat.
   await w.bot.handleUpdate(callbackUpdate(aButton.callback_data, { from: B.telegramUserId, chat: B.chatId }));
@@ -138,7 +141,8 @@ test('RESCUE RULES: A\'s rule is A\'s; B\'s menu shows nothing of it and B\'s st
   assert.equal(w.rescueStore.enabledRules()[0]?.accountId, A.accountId);
 
   await w.tap(B, { to: 'rescue' });
-  assert.match(lastIn(w.telegram, B.chatId), /Account: <b>#711<\/b>[\s\S]*Auto top-up: ⚪ off everywhere/);
+  assert.match(lastIn(w.telegram, B.chatId), /🛟 <b>RESCUE<\/b>/);
+  assert.deepEqual(buttonsIn(w.telegram, B.chatId).map((x) => x.text), ['🔴 BTC long · 15.0% · off', '← Back'], "nothing of A's rule on B's menu");
   // B taps Stop on the SAME market id: it is B's account that is asked, and B has no rule there.
   await w.tap(B, { to: 'rescue-stop', marketId: w.base.marketId });
   assert.equal(w.rescueStore.enabledRules().length, 1, "A's rule is still on");

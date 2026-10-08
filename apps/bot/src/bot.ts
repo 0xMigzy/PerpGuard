@@ -16,14 +16,10 @@
  * watcher's alert carrying no keyboard is a rendering courtesy on top of a
  * refusal, not the refusal itself.
  */
-import type { ReplayResult } from '@perpguard/backend/copy/replay';
 import { makeResilient } from './resilience.ts';
-import { copyReplayScreen, copySummary, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
-import { copySetupScreen, copyStatusScreen, DEFAULT_KEEP_FREE_INDEX, KEEP_FREE_PRESETS_AUSD, type CopyLiveControl } from './copyLive.ts';
-import { ausdText } from '@perpguard/backend/copy/replay';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
-import type { ActingMarket, ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName, TraderRow } from '@perpguard/shared';
+import type { ActingMarket, ActionAvailability, IndexerHealth, MarketRiskConfig, NetworkName } from '@perpguard/shared';
 import {
   DEFAULT_ALERT_CONFIG,
   type AlertAction,
@@ -39,9 +35,6 @@ import { authorise } from './auth.ts';
 import {
   confirmScreen,
   disconnectAskScreen,
-  marginScreen,
-  marginPositionScreen,
-  addMarginScreen,
   blindLine,
   ADD_MARGIN_PRESETS_AUSD,
   outcomeScreen,
@@ -64,9 +57,6 @@ import {
   largeTradesScreen,
   liquidationsScreen,
   presetAt,
-  topListScreen,
-  topMenuScreen,
-  traderCardScreen,
   walletAddedScreen,
   walletsScreen,
   warningCustomAskScreen,
@@ -80,22 +70,17 @@ import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
 import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, type KillSwitchControl } from './killSwitch.ts';
 import {
-  CLOSE_ALL_CONFIRM_MS,
-  CLOSE_ALL_PHRASE,
-  closeAllConfirmText,
-  closeAllNothingScreen,
+  STOP_ALL_CONFIRM_MS,
   closeAllResultScreen,
   closeRetryScreen,
-  emergencyScreen,
-  isCloseAllConfirmation,
+  killScreen,
+  stopAllConfirmScreen,
+  stopAllExpiredScreen,
   type EmergencyControl,
-
 } from './emergency.ts';
 
 /** A request id for one close-everything (or one retry): random, used once. */
 const newRequestId = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-
-const shortWallet = (address: string | undefined): string | undefined => (address === undefined ? undefined : `${address.slice(0, 6)}…${address.slice(-4)}`);
 import {
   applyLimit,
   unitOf,
@@ -103,12 +88,12 @@ import {
   freshDraft,
   parseRescueAmount,
   RESCUE_AMOUNTS_AUSD,
+  RESCUE_DEFAULTS,
   RescueDraftStore,
   rescueAmountScreen,
-  rescueLimitScreen,
+  rescueLimitsScreen,
   rescueMenuScreen,
   rescuePositionScreen,
-  rescueReviewScreen,
   type RescueControl,
   type RescueDraft,
 } from './rescue.ts';
@@ -156,8 +141,6 @@ export interface BotDeps {
    * token. Owner's finding, 7 Oct 2026: a recorded session's taps left no trace.
    */
   readonly log?: (line: string) => void;
-  /** 🔁 Copy Trading, live (Half B). Absent: no copy buttons anywhere. */
-  readonly copyLive?: CopyLiveControl;
   readonly links: LinkStore;
   readonly store: PendingActionStore;
   /**
@@ -221,14 +204,9 @@ export interface BotDeps {
     readonly refresh?: () => Promise<unknown>;
     /** Each chat's own alert settings: feed thresholds, wallet alerts, warning levels. Defaults to in memory. */
     readonly preferences?: { get(chatId: number): AlertPreferences; set(chatId: number, preferences: AlertPreferences): Promise<void> };
-    /** Top Traders and one trader's figures, from the index. Absent: those screens say so. */
+    /** One account's figures from the index, for the Watchlist. Absent: the Watchlist says so. */
     readonly traders?: {
-      top(kind: 'pnl' | 'roi'): Promise<{ readonly rows: readonly TraderRow[]; readonly label: string }>;
       stats(accountId: number): Promise<TraderStats>;
-      /** 🔁 A leader's last 30 days replayed onto an account of this size. Read-only. Absent: the screen says so. */
-      /** How recently the trader opens positions. */
-      activity?(accountId: number): Promise<{ readonly lastOpenedAtMs: number | undefined; readonly opened24h: number; readonly opened7d: number }>;
-      copy?(accountId: number, followerEquityCNS: bigint, days?: 7 | 30): Promise<{ readonly computedAtMs: number; readonly result: ReplayResult | { readonly kind: 'unknown-account'; readonly accountId: number } }>;
     };
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
@@ -341,6 +319,8 @@ export function createBot(deps: BotDeps): Bot {
   }
   /** One pending retry per chat, person and market: minted when its confirm screen is shown, consumed by the tap. */
   const retryRequests = new Map<string, string>();
+  /** 🆘 Stop everything: the request each chat's cost screen confirms, minted when it was shown, run at most once. */
+  const stopAllRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
   const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
   /** Taps whose screen opens as a new message, leaving the tapped one as it is. */
@@ -371,17 +351,6 @@ export function createBot(deps: BotDeps): Bot {
       return { refusal: `Your linked account #${link.accountId} has no running session right now, so I cannot see or act on it. Try again in a moment.` };
     }
     return { link, account };
-  };
-
-  /** The follower's size for a copy replay: the linked account's equity (free floor plus position margin), else the default. */
-  const followerSize = (telegramUserId: number | undefined): { readonly equityCNS: bigint; readonly size: CopySize } => {
-    const fallback = { equityCNS: BigInt(DEFAULT_COPY_SIZE_AUSD) * 1_000_000n, size: { kind: 'default' } as const };
-    const resolved = resolveAccount(telegramUserId);
-    if ('refusal' in resolved) return fallback;
-    const free = resolved.account.balance.freeBalance();
-    if (!free.known) return fallback;
-    const margin = resolved.account.view.snapshot().reduce((sum, a) => sum + (a.marginCNS ?? 0n), 0n);
-    return { equityCNS: free.floorCNS + margin, size: { kind: 'linked', accountId: resolved.account.accountId, network: resolved.account.view.network } };
   };
 
   // ── the gate ──────────────────────────────────────────────────────────────
@@ -476,13 +445,11 @@ export function createBot(deps: BotDeps): Bot {
 
   /** The home screen's Automation line, from the rules as they are now. */
   const automationLine = (accountId: number): string | undefined => {
-    if (deps.killSwitch?.stopped(accountId) === true) return '🛑 STOPPED (kill switch)';
+    if (deps.killSwitch?.stopped(accountId) === true) return '🛑 Stopped';
     if (deps.rescue === undefined) return undefined;
-    if (deps.rescue.stopped(accountId)) return '🛑 STOPPED (kill switch)';
+    if (deps.rescue.stopped(accountId)) return '🛑 Stopped';
     const on = deps.rescue.rules(accountId).filter((r) => r.enabled && r.pausedReason === undefined);
-    if (on.length > 0) return `🛟 Rescue ON · ${on.map((r) => esc(r.symbol)).join(', ')}`;
-    const copying = deps.copyLive?.status(accountId).rule;
-    if (copying?.enabled === true) return `🔁 Copying #${copying.leaderAccountId}${copying.pausedReason === undefined ? '' : ' · ⏸ paused'}`;
+    if (on.length > 0) return `🟢 Rescue on ${on.map((r) => esc(r.symbol)).join(', ')}`;
     const other = deps.rescue.otherAutomation(accountId);
     return other === undefined ? undefined : esc(other);
   };
@@ -507,10 +474,8 @@ export function createBot(deps: BotDeps): Bot {
             },
       rescue: deps.rescue !== undefined && link !== undefined,
       killSwitch: deps.killSwitch !== undefined && link !== undefined,
-      copy: deps.copyLive !== undefined && link !== undefined,
       tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
-      webUrl: deps.webUrl,
     });
   };
 
@@ -527,12 +492,11 @@ export function createBot(deps: BotDeps): Bot {
       });
     }
     const session = deps.sessions.forAccount(link.accountId);
-    const status = deps.link?.status?.(link.userId);
     return accountScreen({
       accountId: link.accountId,
       network: session?.view.network ?? deps.tradingNetwork,
       execution: executionFor(link),
-      ownership: status === undefined ? { proof: 'owner', walletAddress: undefined } : { proof: status.proof, walletAddress: status.wallet?.address },
+      linkedAtMs: link.linkedAtMs,
     });
   };
 
@@ -788,29 +752,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.reply('I could not save that, so nothing changed. Try again in a moment.');
         return;
       }
-      await sendScreen(ctx, settingsScreen(verdict.link.accountId, settings.get(verdict.link.accountId)));
-      return;
-    }
-    if (question?.kind === 'close-all') {
-      // THE TYPED CONFIRMATION. Closed first, whatever was typed: one answer per question, so a
-      // second "CLOSE ALL" finds nothing open and sends nothing.
-      questions.close(chatId, telegramUserId);
-      const verdict = authorise(deps.links, telegramUserId, chatId);
-      if (!verdict.ok || deps.emergency === undefined) {
-        await ctx.reply(verdict.ok ? 'Close everything is not available here.' : verdict.text);
-        return;
-      }
-      if (!isCloseAllConfirmation(text)) {
-        await sendScreen(ctx, { html: `Not confirmed: that was not <b>${CLOSE_ALL_PHRASE}</b>. Nothing was closed and nothing was stopped.`, buttons: [[{ text: '🆘 Emergency', route: { to: 'kill' } }, { text: '🏠 Main Menu', route: { to: 'home' } }]] });
-        return;
-      }
-      if (now() - question.shownAtMs > CLOSE_ALL_CONFIRM_MS) {
-        await sendScreen(ctx, { html: 'That confirmation has expired: the list it confirmed is more than two minutes old and prices have moved. Nothing was closed. Open it again to see the current figures.', buttons: [[{ text: '🚪 Close everything', route: { to: 'close-all' } }, { text: '🏠 Main Menu', route: { to: 'home' } }]] });
-        return;
-      }
-      await ctx.reply('🛑 Stopping PerpGuard, then closing your positions one at a time. This takes a few seconds per position…');
-      const report = await deps.emergency.closeAll(verdict.link.accountId, question.requestId, `tg:${telegramUserId}`);
-      await sendScreen(ctx, badged(deps, closeAllResultScreen(report, deps.killSwitch?.stopped(verdict.link.accountId) ?? true)));
+      await sendScreen(ctx, settingsScreen(verdict.link.accountId, settings.get(verdict.link.accountId), deps.tradingNetwork));
       return;
     }
     if (question?.kind === 'rescue-amount') {
@@ -929,62 +871,6 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, await watchlist(chatId));
         return;
       }
-      case 'top':
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, topMenuScreen());
-        return;
-      case 'top-pnl':
-      case 'top-roi': {
-        if (!(await tapWithinLimit(ctx, chatId))) return;
-        await ctx.answerCallbackQuery();
-        const kind = route.to === 'top-pnl' ? 'pnl' : 'roi';
-        const top = await deps.watch?.traders?.top(kind).catch(() => undefined);
-        await showScreen(ctx, top === undefined ? { html: 'I cannot read the leaderboard right now. Try again in a minute.', buttons: [[{ text: '← Back', route: { to: 'top' } }]] } : topListScreen(kind, top.rows, top.label));
-        return;
-      }
-      case 'trader': {
-        if (!(await tapWithinLimit(ctx, chatId))) return;
-        await ctx.answerCallbackQuery();
-        const traders = deps.watch?.traders;
-        const { equityCNS } = followerSize(ctx.from?.id);
-        // The figures, how recently they open positions, and both replay windows, read together.
-        const [stats, activity, d30, d7] = await Promise.all([
-          traders?.stats(route.accountId).catch(() => undefined),
-          traders?.activity?.(route.accountId).catch(() => undefined),
-          traders?.copy?.(route.accountId, equityCNS, 30).catch(() => undefined),
-          traders?.copy?.(route.accountId, equityCNS, 7).catch(() => undefined),
-        ]);
-        const sub = deps.watch?.store.byChat(chatId).find((x) => x.accountId === route.accountId);
-        const copied = traders?.copy === undefined ? undefined : { d30: copySummary(d30?.result), d7: copySummary(d7?.result), size: ausdText(equityCNS, 'floor', 6) };
-        await showScreen(
-          ctx,
-          stats === undefined
-            ? { html: `I cannot read #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: { to: 'top' } }]] }
-            : traderCardScreen({ stats, activity, copied, canCopy: deps.copyLive !== undefined && linkHere(ctx.from?.id, chatId) !== undefined, watching: sub !== undefined, starred: sub?.starred === true, webUrl: deps.webUrl, back: sub?.starred === true ? { to: 'watchlist' } : { to: 'top' } }),
-        );
-        return;
-      }
-      case 'copy-sim':
-      case 'copy-sim7': {
-        if (!(await tapWithinLimit(ctx, chatId))) return;
-        await ctx.answerCallbackQuery();
-        const back: Route = { to: 'trader', accountId: route.accountId };
-        const copy = deps.watch?.traders?.copy;
-        if (copy === undefined) {
-          await showScreen(ctx, { html: 'The copy replay is not available here.', buttons: [[{ text: '← Back', route: back }]] });
-          return;
-        }
-        // Sized to the reader's OWN linked account when it can be read, else to a stated default.
-        const { equityCNS, size } = followerSize(ctx.from?.id);
-        const answer = await copy(route.accountId, equityCNS, route.to === 'copy-sim7' ? 7 : 30).catch(() => undefined);
-        await showScreen(
-          ctx,
-          answer === undefined
-            ? { html: `I cannot replay #${route.accountId} from the index right now. Try again in a minute.`, buttons: [[{ text: '← Back', route: back }]] }
-            : copyReplayScreen({ result: answer.result, size, webUrl: deps.webUrl, back, ageMs: Date.now() - answer.computedAtMs }),
-        );
-        return;
-      }
       case 'liq':
         await ctx.answerCallbackQuery();
         await showScreen(ctx, liquidationsScreen(prefsOf(chatId).liquidationMinAusd));
@@ -1082,7 +968,8 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         await showScreen(ctx, tradingAccount(chatId, telegramUserId));
         return;
-      case 'connect-go': {
+      case 'connect-go':
+      case 'connect-key': {
         // A linked chat may open the connect page too, to fix its authorization (a rotated key, a key for
         // another account, an account on another network); one whose execution is fine has no reason to.
         const linked = linkHere(telegramUserId, chatId);
@@ -1104,7 +991,10 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         const { identity } = identities.register(telegramUserId, chatId, now());
         const minted = deps.link.mint(identity.userId, telegramNameOf(ctx));
-        await showScreen(ctx, connectGoScreen(minted.url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000))));
+        const via = route.to === 'connect-key' ? 'key' : 'wallet';
+        // The page opens on the key form for 🔑, on the wallet for 🔗. The code is the proof of the chat; neither is proof of the account.
+        const url = via === 'key' ? `${minted.url}${minted.url.includes('?') ? '&' : '?'}via=key` : minted.url;
+        await showScreen(ctx, connectGoScreen(url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000)), via));
         return;
       }
       case 'dismiss':
@@ -1116,21 +1006,13 @@ export function createBot(deps: BotDeps): Bot {
           // An old or deleted message: nothing to take the buttons off.
         }
         return;
-      case 'copy-setup':
-      case 'copy-keep':
-      case 'copy-start':
-      case 'copy-status':
-      case 'copy-stop':
-      case 'copy-resume':
-      case 'copy-keep-set':
-        await copyNav(ctx, route);
-        return;
       case 'kill':
       case 'kill-confirm':
       case 'kill-stop':
       case 'kill-resume-ask':
       case 'kill-resume':
-      case 'close-all':
+      case 'stop-all':
+      case 'stop-all-go':
       case 'close-retry':
       case 'close-retry-go':
         await killNav(ctx, route);
@@ -1162,27 +1044,16 @@ export function createBot(deps: BotDeps): Bot {
       encodeCallback({ kind, token: deps.store.put({ userId: link.userId, telegramUserId, action }).token, marketId: action.marketId, amountCNS: action.amountCNS });
 
     switch (route.to) {
-      case 'margin':
+      case 'positions':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, marginScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+        await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
         return;
-      case 'margin-pos': {
-        const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
-        if (assessment === undefined) {
-          await answer(ctx, 'That position is not open any more.');
-          await showScreen(ctx, marginScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
-          return;
-        }
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, marginPositionScreen({ assessment, market: deps.configs.get(route.marketId), free: account.balance.freeBalance(), blind: blindLine(view.feedStatus(), view.positionsStatus()) }));
-        return;
-      }
-      case 'margin-add': {
+      case 'position': {
         const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
         const market = deps.configs.get(route.marketId);
-        if (assessment === undefined || market === undefined || isBlind(assessment.state) || blindLine(view.feedStatus(), view.positionsStatus()) !== undefined) {
-          // NOTHING TO PRICE AGAINST: no amounts are offered on a position it cannot see.
-          await answer(ctx, assessment === undefined ? 'That position is not open any more.' : 'I cannot price that position right now, so I will not offer amounts for it.');
+        if (assessment === undefined || market === undefined) {
+          await answer(ctx, assessment === undefined ? "That position isn't open any more." : "I have no market details for that position, so I can't price it.");
+          await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
           return;
         }
         await ctx.answerCallbackQuery();
@@ -1191,33 +1062,18 @@ export function createBot(deps: BotDeps): Bot {
         const availability = await availabilityFor(account, assessment, [probe]);
         const kind: 'act' | 'blocked' = availability?.actionable === true ? 'act' : 'blocked';
         const unit = 10n ** BigInt(market.collateralDecimals);
-        const presets = ADD_MARGIN_PRESETS_AUSD.map((ausd) => {
-          // Each amount priced by the engine NOW, so the confirmation's after-figures are this position's, not a guess.
-          const projected = view.projectAddMargin(assessment.marketId, BigInt(ausd) * unit);
-          if (!projected.ok) return { ausd, reason: projected.reason };
-          const action = customAction(projected.projection, market, assessment.positionId, alerts.bufferDecimals, assessment.liqBufferPct);
-          return { ausd, data: mint(action, kind) };
-        });
+        const canPrice = !isBlind(assessment.state) && blindLine(view.feedStatus(), view.positionsStatus()) === undefined;
+        // Each amount priced by the engine NOW, so its button shows the distance it buys and the confirmation's after-figures are this position's.
+        const presets = !canPrice
+          ? []
+          : ADD_MARGIN_PRESETS_AUSD.map((ausd) => {
+              const projected = view.projectAddMargin(assessment.marketId, BigInt(ausd) * unit);
+              if (!projected.ok) return { ausd, reason: projected.reason };
+              const action = customAction(projected.projection, market, assessment.positionId, alerts.bufferDecimals, assessment.liqBufferPct);
+              return { ausd, data: mint(action, kind), resultingBufferPct: action.resultingBufferPct };
+            });
         const custom: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }), amountCNS: 0n, label: 'Custom amount' };
-        await showScreen(ctx, addMarginScreen({ assessment, market, free: account.balance.freeBalance(), presets, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
-        return;
-      }
-      case 'positions':
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
-        return;
-      case 'position': {
-        const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
-        const market = deps.configs.get(route.marketId);
-        if (assessment === undefined || market === undefined) {
-          await answer(ctx, assessment === undefined ? 'That position is not open any more.' : 'I have no market details for that position, so I cannot price it.');
-          await showScreen(ctx, positionsScreen({ accountId: account.accountId, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
-          return;
-        }
-        await ctx.answerCallbackQuery();
-        const topUps = buildMessage(assessment, kindFor(assessment.state), { alerts, market, snapshot: true }).actions;
-        const availability = await availabilityFor(account, assessment, [{ type: 'close-position' } as AlertAction]);
-        await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, topUps, button: mint, bufferDecimals: alerts.bufferDecimals }));
+        await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, presets, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
         return;
       }
       case 'rescue':
@@ -1225,8 +1081,7 @@ export function createBot(deps: BotDeps): Bot {
       case 'rescue-cfg':
       case 'rescue-amt':
       case 'rescue-amt-custom':
-      case 'rescue-review':
-      case 'rescue-limit':
+      case 'rescue-limits':
       case 'rescue-lim':
       case 'rescue-on':
       case 'rescue-on-next':
@@ -1236,7 +1091,7 @@ export function createBot(deps: BotDeps): Bot {
         return;
       case 'settings':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
+        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId), view.network ?? deps.tradingNetwork));
         return;
       case 'warn-ask':
         await ctx.answerCallbackQuery();
@@ -1253,7 +1108,7 @@ export function createBot(deps: BotDeps): Bot {
           return;
         }
         await ctx.answerCallbackQuery({ text: `Saved: alerts at ${distanceLabel(pctChosen)}.` });
-        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId)));
+        await showScreen(ctx, settingsScreen(account.accountId, settings.get(account.accountId), view.network ?? deps.tradingNetwork));
         return;
       }
       case 'alert-custom': {
@@ -1274,7 +1129,8 @@ export function createBot(deps: BotDeps): Bot {
         const result = deps.link !== undefined ? await deps.link.unlink(link.userId) : { ok: deps.links.unlink(telegramUserId), text: `Disconnected from account #${account.accountId}.` };
         const chatId = ctx.chat?.id ?? link.chatId;
         const after = home(chatId, telegramUserId);
-        await showScreen(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
+        // Home for a chat that is no longer connected: no account, so no network badge.
+        await showScreenRaw(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
         return;
       }
       default:
@@ -1286,177 +1142,68 @@ export function createBot(deps: BotDeps): Bot {
   // Resolved from the chat's LINK, never its session: stopping must work when
   // the trading account is down or its key needs re-linking (spec 54). The
   // gate has already refused every unlinked chat (these routes are not public).
-  /** Setup drafts: which trader this chat is about to copy, and the free balance it keeps. */
-  const copyDrafts = new Map<number, { readonly leaderAccountId: number; readonly keepFreeCNS: bigint }>();
-
-  // ── 🔁 copy trading: LINKED ONLY, the link resolved at tap time ─────────────
-  async function copyNav(ctx: Context, route: Route): Promise<void> {
-    // THE NETWORK ON EVERY ACTION SCREEN.
-    const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
-    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
-    const telegramUserId = ctx.from?.id;
-    const chatId = ctx.chat?.id;
-    const link = linkHere(telegramUserId, chatId);
-    const control = deps.copyLive;
-    if (link === undefined || control === undefined || telegramUserId === undefined || chatId === undefined) {
-      await answer(ctx, control === undefined ? 'Copy Trading is not available here.' : REFUSAL_TEXT);
-      return;
-    }
-    const accountId = link.accountId;
-    const arm = { telegramUserId, chatId };
-    const keepOf = (level: number): bigint | undefined => {
-      const a = KEEP_FREE_PRESETS_AUSD[level];
-      return a === undefined ? undefined : BigInt(a) * 1_000_000n;
-    };
-    const setup = async (leaderAccountId: number, keepFreeCNS: bigint): Promise<Screen> => {
-      const traders = deps.watch?.traders;
-      const { equityCNS } = followerSize(telegramUserId);
-      const [d30, d7, activity] = await Promise.all([
-        traders?.copy?.(leaderAccountId, equityCNS, 30).catch(() => undefined),
-        traders?.copy?.(leaderAccountId, equityCNS, 7).catch(() => undefined),
-        traders?.activity?.(leaderAccountId).catch(() => undefined),
-      ]);
-      const r = d30?.result;
-      const verified =
-        r === undefined
-          ? undefined
-          : r.kind === 'unknown-account'
-            ? { ok: false, text: `The index has no account #${leaderAccountId}.` }
-            : r.kind === 'too-busy'
-              ? { ok: false, text: `#${leaderAccountId} opens positions at a bot's pace (${r.openedInWindow.toLocaleString('en-US')} in 30 days): too fast to copy.` }
-              : r.kind === 'replayed' && !r.books.reconciled
-                ? { ok: false, text: "PerpGuard won't copy a trader whose books it can't verify against the chain." }
-                : { ok: true, text: '' };
-      const now = Date.now();
-      const activityLine =
-        activity === undefined
-          ? undefined
-          : activity.lastOpenedAtMs === undefined
-            ? 'Activity: never opened a position.'
-            : `Activity: last opened a position ${Math.round((now - activity.lastOpenedAtMs) / 3_600_000)} h ago · ${activity.opened24h} in 24 h · ${activity.opened7d} in 7 days${now - activity.lastOpenedAtMs > 7 * 86_400_000 ? ' · ⚠️ nothing in over a week: copying would copy nothing' : ''}`;
-      const copiedLine = traders?.copy === undefined ? undefined : `What copying would have done, after fees: 30D ${copySummary(d30?.result)} · 7D ${copySummary(d7?.result)}`;
-      const current = control.status(accountId).rule;
-      return copySetupScreen({
-        leaderAccountId,
-        network: deps.tradingNetwork ?? 'testnet',
-        keepFreeCNS,
-        verified,
-        activityLine,
-        copiedLine,
-        copyingOther: current?.enabled === true && current.leaderAccountId !== leaderAccountId ? current.leaderAccountId : undefined,
-        stopped: deps.killSwitch?.stopped(accountId) === true,
-      });
-    };
-    switch (route.to) {
-      case 'copy-setup': {
-        const keep = copyDrafts.get(chatId)?.keepFreeCNS ?? BigInt(KEEP_FREE_PRESETS_AUSD[DEFAULT_KEEP_FREE_INDEX]) * 1_000_000n;
-        copyDrafts.set(chatId, { leaderAccountId: route.accountId, keepFreeCNS: keep });
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, await setup(route.accountId, keep));
-        return;
-      }
-      case 'copy-keep': {
-        const draft = copyDrafts.get(chatId);
-        const keep = keepOf(route.level);
-        if (draft === undefined || keep === undefined) return answer(ctx, 'That setup has expired. Open the trader again.');
-        copyDrafts.set(chatId, { ...draft, keepFreeCNS: keep });
-        await ctx.answerCallbackQuery({ text: 'Set.' });
-        await showScreen(ctx, await setup(draft.leaderAccountId, keep));
-        return;
-      }
-      case 'copy-start': {
-        const draft = copyDrafts.get(chatId);
-        if (draft === undefined) return answer(ctx, 'That setup has expired. Open the trader again.');
-        const result = await control.start(accountId, draft.leaderAccountId, draft.keepFreeCNS, arm);
-        if (!result.ok) return answer(ctx, result.text);
-        copyDrafts.delete(chatId);
-        await ctx.answerCallbackQuery({ text: 'Copying.' });
-        const s = control.status(accountId);
-        await showScreen(ctx, (() => { const screen = copyStatusScreen(s); return { ...screen, html: `${esc(result.text)}\n\n${screen.html}` }; })());
-        return;
-      }
-      case 'copy-status':
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, copyStatusScreen(control.status(accountId)));
-        return;
-      case 'copy-stop': {
-        const result = await control.stop(accountId);
-        await ctx.answerCallbackQuery({ text: 'Copying stopped.' });
-        const screen = copyStatusScreen(control.status(accountId));
-        // A NEW message: the record that copying stopped, and what it left open.
-        await sendScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
-        return;
-      }
-      case 'copy-resume': {
-        const result = await control.resume(accountId, arm);
-        if (!result.ok) return answer(ctx, result.text);
-        await ctx.answerCallbackQuery({ text: 'Resumed.' });
-        const screen = copyStatusScreen(control.status(accountId));
-        await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
-        return;
-      }
-      case 'copy-keep-set': {
-        const keep = keepOf(route.level);
-        if (keep === undefined) return answer(ctx, 'I do not know that amount.');
-        const result = await control.setKeepFree(accountId, keep, arm);
-        if (!result.ok) return answer(ctx, result.text);
-        await ctx.answerCallbackQuery({ text: 'Set.' });
-        await showScreen(ctx, copyStatusScreen(control.status(accountId)));
-        return;
-      }
-      default:
-        await answer(ctx, 'That screen is not available.');
-    }
-  }
-
   async function killNav(ctx: Context, route: Route): Promise<void> {
-    // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
+    // THE NETWORK, SAID ONCE, on every action screen.
     const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
     const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
     const telegramUserId = ctx.from?.id;
     const chatId = ctx.chat?.id;
     const link = linkHere(telegramUserId, chatId);
     const control = deps.killSwitch;
-    if (link === undefined || control === undefined || telegramUserId === undefined) {
-      await answer(ctx, control === undefined ? 'The kill switch is not available here.' : REFUSAL_TEXT);
+    if (link === undefined || control === undefined || telegramUserId === undefined || chatId === undefined) {
+      await answer(ctx, control === undefined ? "The kill switch isn't available here." : REFUSAL_TEXT);
       return;
     }
     const accountId = link.accountId;
     const rescueOn = (deps.rescue?.rules(accountId) ?? []).filter((r) => r.enabled && r.pausedReason === undefined).map((r) => r.symbol);
     const by = `tg:${telegramUserId}`;
+    const who = `${chatId}:${telegramUserId}`;
     switch (route.to) {
       case 'kill':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, emergencyScreen({ accountId, stopped: control.stopped(accountId), changedAtMs: control.changedAtMs(accountId), rescueOn, canClose: deps.emergency !== undefined }));
+        await showScreen(ctx, killScreen({ stopped: control.stopped(accountId), changedAtMs: control.changedAtMs(accountId), canClose: deps.emergency !== undefined }));
         return;
-      case 'close-all': {
+      case 'stop-all': {
         const emergency = deps.emergency;
-        if (emergency === undefined || chatId === undefined) return answer(ctx, 'Close everything is not available here.');
+        if (emergency === undefined) return answer(ctx, "Stop everything isn't available here.");
         const positions = emergency.preview(accountId);
+        // The request this cost screen confirms: minted NOW, run at most once.
+        if (positions !== undefined && positions.length > 0) stopAllRequests.set(who, { requestId: newRequestId(), shownAtMs: now() });
         await ctx.answerCallbackQuery();
-        if (positions === undefined || positions.length === 0) {
-          await showScreen(ctx, closeAllNothingScreen(positions === undefined ? 'cannot-see' : 'already-flat'));
+        await showScreen(ctx, stopAllConfirmScreen(positions));
+        return;
+      }
+      case 'stop-all-go': {
+        const emergency = deps.emergency;
+        const pending = stopAllRequests.get(who);
+        if (emergency === undefined || pending === undefined) return answer(ctx, 'That was already sent, or has expired. Nothing new was sent.');
+        // Taken first: a second tap finds nothing and sends nothing.
+        stopAllRequests.delete(who);
+        if (now() - pending.shownAtMs > STOP_ALL_CONFIRM_MS) {
+          await ctx.answerCallbackQuery();
+          await showScreen(ctx, stopAllExpiredScreen());
           return;
         }
-        // The request this confirmation is for: minted NOW, run at most once.
-        amounts.delete(telegramUserId);
-        questions.ask(chatId, telegramUserId, { kind: 'close-all', requestId: newRequestId(), shownAtMs: now() });
-        await ctx.reply(withBadge(closeAllConfirmText(positions), deps.tradingNetwork), { parse_mode: 'HTML', reply_markup: { force_reply: true, input_field_placeholder: CLOSE_ALL_PHRASE } });
+        await ctx.answerCallbackQuery({ text: 'Stopping…' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+        await ctx.reply(withBadge('🛑 Stopping automation, then closing your positions one at a time. This takes a few seconds per position…', deps.tradingNetwork));
+        const report = await emergency.closeAll(accountId, pending.requestId, by);
+        await sendScreen(ctx, closeAllResultScreen(report, control.stopped(accountId)));
         return;
       }
       case 'close-retry': {
         const emergency = deps.emergency;
-        if (emergency === undefined || chatId === undefined) return answer(ctx, 'Close everything is not available here.');
+        if (emergency === undefined) return answer(ctx, "Closing isn't available here.");
         const p = emergency.preview(accountId)?.find((x) => x.marketId === route.marketId);
-        if (p === undefined) return answer(ctx, 'That position is not open any more, or I cannot see it right now. Nothing was sent.');
-        retryRequests.set(`${chatId}:${telegramUserId}:${route.marketId}`, newRequestId());
+        if (p === undefined) return answer(ctx, "That position isn't open any more, or I can't see it right now. Nothing was sent.");
+        retryRequests.set(`${who}:${route.marketId}`, newRequestId());
         await ctx.answerCallbackQuery();
         await showScreen(ctx, closeRetryScreen(p));
         return;
       }
       case 'close-retry-go': {
         const emergency = deps.emergency;
-        const key = `${chatId}:${telegramUserId}:${route.marketId}`;
+        const key = `${who}:${route.marketId}`;
         const requestId = retryRequests.get(key);
         if (emergency === undefined || requestId === undefined) return answer(ctx, 'That close was already sent, or has expired. Nothing new was sent.');
         retryRequests.delete(key);
@@ -1467,7 +1214,7 @@ export function createBot(deps: BotDeps): Bot {
       }
       case 'kill-confirm':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, killConfirmScreen({ accountId, wallet: shortWallet(deps.link?.status?.(link.userId)?.wallet?.address), rescueOn }));
+        await showScreen(ctx, killConfirmScreen({ rescueOn }));
         return;
       case 'kill-stop': {
         await ctx.answerCallbackQuery({ text: 'Stopping…' });
@@ -1481,93 +1228,103 @@ export function createBot(deps: BotDeps): Bot {
         return;
       case 'kill-resume': {
         const result = await control.resume(accountId, by);
-        await ctx.answerCallbackQuery({ text: result.wasStopped ? 'Automation resumed.' : 'It was not stopped.' });
+        await ctx.answerCallbackQuery({ text: result.wasStopped ? 'Automation resumed.' : "It wasn't stopped." });
         await showScreen(ctx, killResumedScreen(result.wasStopped));
         return;
       }
       default:
-        await answer(ctx, 'That screen is not available.');
+        await answer(ctx, "That screen isn't available.");
     }
   }
 
-  // ── 🛟 Liquidation Rescue (spec 38-42) ──────────────────────────────────
-  // A draft per chat and person collects trigger, amount and limits; ENABLE
-  // hands it to the backend, which re-validates everything against the live
-  // position. Stop is one tap: it is the safe direction.
-  function rescueMenu(account: AccountView, link: LinkRecord): Screen {
+  // ── 🛟 Rescue ───────────────────────────────────────────────────────────
+  // A draft per chat and person holds the rule being put together; the
+  // position screen shows it as one sentence. Turning on hands it to the
+  // backend, which re-validates everything against the live position and
+  // signs it with the tap. Turning off is one tap: it is the safe direction.
+  function rescueMenu(account: AccountView): Screen {
     const control = deps.rescue!;
     return rescueMenuScreen({
       accountId: account.accountId,
-      execution: executionFor(link),
+      network: account.view.network ?? deps.tradingNetwork,
       assessments: account.view.snapshot(),
       rules: control.rules(account.accountId),
       stopped: control.stopped(account.accountId),
       otherAutomation: control.otherAutomation(account.accountId),
-      alertPct: settings.get(account.accountId).alertPct,
     });
   }
 
-  function rescuePosition(account: AccountView, marketId: number, viewer: number): Screen | undefined {
-    const a = account.view.snapshot().find((x) => x.marketId === marketId);
-    if (a === undefined) return undefined;
-    const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === marketId && r.positionId === a.positionId);
-    return rescuePositionScreen({ assessment: a, market: deps.configs.get(marketId), rule, alertPct: settings.get(account.accountId).alertPct, viewerTelegramUserId: viewer });
+  /** The draft for this position: the one being edited, else a fresh one from the rule or the defaults, acting at the alert distance. */
+  function draftFor(account: AccountView, a: RiskAssessment, chatId: number, telegramUserId: number): RescueDraft | undefined {
+    const market = deps.configs.get(a.marketId);
+    if (market === undefined || a.positionId === undefined) return undefined;
+    const triggerPct = settings.get(account.accountId).alertPct / 100;
+    const held = drafts.get(chatId, telegramUserId);
+    if (held !== undefined && held.marketId === a.marketId && held.positionId === a.positionId) return { ...held, triggerPct };
+    const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
+    const fresh = { ...freshDraft(a, rule, market.collateralDecimals), triggerPct, amountCNS: rule?.amountCNS ?? RESCUE_DEFAULTS.amountAusd * unitOf(market.collateralDecimals) };
+    drafts.set(chatId, telegramUserId, fresh);
+    return fresh;
   }
 
-  function rescueReview(account: AccountView, draft: RescueDraft): Screen | undefined {
-    const a = account.view.snapshot().find((x) => x.marketId === draft.marketId && x.positionId === draft.positionId);
+  function rescuePosition(account: AccountView, marketId: number, chatId: number, viewer: number): Screen | undefined {
+    const a = account.view.snapshot().find((x) => x.marketId === marketId);
     if (a === undefined) return undefined;
+    const draft = draftFor(account, a, chatId, viewer);
+    if (draft === undefined) return undefined;
+    const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === marketId && r.positionId === a.positionId);
     const free = account.balance.freeBalance();
-    return rescueReviewScreen(a, draft, { stopped: deps.rescue!.stopped(account.accountId), free: free.known ? free.floorCNS : undefined });
+    return rescuePositionScreen({ assessment: a, market: deps.configs.get(marketId), rule, draft, viewerTelegramUserId: viewer, stopped: deps.rescue!.stopped(account.accountId), free: free.known ? free.floorCNS : undefined });
   }
 
   async function rescueNav(ctx: Context, route: Route, account: AccountView, link: LinkRecord): Promise<void> {
-    // THE NETWORK ON EVERY ACTION SCREEN: every screen this handler shows carries the acting network's badge.
+    // THE NETWORK, SAID ONCE, on every action screen.
     const showScreen = (c: Context, screen: Screen): Promise<void> => showScreenRaw(c, badged(deps, screen));
-    const sendScreen = (c: Context, screen: Screen): Promise<void> => sendScreenRaw(c, badged(deps, screen));
     const chatId = ctx.chat?.id;
     const telegramUserId = ctx.from?.id;
     if (chatId === undefined || telegramUserId === undefined) return;
     const control = deps.rescue;
     if (control === undefined) {
-      await answer(ctx, 'Rescue is not available here.');
+      await answer(ctx, "Rescue isn't available here.");
       return;
     }
     const draft = drafts.get(chatId, telegramUserId);
     const gone = async (): Promise<void> => {
       drafts.delete(chatId, telegramUserId);
-      await answer(ctx, 'That position is not open any more.');
-      await showScreen(ctx, rescueMenu(account, link));
+      await answer(ctx, "That position isn't open any more.");
+      await showScreen(ctx, rescueMenu(account));
     };
     const needDraft = async (): Promise<RescueDraft | undefined> => {
       if (draft !== undefined) return draft;
-      await answer(ctx, 'That rule was not finished in time. Start again from the position.');
-      await showScreen(ctx, rescueMenu(account, link));
+      await answer(ctx, 'That took too long. Open the position again.');
+      await showScreen(ctx, rescueMenu(account));
       return undefined;
     };
+    const backToPosition = async (d: RescueDraft, toast?: string): Promise<void> => {
+      const screen = rescuePosition(account, d.marketId, chatId, telegramUserId);
+      if (screen === undefined) return gone();
+      await ctx.answerCallbackQuery(toast === undefined ? undefined : { text: toast });
+      await showScreen(ctx, screen);
+    };
+    const positionOf = (d: RescueDraft): RiskAssessment | undefined => account.view.snapshot().find((x) => x.marketId === d.marketId && x.positionId === d.positionId);
     switch (route.to) {
       case 'rescue':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, rescueMenu(account, link));
+        await showScreen(ctx, rescueMenu(account));
         return;
       case 'rescue-pos': {
-        const screen = rescuePosition(account, route.marketId, telegramUserId);
+        const screen = rescuePosition(account, route.marketId, chatId, telegramUserId);
         if (screen === undefined) return gone();
         await ctx.answerCallbackQuery();
         await showScreen(ctx, screen);
         return;
       }
       case 'rescue-cfg': {
+        // Change amount.
         const a = account.view.snapshot().find((x) => x.marketId === route.marketId);
-        if (a === undefined || a.positionId === undefined) return gone();
-        const rule = control.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
-        const market = deps.configs.get(a.marketId);
-        if (market === undefined) return answer(ctx, 'I have no market details for that position, so I cannot set amounts for it.');
-        // ONE NUMBER: Auto acts at the alert distance, so there is no trigger to pick.
-        const draft = { ...freshDraft(a, rule, market.collateralDecimals), triggerPct: settings.get(account.accountId).alertPct / 100 };
-        drafts.set(chatId, telegramUserId, draft);
+        if (a === undefined || draftFor(account, a, chatId, telegramUserId) === undefined) return gone();
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, rescueAmountScreen(a, draft));
+        await showScreen(ctx, rescueAmountScreen(a));
         return;
       }
       case 'rescue-amt-custom': {
@@ -1575,7 +1332,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         amounts.delete(telegramUserId);
         questions.ask(chatId, telegramUserId, { kind: 'rescue-amount' });
-        await ctx.reply('How much margin each time? Send an amount in AUSD, like 25 or 150.', {
+        await ctx.reply('How much each time? Send an amount in AUSD, like 25 or 150.', {
           reply_markup: { force_reply: true, input_field_placeholder: '150' },
         });
         return;
@@ -1584,43 +1341,31 @@ export function createBot(deps: BotDeps): Bot {
         const d = await needDraft();
         if (d === undefined) return;
         const n = RESCUE_AMOUNTS_AUSD[route.level];
-        if (n === undefined) return answer(ctx, 'I do not know that amount.');
+        if (n === undefined) return answer(ctx, "I don't know that amount.");
         const next = { ...d, amountCNS: BigInt(n) * unitOf(d.collateralDecimals) };
         drafts.set(chatId, telegramUserId, next);
-        const screen = rescueReview(account, next);
-        if (screen === undefined) return gone();
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, screen);
+        await backToPosition(next);
         return;
       }
-      case 'rescue-review': {
+      case 'rescue-limits': {
         const d = await needDraft();
         if (d === undefined) return;
-        const screen = rescueReview(account, d);
-        if (screen === undefined) return gone();
+        const a = positionOf(d);
+        if (a === undefined) return gone();
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, screen);
-        return;
-      }
-      case 'rescue-limit': {
-        const d = await needDraft();
-        if (d === undefined) return;
-        const screen = rescueLimitScreen(route.level, d);
-        if (screen === undefined) return answer(ctx, 'I do not know that limit.');
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, screen);
+        await showScreen(ctx, rescueLimitsScreen(a, d));
         return;
       }
       case 'rescue-lim': {
         const d = await needDraft();
         if (d === undefined) return;
         const next = applyLimit(d, route.level);
-        if (next === undefined) return answer(ctx, 'I do not know that setting.');
+        if (next === undefined) return answer(ctx, "I don't know that setting.");
         drafts.set(chatId, telegramUserId, next);
-        const screen = rescueReview(account, next);
-        if (screen === undefined) return gone();
+        const a = positionOf(next);
+        if (a === undefined) return gone();
         await ctx.answerCallbackQuery({ text: 'Set.' });
-        await showScreen(ctx, screen);
+        await showScreen(ctx, rescueLimitsScreen(a, next));
         return;
       }
       case 'rescue-on':
@@ -1628,7 +1373,7 @@ export function createBot(deps: BotDeps): Bot {
         const d = await needDraft();
         if (d === undefined) return;
         if (executionFor(link).dot !== '🟢') {
-          await answer(ctx, 'Execution is not authorized on this account, so Rescue could not act. Open the Trading Account to fix it first.');
+          await answer(ctx, "Execution isn't authorized on this account, so Rescue couldn't act. Fix it under 🔐 Trading account first.");
           return;
         }
         const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) }, { telegramUserId, chatId }, { fromNextCrossing: route.to === 'rescue-on-next' });
@@ -1638,7 +1383,7 @@ export function createBot(deps: BotDeps): Bot {
         }
         drafts.delete(chatId, telegramUserId);
         await ctx.answerCallbackQuery({ text: 'Rescue is on.' });
-        const screen = rescuePosition(account, d.marketId, telegramUserId) ?? rescueMenu(account, link);
+        const screen = rescuePosition(account, d.marketId, chatId, telegramUserId) ?? rescueMenu(account);
         await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
         return;
       }
@@ -1646,12 +1391,12 @@ export function createBot(deps: BotDeps): Bot {
       case 'rescue-resume': {
         const result = route.to === 'rescue-stop' ? await control.disable(account.accountId, route.marketId) : await control.resume(account.accountId, route.marketId, { telegramUserId, chatId });
         await ctx.answerCallbackQuery({ text: result.text.slice(0, 190) });
-        const screen = rescuePosition(account, route.marketId, telegramUserId) ?? rescueMenu(account, link);
+        const screen = rescuePosition(account, route.marketId, chatId, telegramUserId) ?? rescueMenu(account);
         await showScreen(ctx, { ...screen, html: `${esc(result.text)}\n\n${screen.html}` });
         return;
       }
       default:
-        await answer(ctx, 'That screen is not available.');
+        await answer(ctx, "That screen isn't available.");
     }
   }
 
@@ -1693,8 +1438,8 @@ export function createBot(deps: BotDeps): Bot {
     const next = { ...draft, amountCNS: parsed.amountCNS };
     drafts.set(chatId, telegramUserId, next);
     questions.close(chatId, telegramUserId);
-    const screen = rescueReview(resolved.account, next);
-    if (screen !== undefined) await sendScreen(ctx, screen);
+    const screen = rescuePosition(resolved.account, next.marketId, chatId, telegramUserId);
+    if (screen !== undefined) await sendScreen(ctx, badged(deps, screen));
   }
 
   // ── button taps ───────────────────────────────────────────────────────────
@@ -1758,7 +1503,7 @@ export function createBot(deps: BotDeps): Bot {
       // Deleted, not just hidden: its Send button can never fire now.
       deps.store.delete(payload.token);
       await ctx.answerCallbackQuery({ text: 'Cancelled. Nothing was sent.' });
-      await showScreen(ctx, { html: 'Cancelled. Nothing was sent.', buttons: [[{ text: '📊 My Positions', route: { to: 'positions' } }, { text: '← Home', route: { to: 'home' } }]] });
+      await showScreen(ctx, { html: 'Cancelled. Nothing was sent.', buttons: [[{ text: '📊 My positions', route: { to: 'positions' } }, { text: '🏠 Menu', route: { to: 'home' } }]] });
       return;
     }
 
@@ -2053,7 +1798,7 @@ async function runConfirmed(
   // a request the venue would happily accept and report on.
   if (action.type === 'add-margin' && action.amountCNS <= 0n) {
     await ctx.reply(
-      'That button has no amount on it, so there is nothing to send. Tap Add custom amount and ' +
+      'That button has no amount on it, so there is nothing to send. Tap 🎛 Custom amount and ' +
         'reply with a figure, or open My positions.',
     );
     return;

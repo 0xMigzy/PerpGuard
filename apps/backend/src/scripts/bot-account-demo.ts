@@ -92,7 +92,7 @@ const rec = new ChatRecorder(bot, OWNER);
 await rec.send('/start');
 rec.frame('1. The owner presses Start: connected, with the account on the home screen');
 
-await rec.tap('📊 My Positions');
+await rec.tap('📊 My positions');
 rec.frame('2. My positions');
 
 const position = rec.labels().find((l) => / · /.test(l) && !l.startsWith('⚙'));
@@ -100,45 +100,27 @@ if (position === undefined) throw new Error('no open position on the account; op
 await rec.tap(position);
 rec.frame('3. Position detail: actions live');
 
-await rec.tap('Add custom amount');
-rec.frame('4. Add custom amount: asked with force_reply');
+await rec.tap('🎛 Custom amount');
+rec.frame('4. Custom amount: asked with force_reply');
 await rec.send('0.01');
 rec.frame('5. The answer is heard: the confirmation, the second tap');
 const t0 = Date.now();
 await rec.tap('✅ Confirm');
 rec.frame(`6. The outcome, reconciled against the position (${Math.round((Date.now() - t0) / 1000)}s)`);
 
-await rec.tap('📊 My Positions');
-await rec.tap('← Back');
+await rec.tap('🏠 Menu');
 await rec.tap('⚙️ Settings');
-rec.frame('7. Settings: each button shows what it is set to');
-await rec.tap(rec.labels().find((l) => l.startsWith('⚠️ Warn me at'))!);
-rec.frame('8. Warn me at: three choices');
-await rec.tap(rec.labels().find((l) => l.startsWith('Early'))!);
-rec.frame(`9. Saved: the loop now warns at ${(session.loop.thresholds.watchEnterPct * 100).toFixed(0)}%`);
-await settings.set(accountId, { ...settings.get(accountId), warnLevel: 'normal' });
+rec.frame('7. Settings: the alert distance');
+const before = settings.get(accountId);
+await rec.tap(rec.labels().find((l) => l.startsWith('🔔 Alert me at'))!);
+rec.frame('8. Alert me at: the presets');
+await rec.tap('8%');
+rec.frame('9. Saved');
+await settings.set(accountId, before);
 
 await rec.tap('← Back');
-await rec.tap('← Back');
-await rec.tap('📊 My Positions');
-const again = rec.labels().find((l) => / · /.test(l) && !l.startsWith('⚙'))!;
-await rec.tap(again);
-if (rec.labels().includes('Reduce 25%')) {
-  await rec.tap('Reduce 25%');
-  rec.frame('10. Reduce 25%: the confirmation says the closing price does not move');
-  const t1 = Date.now();
-  await rec.tap('✅ Confirm');
-  rec.frame(`11. Reduced, reconciled against the position (${Math.round((Date.now() - t1) / 1000)}s)`);
-  await rec.tap('📊 My Positions');
-} else {
-  say('  (position too small to reduce by a quarter; skipped)');
-  await rec.tap('← Back');
-}
-
-// The close-all kill switch is retired (6 Oct 2026); it returns in Phase 20 as "stop automation".
-await rec.tap('← Back');
-await rec.tap('🔐 Trading Account');
-rec.frame('12. Trading Account: the account, its network, and whether it can execute');
+await rec.tap('🔐 Trading account');
+rec.frame('10. Trading account: the account, its execution state, when it was connected');
 
 if (OUT !== undefined) {
   writeFileSync(OUT, JSON.stringify({ capturedAt: new Date().toISOString(), accountId, frames: rec.frames }, null, 2));

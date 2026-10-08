@@ -29,22 +29,7 @@ export type Route =
   /** ⭐ Put a watched wallet on, or take it off, the Watchlist. */
   | { readonly to: 'star'; readonly accountId: number }
   | { readonly to: 'unstar'; readonly accountId: number }
-  /** 🏆 Top Traders: Top PnL (30 days) and Top ROI (all time), and one trader's card. */
-  | { readonly to: 'top' }
-  | { readonly to: 'top-pnl' }
-  | { readonly to: 'top-roi' }
-  | { readonly to: 'trader'; readonly accountId: number }
-  /** 🔁 What if I'd copied this trader for 30 days? A replay from the index; sends nothing. */
-  | { readonly to: 'copy-sim'; readonly accountId: number }
-  | { readonly to: 'copy-sim7'; readonly accountId: number }
   /** 🔁 Copy Trading, live (Half B). LINKED ONLY: each resolves the chat's link at tap time. */
-  | { readonly to: 'copy-setup'; readonly accountId: number }
-  | { readonly to: 'copy-keep'; readonly level: number }
-  | { readonly to: 'copy-start' }
-  | { readonly to: 'copy-status' }
-  | { readonly to: 'copy-stop' }
-  | { readonly to: 'copy-resume' }
-  | { readonly to: 'copy-keep-set'; readonly level: number }
   /** 💥 / 🐋 The feeds' thresholds: `level` is the preset's index, or OFF_LEVEL. */
   | { readonly to: 'liq' }
   | { readonly to: 'liq-set'; readonly level: number }
@@ -63,14 +48,11 @@ export type Route =
   | { readonly to: 'account' }
   /** Kept so a "Connect my account" button already sitting in a chat still opens; shows the Trading Account. */
   | { readonly to: 'connect' }
+  /** 🔗 Connect wallet / 🔑 Enter API key: both mint the one-time code and open the HTTPS page. */
   | { readonly to: 'connect-go' }
+  | { readonly to: 'connect-key' }
   // ── linked: resolved against the chat's link at tap time ──
   | { readonly to: 'positions' }
-  /** 💰 Margin: the positions, framed for adding margin. Each still goes through the position screen's confirm. */
-  | { readonly to: 'margin' }
-  /** 💰 One position's margin (spec 33), and its Add Margin amounts (spec 34). Linked only. */
-  | { readonly to: 'margin-pos'; readonly marketId: number }
-  | { readonly to: 'margin-add'; readonly marketId: number }
   | { readonly to: 'position'; readonly marketId: number }
   /** 🛟 Liquidation Rescue (spec 38-42). Linked only; the rule is re-validated server-side on enable. */
   | { readonly to: 'rescue' }
@@ -78,8 +60,8 @@ export type Route =
   | { readonly to: 'rescue-cfg'; readonly marketId: number }
   | { readonly to: 'rescue-amt'; readonly level: number }
   | { readonly to: 'rescue-amt-custom' }
-  | { readonly to: 'rescue-review' }
-  | { readonly to: 'rescue-limit'; readonly level: number }
+  /** 🛟 All four limits on one screen; each option is `rescue-lim`. */
+  | { readonly to: 'rescue-limits' }
   | { readonly to: 'rescue-lim'; readonly level: number }
   | { readonly to: 'rescue-on' }
   /** Turn Auto on for a position already inside the line, acting only from the next crossing. */
@@ -87,17 +69,18 @@ export type Route =
   | { readonly to: 'rescue-stop'; readonly marketId: number }
   | { readonly to: 'rescue-resume'; readonly marketId: number }
   /**
-   * 🔴 Kill Switch (Phase 20, spec 56-57): stop automation, leave positions
-   * open. NEW codes: the retired close-all's `kq`/`kx` stay dead forever, so an
-   * old button can never be read as the new meaning.
+   * 🆘 Kill switch (owner, 8 Oct 2026): Stop everything (stop, then close all)
+   * is the main action; `kill-confirm`/`kill-stop` are "Stop automation only",
+   * which works with the exchange unreachable. Retired codes: `RETIRED_CODES`.
    */
   | { readonly to: 'kill' }
   | { readonly to: 'kill-confirm' }
   | { readonly to: 'kill-stop' }
   | { readonly to: 'kill-resume-ask' }
   | { readonly to: 'kill-resume' }
-  /** 🚪 Close everything (owner, 7 Oct 2026): the list, then a TYPED "CLOSE ALL". Retry is per position. */
-  | { readonly to: 'close-all' }
+  /** 🆘 Stop everything: the cost, then a tap. Its request id is minted when the cost is shown. */
+  | { readonly to: 'stop-all' }
+  | { readonly to: 'stop-all-go' }
   | { readonly to: 'close-retry'; readonly marketId: number }
   | { readonly to: 'close-retry-go'; readonly marketId: number }
   | { readonly to: 'settings' }
@@ -109,13 +92,25 @@ export type Route =
   | { readonly to: 'dismiss' }
   | { readonly to: 'disconnect-ask' }
   | { readonly to: 'disconnect' };
-// The close-all kill switch ('kq', 'kx') is RETIRED (6 Oct 2026): Close All is
-// cut and the kill switch returns in Phase 20 as "stop automation". Its codes
-// decode to nothing, so an old button in a chat fires nothing; see `isNavShaped`.
-// So do 'rt' and 'rtc' (7 Oct 2026): the trigger picker was retired when Auto
-// began acting at the account's alert distance, and its screen was never shown.
 
 type RouteName = Route['to'];
+
+/**
+ * CODES THAT ONCE MEANT SOMETHING, NEVER REUSED: an old button in a chat must
+ * decode to nothing, never to a new meaning. `nav.test.ts` checks no live code
+ * is in this list.
+ *   kq kx        the close-all kill switch (6 Oct 2026)
+ *   rt rtc       the Rescue trigger picker (7 Oct 2026)
+ *   tt tp tr tc  Top Traders and the trader card (8 Oct 2026: off the bot)
+ *   cs cs7 cpu cpk cpg cps cpx cpr cpf  Copy Trading (8 Oct 2026: off the bot)
+ *   mg mp ma     the Margin screens (8 Oct 2026: folded into View position)
+ *   rr rl        the Rescue review and per-limit screens (8 Oct 2026: one screen)
+ *   xa           Close everything with a typed CLOSE ALL (8 Oct 2026: Stop everything)
+ */
+export const RETIRED_CODES: ReadonlySet<string> = new Set(['kq', 'kx', 'rt', 'rtc', 'tt', 'tp', 'tr', 'tc', 'cs', 'cs7', 'cpu', 'cpk', 'cpg', 'cps', 'cpx', 'cpr', 'cpf', 'mg', 'mp', 'ma', 'rr', 'rl', 'xa']);
+
+/** Every live code, for the test that keeps them clear of the retired ones. */
+export const liveCodes = (): readonly string[] => Object.values(CODE);
 
 /** The codes on the wire. Short, because Telegram allows 64 bytes in all. */
 const CODE: Readonly<Record<RouteName, string>> = {
@@ -127,19 +122,6 @@ const CODE: Readonly<Record<RouteName, string>> = {
   wallets: 'ws',
   star: 'st',
   unstar: 'us',
-  top: 'tt',
-  'top-pnl': 'tp',
-  'top-roi': 'tr',
-  trader: 'tc',
-  'copy-sim': 'cs',
-  'copy-sim7': 'cs7',
-  'copy-setup': 'cpu',
-  'copy-keep': 'cpk',
-  'copy-start': 'cpg',
-  'copy-status': 'cps',
-  'copy-stop': 'cpx',
-  'copy-resume': 'cpr',
-  'copy-keep-set': 'cpf',
   liq: 'lq',
   'liq-set': 'lqs',
   big: 'lt',
@@ -154,18 +136,15 @@ const CODE: Readonly<Record<RouteName, string>> = {
   account: 'ta',
   connect: 'c',
   'connect-go': 'cg',
+  'connect-key': 'ck',
   positions: 'p',
-  margin: 'mg',
-  'margin-pos': 'mp',
-  'margin-add': 'ma',
   position: 'pd',
   rescue: 'r',
   'rescue-pos': 'rp',
   'rescue-cfg': 'rc',
   'rescue-amt': 'ra',
   'rescue-amt-custom': 'rac',
-  'rescue-review': 'rr',
-  'rescue-limit': 'rl',
+  'rescue-limits': 'rls',
   'rescue-lim': 'rlv',
   'rescue-on': 'ro',
   'rescue-on-next': 'ron',
@@ -176,7 +155,8 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'kill-stop': 'ksx',
   'kill-resume-ask': 'ksr',
   'kill-resume': 'ksv',
-  'close-all': 'xa',
+  'stop-all': 'ke',
+  'stop-all-go': 'keg',
   'close-retry': 'xr',
   'close-retry-go': 'xg',
   settings: 's',
@@ -194,25 +174,16 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   wallet: 'accountId',
   star: 'accountId',
   unstar: 'accountId',
-  trader: 'accountId',
-  'copy-sim': 'accountId',
-  'copy-sim7': 'accountId',
-  'copy-setup': 'accountId',
-  'copy-keep': 'level',
-  'copy-keep-set': 'level',
   'liq-set': 'level',
   'big-set': 'level',
   'warn-preset': 'level',
   unwatch: 'accountId',
   'watch-id': 'accountId',
   position: 'marketId',
-  'margin-pos': 'marketId',
-  'margin-add': 'marketId',
   'warn-set': 'level',
   'rescue-pos': 'marketId',
   'rescue-cfg': 'marketId',
   'rescue-amt': 'level',
-  'rescue-limit': 'level',
   'rescue-lim': 'level',
   'rescue-stop': 'marketId',
   'rescue-resume': 'marketId',
@@ -228,9 +199,9 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
  * account, a position or money.
  */
 const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>([
-  'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go',
+  'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go', 'connect-key',
   // Phase 8: read the index, or change this chat's OWN alert settings. Nothing touches an account.
-  'wallets', 'star', 'unstar', 'top', 'top-pnl', 'top-roi', 'trader', 'copy-sim', 'copy-sim7', 'liq', 'liq-set', 'big', 'big-set',
+  'wallets', 'star', 'unstar', 'liq', 'liq-set', 'big', 'big-set',
   'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
 ]);
 

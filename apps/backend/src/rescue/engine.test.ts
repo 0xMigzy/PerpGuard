@@ -157,9 +157,7 @@ test('THE LIVE-FIRE SHAPE: 25 AUSD at a 4% trigger, sr 32, one send, applied off
   const n = r.notices.at(-1)!;
   assert.equal(n.kind, 'rescued');
   const html = renderRescue(n, 6).html;
-  assert.match(html, /POSITION RESCUED/);
-  assert.match(html, /Margin: <b>122 AUSD<\/b> → <b>147 AUSD<\/b>/);
-  assert.match(html, /Rescues: 1 \/ 2/);
+  assert.match(html, /^🛟 <b>Added 25 AUSD to BTC<\/b>\n[\d.]+% → 5\.0% from liquidation\n1 of your 2 top-ups used\./);
   assert.match(html, /The margin applied — I checked the position itself, not the receipt\./);
   assert.doesNotMatch(html, /failed|rejection/i);
 });
@@ -240,14 +238,8 @@ test('THE HANDOVER: limits spent and still falling says it once, with every figu
   const handovers = r.notices.filter((n) => n.kind === 'exhausted');
   assert.equal(handovers.length, 1, 'said once');
   const html = renderRescue(handovers[0]!, 6).html;
-  assert.match(html, /OVER TO YOU/);
-  assert.match(html, /Rescues used: 1 \/ 1/);
-  assert.match(html, /Total added: <b>25 AUSD<\/b> of a <b>200 AUSD<\/b> cap/);
-  assert.match(html, /2\.0% from being closed/);
-  assert.match(html, /PerpGuard has stopped adding margin/);
-  assert.match(html, /Add margin yourself/);
-  assert.match(html, /Reduce the position/);
-  assert.match(html, /Close it/);
+  // The owner's wording (8 Oct 2026): used, still falling, what was added, where it is now, what is left to do.
+  assert.equal(html, '🛟 <b>Your one top-up is used, BTC is still falling</b>\n25 AUSD added. Now 2.0% from liquidation.\nPerpGuard has stopped adding margin.\nYou can add more yourself, or close it.');
   assert.doesNotMatch(html, /fail/i);
   assert.equal(r.store.rule(rule.id)?.lastNotice, 'exhausted');
 });

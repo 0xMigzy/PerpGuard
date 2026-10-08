@@ -179,7 +179,8 @@ export class FakeExecutor implements ActionExecutor {
  * disagree and still pass.
  */
 export class FakeView implements RiskView {
-  network = 'mainnet' as const;
+  // The network trading runs on: a linked session is a testnet one.
+  network = 'testnet' as const;
   assessments: readonly RiskAssessment[] = [];
   feed: ReturnType<RiskView['feedStatus']> = { state: 'connected', reconnectAttempt: 0 };
   positions: ReturnType<RiskView['positionsStatus']> = {

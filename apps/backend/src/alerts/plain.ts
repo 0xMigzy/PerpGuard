@@ -88,6 +88,13 @@ export function distance(buffer: number | undefined): string {
   return `${pct(buffer)} from being closed`;
 }
 
+/** `2.7% from liquidation`, or `past liquidation`. Signed buffer in, never a negative percentage out. */
+export function fromLiquidation(buffer: number | undefined): string {
+  if (buffer === undefined) return 'no liquidation price';
+  if (buffer < 0) return 'past liquidation';
+  return `${pct(buffer)} from liquidation`;
+}
+
 /** The short form used in lists: `5.1%`, or `past closing price`. */
 export function shortDistance(buffer: number | undefined): string {
   if (buffer === undefined) return '—';
@@ -145,23 +152,23 @@ export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 
  * missing buttons mean, and why: watching is mainnet and read-only, and
  * PerpGuard's actions run on testnet only.
  */
-export const NO_BUTTONS = "No buttons. You are watching this account, not holding it: PerpGuard's actions run on testnet only, and this is a mainnet account.";
+export const NO_BUTTONS = 'Watching only — nothing here to press.';
 
 /**
- * THE NETWORK ON EVERY ACTION SCREEN (owner, 7 Oct 2026): add margin,
- * confirm, outcome, Auto, Emergency, and the messages about them, so nobody
- * ever takes a testnet top-up for a real one. Undefined network: no badge.
+ * THE NETWORK, SAID ONCE (owner, 8 Oct 2026; was a 🧪 TESTNET banner): every
+ * action screen and message names the acting network, and a screen that
+ * already names it is left alone. Undefined network: no badge.
  */
 export function actingBadge(network: string | undefined): string | undefined {
-  if (network === 'testnet') return '🧪 <b>TESTNET</b> · test funds, not real money';
+  if (network === 'testnet') return 'testnet';
   if (network === 'mainnet') return '⚠️ <b>MAINNET</b> · real funds';
   return undefined;
 }
 
-/** A screen's HTML with the network badge on its first line. Idempotent. */
+/** A screen's HTML with the network on its first line, unless the screen already names it. Idempotent. */
 export function withBadge(html: string, network: string | undefined): string {
   const badge = actingBadge(network);
-  if (badge === undefined || html.startsWith(badge)) return html;
+  if (badge === undefined || network === undefined || html.includes(network)) return html;
   return `${badge}\n${html}`;
 }
 
@@ -220,7 +227,7 @@ export function watchedPositionLines(assessment: RiskAssessment, market: MarketR
  *   MON is 2.3980. At 2.3510 the exchange closes this position
  *   and they lose the 1,940 AUSD behind it.
  *   They hold 2,910 AUSD free — enough to survive, if they move it.
- *   No buttons. You are watching this account, not holding it.
+ *   Watching only — nothing here to press.
  */
 export function renderWatchAlertHtml(assessment: RiskAssessment, kind: AlertKind, market: MarketRiskConfig): string {
   const scope = assessment.watch;

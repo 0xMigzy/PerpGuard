@@ -56,7 +56,8 @@ export interface RenderedRescue {
 
 const name = (r: RescueRule): string => esc(r.symbol);
 const minutes = (ms: number): string => `${Math.round(ms / 60_000)} minute${Math.round(ms / 60_000) === 1 ? '' : 's'}`;
-const used = (r: RescueRule): string => `${r.rescueCount} / ${r.maxRescues}`;
+/** `2.7%`, or `past` for a negative buffer: never a negative percentage. */
+const short = (buffer: number | undefined): string => (buffer === undefined ? '—' : buffer < 0 ? 'past' : `${(buffer * 100).toFixed(1)}%`);
 
 /**
  * `collateralDecimals` comes from the venue's own context (the collateral
@@ -67,28 +68,23 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
   const heldMoney = (cns: bigint): string => heldIn(cns, collateralDecimals);
   switch (n.kind) {
     case 'rescued': {
+      // OWNER'S WORDING (8 Oct 2026): what was added, the distance it bought, the limit used.
       const lines = [
-        '🛟 <b>POSITION RESCUED</b>',
-        '',
-        `<b>${name(n.rule)}</b>`,
-        '',
-        `Trigger: ${distance(n.triggerDistancePct)}`,
-        `Margin added: ${money(n.appliedCNS, 'floor')}`,
-        `Margin: ${money(n.marginBeforeCNS, 'floor')} → ${money(n.marginAfterCNS, 'floor')}`,
+        `🛟 <b>Added ${money(n.appliedCNS, 'floor').replace(/<\/?b>/g, '')} to ${name(n.rule)}</b>`,
         n.distanceAfterPct === undefined
-          ? 'New distance: not re-measured yet. My Positions shows it.'
-          : `New distance: <b>${distance(n.distanceAfterPct)}</b>`,
-        `Rescues: ${used(n.rule)}`,
+          ? `${short(n.triggerDistancePct)} from liquidation before; My positions shows where it is now.`
+          : `${short(n.triggerDistancePct)} → ${short(n.distanceAfterPct)} from liquidation`,
+        `${n.rule.rescueCount} of your ${n.rule.maxRescues} top-up${n.rule.maxRescues === 1 ? '' : 's'} used.`,
       ];
       if (n.receiptDisagreed) {
         lines.push(
           '',
           "The exchange's own report disagreed with what actually happened.",
           'The margin applied — I checked the position itself, not the receipt.',
-          'Do not add it again by hand.',
+          '<b>Do not add it again by hand.</b>',
         );
       }
-      return { html: lines.join('\n'), buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🔴 Stop Rescue', route: 'rescue-stop' }] };
+      return { html: lines.join('\n'), buttons: [{ text: '📊 View position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }] };
     }
     case 'not-applied':
       return {
@@ -101,7 +97,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           'Nothing was added, so nothing can have been added twice.',
           `Rescue tries again after the ${minutes(n.cooldownMs)} cooldown if the position is still at its trigger.`,
         ].join('\n'),
-        buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🔴 Stop Rescue', route: 'rescue-stop' }],
+        buttons: [{ text: '📊 View position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }],
       };
     case 'paused':
       return {
@@ -116,7 +112,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           '',
           `<i>${esc(n.detail)}</i>`,
         ].join('\n'),
-        buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
     case 'paused-refused':
       return {
@@ -130,29 +126,22 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           '',
           `<i>${esc(n.detail)}</i>`,
         ].join('\n'),
-        buttons: [{ text: '📊 View Position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
-    case 'exhausted':
+    case 'exhausted': {
+      // THE HANDOVER, in the owner's words (8 Oct 2026): not a failure, the limits did their job.
+      const max = n.rule.maxRescues;
+      const spent = max === 1 ? 'Your one top-up is used' : max === 2 ? 'Both top-ups used' : `All ${max} top-ups used`;
       return {
         html: [
-          `🛟 <b>RESCUE LIMITS REACHED — OVER TO YOU</b>`,
-          '',
-          `<b>${name(n.rule)}</b> is <b>${distance(n.assessment.liqBufferPct)}</b> and still falling.`,
-          '',
-          `Rescues used: ${used(n.rule)}`,
-          `Total added: ${money(n.rule.totalRescuedCNS, 'floor')} of a ${money(n.rule.maxTotalCNS, 'floor')} cap`,
-          '',
-          `The limits you set have done their job, so PerpGuard has stopped adding margin to this position (${esc(n.why)}).`,
-          '',
-          'What you can still do:',
-          '• Add margin yourself',
-          '• Reduce the position (the closing price does not move: margin is released in proportion)',
-          '• Close it',
-          '',
-          'Rescue is now off for this position. A new rule, with new limits, is one tap away under 🛟 Rescue.',
+          `🛟 <b>${spent}, ${name(n.rule)} is still falling</b>`,
+          `${money(n.rule.totalRescuedCNS, 'floor').replace(/<\/?b>/g, '')} added. Now ${short(n.assessment.liqBufferPct)} from liquidation.`,
+          'PerpGuard has stopped adding margin.',
+          'You can add more yourself, or close it.',
         ].join('\n'),
-        buttons: [{ text: '📊 Open the position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
+    }
     case 'held':
       return {
         html: [
@@ -165,7 +154,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           `Nothing was sent: ${esc(n.detail)}.`,
           HOLD_NEXT[n.reason](n.rule, heldMoney),
         ].join('\n'),
-        buttons: [{ text: '📊 View Position', route: 'position' }],
+        buttons: [{ text: '📊 View position', route: 'position' }],
       };
     case 'ended':
       return {

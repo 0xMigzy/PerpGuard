@@ -20,7 +20,7 @@ test('a chat may watch up to the cap, and the same account twice is one subscrip
   assert.equal(store.add(sub(1, 11)).ok, true);
   const third = store.add(sub(1, 12));
   assert.ok(!third.ok && third.refusal === 'chat-at-capacity');
-  assert.match(third.text, /already watches 2 accounts/);
+  assert.match(third.text, /You're watching 2 wallets, the most I can watch for one chat/);
   assert.deepEqual(store.byChat(1).map((s) => s.accountId), [10, 11]);
 });
 

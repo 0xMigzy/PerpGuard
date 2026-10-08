@@ -105,16 +105,14 @@ test('ONE MESSAGE PER ACCOUNT: two positions blind is one message naming both, a
   await r.emit(dark(eth, 'FEED_DOWN'));
   await r.advance(50_000);
   assert.deepEqual(r.kinds(), ['feed-down']);
-  assert.match(r.texts()[0]!, /CANNOT SEE · #710/);
-  assert.match(r.texts()[0]!, /2 positions/);
-  assert.match(r.texts()[0]!, /BTC long, ETH short/);
+  assert.match(r.texts()[0]!, /lost sight of your positions/);
+  assert.match(r.texts()[0]!, /Nothing automatic will run until I can see again/);
 
   await r.emit(back(btc, 'FEED_DOWN'));
   assert.deepEqual(r.kinds(), ['feed-down'], 'one of two back: still blind, nothing said');
   await r.emit(back(eth, 'FEED_DOWN'));
   assert.deepEqual(r.kinds(), ['feed-down', 'recovered']);
-  assert.match(r.texts()[1]!, /CAN SEE AGAIN · #710/);
-  assert.match(r.texts()[1]!, /BTC long, ETH short/);
+  assert.match(r.texts()[1]!, /I can see your positions again/);
 });
 
 test('ONE STATE: FEED_DOWN <-> POSITIONS_UNTRUSTED is never a message, and does not restart the minute', async () => {
@@ -164,9 +162,10 @@ test('TWO ACCOUNTS ARE TWO SPELLS: one message each, cleared independently', asy
   await r.emit(dark(btc, 'FEED_DOWN', 'DANGER', 710));
   await r.emit(dark(btc, 'FEED_DOWN', 'DANGER', 24));
   await r.advance(60_000);
-  assert.deepEqual(r.texts().map((t) => t.split('\n')[0]), ['CANNOT SEE · #710', 'CANNOT SEE · #24']);
+  const accounts = () => r.inner.sent.map((s) => `${s.message.kind} #${s.message.accountId}`);
+  assert.deepEqual(accounts(), ['feed-down #710', 'feed-down #24']);
   await r.emit(back(btc, 'FEED_DOWN', 24));
-  assert.deepEqual(r.texts().map((t) => t.split('\n')[0]).slice(2), ['CAN SEE AGAIN · #24']);
+  assert.deepEqual(accounts().slice(2), ['recovered #24']);
 });
 
 test('NOTHING IN THE FIRST 60 SECONDS AFTER A RESTART: boot blindness that clears in time is silent', async () => {

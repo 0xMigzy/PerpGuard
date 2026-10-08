@@ -59,7 +59,7 @@ export interface InMemoryWatchStoreOptions {
   readonly seed?: readonly WatchSubscription[];
 }
 
-export const DEFAULT_MAX_PER_CHAT = 20;
+export const DEFAULT_MAX_PER_CHAT = 10;
 export const DEFAULT_MAX_ACCOUNTS = 300;
 
 export class InMemoryWatchStore implements WatchStore {
@@ -81,7 +81,7 @@ export class InMemoryWatchStore implements WatchStore {
       return {
         ok: false,
         refusal: 'chat-at-capacity',
-        text: `This chat already watches ${this.maxPerChat} accounts, which is the limit. Stop watching one from Watched wallets first.`,
+        text: `You're watching ${this.maxPerChat} wallets, the most I can watch for one chat. Stop watching one first.`,
       };
     }
     // A new DISTINCT account counts against the bot-wide cap; following one

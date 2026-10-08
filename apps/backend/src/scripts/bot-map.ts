@@ -31,10 +31,8 @@ import { replacedByManualAlert } from '../manual/replaced.ts';
 import { DEFAULT_ALERT_CONFIG, type AlertKind } from '../alerts/types.ts';
 import { renderLargeTrade, renderLiquidation, renderPositionChange, renderWarning } from '../events/render.ts';
 import { renderRescue, type RescueNotice } from '../rescue/render.ts';
+import { watchInsteadText } from '../watch/insteadText.ts';
 import type { RescueRule } from '../rescue/store.ts';
-import { renderCopy } from '../copy/live/render.ts';
-import type { CopyNotice } from '../copy/live/engine.ts';
-import type { CopyLeg, CopyRule } from '../copy/live/store.ts';
 import { CHANGES, STRANGER_CHAT, build, type Keyboard } from './botWorld.ts';
 
 const { values } = parseArgs({ options: { out: { type: 'string', default: '/root/perpguard-bot-map.md' } } });
@@ -79,7 +77,7 @@ for (const d of SOURCE_DIRS) walkDir(join(ROOT, d));
 
 const unescape = (s: string): string => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 const plain = (html: string): string => unescape(html.replace(/<\/?(b|i|code|a[^>]*)>/g, ''));
-const BADGE = /^🧪 TESTNET · test funds, not real money$/;
+const BADGE = /^testnet$/;
 
 /** The longest stretch of literal words in `text`, split where figures and names vary. */
 function fragments(text: string): string[] {
@@ -162,7 +160,7 @@ function placeholders(t: string): string {
 const shown = (html: string): string => placeholders(unescape(html.replace(/<b>/g, '**').replace(/<\/b>/g, '**').replace(/<\/?i>/g, '_').replace(/<\/?code>/g, '`').replace(/<a [^>]*>|<\/a>/g, '')));
 
 // ── tiers and groups ─────────────────────────────────────────────────────────
-const EVERYONE = new Set(['home', 'account', 'connect', 'connect-go']);
+const EVERYONE = new Set(['home', 'account', 'connect', 'connect-go', 'connect-key']);
 function tierOfRoute(name: string): Tier {
   if (EVERYONE.has(name)) return 'everyone';
   if (isPublicRoute({ to: name } as Route)) return 'watch-only';
@@ -170,19 +168,17 @@ function tierOfRoute(name: string): Tier {
 }
 const GROUP_OF: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(home|\/start|\/help|chatter|dismiss)$/, '1. Start, home and help'],
-  [/^(account|connect|connect-go|disconnect-ask|disconnect|\/link)$/, '2. Linking and the Trading Account'],
+  [/^(account|connect|connect-go|connect-key|disconnect-ask|disconnect|\/link)$/, '2. Linking and the Trading account'],
   [/^(watch-menu|watch-ask|watch-ask answer|watch-id|watchlist|wallets|wallet|star|unstar|unwatch|liq|liq-set|big|big-set|warn-levels|warn-preset|warn-custom|alert-settings|wallet-alerts|\/watch.*|pasted .*|bare number)$/, '3. Watch & Alerts (watch tier)'],
-  [/^(top|top-pnl|top-roi|trader|copy-sim|copy-sim7)$/, '4. Top Traders and "What if I\'d copied?"'],
-  [/^(positions|margin|margin-pos|margin-add|position|action:.*|typed amount.*)$/, '5. My Positions and Margin (add, reduce, close)'],
-  [/^(rescue.*)$/, '6. Rescue: Alert and Auto top-up'],
-  [/^(settings|warn-ask|warn-set|alert-custom|typed alert distance.*)$/, '7. Settings'],
-  [/^(copy-setup|copy-keep|copy-start|copy-status|copy-stop|copy-resume|copy-keep-set)$/, '8. Copy Trading (live)'],
-  [/^(kill.*|close-.*|typed close all.*)$/, '9. Emergency: Stop PerpGuard and Close everything'],
-  [/^pushed:/, '10. Messages PerpGuard sends on its own'],
+  [/^(positions|position|action:.*|typed amount.*)$/, '4. My positions and adding margin'],
+  [/^(rescue.*)$/, '5. Rescue'],
+  [/^(settings|warn-ask|warn-set|alert-custom|typed alert distance.*)$/, '6. Settings'],
+  [/^(kill.*|stop-all.*|close-.*)$/, '7. Kill switch'],
+  [/^pushed:/, '8. Messages PerpGuard sends on its own'],
 ];
 const groupOf = (name: string): string => {
   const bare = name.replace(/ \((question|toast only|refused|not confirmed)\)$/, '');
-  return GROUP_OF.find(([re]) => re.test(bare))?.[1] ?? '11. Other';
+  return GROUP_OF.find(([re]) => re.test(bare))?.[1] ?? '9. Other';
 };
 
 // ── the screens collected ────────────────────────────────────────────────────
@@ -349,8 +345,6 @@ for (const who of [WHO.owner, WHO.stranger]) {
 await typed(WHO.owner, 'typed alert distance', 'linked testnet', '4', [nav({ to: 'settings' }), nav({ to: 'alert-custom' })], 'answer the custom alert distance question with 4');
 await typed(WHO.owner, 'typed alert distance (refused)', 'linked testnet', '99', [nav({ to: 'settings' }), nav({ to: 'alert-custom' })], 'answer it with 99 (out of range)');
 await typed(WHO.owner, 'warn-custom', 'watch-only', '12 6 3', [nav({ to: 'warn-levels' }), nav({ to: 'warn-custom' })], 'answer the custom warning levels question');
-await typed(WHO.owner, 'typed close all', 'linked testnet', 'CLOSE ALL', [nav({ to: 'kill' }), nav({ to: 'close-all' })], 'type CLOSE ALL after Close everything');
-await typed(WHO.owner, 'typed close all (not confirmed)', 'linked testnet', 'close', [nav({ to: 'kill' }), nav({ to: 'close-all' })], 'type anything else after Close everything');
 
 // ── messages PerpGuard sends on its own, through their real renderers ───────
 const pushed = (name: string, tier: Tier, html: string, keyboard: Keyboard | undefined, when: string): void => {
@@ -463,30 +457,6 @@ const pushedTargets = new Set<string>();
   }
 }
 {
-  const rule = { id: 1, followerAccountId: 710, leaderAccountId: 2399, keepFreeCNS: 500_000_000n, enabled: true, pausedReason: undefined, startedAtMs: 0, armedBy: 7, armedChat: 7, armedAtMs: 0, armProof: 'x', lastNotice: undefined } as CopyRule;
-  const leg = { ruleId: 1, leaderKey: 'k', leaderMarketId: 1, symbol: 'BTC', side: 'long', leaderOpenedAtMs: 0, status: 'open', reason: 'HYPE is not listed on testnet, so it cannot be copied.', actingMarketId: 16, sizeLNS: 1_000n, leverageHundredths: 1000, positionId: 1, openKey: 'o', closeKey: undefined, openedAtMs: 0, closedAtMs: 0 } as CopyLeg;
-  const notices: CopyNotice[] = [
-    { kind: 'copied', rule, leg, marginCNS: 100_000_000n, leverageCapped: false, partial: false },
-    { kind: 'copied', rule, leg, marginCNS: 133_400_000n, leverageCapped: true, partial: true },
-    { kind: 'skipped', rule, leg: { ...leg, symbol: 'HYPE', status: 'skipped' } },
-    { kind: 'not-opened', rule, leg },
-    { kind: 'unknown', rule, leg, what: 'open' },
-    { kind: 'unknown', rule, leg, what: 'close' },
-    { kind: 'closed', rule, leg, resultCNS: -64_800_000n },
-    { kind: 'close-not-landed', rule, leg },
-    { kind: 'closed-by-you', rule, leg },
-    { kind: 'held', rule, why: 'the index is not current (behind, 4,000 blocks behind)' },
-    { kind: 'ignored', rule, why: 'not started by a tap in the bot' },
-  ];
-  const label = { stop: '⛔ Stop copying', resume: '▶️ Resume', positions: '📊 My Positions', status: '🔁 Copy Trading' } as const;
-  const route = { stop: { to: 'copy-stop' }, resume: { to: 'copy-resume' }, positions: { to: 'positions' }, status: { to: 'copy-status' } } as const;
-  for (const n of notices) {
-    const r = renderCopy(n, { collateralDecimals: 6, sizeDecimalsOf: () => 5 });
-    const extra = n.kind === 'copied' && n.leverageCapped ? ' (leverage capped, partly filled)' : n.kind === 'unknown' ? ` (${n.what})` : '';
-    pushed(`Copy Trading: ${n.kind}${extra}`, 'linked testnet', `🧪 <b>TESTNET</b> · test funds, not real money\n${r.html}`, { inline_keyboard: [r.buttons.map((b) => ({ text: label[b], callback_data: encodeNav(route[b] as Route, { fresh: true }) }))] }, 'the copier acts on something the leader did');
-  }
-}
-{
   // The link service's own notices, through the REAL LinkService with in-memory stores.
   const said: string[] = [];
   const make = (forwardingAllowed: boolean) =>
@@ -518,7 +488,7 @@ const pushedTargets = new Set<string>();
   pushed('linked (API key, forwarding off)', 'linked testnet', said.at(-1) ?? '', undefined, 'the same, for an account that does not allow API-key orders yet');
 }
 // The watch-instead message is sent by the server when the web page's button is used.
-pushed('watch it instead (from the /link page)', 'watch-only', "👁 Watching your mainnet account #4855, read-only.\nYou'll get alerts here as its positions near liquidation, open and close. There are no buttons: PerpGuard's actions run on testnet only for now.", undefined, 'tap "👁 Watch it instead" on the /link web page');
+pushed('watch it instead (from the /link page)', 'watch-only', watchInsteadText(4855), undefined, 'tap "👁 Watch it instead" on the /link web page');
 
 // ── flows: real sequences, named by the screens they land on ────────────────
 interface FlowStep {
@@ -555,56 +525,48 @@ const flows = [
   await flow('First-time start, then watching a wallet', WHO.stranger, [
     { do: 'Send /start', send: '/start' },
     { do: 'Tap 👁 Watch & Alerts', tap: { to: 'watch-menu' } },
-    { do: 'Tap Watch Wallet', tap: { to: 'watch-ask' } },
+    { do: 'Tap 👛 Watch wallet', tap: { to: 'watch-ask' } },
     { do: 'Paste an address as the answer', send: '0xB7854953A71e45D1033B3d619E76d56391291765' },
     { do: 'Tap 👛 Watched wallets', tap: { to: 'wallets' } },
   ]),
-  await flow('Linking', WHO.stranger, [
+  await flow('Connecting', WHO.stranger, [
     { do: 'Send /start', send: '/start' },
-    { do: 'Tap 🔐 Trading Account', tap: { to: 'account' } },
-    { do: 'Send /link', send: '/link' },
+    { do: 'Tap 🔐 Trading account', tap: { to: 'account' } },
+    { do: 'Tap 🔗 Connect wallet', tap: { to: 'connect-go' } },
+    { do: 'Back, then tap 🔑 Enter API key', tap: { to: 'connect-key' } },
   ], [
-    'On the web page /link (outside the bot): connect a wallet → the signature is asked for automatically → the backend verifies it → linked (wallet owns the deployment account), or "one more step: add an API key", or (wallet owns a mainnet account) refused with 👁 Watch it instead.',
-    'Back in Telegram: /start now shows "🔗 Linked: testnet #{account}" and the linked buttons (My Positions, Rescue, Margin, 🆘 Emergency).',
+    'On the web page /link (outside the bot): sign with the wallet that owns the account, or paste an API key. The key never goes through Telegram.',
+    'Back in Telegram: /start now shows "🔗 testnet #{account}" and the six buttons.',
   ]),
-  await flow('A manual alert through to a confirmed top-up', WHO.owner, [
-    { do: '(PerpGuard sends the manual alert at the alert distance: see `pushed: manual alert`)', send: '/start' },
-    { do: 'Tap 💰 Margin', tap: { to: 'margin' } },
-    { do: 'Tap the position', tap: { to: 'margin-pos', marketId: dangerAssessment().marketId } },
-    { do: 'Tap ➕ Add margin', tap: { to: 'margin-add', marketId: dangerAssessment().marketId } },
+  await flow('An alert through to a confirmed top-up', WHO.owner, [
+    { do: '(PerpGuard sends the alert at the alert distance: see `pushed: manual alert`)', send: '/start' },
+    { do: 'Tap 📊 My positions', tap: { to: 'positions' } },
+    { do: 'Tap the position', tap: { to: 'position', marketId: dangerAssessment().marketId } },
     { do: 'Tap +100', tapLabel: '+100' },
     { do: 'Tap ✅ Confirm', tapLabel: '✅' },
-  ], ['The alert itself carries the same +100/+250/+500/+1,000 and Custom buttons; each leads to the same ⚠️ CONFIRM ADD MARGIN screen.']),
-  await flow('Arming and disarming Auto top-up', WHO.owner, [
+  ], ['The alert itself carries +100, +250 and 🎛 Custom amount; each leads to the same confirmation.']),
+  await flow('Turning Rescue on and off', WHO.owner, [
     { do: 'Send /start', send: '/start' },
     { do: 'Tap 🛟 Rescue', tap: { to: 'rescue' } },
     { do: 'Tap the position', tap: { to: 'rescue-pos', marketId: dangerAssessment().marketId } },
-    { do: 'Tap 🤖 Set up Auto', tap: { to: 'rescue-cfg', marketId: dangerAssessment().marketId } },
-    { do: 'Pick 100 AUSD', tap: { to: 'rescue-amt', level: 0 } },
-    { do: 'Review', tap: { to: 'rescue-review' } },
+    { do: 'Tap Change amount', tap: { to: 'rescue-cfg', marketId: dangerAssessment().marketId } },
+    { do: 'Pick +250', tap: { to: 'rescue-amt', level: 1 } },
+    { do: 'Tap Change limits', tap: { to: 'rescue-limits' } },
+    { do: 'Pick 3 times', tap: { to: 'rescue-lim', level: 2 } },
+    { do: 'Back to the rule', tap: { to: 'rescue-pos', marketId: dangerAssessment().marketId } },
     { do: 'Tap 🟢 Turn on', tap: { to: 'rescue-on' } },
-    { do: 'Tap ⛔ Turn off auto', tap: { to: 'rescue-stop', marketId: dangerAssessment().marketId } },
-  ], ['Inside the alert distance the review offers "🟢 Turn on · add {amount} AUSD now" and "🟢 Turn on · from the next crossing" instead of one button.']),
-  await flow('Starting and stopping a copy', WHO.owner, [
+    { do: 'Tap ⛔ Turn off', tap: { to: 'rescue-stop', marketId: dangerAssessment().marketId } },
+  ], ['Inside the alert distance the rule offers "🟢 Turn on · add now" and "🟢 Turn on · next time" instead of one button.']),
+  await flow('Kill switch', WHO.owner, [
     { do: 'Send /start', send: '/start' },
-    { do: 'Tap 🏆 Top Traders', tap: { to: 'top' } },
-    { do: 'Tap 💰 Top PnL', tap: { to: 'top-pnl' } },
-    { do: 'Tap a trader', tap: { to: 'trader', accountId: 4886 } },
-    { do: 'Tap 🔁 Copy this trader', tap: { to: 'copy-setup', accountId: 4886 } },
-    { do: 'Pick keep free 1,000', tap: { to: 'copy-keep', level: 3 } },
-    { do: 'Tap ✅ Start copying', tap: { to: 'copy-start' } },
-    { do: 'Tap ⛔ Stop copying', tap: { to: 'copy-stop' } },
-  ], ['While copying, PerpGuard sends the `pushed: Copy Trading` messages; each has ⛔ Stop copying.']),
-  await flow('Emergency', WHO.owner, [
-    { do: 'Send /start', send: '/start' },
-    { do: 'Tap 🆘 Emergency', tap: { to: 'kill' } },
-    { do: 'Tap 🔴 Stop PerpGuard', tap: { to: 'kill-confirm' } },
-    { do: 'Confirm the stop', tap: { to: 'kill-stop' } },
+    { do: 'Tap 🆘 Kill switch', tap: { to: 'kill' } },
+    { do: 'Tap Stop automation only', tap: { to: 'kill-confirm' } },
+    { do: 'Tap Yes, stop automation', tap: { to: 'kill-stop' } },
     { do: 'Tap ▶️ Resume automation', tap: { to: 'kill-resume-ask' } },
-    { do: 'Confirm resume', tap: { to: 'kill-resume' } },
-    { do: 'Tap 🆘 Emergency again', tap: { to: 'kill' } },
-    { do: 'Tap 🚪 Close everything', tap: { to: 'close-all' } },
-    { do: 'Type CLOSE ALL', send: 'CLOSE ALL' },
+    { do: 'Tap ▶️ Resume', tap: { to: 'kill-resume' } },
+    { do: 'Tap 🆘 Kill switch again', tap: { to: 'kill' } },
+    { do: 'Tap 🆘 Stop everything', tap: { to: 'stop-all' } },
+    { do: 'Tap 🆘 Yes, stop everything', tap: { to: 'stop-all-go' } },
   ]),
 ];
 
@@ -627,11 +589,9 @@ async function direct(route: Route, who: (typeof WHO)[keyof typeof WHO], setup: 
   directly.set(route.to, state);
 }
 await direct({ to: 'star', accountId: 4532 }, WHO.stranger, ['/watch 4532'], 'a watched wallet is not yet on the Watchlist (its wallet screen shows ⭐ Add to Watchlist)');
-await direct({ to: 'copy-keep-set', level: 1 }, WHO.owner, [{ to: 'copy-setup', accountId: 4886 }, { to: 'copy-start' }], 'copying is on (the Copy Trading status screen shows the keep-free row)');
-await direct({ to: 'copy-resume' }, WHO.owner, [{ to: 'copy-setup', accountId: 4886 }, { to: 'copy-start' }], 'copying paused itself on an unknown outcome (shown here not paused: its refusal)');
 await direct({ to: 'rescue-resume', marketId: M }, WHO.owner, [], 'an Auto rule paused itself (shown here with nothing paused: its refusal)');
-await direct({ to: 'close-retry', marketId: M }, WHO.owner, [], 'Close everything left a position open (its result offers Retry per position)');
-await direct({ to: 'close-retry-go', marketId: M }, WHO.owner, [{ to: 'close-retry', marketId: M }], 'Retry was tapped on a position Close everything left open');
+await direct({ to: 'close-retry', marketId: M }, WHO.owner, [], 'Stop everything left a position open (its result offers Retry per position)');
+await direct({ to: 'close-retry-go', marketId: M }, WHO.owner, [{ to: 'close-retry', marketId: M }], 'Retry was tapped on a position Stop everything left open');
 await direct({ to: 'dismiss' }, WHO.owner, [], 'the manual alert is on screen (its Dismiss button)');
 await typed(WHO.owner, 'rescue-amt-custom', 'linked testnet', '150', [{ to: 'rescue' }, { to: 'rescue-pos', marketId: M }, { to: 'rescue-cfg', marketId: M }, { to: 'rescue-amt-custom' }].map((r) => encodeNav(r as Route)), 'answer the custom Auto amount question with 150');
 
@@ -642,8 +602,8 @@ const allRoutes = [...codeTable.matchAll(/^\s+'?([a-z0-9-]+)'?: '[a-z0-9]+',$/gm
 const botSource = readFileSync(join(ROOT, 'apps/bot/src/bot.ts'), 'utf8');
 const commands = [...botSource.matchAll(/bot\.command\('([a-z]+)'/g)].map((m) => `/${m[1]}`);
 const questionKinds = [...readFileSync(join(ROOT, 'apps/bot/src/questions.ts'), 'utf8').matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1]!);
-const coveredQuestions = new Set(['watch-target', 'warning-levels', 'alert-distance', 'close-all', 'rescue-amount']);
-const flowRoutes = new Set(['rescue-amt', 'rescue-review', 'rescue-on', 'rescue-stop', 'copy-keep', 'copy-start', 'copy-stop', 'kill-stop', 'kill-resume', 'kill-resume-ask', 'kill-confirm']);
+const coveredQuestions = new Set(['watch-target', 'warning-levels', 'alert-distance', 'rescue-amount']);
+const flowRoutes = new Set(['rescue-amt', 'rescue-limits', 'rescue-lim', 'rescue-on', 'rescue-stop', 'kill-stop', 'kill-resume', 'kill-resume-ask', 'kill-confirm', 'stop-all', 'stop-all-go']);
 const gaps: string[] = [];
 /**
  * Places in the code that build a button for `route`, counting only those inside
@@ -685,7 +645,7 @@ const sendSites = readFileSync(join(ROOT, 'apps/backend/src/server.ts'), 'utf8')
 // ── the duplicates: one sentence on several screens ─────────────────────────
 const lineUse = new Map<string, Set<string>>();
 for (const s of screens.values()) {
-  for (const line of s.text.split('\n').map((l) => l.trim()).filter((l) => l.length >= 30 && !/^🧪/.test(l))) {
+  for (const line of s.text.split('\n').map((l) => l.trim()).filter((l) => l.length >= 30 && l !== 'testnet')) {
     const set = lineUse.get(line) ?? new Set<string>();
     set.add(s.name);
     lineUse.set(line, set);
