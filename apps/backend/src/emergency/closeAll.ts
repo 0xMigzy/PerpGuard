@@ -35,10 +35,19 @@ export type CloseAllReport =
   | { readonly kind: 'nothing-sent'; readonly why: 'already-flat' | 'cannot-see' | 'no-session'; readonly stop: StopReport | undefined }
   /** Another run on this account is still going. Nothing new was sent. */
   | { readonly kind: 'already-running' }
-  | { readonly kind: 'ran'; readonly verified: Verified; readonly stop: StopReport | undefined; readonly replayed: boolean };
+  | { readonly kind: 'ran'; readonly verified: Verified; readonly stop: StopReport | undefined; readonly replayed: boolean; readonly automationOff?: boolean };
+
+/**
+ * What runs before the closes. Close everything and its retries STOP ALL AUTOMATION (the kill
+ * switch). 🚪 Close position turns off automation for THAT position only (owner, 8 Oct 2026):
+ * closing one position is not a reason to stop rescuing the others.
+ */
+type Scope = { readonly kind: 'all' } | { readonly kind: 'retry'; readonly marketId: number } | { readonly kind: 'position'; readonly marketId: number };
 
 export interface CloseEverythingOptions {
   readonly killSwitch: Pick<KillSwitch, 'stop'>;
+  /** 🚪 Close position: turn off automation for this one position. True when something was on and is now off. */
+  readonly stopPositionAutomation?: (accountId: number, marketId: number, by: string) => Promise<boolean>;
   readonly account: (accountId: number) => CloseAllAccount | undefined;
   readonly store: CloseAllRunStore;
   readonly log: (line: string) => void;
@@ -73,15 +82,23 @@ export class CloseEverything {
 
   /** Close every open position. `requestId` is minted when the confirmation was shown, and runs once. */
   async closeAll(accountId: number, requestId: string, by: string): Promise<CloseAllReport> {
-    return this.#run(accountId, requestId, by, undefined);
+    return this.#run(accountId, requestId, by, { kind: 'all' });
   }
 
-  /** Close what remains of ONE position, by market, as its own request. */
+  /** Close what remains of ONE position after a Close everything, as its own request. Stops all automation, as the run it retries did. */
   async closeOne(accountId: number, marketId: number, requestId: string, by: string): Promise<CloseAllReport> {
-    return this.#run(accountId, requestId, by, marketId);
+    return this.#run(accountId, requestId, by, { kind: 'retry', marketId });
   }
 
-  async #run(accountId: number, requestId: string, by: string, onlyMarket: number | undefined): Promise<CloseAllReport> {
+  /**
+   * 🚪 CLOSE POSITION, from the position's own screen: the same once-only, one-in-flight, verified
+   * close, preceded by turning off automation for THIS position only.
+   */
+  async closePosition(accountId: number, marketId: number, requestId: string, by: string): Promise<CloseAllReport> {
+    return this.#run(accountId, requestId, by, { kind: 'position', marketId });
+  }
+
+  async #run(accountId: number, requestId: string, by: string, scope: Scope): Promise<CloseAllReport> {
     const key = `${accountId}:${requestId}`;
     const earlier = this.#done.get(key);
     if (earlier !== undefined) {
@@ -94,7 +111,7 @@ export class CloseEverything {
     }
     this.#inFlight.add(accountId);
     try {
-      const report = await this.#runOnce(accountId, requestId, by, onlyMarket);
+      const report = await this.#runOnce(accountId, requestId, by, scope);
       this.#done.set(key, report);
       return report;
     } finally {
@@ -102,11 +119,20 @@ export class CloseEverything {
     }
   }
 
-  async #runOnce(accountId: number, requestId: string, by: string, onlyMarket: number | undefined): Promise<CloseAllReport> {
+  async #runOnce(accountId: number, requestId: string, by: string, scope: Scope): Promise<CloseAllReport> {
     const { log } = this.#o;
     const startedAtMs = this.#now();
-    // 1. STOP FIRST: nothing automated may touch a position being exited.
-    const stop = await this.#o.killSwitch.stop(accountId, `${by} (close everything)`);
+    const onlyMarket = scope.kind === 'all' ? undefined : scope.marketId;
+    // 1. STOP FIRST: nothing automated may touch a position being exited. All of it for Close
+    //    everything; for one position, only that position's automation.
+    let stop: StopReport | undefined;
+    let automationOff = false;
+    if (scope.kind === 'position') {
+      automationOff = (await this.#o.stopPositionAutomation?.(accountId, scope.marketId, by)) ?? false;
+      if (automationOff) log(`close-position ${accountId}:${requestId}: automation turned off for market ${scope.marketId} before closing`);
+    } else {
+      stop = await this.#o.killSwitch.stop(accountId, `${by} (close everything)`);
+    }
 
     const account = this.#o.account(accountId);
     if (account === undefined) {
@@ -135,7 +161,7 @@ export class CloseEverything {
       try {
         outcome = await account.execute({
           kind: 'close-position',
-          idempotencyKey: `closeall:${accountId}:${requestId}:${p.positionId}`,
+          idempotencyKey: `${scope.kind === 'position' ? 'close' : 'closeall'}:${accountId}:${requestId}:${p.positionId}`,
           userId: by,
           accountId,
           marketId: p.marketId,
@@ -157,7 +183,7 @@ export class CloseEverything {
     for (const r of verified.results) {
       log(`close-everything ${accountId}:${requestId}: ${r.position.symbol} VERIFIED ${r.kind}${r.kind === 'partial' ? ` (${r.remainingLNS} lots remain)` : ''}${r.kind === 'still-open' || r.kind === 'partial' || r.kind === 'not-seen' ? `: ${r.why}` : ''}`);
     }
-    const report: CloseAllReport = { kind: 'ran', verified, stop, replayed: false };
+    const report: CloseAllReport = { kind: 'ran', verified, stop, replayed: false, ...(scope.kind === 'position' ? { automationOff } : {}) };
     await this.#record(accountId, requestId, by, startedAtMs, requested, outcomes, report);
     return report;
   }

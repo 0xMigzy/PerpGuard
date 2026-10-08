@@ -83,6 +83,9 @@ export type Route =
   | { readonly to: 'stop-all-go' }
   | { readonly to: 'close-retry'; readonly marketId: number }
   | { readonly to: 'close-retry-go'; readonly marketId: number }
+  /** 🚪 Close position, from View position: the cost, then a tap. Its request id is minted when the cost is shown. */
+  | { readonly to: 'close-pos'; readonly marketId: number }
+  | { readonly to: 'close-pos-go'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
@@ -159,6 +162,8 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'stop-all-go': 'keg',
   'close-retry': 'xr',
   'close-retry-go': 'xg',
+  'close-pos': 'pc',
+  'close-pos-go': 'pcg',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
@@ -189,6 +194,8 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'rescue-resume': 'marketId',
   'close-retry': 'marketId',
   'close-retry-go': 'marketId',
+  'close-pos': 'marketId',
+  'close-pos-go': 'marketId',
 };
 
 /**

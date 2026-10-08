@@ -682,7 +682,7 @@ const requireCloseEverything = (): CloseEverything => {
 };
 /** The backend's report, in the bot's terms. */
 const toEmergencyReport = (r: Awaited<ReturnType<CloseEverything['closeAll']>>) =>
-  r.kind === 'ran' ? { kind: 'ran' as const, results: r.verified.results, complete: r.verified.complete, replayed: r.replayed } : r;
+  r.kind === 'ran' ? { kind: 'ran' as const, results: r.verified.results, complete: r.verified.complete, replayed: r.replayed, ...(r.automationOff === undefined ? {} : { automationOff: r.automationOff }) } : r;
 
 const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
   const session = registry.get(accountId);
@@ -774,6 +774,7 @@ const bot =
           preview: (accountId) => openPositionsOf(accountId),
           closeAll: async (accountId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeAll(accountId, requestId, by)),
           closeOne: async (accountId, marketId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeOne(accountId, marketId, requestId, by)),
+          closePosition: async (accountId, marketId, requestId, by) => toEmergencyReport(await requireCloseEverything().closePosition(accountId, marketId, requestId, by)),
         },
         killSwitch: {
           stopped: (accountId) => automation.automationStopped(accountId),
@@ -908,6 +909,11 @@ if (alertDb !== undefined) {
 }
 closeEverything = new CloseEverything({
   killSwitch,
+  // 🚪 Close position turns off THAT position's Rescue first, never the whole account's automation.
+  stopPositionAutomation: async (accountId, marketId) => {
+    if (!rescueStore.rulesFor(accountId).some((r) => r.marketId === marketId && r.enabled)) return false;
+    return (await rescueControl.disable(accountId, marketId)).ok;
+  },
   account: (accountId) => {
     const session = registry.get(accountId);
     if (session === undefined) return undefined;

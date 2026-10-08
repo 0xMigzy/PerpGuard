@@ -143,7 +143,9 @@ export interface PositionInput {
  * 📊 VIEW POSITION (owner, 8 Oct 2026): distance, margin and liquidation
  * price, free balance, and the amounts to add, each showing the distance it
  * buys. Every amount is an ACTION token: its tap opens the confirmation and
- * nothing sends on it. Reduce and close are not offered here.
+ * nothing sends on it. Under them, 🚪 Close position (owner, 8 Oct 2026): a
+ * navigation tap to its own confirmation (size, price, what it realises), the
+ * kill switch's verified close behind it. Reduce is not offered.
  */
 export function positionScreen(input: PositionInput): Screen {
   const { assessment: a, market } = input;
@@ -155,7 +157,8 @@ export function positionScreen(input: PositionInput): Screen {
     const liq = a.liquidationPricePNS;
     lines.push(`Margin ${a.marginCNS === undefined ? '—' : held(a.marginCNS, d)} · ${liq !== undefined && liq > 0n ? `liquidation at ${formatPricePNS(liq, market)}` : 'no liquidation price'}`);
   }
-  lines.push(input.free.known ? `Free balance ${held(input.free.floorCNS, d)}` : `Free balance unknown: ${esc(input.free.reason)}`);
+  const freeText = input.free.known ? `Free balance ${held(input.free.floorCNS, d)}` : `Free balance unknown: ${esc(input.free.reason)}`;
+  lines.push(isBlind(a.state) ? freeText : `${freeText} · unrealised ${signedPnl(a.metrics.unrealisedPnlCNS, d)}`);
 
   if (blind !== undefined || isBlind(a.state)) {
     // NO ACTIONS WHILE BLIND: a top-up against a frozen price is exactly what the feed rule forbids.
@@ -167,9 +170,11 @@ export function positionScreen(input: PositionInput): Screen {
   const floor = input.free.known ? input.free.floorCNS : undefined;
   const priced = input.presets.filter((p): p is { ausd: number; data: string; resultingBufferPct: number | undefined } => 'data' in p);
   const over = (ausd: number): boolean => floor !== undefined && BigInt(ausd) * unit > floor;
+  // Two to a row, Custom amount last among them: [+100][+250] / [+500][🎛 Custom amount].
+  const amounts: Button[] = [...priced.map((p): Button => ({ text: amountButton(p.ausd, p.resultingBufferPct, over(p.ausd)), data: p.data })), { text: '🎛 Custom amount', data: input.customData }];
   const buttons: Button[][] = [];
-  if (priced.length > 0) buttons.push(priced.map((p) => ({ text: amountButton(p.ausd, p.resultingBufferPct, over(p.ausd)), data: p.data })));
-  buttons.push([{ text: '🎛 Custom amount', data: input.customData }]);
+  for (let i = 0; i < amounts.length; i += 2) buttons.push(amounts.slice(i, i + 2));
+  buttons.push([{ text: '🚪 Close position', route: { to: 'close-pos', marketId: a.marketId } }]);
   buttons.push([back]);
   // Offered, not hidden: the balance read is a floor, and refusing a real rescue on our own conservative number costs a position.
   if (priced.some((p) => over(p.ausd))) lines.push('', '⚠️ may be more than your free balance. The exchange refuses what you can’t cover.');

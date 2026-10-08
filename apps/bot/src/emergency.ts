@@ -32,13 +32,15 @@ export type EmergencyResult =
 export type EmergencyReport =
   | { readonly kind: 'nothing-sent'; readonly why: 'already-flat' | 'cannot-see' | 'no-session' }
   | { readonly kind: 'already-running' }
-  | { readonly kind: 'ran'; readonly results: readonly EmergencyResult[]; readonly complete: boolean; readonly replayed: boolean };
+  | { readonly kind: 'ran'; readonly results: readonly EmergencyResult[]; readonly complete: boolean; readonly replayed: boolean; readonly automationOff?: boolean };
 
 export interface EmergencyControl {
   /** Every open position, or undefined when the list cannot be seen (or the account has no session). */
   preview(accountId: number): readonly EmergencyPosition[] | undefined;
   closeAll(accountId: number, requestId: string, by: string): Promise<EmergencyReport>;
   closeOne(accountId: number, marketId: number, requestId: string, by: string): Promise<EmergencyReport>;
+  /** 🚪 Close position: that position's automation off first (never the account's), then the same verified close. */
+  closePosition?(accountId: number, marketId: number, requestId: string, by: string): Promise<EmergencyReport>;
 }
 
 /** A confirmation is good for this long after the cost was shown: prices move. */
@@ -199,4 +201,95 @@ export function closeRetryScreen(p: EmergencyPosition): Screen {
     ].join('\n'),
     buttons: [[{ text: `Close ${p.symbol}`, route: { to: 'close-retry-go', marketId: p.marketId }, fresh: true }], [{ text: 'Cancel', route: { to: 'kill' } }]],
   };
+}
+
+// ── 🚪 Close position (owner, 8 Oct 2026) ─────────────────────────────────
+
+/**
+ * 🚪 CLOSE POSITION? Size, the current price and what closing realises, confirmed by a TAP; never
+ * on the first. If Auto is on for this position, it is turned off first, and this screen says so.
+ */
+export function closePositionConfirmScreen(input: {
+  readonly position: EmergencyPosition | undefined;
+  /** The mark, already formatted for the market. Undefined when there is no price. */
+  readonly markText: string | undefined;
+  readonly autoOn: boolean;
+  readonly marketId: number;
+}): Screen {
+  const back: Button = { text: 'Cancel', route: { to: 'position', marketId: input.marketId } };
+  const p = input.position;
+  if (p === undefined) {
+    return {
+      html: ['🚪 <b>CLOSE POSITION?</b>', '', "I can't see this position right now, so I won't close it. Nothing was sent."].join('\n'),
+      buttons: [[{ text: '↻ Look again', route: { to: 'position', marketId: input.marketId } }], [back]],
+    };
+  }
+  const pnl = p.unrealisedPnlCNS;
+  const lines = [
+    `🚪 <b>Close ${esc(p.symbol)} ${p.side}?</b>`,
+    '',
+    `Size <b>${sizeOf(p.sizeLNS, p.lotDecimals)}</b>${input.markText === undefined ? '' : ` · price now ${esc(input.markText)}`}`,
+    pnl === undefined
+      ? "I can't price it right now, so I can't say what closing realises."
+      : `You realise <b>${esc(signedPnl(pnl))}</b> ${pnl < 0n ? '(a loss)' : pnl > 0n ? '(a profit)' : ''} at today\u2019s price.`,
+    'It closes at whatever price it gets, so the real figure will differ.',
+  ];
+  if (input.autoOn) lines.push('', '🤖 Auto top-up is on for this position. I\u2019ll turn it off first, so nothing is added while it closes.');
+  lines.push('', "I'll read the result from your positions afterwards, not from the exchange's receipt.");
+  return { html: lines.join('\n'), buttons: [[{ text: `🚪 Yes, close ${p.symbol} ${p.side}`, route: { to: 'close-pos-go', marketId: p.marketId }, fresh: true }], [back]] };
+}
+
+export function closePositionExpiredScreen(marketId: number): Screen {
+  return {
+    html: '🚪 <b>CLOSE POSITION</b>\n\nThat was more than two minutes ago and the price has moved, so nothing was sent. Here it is again.',
+    buttons: [[{ text: '🚪 Close position', route: { to: 'close-pos', marketId } }], [{ text: '← Back', route: { to: 'position', marketId } }]],
+  };
+}
+
+/**
+ * What became of it, READ FROM THE POSITION LIST. "Closed" only when the list no longer has it;
+ * a partial close says what remains, with a retry that is a NEW request after a new confirmation.
+ */
+export function closePositionResultScreen(report: EmergencyReport, marketId: number): Screen {
+  const again: Button = { text: '🚪 Close what\u2019s left', route: { to: 'close-pos', marketId } };
+  if (report.kind === 'already-running') {
+    return { html: '🚪 <b>CLOSE POSITION</b>\n\nA close is already running on your account. Nothing new was sent; check your positions in a moment.', buttons: [[POSITIONS, MENU]] };
+  }
+  if (report.kind === 'nothing-sent') {
+    const text: Record<typeof report.why, string> = {
+      'already-flat': 'That position is no longer open, so nothing was sent.',
+      'cannot-see': "I can't see your positions right now, so I didn't close anything. Check it on Perpl, or try again in a moment.",
+      'no-session': "Your trading account isn't connected right now, so I couldn't close anything. Close it on Perpl.",
+    };
+    return { html: `🚪 <b>CLOSE POSITION</b>\n\n${text[report.why]}`, buttons: [[POSITIONS, MENU]] };
+  }
+  const r = report.results[0];
+  const lines: string[] = [];
+  const buttons: Button[][] = [];
+  if (r === undefined) {
+    lines.push('🚪 <b>CLOSE POSITION</b>', '', 'That position is no longer open, so nothing was sent.');
+  } else {
+    const p = r.position;
+    const name = `${esc(p.symbol)} ${p.side}`;
+    switch (r.kind) {
+      case 'closed':
+        lines.push(`✅ <b>${name} CLOSED</b>`, '', `${sizeOf(p.sizeLNS, p.lotDecimals)} closed${r.exitPrice === undefined ? '' : ` at ${r.exitPrice.toLocaleString('en-US')}`}. It's gone from your positions.`);
+        break;
+      case 'partial':
+        lines.push(`⚠️ <b>${name} PARTLY CLOSED</b>`, '', `<b>${sizeOf(r.remainingLNS, p.lotDecimals)} of ${sizeOf(p.sizeLNS, p.lotDecimals)} is still open</b>: ${esc(r.why)}.`, 'Tap below to close what\u2019s left, or close it on Perpl.');
+        buttons.push([again]);
+        break;
+      case 'still-open':
+        lines.push(`⚠️ <b>${name} IS STILL OPEN</b>`, '', `${esc(r.why)}.`, 'Tap below to try again, or close it on Perpl.');
+        buttons.push([again]);
+        break;
+      case 'not-seen':
+        lines.push(`❔ <b>${name}: I CAN'T TELL YET</b>`, '', esc(r.why));
+        break;
+    }
+  }
+  if (report.automationOff === true) lines.push('', '🤖 Auto top-up is off for this position.');
+  if (report.replayed) lines.push('', 'This is the result of a request that already ran. Nothing new was sent.');
+  buttons.push([POSITIONS, MENU]);
+  return { html: lines.join('\n'), buttons };
 }

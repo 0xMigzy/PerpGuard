@@ -45,7 +45,7 @@ import {
   warnAskScreen,
 } from './account.ts';
 import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
-import { buildMessage } from '@perpguard/backend/alerts/render';
+import { buildMessage, formatPricePNS } from '@perpguard/backend/alerts/render';
 import { esc, pct, withBadge } from '@perpguard/backend/alerts/plain';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { ALERT_DISTANCE_PRESETS, MAX_ALERT_DISTANCE_PCT, MIN_ALERT_DISTANCE_PCT, distanceLabel, parseAlertDistance } from '@perpguard/backend/manual/distance';
@@ -71,6 +71,9 @@ import { PendingQuestionStore } from './questions.ts';
 import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, type KillSwitchControl } from './killSwitch.ts';
 import {
   STOP_ALL_CONFIRM_MS,
+  closePositionConfirmScreen,
+  closePositionExpiredScreen,
+  closePositionResultScreen,
   closeAllResultScreen,
   closeRetryScreen,
   killScreen,
@@ -321,6 +324,8 @@ export function createBot(deps: BotDeps): Bot {
   }
   /** One pending retry per chat, person and market: minted when its confirm screen is shown, consumed by the tap. */
   const retryRequests = new Map<string, string>();
+  /** 🚪 Close position: the request each confirmation stands for, by chat, person and market; minted when shown, run at most once. */
+  const closePosRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
   /** 🆘 Stop everything: the request each chat's cost screen confirms, minted when it was shown, run at most once. */
   const stopAllRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
@@ -1047,6 +1052,8 @@ export function createBot(deps: BotDeps): Bot {
       case 'stop-all-go':
       case 'close-retry':
       case 'close-retry-go':
+      case 'close-pos':
+      case 'close-pos-go':
         await killNav(ctx, route);
         return;
       default:
@@ -1229,6 +1236,38 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery({ text: 'Closing…' });
         const report = await emergency.closeOne(accountId, route.marketId, requestId, by);
         await showScreen(ctx, closeAllResultScreen(report, control.stopped(accountId)));
+        return;
+      }
+      case 'close-pos': {
+        // 🚪 CLOSE POSITION: the cost first, never a send on this tap. The request is minted NOW.
+        const emergency = deps.emergency;
+        if (emergency?.closePosition === undefined) return answer(ctx, "Closing isn't available here.");
+        const position = emergency.preview(accountId)?.find((x) => x.marketId === route.marketId);
+        const assessment = deps.sessions.forAccount(accountId)?.view.snapshot().find((x) => x.marketId === route.marketId);
+        const market = deps.configs.get(route.marketId);
+        const markText = assessment === undefined || market === undefined || assessment.markPricePNS <= 0n ? undefined : formatPricePNS(assessment.markPricePNS, market);
+        const autoOn = (deps.rescue?.rules(accountId) ?? []).some((r) => r.marketId === route.marketId && r.enabled);
+        if (position !== undefined) closePosRequests.set(`${who}:${route.marketId}`, { requestId: newRequestId(), shownAtMs: now() });
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, closePositionConfirmScreen({ position, markText, autoOn, marketId: route.marketId }));
+        return;
+      }
+      case 'close-pos-go': {
+        const emergency = deps.emergency;
+        const key = `${who}:${route.marketId}`;
+        const pending = closePosRequests.get(key);
+        if (emergency?.closePosition === undefined || pending === undefined) return answer(ctx, 'That close was already sent, or has expired. Nothing new was sent.');
+        // Taken first: a second tap finds nothing and sends nothing. NEVER RE-SENT.
+        closePosRequests.delete(key);
+        if (now() - pending.shownAtMs > STOP_ALL_CONFIRM_MS) {
+          await ctx.answerCallbackQuery();
+          await showScreen(ctx, closePositionExpiredScreen(route.marketId));
+          return;
+        }
+        await ctx.answerCallbackQuery({ text: 'Closing…' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+        const report = await emergency.closePosition(accountId, route.marketId, pending.requestId, by);
+        await sendScreen(ctx, closePositionResultScreen(report, route.marketId));
         return;
       }
       case 'kill-confirm':

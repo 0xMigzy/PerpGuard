@@ -330,7 +330,7 @@ test('/help lists what the bot can do, one sentence each', async () => {
   assert.match(text, /isolated margin/i);
 });
 
-test('My positions lists each position closest first as a button; its screen offers the amounts, a custom amount and Back — never reduce or close', async () => {
+test('My positions lists each position closest first as a button; its screen offers the amounts, a custom amount, Close position and Back — never reduce', async () => {
   const h = harness();
   const scenario = dangerScenario();
   h.view.assessments = [scenario.assessment];
@@ -343,7 +343,7 @@ test('My positions lists each position closest first as a button; its screen off
 
   const screen = await openPosition(h);
   const html = String(screen.payload['text']);
-  assert.equal(html, 'testnet\n🔴 <b>BTC long · 2.7% from liquidation</b>\nMargin <b>2,810 AUSD</b> · liquidation at 81,770.1\nFree balance <b>10,000 AUSD</b>');
+  assert.equal(html, 'testnet\n🔴 <b>BTC long · 2.7% from liquidation</b>\nMargin <b>2,810 AUSD</b> · liquidation at 81,770.1\nFree balance <b>10,000 AUSD</b> · unrealised −12 AUSD');
   assert.ok(!html.includes('Changed from'), 'a view, not an alert');
   assert.deepEqual(
     actionButtons(screen).map((b) => {
@@ -1361,7 +1361,7 @@ test('RETIRED BUTTONS: every code taken off the menu fires NOTHING, from anyone'
   assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
 });
 
-test('VIEW POSITION: amounts with the distance each buys, 🎛 Custom amount, Back; NO reduce, NO close; Cancel deletes the token', async () => {
+test('VIEW POSITION: amounts with the distance each buys, two to a row, 🎛 Custom amount, 🚪 Close position, Back; NO reduce; Cancel deletes the token', async () => {
   const h = harness();
   const scenario = dangerScenario();
   h.view.assessments = [scenario.assessment];
@@ -1370,12 +1370,14 @@ test('VIEW POSITION: amounts with the distance each buys, 🎛 Custom amount, Ba
   const html = String(screen.payload['text']);
   assert.match(html, /^testnet\n🔴 <b>BTC long · 2\.7% from liquidation<\/b>\nMargin <b>2,810 AUSD<\/b> · liquidation at 81,770\.1\nFree balance <b>10,000 AUSD<\/b>/);
   const labels = keyboardOf(screen).map((b) => b.text);
-  assert.equal(labels.length, 5);
+  assert.equal(labels.length, 6);
   assert.match(labels[0]!, /^\+100 → [\d.]+%$/);
   assert.match(labels[1]!, /^\+250 → [\d.]+%$/);
   assert.match(labels[2]!, /^\+500 → [\d.]+%$/);
-  assert.deepEqual(labels.slice(3), ['🎛 Custom amount', '← Back']);
-  assert.doesNotMatch(labels.join(' | '), /reduce|close/i);
+  assert.deepEqual(labels.slice(3), ['🎛 Custom amount', '🚪 Close position', '← Back']);
+  const rows = (screen.payload['reply_markup'] as { inline_keyboard: unknown[][] }).inline_keyboard.map((r) => r.length);
+  assert.deepEqual(rows, [2, 2, 1, 1], '[+100][+250] / [+500][Custom] / [Close] / [Back]');
+  assert.doesNotMatch(labels.join(' | '), /reduce/i);
 
   await h.bot.handleUpdate(callbackUpdate(keyboardOf(screen)[0]!.callback_data));
   const [send, cancel] = keyboardOf(h.telegram.last('sendMessage'));
@@ -1506,7 +1508,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'close-pos', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1988,7 +1990,92 @@ class FakeEmergency implements EmergencyControl {
     const position = this.positions!.find((p) => p.marketId === marketId)!;
     return { kind: 'ran', complete: true, replayed: false, results: [{ kind: 'closed', position, exitPrice: 2614 }] };
   }
+  positionRuns: Array<{ requestId: string; marketId: number }> = [];
+  async closePosition(_a: number, marketId: number, requestId: string): Promise<EmergencyReport> {
+    this.positionRuns.push({ requestId, marketId });
+    const position = this.positions!.find((p) => p.marketId === marketId)!;
+    return this.next ?? { kind: 'ran', complete: true, replayed: false, automationOff: false, results: [{ kind: 'closed', position, exitPrice: 81_900 }] };
+  }
 }
+
+
+test('🚪 CLOSE POSITION: on View position under the amounts; its tap shows size, price and what it realises, says Auto goes off first, and SENDS NOTHING', async () => {
+  const emergency = new FakeEmergency();
+  // The scenario's BTC is market 1 in the fixtures: the same market on the screen, the close and the rule.
+  emergency.positions = emergency.positions!.map((p) => (p.symbol === 'BTC' ? { ...p, marketId: 1 } : p));
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency, rescue: { rules: () => [{ marketId: 1, enabled: true, symbol: 'BTC' }] } as never });
+  const scenario = dangerScenario();
+  h.view.assessments = [scenario.assessment];
+  h.view.loop = scenario.loop;
+  const screen = await openPosition(h);
+  const labels = keyboardOf(screen).map((b) => b.text);
+  assert.deepEqual(labels.slice(-2), ['🚪 Close position', '← Back'], 'under the amounts, above Back');
+  const close = keyboardOf(screen).find((b) => b.text === '🚪 Close position')!;
+  await h.bot.handleUpdate(callbackUpdate(close.callback_data));
+  const confirm = String(lastScreen(h.telegram).payload['text']);
+  assert.match(confirm, /🚪 <b>Close BTC long\?<\/b>\n\nSize <b>0\.02<\/b> · price now [\d,.]+\nYou realise <b>−85 AUSD<\/b> \(a loss\)/);
+  assert.match(confirm, /🤖 Auto top-up is on for this position\. I’ll turn it off first, so nothing is added while it closes\./);
+  assert.match(confirm, /read the result from your positions afterwards, not from the exchange's receipt/);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🚪 Yes, close BTC long', 'Cancel']);
+  assert.equal(emergency.positionRuns.length, 0, 'nothing is sent on the tap that shows the cost');
+  assert.equal(h.executor.calls.length, 0);
+});
+
+test('🚪 CLOSE POSITION: Yes sends it ONCE; a second tap sends nothing; "closed" only from the verified result', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-pos', marketId: 16 });
+  assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /Auto top-up/, 'no Auto line when Auto is off');
+  await tapNav(h, { to: 'close-pos-go', marketId: 16 });
+  await tapNav(h, { to: 'close-pos-go', marketId: 16 });
+  assert.equal(emergency.positionRuns.length, 1, 'never re-sent');
+  assert.equal(emergency.runs.length, 0, 'not the kill switch\u2019s close-everything');
+  assert.match(texts(h.telegram).join('\n'), /✅ <b>BTC long CLOSED<\/b>\n\n0\.02 closed at 81,900\. It's gone from your positions\./);
+  assert.equal(answers(h.telegram).at(-1), 'That close was already sent, or has expired. Nothing new was sent.');
+});
+
+test('🚪 CLOSE POSITION: a partial close says what remains, with a retry that needs a NEW confirmation; it never says closed', async () => {
+  const emergency = new FakeEmergency();
+  const btc = emergency.positions![0]!;
+  emergency.next = { kind: 'ran', complete: false, replayed: false, automationOff: true, results: [{ kind: 'partial', position: btc, closedLNS: 1_500n, remainingLNS: 500n, why: 'the close was sent, but the exchange did not fill it (not enough on the other side, or it expired)' }] };
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-pos', marketId: 16 });
+  await tapNav(h, { to: 'close-pos-go', marketId: 16 });
+  const result = lastScreen(h.telegram);
+  const html = String(result.payload['text']);
+  assert.match(html, /⚠️ <b>BTC long PARTLY CLOSED<\/b>\n\n<b>0\.005 of 0\.02 is still open<\/b>: the close was sent, but the exchange did not fill it/);
+  assert.match(html, /🤖 Auto top-up is off for this position\./);
+  assert.doesNotMatch(html, /CLOSED<\/b>\n\n0\.02 closed/);
+  const retry = keyboardOf(result).find((b) => b.text === '🚪 Close what’s left')!;
+  assert.ok(retry !== undefined);
+  await h.bot.handleUpdate(callbackUpdate(retry.callback_data));
+  assert.equal(emergency.positionRuns.length, 1, 'the retry opens a new confirmation; nothing is sent on it');
+  assert.match(String(lastScreen(h.telegram).payload['text']), /🚪 <b>Close BTC long\?<\/b>/);
+});
+
+test('🚪 CLOSE POSITION: a confirmation older than two minutes sends nothing and shows the cost again', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-pos', marketId: 16 });
+  h.nowMs += 2 * 60_000 + 1;
+  await tapNav(h, { to: 'close-pos-go', marketId: 16 });
+  assert.equal(emergency.positionRuns.length, 0);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /more than two minutes ago and the price has moved, so nothing was sent/);
+});
+
+test('🚪 CLOSE POSITION: a position it cannot see is not closed, and a stranger reaches none of it', async () => {
+  const emergency = new FakeEmergency();
+  emergency.positions = undefined;
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency });
+  await tapNav(h, { to: 'close-pos', marketId: 16 });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /I can't see this position right now, so I won't close it\. Nothing was sent\./);
+  await tapNav(h, { to: 'close-pos-go', marketId: 16 });
+  assert.equal(emergency.positionRuns.length, 0);
+  const open = new FakeEmergency();
+  const s = harness({ killSwitch: new FakeKillSwitch(), emergency: open });
+  for (const route of [{ to: 'close-pos', marketId: 16 }, { to: 'close-pos-go', marketId: 16 }] as Route[]) await tapNav(s, route, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  assert.equal(open.positionRuns.length, 0);
+});
 
 test('STOP EVERYTHING: the cost, position by position, losses rounded away from zero; confirmed by a TAP; the tap that opens it sends nothing', async () => {
   const emergency = new FakeEmergency();

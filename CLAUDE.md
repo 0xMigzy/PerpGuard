@@ -776,8 +776,18 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   with ONE DECIMAL BELOW 10% (a whole percent there can read below where the
   position already is: 2.7% plus a top-up is not "→ 2%"); whole percents
   from 10%. An amount above the free floor is offered with ⚠️, not hidden. No
-  amount on a position it cannot see. REDUCE AND CLOSE ARE NOT OFFERED from a
-  position; closing is the kill switch's.
+  amount on a position it cannot see. The balance line carries the position's
+  unrealised P&L; amounts sit two to a row, Custom last.
+- 🚪 CLOSE POSITION IS BACK on View position, under the amounts (owner, 8 Oct
+  2026), on the KILL SWITCH'S RULES (`CloseEverything.closePosition`, bot
+  `emergency.ts`): a confirmation first (size, price now, what it realises,
+  a loss rounded away from zero), its request id minted when shown, good for
+  two minutes, run ONCE (`close:<acct>:<request>:<pid>`), never re-sent; the
+  outcome READ FROM THE POSITION LIST, "CLOSED" only when the list no longer
+  has it; a partial close says what remains, with a retry that is a new
+  confirmation. Before closing it turns off Auto for THAT position only, never
+  the account's automation, and the confirmation says so. Reduce is not
+  offered.
 - 🔐 TRADING ACCOUNT (owner, 8 Oct 2026): not connected, what connecting does
   and 🔗 Connect wallet / 🔑 Enter API key, both through the one-time code and
   the HTTPS page (🔑 opens it with `via=key`: the key form, focused).
