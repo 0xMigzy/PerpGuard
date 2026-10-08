@@ -963,9 +963,13 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   `GET /api/analytics/copy/:id?size=`, web `/copy/[id]` (linked from the
   trader page), `pnpm copy:replay` runs it live and checks
   the rebuilt equity against the index.
+  - MAINNET TO MAINNET (owner, 8 Oct 2026): the copy is a mainnet account on
+    mainnet's own markets, sizes, leverage limits and taker fees, matched BY
+    MARKET ID; the page never mentions testnet. (Until then it was a testnet
+    account and skipped every market testnet does not list.)
   - Only new opens are copied; size is follower equity over leader equity at
-    each open (2% -> 2%); markets match by each network's CONTEXT ticker,
-    never the indexer name; a missing market is skipped by name; size rounds
+    each open (2% -> 2%); a market the context no longer offers (retired) is
+    skipped by name; size rounds
     DOWN to the acting step, margin (the leader's PEAK, scaled) UP; leverage
     above the acting maximum is skipped; a leader with more than 3,000 opens
     in the window is refused WHOLE, never replayed in part.

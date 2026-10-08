@@ -22,7 +22,8 @@ import { TraderDaysChart } from '@/components/charts/TraderDaysChart.tsx';
 import { AccountSummary } from './AccountSummary.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { FillsPanel } from './FillsPanel.tsx';
-import { marketName } from '@/lib/markets.ts';
+import { marketIconSymbol, marketName } from '@/lib/markets.ts';
+import { MarketName } from '@/components/TokenIcon.tsx';
 import { SaveWalletButton } from '@/components/SavedWallets.tsx';
 import { compareHref } from '@/lib/compare.ts';
 import { copyHref } from '@/lib/copy.ts';
@@ -518,7 +519,7 @@ function PositionsTable({
                 return (
                   <tr key={`${pos.market.marketId}-${pos.openedAtMs}`} className="border-b border-border last:border-b-0 hover:bg-card2">
                     <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] font-semibold whitespace-nowrap" title={`opened ${formatWhen(pos.openedAtMs)} UTC`}>
-                      {symbol}
+                      <MarketName symbol={symbol} icon={marketIconSymbol(pos.market)} size={16} />
                     </td>
                     <td className="px-[10px] py-[10px] whitespace-nowrap">
                       <span className={SIDE_BADGE(pos.side)}>{pos.side}</span>
@@ -599,7 +600,9 @@ function TripsTable({ rows }: { readonly rows: readonly RoundTrip[] | undefined 
                   <td className="sticky left-0 z-[1] bg-card px-[10px] py-[10px] whitespace-nowrap text-muted" title={`opened ${formatWhen(r.openedAtMs)} UTC`}>
                     {formatWhen(r.closedAtMs)}
                   </td>
-                  <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">{marketName(r.market)}</td>
+                  <td className="px-[10px] py-[10px] font-semibold whitespace-nowrap">
+                    <MarketName symbol={marketName(r.market)} icon={marketIconSymbol(r.market)} size={16} />
+                  </td>
                   <td className="px-[10px] py-[10px] whitespace-nowrap">
                     <span className={SIDE_BADGE(r.side)}>{r.side}</span>
                   </td>

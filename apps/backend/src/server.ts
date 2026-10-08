@@ -1081,14 +1081,15 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   });
   log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
 
-  // 🔁 COPY REPLAY (Half A): the analytics network's index and marks, onto the
-  // TRADING network's own markets. Read-only; nothing here can send.
+  // 🔁 COPY REPLAY (Half A): a MAINNET account copying a MAINNET leader (owner,
+  // 8 Oct 2026): the analytics network's index, marks AND markets (sizes,
+  // leverage limits, taker fees). Read-only; nothing here can send.
   {
     const marksVenue = analyticsVenue;
     copyReplay = new CopyReplayService({
       source: analyticsReader,
-      actingNetwork: network.name,
-      actingMarkets: () => markets,
+      actingNetwork: analyticsNetwork.name,
+      actingMarkets: () => analyticsMarkets,
       marks: () => marksVenue.getOpenInterest(),
     });
   }

@@ -1,5 +1,6 @@
 /**
- * The copy replay against the live mainnet index, onto testnet's markets.
+ * The copy replay against the live mainnet index: a mainnet account copying a
+ * mainnet leader, on mainnet's own markets, sizes, leverage limits and fees.
  *
  *   pnpm copy:replay                      # the top 10 by 30-day net P&L
  *   pnpm copy:replay --account 4886 --size 1000 --trades 20
@@ -19,12 +20,11 @@ const url = process.env['INDEXER_DATABASE_URL']?.trim();
 if (!url) throw new Error('INDEXER_DATABASE_URL is not set');
 const db = new Pool({ connectionString: url, max: 6 });
 const mainnet = new PerplVenue(loadNetworkConfig('mainnet', process.env), { logger: { log: () => undefined, warn: () => undefined } });
-const testnet = new PerplVenue(loadNetworkConfig('testnet', process.env), { logger: { log: () => undefined, warn: () => undefined } });
-const [mainMarkets, testMarkets] = await Promise.all([mainnet.getMarkets(), testnet.getMarkets()]);
+const mainMarkets = await mainnet.getMarkets();
 const analytics = new PostgresAnalytics({ client: db, chainId: 143, resolveSymbol: symbolResolver(mainMarkets.map((m) => ({ marketId: m.marketId, symbol: m.symbol }))) });
-const service = new CopyReplayService({ source: analytics, actingNetwork: 'testnet', actingMarkets: () => testMarkets, marks: () => mainnet.getOpenInterest() });
+const service = new CopyReplayService({ source: analytics, actingNetwork: 'mainnet', actingMarkets: () => mainMarkets, marks: () => mainnet.getOpenInterest() });
 
-console.log(`testnet lists: ${testMarkets.map((m) => `${m.symbol} (max ${m.maxLeverage}x, ${m.sizeDecimals} dp)`).join(', ')}`);
+console.log(`mainnet lists: ${mainMarkets.map((m) => `${m.symbol} (max ${m.maxLeverage}x, ${m.sizeDecimals} dp)`).join(', ')}`);
 const size = BigInt(Math.round(Number(values.size) * 1e6));
 
 const leaders = values.account !== undefined

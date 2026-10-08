@@ -11,10 +11,10 @@ export type SkipReason = 'open-at-start' | 'not-listed' | 'no-size' | 'no-entry'
 
 export const SKIP_LABEL: Readonly<Record<SkipReason, string>> = {
   'open-at-start': 'Already open when the window began',
-  'not-listed': 'Market not on testnet',
+  'not-listed': 'Market no longer open for trading',
   'too-small': 'Too small at this size',
   'no-balance': 'Not enough free balance at the time',
-  leverage: "Leverage above testnet's maximum",
+  leverage: "Leverage above Perpl's maximum",
   'no-size': 'No size in the index',
   'no-entry': 'No entry price in the index',
   'leader-no-equity': 'Leader had no equity on record',

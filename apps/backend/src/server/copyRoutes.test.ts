@@ -32,8 +32,8 @@ function rig() {
   };
   const service = new CopyReplayService({
     source,
-    actingNetwork: 'testnet',
-    actingMarkets: () => [{ marketId: 16, symbol: 'BTC', sizeDecimals: 5, maxLeverage: 15, takerFeeMicros: 0 } as never],
+    actingNetwork: 'mainnet',
+    actingMarkets: () => [{ marketId: 1, symbol: 'BTC', sizeDecimals: 5, maxLeverage: 15, takerFeeMicros: 0 } as never],
     marks: async () => [],
     now: () => T0,
   });

@@ -14,8 +14,8 @@ const H = 3_600_000;
 
 // Testnet: BTC and SOL, no HYPE. Sizes in 5 and 2 decimals.
 const ACTING: readonly CopyMarket[] = [
-  { marketId: 16, symbol: 'BTC', sizeDecimals: 5, maxLeverage: 50, takerFeeMicros: 0 },
-  { marketId: 32, symbol: 'SOL', sizeDecimals: 2, maxLeverage: 20, takerFeeMicros: 0 },
+  { marketId: 1, symbol: 'BTC', sizeDecimals: 5, maxLeverage: 50, takerFeeMicros: 0 },
+  { marketId: 31, symbol: 'SOL', sizeDecimals: 2, maxLeverage: 20, takerFeeMicros: 0 },
 ];
 
 let n = 0;
@@ -61,7 +61,7 @@ function source(positions: CopySourcePosition[], extra: Partial<CopySource> = {}
 }
 
 function run(src: CopySource, over: Partial<ReplayInput> = {}) {
-  const r = replayCopy({ source: src, followerEquityCNS: 1_000n * AUSD, actingNetwork: 'testnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000, ...over });
+  const r = replayCopy({ source: src, followerEquityCNS: 1_000n * AUSD, actingNetwork: 'mainnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000, ...over });
   assert.equal(r.kind, 'replayed');
   if (r.kind !== 'replayed') throw new Error('not replayed');
   return r;
@@ -76,8 +76,8 @@ const copied = (t: ReplayTrade) => {
 test('2% -> 2%: a 1,000 AUSD follower of a 100,000 AUSD leader copies 1% of every position, margin and result alike', () => {
   const r = run(source([pos({ openedH: 1, closedH: 5, netPnlCNS: 5_000n * AUSD })]));
   const c = copied(r.trades[0]!);
-  assert.equal(c.actingMarketId, 16, 'the TESTNET market id, found by ticker');
-  assert.equal(c.sizeUnits, 2_000n, '0.02 BTC in testnet units');
+  assert.equal(c.actingMarketId, 1, 'the same market, by id');
+  assert.equal(c.sizeUnits, 2_000n, '0.02 BTC in the market\'s units');
   assert.equal(c.marginCNS, 200n * AUSD);
   assert.equal(c.resultCNS, 50n * AUSD);
   assert.equal(c.estimate, false);
@@ -87,20 +87,20 @@ test('2% -> 2%: a 1,000 AUSD follower of a 100,000 AUSD leader copies 1% of ever
   assert.equal(r.totals.wins, 1);
 });
 
-test('MARKETS BY CANONICAL TICKER: SOL_v2 in the index is SOL in the context and copies to testnet SOL; HYPE is skipped by name', () => {
+test('ONE NETWORK, MATCHED BY MARKET ID: SOL_v2 (31) in the index copies to SOL 31; a retired market the context no longer offers is skipped by name', () => {
   const r = run(source([
     pos({ openedH: 1, closedH: 2, market: { marketId: 31, symbol: 'SOL', indexerName: 'SOL_v2' }, lotDecimals: 2, peakLotLNS: 50_000n, entryPricePNS: 2_000n, priceDecimals: 1, peakMarginCNS: 10_000n * AUSD }),
-    pos({ openedH: 1, closedH: 2, market: { marketId: 60, symbol: 'HYPE', indexerName: 'HYPE' } }),
-    pos({ openedH: 1, closedH: 2, market: { marketId: 61, symbol: 'HYPE', indexerName: 'HYPE' } }),
+    pos({ openedH: 1, closedH: 2, market: { marketId: 30, symbol: 'SOL', indexerName: 'SOL' } }),
+    pos({ openedH: 1, closedH: 2, market: { marketId: 30, symbol: 'SOL', indexerName: 'SOL' } }),
   ]));
-  assert.equal(copied(r.trades[0]!).actingMarketId, 32);
-  assert.deepEqual(r.trades.slice(1).map((t) => t.copy.kind === 'skipped' && t.copy.text), ['HYPE is not listed on testnet.', 'HYPE is not listed on testnet.']);
-  assert.deepEqual(r.totals.notListed, [{ symbol: 'HYPE', count: 2 }]);
+  assert.equal(copied(r.trades[0]!).actingMarketId, 31);
+  assert.deepEqual(r.trades.slice(1).map((t) => t.copy.kind === 'skipped' && t.copy.text), ['SOL is not open for trading on Perpl today, so a copy could not be opened.', 'SOL is not open for trading on Perpl today, so a copy could not be opened.'], 'same ticker, retired id: never copied onto SOL 31');
   assert.equal(r.totals.skippedBy['not-listed'], 2);
+  assert.doesNotMatch(r.trades.map((t) => (t.copy.kind === 'skipped' ? t.copy.text : '')).join(' '), /testnet/);
 });
 
 test('a copy that rounds to nothing at the follower\'s size is skipped as too small, never rounded up', () => {
-  // 0.00099 BTC × 1% = 0.0000099, under testnet's 0.00001 step.
+  // 0.00099 BTC × 1% = 0.0000099, under the market's 0.00001 step.
   const r = run(source([pos({ openedH: 1, closedH: 2, peakLotLNS: 99n, peakMarginCNS: 10n * AUSD })]));
   const t = r.trades[0]!.copy;
   assert.equal(t.kind, 'skipped');
@@ -170,11 +170,11 @@ test('a position still open is valued at the current mark, marked as an estimate
 });
 
 test('a leverage above the acting market\'s maximum is skipped and says both figures', () => {
-  // SOL on testnet allows 20x; this one ran 25x.
+  // SOL here allows 20x; this one ran 25x.
   const r = run(source([pos({ openedH: 1, closedH: 2, market: { marketId: 31, symbol: 'SOL', indexerName: 'SOL_v2' }, lotDecimals: 2, peakLotLNS: 50_000n, entryPricePNS: 2_000n, peakMarginCNS: 4_000n * AUSD })]));
   const t = r.trades[0]!.copy;
   assert.equal(t.kind === 'skipped' && t.reason, 'leverage');
-  assert.match(t.kind === 'skipped' ? t.text : '', /^25\.0x is above testnet's 20x maximum on SOL\./);
+  assert.match(t.kind === 'skipped' ? t.text : '', /^25\.0x is above Perpl's 20x maximum on SOL\./);
 });
 
 test('positions already open when the window began are counted as skipped, never copied', () => {
@@ -185,12 +185,12 @@ test('positions already open when the window began are counted as skipped, never
 });
 
 test('A LEADER TOO BUSY TO REPLAY IS REFUSED WHOLE, never replayed in part', () => {
-  const r = replayCopy({ source: source([pos({ openedH: 1, closedH: 2 })], { openedInWindow: 36_639 }), followerEquityCNS: 1_000n * AUSD, actingNetwork: 'testnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000 });
+  const r = replayCopy({ source: source([pos({ openedH: 1, closedH: 2 })], { openedInWindow: 36_639 }), followerEquityCNS: 1_000n * AUSD, actingNetwork: 'mainnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000 });
   assert.deepEqual(r, { kind: 'too-busy', accountId: 4886, openedInWindow: 36_639, cap: 3_000, fromMs: T0, toMs: T0 + 30 * 24 * H });
 });
 
 test('a follower with nothing to copy with is told so, not shown a replay of zeros', () => {
-  const r = replayCopy({ source: source([pos({ openedH: 1, closedH: 2 })]), followerEquityCNS: 0n, actingNetwork: 'testnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000 });
+  const r = replayCopy({ source: source([pos({ openedH: 1, closedH: 2 })]), followerEquityCNS: 0n, actingNetwork: 'mainnet', actingMarkets: ACTING, markOf: () => undefined, cap: 3_000 });
   assert.equal(r.kind, 'no-follower-equity');
 });
 

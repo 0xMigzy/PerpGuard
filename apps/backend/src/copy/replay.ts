@@ -12,9 +12,11 @@
  *     scaled by (the follower's equity) / (the leader's equity) at that moment.
  *     Equity is deposits minus withdrawals plus realised results, on both
  *     sides; unrealised P&L is not in it.
- *   - MARKETS ARE TRANSLATED BY CANONICAL TICKER, each network's own context
- *     naming its own markets (never the indexer's name). A ticker the acting
- *     network does not list is skipped, by name.
+ *   - ONE NETWORK, MATCHED BY MARKET ID (8 Oct 2026, owner): the copy is a
+ *     mainnet account copying a mainnet leader, on mainnet's own markets,
+ *     sizes, leverage limits and taker fees. Until then it was a testnet
+ *     account, which skipped every market testnet does not list. A market the
+ *     context no longer offers (retired) is skipped by name.
  *   - THE COPY'S SIZE IS ROUNDED DOWN to the acting market's size step; a copy
  *     that rounds to nothing is skipped as too small.
  *   - THE MARGIN IT NEEDS is the leader's PEAK margin, scaled and rounded UP:
@@ -225,7 +227,9 @@ export function replayCopy(input: ReplayInput): ReplayResult {
   }
   if (input.followerEquityCNS <= 0n) return { kind: 'no-follower-equity', accountId: s.accountId };
   const d = s.collateralDecimals;
-  const acting = new Map(input.actingMarkets.map((m) => [m.symbol.toUpperCase(), m]));
+  // BY MARKET ID: the leader and the copy are on ONE network (mainnet), and the id is the only key the
+  // contract, the index and the API share (mainnet 31 is SOL_v2 on chain and SOL in the context).
+  const acting = new Map(input.actingMarkets.map((m) => [m.marketId, m]));
 
   // Every event that moves either side's equity, in time order. At a tie a
   // close lands before an open: money freed at that instant is usable then.
@@ -288,11 +292,11 @@ export function replayCopy(input: ReplayInput): ReplayResult {
           closedAtMs: p.closedAtMs,
           leader: { peakLotLNS: p.peakLotLNS, lotDecimals: p.lotDecimals, peakMarginCNS: p.peakMarginCNS, netPnlCNS: p.netPnlCNS, leverage },
         };
-        const market = p.market.symbol === undefined ? undefined : acting.get(p.market.symbol.toUpperCase());
+        const market = acting.get(p.market.marketId);
         let copy: ReplayCopy | ReplaySkip;
         if (market === undefined) {
           notListed.set(symbol, (notListed.get(symbol) ?? 0) + 1);
-          copy = skip('not-listed', `${symbol} is not listed on ${input.actingNetwork}.`);
+          copy = skip('not-listed', `${symbol} is not open for trading on Perpl today, so a copy could not be opened.`);
         } else if (p.peakLotLNS <= 0n) {
           copy = skip('no-size', 'The index has no size for this position.');
         } else if (p.entryPricePNS === undefined) {
@@ -300,14 +304,14 @@ export function replayCopy(input: ReplayInput): ReplayResult {
         } else if (leaderEq <= 0n) {
           copy = skip('leader-no-equity', 'The leader had no equity on record at that moment, so there is no proportion to copy.');
         } else if (leverage !== undefined && leverage > market.maxLeverage) {
-          copy = skip('leverage', `${leverage.toFixed(1)}x is above ${input.actingNetwork}'s ${market.maxLeverage}x maximum on ${market.symbol}.`);
+          copy = skip('leverage', `${leverage.toFixed(1)}x is above Perpl's ${market.maxLeverage}x maximum on ${market.symbol}.`);
         } else {
           // Scale = followerEq / leaderEq; size in the acting market's units, rounded down.
           const num = followerEq * pow10(market.sizeDecimals);
           const den = leaderEq * pow10(p.lotDecimals);
           const sizeUnits = (p.peakLotLNS * num) / den;
           if (sizeUnits <= 0n) {
-            copy = skip('too-small', `At your size this is under ${sizeText(1n, market.sizeDecimals)} ${market.symbol}, the smallest size ${input.actingNetwork} takes.`);
+            copy = skip('too-small', `At your size this is under ${sizeText(1n, market.sizeDecimals)} ${market.symbol}, the smallest size Perpl takes.`);
           } else {
             // Effective scale after rounding: copy size over the leader's peak, in a common unit.
             const effNum = sizeUnits * pow10(p.lotDecimals);

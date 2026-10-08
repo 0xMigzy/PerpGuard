@@ -59,7 +59,7 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
         thin={`last ${days} days`}
         subtitle={
           <>
-            A replay from indexed mainnet data onto a testnet account of <b className="font-semibold text-text">{formatCount(size)} AUSD</b>: every position this trader opened, copied in proportion, or skipped with the reason. <b className="font-semibold text-text">Nothing is sent</b>; nothing here can trade.
+            A replay of this trader onto an account of <b className="font-semibold text-text">{formatCount(size)} AUSD</b>: every position this trader opened, copied in proportion, or skipped with the reason. <b className="font-semibold text-text">Nothing is sent</b>; nothing here can trade.
           </>
         }
         right={
@@ -189,9 +189,9 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
               <th scope="col" className="text-left">Opened (UTC)</th>
               <th scope="col" className="text-left">Market</th>
               <th scope="col" className="text-right" title="The leader's peak size, in the market's units, and leverage at entry">Leader size · lev.</th>
-              <th scope="col" className="text-right" title="Rounded down to testnet's size step">Copy size</th>
+              <th scope="col" className="text-right" title="Rounded down to the market's size step">Copy size</th>
               <th scope="col" className="text-right" title="The leader's peak margin, scaled, rounded up">Margin</th>
-              <th scope="col" className="text-right" title="Testnet's taker rate on opening and closing the full size">Fee</th>
+              <th scope="col" className="text-right" title="Perpl's taker rate on opening and closing the full size">Fee</th>
               <th scope="col" className="text-right" title="After the fee; a loss rounded away from zero">Result</th>
             </tr>
           </thead>
@@ -239,11 +239,11 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
         <div className="mb-2 font-semibold text-text">How this is worked out, and what it cannot know</div>
         <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
           <li><b className="text-text">Past results do not predict future returns.</b> This is what copying would have done, not what it will do.</li>
-          <li>Prices and timing differ: a copy fills after the leader, on {r.actingNetwork}, at {r.actingNetwork}&rsquo;s prices. Here each copy is assumed to fill at the leader&rsquo;s prices.</li>
+          <li>A real copy fills after the leader, so at a slightly different price. Here each copy is assumed to fill at the leader&rsquo;s prices.</li>
           <li>Each copy is the leader&rsquo;s position scaled by this account&rsquo;s equity over the leader&rsquo;s at that moment (the leader&rsquo;s was {r.leaderStart} when the window began). Equity is deposits minus withdrawals plus realised results minus fees, on both sides; unrealised P&amp;L is not in it.</li>
           <li>Sizes are each position&rsquo;s peak: the index keeps a position&rsquo;s open and close, not the adds and reduces between. The result is exact for a proportional copy at the leader&rsquo;s prices; the margin is the most it needed.</li>
-          <li>Fees are {r.actingNetwork}&rsquo;s taker rate on opening and closing each copy, the least it would cost. The index keeps fees per account per day, not per position, so the leader&rsquo;s own result per position is before fees.</li>
-          <li>Markets are matched by ticker; one {r.actingNetwork} does not list is skipped by name. Only new opens are copied.</li>
+          <li>Fees are Perpl&rsquo;s taker rate on opening and closing each copy, the least it would cost. The index keeps fees per account per day, not per position, so the leader&rsquo;s own result per position is before fees.</li>
+          <li>Only new opens are copied.</li>
           {ageMs > 45_000 && <li>Computed {Math.round(ageMs / 1000)} s ago.</li>}
         </ul>
       </div>

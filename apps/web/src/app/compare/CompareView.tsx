@@ -440,7 +440,7 @@ function AddWallet({ ids, onAdd, savedIds }: { readonly ids: readonly number[]; 
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={full}
-          placeholder={full ? `${MAX_COMPARE} accounts: remove one to add another` : 'Add by address, part of one, or account id'}
+          placeholder={full ? `${MAX_COMPARE} accounts: remove one to add another` : '0x address or account id'}
           className="num min-w-0 flex-1 rounded-[8px] border border-border2 bg-card px-3 py-[8px] text-[13px] text-text placeholder:text-muted2 sm:max-w-[460px]"
         />
         <button type="submit" className="seg" disabled={full || busy || text.trim() === ''}>
