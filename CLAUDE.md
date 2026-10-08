@@ -816,8 +816,12 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   forwarding off, with what to do) and offers "🔑 Enter a new API key" only
   where a new key fixes it, never for forwarding, which needs the owner's
   wallet. A wallet proven without a key is told it owns the account and that
-  a key is still needed, with 🔑 Enter API key. DISCONNECT SAYS "Your key is
-  deleted" ONLY WHEN IT IS: the sealed key is deleted FIRST and the Postgres
+  a key is still needed, with 🔑 Enter API key. DISCONNECT SAYS WHAT WAS DELETED
+  AND NOTHING MORE (8 Oct 2026): "PerpGuard has deleted its copy", never "your
+  key is deleted": the key itself stays on the person's Perpl profile (Perpl
+  has no API to revoke one), named by its label when PerpGuard created it
+  ("…listed on your Perpl profile as 'PerpGuard · 8 Oct 2026'. Remove it at
+  testnet.perpl.xyz/apikeys."). And only when it is: the sealed key is deleted FIRST and the Postgres
   delete is awaited (`KeyStore.deleteConfirmed`); if it cannot be confirmed,
   nothing changes and the reply says so (owner, 8 Oct 2026). THE LINK STORES ITS
   NETWORK (`account_links.network`); a link from another network is refused by
@@ -1110,6 +1114,12 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   8 Oct 2026 on testnet with the owner's wallet: enroll 200, signed in as #24,
   forwarding on. PASTING A KEY STAYS a visible Option 2 ("Already have a
   Perpl API key?"), and is the whole page while the switch is off.
+  REUSE BEFORE CREATING: if PerpGuard already holds a key for this person
+  that still signs in for the account the connected wallet owns, it
+  reconnects with it and creates nothing (every created key stays on the
+  Perpl profile, 16 at most); a revoked or other-account key means a new
+  one. Created keys are labelled "PerpGuard · <day Mon year>" (UTC), kept
+  with the sealed key (`account_keys.perpl_label`) for Disconnect to name.
   `/bot/guide` reads the switch (ISR, 1 min) and publishes the one-signature
   step 4 only while it is on. The sign-in-with-Ethereum challenge is NOT used
   while the switch is on (the key signature proves ownership) and is kept for

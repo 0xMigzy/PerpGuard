@@ -241,9 +241,14 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       const session = sessionOf(request);
       const flow = options.walletKey;
       if (flow === undefined) return reply.code(404).send({ error: 'Creating a key from your wallet isn’t available here. Paste an API key you already have instead.' });
-      const started = await flow.start(session.token, typeof request.body?.address === 'string' ? request.body.address : '');
-      log(`${session.identity.userId} asked to create a key by wallet: ${started.kind === 'sign' ? 'typed data issued' : `refused (${started.reason})`} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
-      return started.kind === 'sign' ? { typedData: started.typedData } : reply.code(started.reason === 'off' ? 404 : 400).send({ error: started.text, reason: started.reason });
+      const started = await flow.start(session.token, session.identity, typeof request.body?.address === 'string' ? request.body.address : '');
+      log(`${session.identity.userId} asked to create a key by wallet: ${started.kind === 'sign' ? 'typed data issued' : started.kind === 'linked' ? `reconnected account ${started.accountId} with the key already held; nothing created` : `refused (${started.reason})`} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
+      if (started.kind === 'sign') return { typedData: started.typedData };
+      if (started.kind === 'linked') {
+        session.provenAccountId = undefined;
+        return { result: started, me: me(session) };
+      }
+      return reply.code(started.reason === 'off' ? 404 : 400).send({ error: started.text, reason: started.reason });
     });
 
     scope.post<{ Body: { signature?: unknown } }>(`${prefix}/wallet-key/finish`, async (request, reply) => {

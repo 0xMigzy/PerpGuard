@@ -110,6 +110,12 @@ export interface StoredKey {
   /** The sealed blob. Opaque here; only the vault reads it. */
   readonly blob: string;
   readonly storedAtMs: number;
+  /**
+   * Set when PERPGUARD CREATED the key (one wallet signature): its label on the person's Perpl
+   * profile. Disconnect deletes only PerpGuard's copy, so it names the key Perpl still lists.
+   * Absent for a pasted key.
+   */
+  readonly perplLabel?: string | undefined;
 }
 
 export interface KeyStore {
@@ -161,6 +167,8 @@ create table if not exists account_keys (
   blob       text        not null,
   stored_at  timestamptz not null
 )`;
+/** Which keys PerpGuard created, and their Perpl label (8 Oct 2026). Null for a pasted key. */
+const KEYS_LABEL_SQL = 'alter table account_keys add column if not exists perpl_label text';
 
 export class PostgresKeyStore implements KeyStore {
   readonly #inner: InMemoryKeyStore;
@@ -176,12 +184,14 @@ export class PostgresKeyStore implements KeyStore {
 
   static async load(options: { readonly pool: Pick<Pool, 'query'>; readonly logger?: { warn(message: string): void } }): Promise<PostgresKeyStore> {
     await options.pool.query(KEYS_SQL);
-    const result = await options.pool.query('select user_id, account_id, blob, stored_at from account_keys');
+    await options.pool.query(KEYS_LABEL_SQL);
+    const result = await options.pool.query('select user_id, account_id, blob, stored_at, perpl_label from account_keys');
     const seed: StoredKey[] = (result.rows as Array<Record<string, unknown>>).map((row) => ({
       userId: String(row['user_id']),
       accountId: Number(row['account_id']),
       blob: String(row['blob']),
       storedAtMs: new Date(row['stored_at'] as string | Date).getTime(),
+      ...(row['perpl_label'] === null || row['perpl_label'] === undefined ? {} : { perplLabel: String(row['perpl_label']) }),
     }));
     return new PostgresKeyStore(new InMemoryKeyStore(seed), options.pool, options.logger ?? { warn: (m) => console.warn(m) });
   }
@@ -189,9 +199,9 @@ export class PostgresKeyStore implements KeyStore {
   put(key: StoredKey): void {
     this.#inner.put(key);
     this.#write(
-      `insert into account_keys (user_id, account_id, blob, stored_at) values ($1, $2, $3, $4)
-       on conflict (user_id) do update set account_id = excluded.account_id, blob = excluded.blob, stored_at = excluded.stored_at`,
-      [key.userId, key.accountId, key.blob, new Date(key.storedAtMs).toISOString()],
+      `insert into account_keys (user_id, account_id, blob, stored_at, perpl_label) values ($1, $2, $3, $4, $5)
+       on conflict (user_id) do update set account_id = excluded.account_id, blob = excluded.blob, stored_at = excluded.stored_at, perpl_label = excluded.perpl_label`,
+      [key.userId, key.accountId, key.blob, new Date(key.storedAtMs).toISOString(), key.perplLabel ?? null],
     );
   }
 

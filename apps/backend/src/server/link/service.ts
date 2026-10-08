@@ -76,6 +76,8 @@ export interface LinkServiceDeps {
   readonly webUrl: string;
   /** The trading network's name, for a sentence a person reads ("testnet"). */
   readonly network?: string;
+  /** The trading network's Perpl site, e.g. testnet.perpl.xyz: where a person revokes a key. */
+  readonly perplSite?: string;
   /** Tells the chat what happened, when a bot is wired. Never carries a key. */
   readonly notify?: (chatId: number, text: string) => Promise<void>;
   readonly logger: { info(message: string): void; warn(message: string): void };
@@ -128,6 +130,30 @@ export class LinkService {
     this.#proofs = deps.proofs ?? new InMemoryWalletProofStore();
   }
 
+  /**
+   * WHAT DISCONNECT DID TO THE KEY, AND ONLY THAT (8 Oct 2026). PerpGuard deletes ITS COPY; the key
+   * itself stays active on the person's Perpl profile until they revoke it there (Perpl offers no API
+   * to revoke). Said for a key PerpGuard created (with its label) and for a pasted one alike.
+   */
+  #keySentence(label: string | undefined): string {
+    const site = this.#deps.perplSite ?? 'testnet.perpl.xyz';
+    return label !== undefined
+      ? ` PerpGuard has deleted its copy. The key is still listed on your Perpl profile as '${label}'. Remove it at ${site}/apikeys.`
+      : ` PerpGuard has deleted its copy of your API key. The key itself stays active on Perpl until you revoke it at ${site}/apikeys.`;
+  }
+
+  /** The stored key, opened, for reuse: undefined when none is stored or it cannot be opened (a rotated vault key). */
+  storedCredentials(userId: string): SealedCredentials | undefined {
+    const stored = this.#deps.keys.get(userId);
+    const vault = this.#deps.vault;
+    if (stored === undefined || vault === undefined) return undefined;
+    try {
+      return vault.open(stored.blob);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Whether an API key is stored for this identity. */
   hasKey(userId: string): boolean {
     return this.#deps.keys.get(userId) !== undefined;
@@ -140,6 +166,7 @@ export class LinkService {
   async #forgetUnlinked(userId: string): Promise<{ readonly ok: boolean; readonly text: string }> {
     const proof = this.#proofs.get(userId);
     const stray = this.#deps.keys.get(userId);
+    const label = stray?.perplLabel;
     const accountId = proof?.accountId ?? stray?.accountId;
     if (accountId === undefined) return { ok: false, text: 'This chat is not linked to any account.' };
     let hadKey: boolean;
@@ -152,7 +179,7 @@ export class LinkService {
     }
     this.#needsRelink.delete(userId);
     this.#deps.logger.info(`link: ${userId} disconnected unlinked account ${accountId}; wallet proof ${proof !== undefined ? 'deleted' : 'none'}; key ${hadKey ? 'deleted' : 'none stored'}`);
-    return { ok: true, text: `Disconnected #${accountId}.${proof !== undefined ? ' Your wallet proof is forgotten.' : ''}${hadKey ? ' Your key is deleted.' : ''}` };
+    return { ok: true, text: `Disconnected #${accountId}.${proof !== undefined ? ' Your wallet proof is forgotten.' : ''}${hadKey ? this.#keySentence(label) : ''}` };
   }
 
   /** The verified wallet this identity proved, kept across page sessions. */
@@ -255,7 +282,7 @@ export class LinkService {
    * key, bind the chat. `provenAccountId` is the wallet proof the page holds,
    * if any; the key must be for the same account.
    */
-  async proveKey(identity: TelegramIdentity, credentials: SealedCredentials, provenAccountId: number | undefined): Promise<KeyProof> {
+  async proveKey(identity: TelegramIdentity, credentials: SealedCredentials, provenAccountId: number | undefined, options: { readonly perplLabel?: string } = {}): Promise<KeyProof> {
     const vault = this.#deps.vault;
     if (vault === undefined) {
       return { kind: 'refused', reason: 'Connecting with an API key isn\'t available right now. Sign in with your wallet instead.' };
@@ -298,7 +325,13 @@ export class LinkService {
     }
 
     // SEALED, then stored; the plaintext goes nowhere else from here.
-    this.#deps.keys.put({ userId: identity.userId, accountId, blob: vault.seal({ apiKey: credentials.apiKey.trim(), secretHex: credentials.secretHex }), storedAtMs: this.#now() });
+    this.#deps.keys.put({
+      userId: identity.userId,
+      accountId,
+      blob: vault.seal({ apiKey: credentials.apiKey.trim(), secretHex: credentials.secretHex }),
+      storedAtMs: this.#now(),
+      ...(options.perplLabel === undefined ? {} : { perplLabel: options.perplLabel }),
+    });
     this.#needsRelink.delete(identity.userId);
     const bound = this.#bind(identity, accountId);
     if (!bound.ok) {
@@ -321,12 +354,13 @@ export class LinkService {
     if (link === undefined) return this.#forgetUnlinked(userId);
     // THE KEY GOES FIRST, AND IS CONFIRMED GONE (owner, 8 Oct 2026: never a sentence about someone's
     // key that is not true). If storage cannot confirm the delete, nothing changes and the reply says so.
+    const label = this.#deps.keys.get(userId)?.perplLabel;
     let hadKey: boolean;
     try {
       hadKey = await this.#deps.keys.deleteConfirmed(userId);
     } catch (error) {
       this.#deps.logger.warn(`link: ${userId} asked to disconnect account ${link.accountId}, but the key delete could not be confirmed (${error instanceof Error ? error.message : String(error)}); nothing changed`);
-      return { ok: false, text: "I couldn't delete your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute." };
+      return { ok: false, text: "I couldn't delete PerpGuard's copy of your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute." };
     }
     this.#deps.links.unlink(link.telegramUserId);
     this.#proofs.delete(userId);
@@ -338,8 +372,8 @@ export class LinkService {
     this.#deps.logger.info(`link: ${userId} unlinked account ${link.accountId}; key ${hadKey ? 'deleted' : 'none stored'}; session ${closed ? 'closed' : 'kept'}`);
     return {
       ok: true,
-      // Each clause only when it is true: the key sentence only for a key that was stored and is now confirmed gone.
-      text: `Disconnected #${link.accountId}.${hadKey ? ' Your key is deleted.' : ''}`,
+      // Each clause only when it is true, and only about OUR copy: the key itself is the person's to revoke on Perpl.
+      text: `Disconnected #${link.accountId}.${hadKey ? this.#keySentence(label) : ''}`,
     };
   }
 

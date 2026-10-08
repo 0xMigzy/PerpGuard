@@ -210,7 +210,7 @@ export interface WalletKeyTypedData {
   readonly domain: Record<string, unknown>;
   readonly message: Record<string, unknown>;
 }
-export type WalletKeyResult = { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined; readonly text: string };
+export type WalletKeyResult = { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined; readonly text: string; readonly reused?: boolean };
 
 export const link = {
   session: (code: string) => postJson<LinkMe>(`${L}/session`, { code }),
@@ -224,7 +224,8 @@ export const link = {
   key: (apiKey: string, secret: string) => postJson<{ proof: KeyProof; me: LinkMe }>(`${L}/key`, { apiKey, secret }),
   unlink: () => postJson<{ ok: boolean; text: string; me: LinkMe }>(`${L}/unlink`, {}),
   /** 🔗 Perpl's typed data for the connected wallet: the key's secret stays on the server. */
-  walletKeyStart: (address: string) => postJson<{ typedData: WalletKeyTypedData }>(`${L}/wallet-key/start`, { address }),
+  /** Or, when PerpGuard already holds a working key for this wallet's account, the result at once: nothing created, nothing to sign. */
+  walletKeyStart: (address: string) => postJson<{ typedData: WalletKeyTypedData; result?: undefined } | { typedData?: undefined; result: WalletKeyResult; me: LinkMe }>(`${L}/wallet-key/start`, { address }),
   /** The wallet's signature over it: the server creates, seals and links the key. */
   walletKeyFinish: (signature: string) => postJson<{ result: WalletKeyResult; me: LinkMe }>(`${L}/wallet-key/finish`, { signature }),
   /** Watch the mainnet account this page's signed wallet proved it owns. Read-only; the server picks the account. */

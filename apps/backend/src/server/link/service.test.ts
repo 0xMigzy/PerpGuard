@@ -180,7 +180,9 @@ test('unlink removes the link, DELETES the key, and closes the session; the envi
   await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   const result = await r.service.unlink(r.identity.userId);
   assert.equal(result.ok, true);
-  assert.equal(result.text, 'Disconnected #711. Your key is deleted.');
+  // ONLY OUR COPY: a pasted key stays active on Perpl until the person revokes it there.
+  assert.equal(result.text, 'Disconnected #711. PerpGuard has deleted its copy of your API key. The key itself stays active on Perpl until you revoke it at testnet.perpl.xyz/apikeys.');
+  assert.doesNotMatch(result.text, /Your key is deleted/);
   assert.equal(r.keys.get(r.identity.userId), undefined, 'deleted, not unreferenced');
   assert.equal(r.links.byTelegramUserId(4242), undefined);
   assert.deepEqual(r.closed, [711]);
@@ -204,7 +206,7 @@ test('DISCONNECT NEVER CLAIMS A KEY IS GONE THAT IS NOT: if storage cannot confi
   };
   const result = await r.service.unlink(r.identity.userId);
   assert.equal(result.ok, false);
-  assert.equal(result.text, "I couldn't delete your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute.");
+  assert.equal(result.text, "I couldn't delete PerpGuard's copy of your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute.");
   assert.doesNotMatch(result.text, /is deleted/);
   assert.ok(keys.get(r.identity.userId) !== undefined, 'the key is still stored, and nothing said otherwise');
   assert.equal(r.links.byTelegramUserId(4242)?.accountId, 711, 'still connected');
@@ -296,4 +298,14 @@ test('status is FROM RECORDS: wallet-linked, key-linked and owner-linked read di
   r.links.link({ userId: r.identity.userId, accountId: ENV, telegramUserId: 4242, chatId: 5150, linkedAtMs: 1 });
   assert.equal(r.service.status(r.identity.userId)!.proof, 'owner');
   assert.equal(r.service.status(r.identity.userId)!.wallet, undefined);
+});
+
+
+test('DISCONNECT NAMES A KEY PERPGUARD CREATED, as Perpl lists it: our copy is deleted, the key is still on the profile, where to remove it', async () => {
+  const r = rig({ probeAccount: 711 });
+  const proof = await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined, { perplLabel: 'PerpGuard · 8 Oct 2026' });
+  assert.equal(proof.kind, 'linked');
+  assert.equal(r.keys.get(r.identity.userId)?.perplLabel, 'PerpGuard · 8 Oct 2026', 'the label is kept with the sealed key');
+  const result = await r.service.unlink(r.identity.userId);
+  assert.equal(result.text, "Disconnected #711. PerpGuard has deleted its copy. The key is still listed on your Perpl profile as 'PerpGuard · 8 Oct 2026'. Remove it at testnet.perpl.xyz/apikeys.");
 });

@@ -370,7 +370,8 @@ export function disconnectAskScreen(target: DisconnectTarget): Screen {
   const removes: string[] = [];
   if (target.linked) removes.push("You'll stop getting its alerts here.");
   if (wallet !== undefined) removes.push(`I'll forget that your wallet <code>${wallet}</code> proved it.`);
-  removes.push(target.hasKey ? "I'll delete the API key you gave me." : 'No API key is stored for it, so there is none to delete.');
+  // ONLY OUR COPY (8 Oct 2026): the key itself stays on the person's Perpl profile until they remove it there.
+  removes.push(target.hasKey ? "I'll delete my copy of your API key. The key itself stays on your Perpl profile until you remove it there." : 'No API key is stored for it, so there is none to delete.');
   return {
     html: [`🔌 <b>Disconnect #${target.accountId}?</b>`, ...removes, 'Wallets you watch stay. You can connect again any time.'].join('\n'),
     buttons: [[{ text: `🔌 Disconnect #${target.accountId}`, route: { to: 'disconnect' } }], [{ text: 'Cancel', route: { to: 'account' } }]],

@@ -179,7 +179,7 @@ export function LinkView() {
           <button
             type="button"
             className="btn danger mt-3"
-            title="Stops this Telegram chat acting on the account and deletes any API key you gave PerpGuard"
+            title="Stops this Telegram chat acting on the account and deletes PerpGuard’s copy of the API key"
             onClick={() => {
               void (async () => {
                 try {
@@ -194,7 +194,7 @@ export function LinkView() {
           >
             Unlink account #{linked.accountId} from Telegram
           </button>
-          <p className="mt-2 text-[12px] text-muted">Takes effect at once, and deletes any API key you gave PerpGuard. Your wallet and your positions are not touched.</p>
+          <p className="mt-2 text-[12px] text-muted">Takes effect at once, and deletes PerpGuard&rsquo;s copy of the API key. The key itself stays on your Perpl profile until you remove it there. Your wallet and your positions are not touched.</p>
         </div>
       )}
 

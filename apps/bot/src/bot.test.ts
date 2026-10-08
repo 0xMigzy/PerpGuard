@@ -1317,7 +1317,7 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   assert.match(String(account.payload['text']), new RegExp(`🔗 ${h.view.network} #710\nExecution: 🟢 Authorized\nConnected `));
   assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect #710', '📖 Setup guide', '← Back']);
   await tapNav(h, { to: 'disconnect-ask' });
-  assert.match(shown(h.telegram).at(-1)!, /^testnet\n🔌 <b>Disconnect #710\?<\/b>\nYou'll stop getting its alerts here\.\nI'll delete the API key you gave me\./);
+  assert.match(shown(h.telegram).at(-1)!, /^testnet\n🔌 <b>Disconnect #710\?<\/b>\nYou'll stop getting its alerts here\.\nI'll delete my copy of your API key\. The key itself stays on your Perpl profile until you remove it there\./);
   assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect #710', 'Cancel']);
   assert.deepEqual(fake.unlinked, [], 'asking is not doing');
   await tapNav(h, { to: 'disconnect' });
@@ -1696,7 +1696,7 @@ test('DISCONNECT, KEY HELD: the ask says the key is deleted only when one is sto
   const fake = fakeLinkService();
   const withKey = harness({ link: { ...fake.service, hasKey: () => true } });
   await tapNav(withKey, { to: 'disconnect-ask' });
-  assert.match(shown(withKey.telegram).at(-1)!, /I'll delete the API key you gave me\./);
+  assert.match(shown(withKey.telegram).at(-1)!, /I'll delete my copy of your API key\. The key itself stays on your Perpl profile until you remove it there\./);
   const noKey = harness({ link: { ...fake.service, hasKey: () => false } });
   await tapNav(noKey, { to: 'disconnect-ask' });
   const text = shown(noKey.telegram).at(-1)!;

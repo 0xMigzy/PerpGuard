@@ -78,7 +78,14 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
     try {
       if (mode === 'key') {
         // 🔗 ONE SIGNATURE: Perpl's typed data, signed by this wallet; the server does the rest.
-        const { typedData } = await link.walletKeyStart(address);
+        const started = await link.walletKeyStart(address);
+        // REUSED: PerpGuard already holds a working key for this account. Nothing created, nothing to sign.
+        if (started.result !== undefined) {
+          onKeyResult?.(started.result, started.me);
+          setStep('idle');
+          return;
+        }
+        const typedData = started.typedData;
         if (!isEthereumWallet(primaryWallet)) {
           setStep('idle');
           onProblem('This wallet can’t sign the request. Connect an Ethereum wallet, or paste an API key you already have.');

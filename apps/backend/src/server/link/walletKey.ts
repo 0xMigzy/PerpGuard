@@ -35,7 +35,9 @@ export interface WalletKeyDeps {
   readonly verify: (address: string, typedData: PerplKeyTypedData, signature: string) => Promise<boolean>;
   readonly service: {
     proveWallet(identity: TelegramIdentity, wallets: readonly string[]): Promise<WalletProof>;
-    proveKey(identity: TelegramIdentity, credentials: { readonly apiKey: string; readonly secretHex: string }, provenAccountId: number | undefined): Promise<KeyProof>;
+    proveKey(identity: TelegramIdentity, credentials: { readonly apiKey: string; readonly secretHex: string }, provenAccountId: number | undefined, options?: { readonly perplLabel?: string }): Promise<KeyProof>;
+    /** The key already sealed for this person, opened; undefined when there is none or it cannot be opened. */
+    storedCredentials(userId: string): { readonly apiKey: string; readonly secretHex: string } | undefined;
   };
   readonly log: (line: string) => void;
   readonly now?: () => number;
@@ -43,7 +45,11 @@ export interface WalletKeyDeps {
 
 export type WalletKeyRefusal = 'off' | 'bad-address' | 'expired' | 'bad-signature' | 'no-profile' | 'key-limit' | 'already-enrolled' | 'failed';
 
-export type WalletKeyStart = { readonly kind: 'sign'; readonly typedData: PerplKeyTypedData } | { readonly kind: 'refused'; readonly reason: WalletKeyRefusal; readonly text: string };
+export type WalletKeyStart =
+  | { readonly kind: 'sign'; readonly typedData: PerplKeyTypedData }
+  /** REUSED: the key PerpGuard already holds still signs in for this wallet's account. Nothing was created. */
+  | { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined; readonly text: string; readonly reused: true }
+  | { readonly kind: 'refused'; readonly reason: WalletKeyRefusal; readonly text: string };
 
 export type WalletKeyFinish =
   | { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined; readonly text: string }
@@ -55,11 +61,17 @@ interface Pending {
   readonly secretHex: string;
   readonly typedData: PerplKeyTypedData;
   readonly mac: string;
+  readonly label: string;
   readonly atMs: number;
 }
 
 const HOLD_MS = 5 * 60_000;
-export const WALLET_KEY_LABEL = 'PerpGuard';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** The label a created key carries on the person's Perpl profile: `PerpGuard · 8 Oct 2026` (UTC), so it is easy to find and remove. */
+export function walletKeyLabel(nowMs: number): string {
+  const d = new Date(nowMs);
+  return `PerpGuard · ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
 
 export class WalletKeyFlow {
   readonly #d: WalletKeyDeps;
@@ -107,14 +119,22 @@ export class WalletKeyFlow {
     return { kind: 'refused' as K, reason, text: this.text(reason) };
   }
 
-  async start(sessionKey: string, address: string): Promise<WalletKeyStart> {
+  async start(sessionKey: string, identity: TelegramIdentity, address: string): Promise<WalletKeyStart> {
     if (!this.enabled()) return this.#refuse('off');
     if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return this.#refuse('bad-address');
     this.#sweep();
+
+    // REUSE BEFORE CREATING (owner, 8 Oct 2026): every created key stays on the person's Perpl profile
+    // (Perpl has no API to revoke one) and a profile holds at most 16. If PerpGuard already holds a key for
+    // this person that still signs in, and this wallet owns that key's account, connect with it.
+    const reused = await this.#reuse(identity, address);
+    if (reused !== undefined) return reused;
+
+    const label = walletKeyLabel(this.#now());
     const pair = newPerplKeyPair();
     let payload;
     try {
-      payload = await requestKeyPayload(this.#d.post, this.#d.restBaseUrl, { chainId: this.#d.chainId, address, publicKeyHex: pair.publicKeyHex, label: WALLET_KEY_LABEL });
+      payload = await requestKeyPayload(this.#d.post, this.#d.restBaseUrl, { chainId: this.#d.chainId, address, publicKeyHex: pair.publicKeyHex, label });
     } catch (error) {
       this.#d.log(`wallet-key: payload for ${address} did not answer (${error instanceof Error ? error.message : String(error)})`);
       return this.#refuse('failed');
@@ -123,7 +143,7 @@ export class WalletKeyFlow {
       this.#d.log(`wallet-key: Perpl refused the payload for ${address}: ${payload.status} ${payload.detail}`);
       return this.#refuse('failed');
     }
-    this.#pending.set(sessionKey, { address, privateKey: pair.privateKey, secretHex: pair.secretHex, typedData: payload.typedData, mac: payload.mac, atMs: this.#now() });
+    this.#pending.set(sessionKey, { address, privateKey: pair.privateKey, secretHex: pair.secretHex, typedData: payload.typedData, mac: payload.mac, label, atMs: this.#now() });
     this.#d.log(`wallet-key: payload issued for ${address}`);
     return { kind: 'sign', typedData: payload.typedData };
   }
@@ -179,16 +199,46 @@ export class WalletKeyFlow {
     const proven = ownership.kind === 'proven-needs-key' ? ownership.accountId : undefined;
 
     // THE KEY GOES THROUGH THE EXISTING PATH: sign in, seal, link, tell the chat. Nothing about storage is new.
-    const keyed = await this.#d.service.proveKey(identity, { apiKey: enrolled.apiKey, secretHex: p.secretHex }, proven);
+    const keyed = await this.#d.service.proveKey(identity, { apiKey: enrolled.apiKey, secretHex: p.secretHex }, proven, { perplLabel: p.label });
     if (keyed.kind !== 'linked') {
       this.#d.log(`wallet-key: the new key for ${p.address} did not link: ${keyed.reason}`);
       return { kind: 'refused', reason: 'not-linked', text: keyed.reason };
     }
-    const forwarding =
-      keyed.forwardingAllowed === false
-        ? ` One thing left: order forwarding is off for this account, so PerpGuard can’t place orders yet. Turn on One-Click Trading in Perpl’s settings at ${this.#site()}, with this wallet. PerpGuard won’t do it for you.`
-        : '';
+    const forwarding = this.#forwarding(keyed.forwardingAllowed);
     return { kind: 'linked', accountId: keyed.accountId, forwardingAllowed: keyed.forwardingAllowed, text: `Connected to Perpl account #${keyed.accountId}. The key was created for you; there’s nothing to copy or save.${forwarding}` };
+  }
+
+  /**
+   * The key PerpGuard already holds, if it still signs in for the account THIS wallet owns. Undefined
+   * otherwise (none stored, revoked, or for another account): then a new key is created, never a failure.
+   */
+  async #reuse(identity: TelegramIdentity, address: string): Promise<WalletKeyStart | undefined> {
+    const stored = this.#d.service.storedCredentials(identity.userId);
+    if (stored === undefined) return undefined;
+    // Which account this wallet owns, by the same lookup a signed challenge takes. An env-account owner links at once.
+    const ownership = await this.#d.service.proveWallet(identity, [address]);
+    if (ownership.kind === 'linked') return { kind: 'linked', accountId: ownership.accountId, forwardingAllowed: undefined, text: `Connected to Perpl account #${ownership.accountId}.`, reused: true };
+    if (ownership.kind !== 'proven-needs-key') return undefined;
+    // proveKey signs in first: a key that no longer works, or works for another account, is refused here, and a new one follows.
+    const keyed = await this.#d.service.proveKey(identity, stored, ownership.accountId);
+    if (keyed.kind !== 'linked') {
+      this.#d.log(`wallet-key: ${identity.userId}'s stored key cannot be reused (${keyed.reason}); creating a new one`);
+      return undefined;
+    }
+    this.#d.log(`wallet-key: ${identity.userId} reconnected account ${keyed.accountId} with the key PerpGuard already holds; nothing created`);
+    return {
+      kind: 'linked',
+      accountId: keyed.accountId,
+      forwardingAllowed: keyed.forwardingAllowed,
+      text: `Connected to Perpl account #${keyed.accountId} with the key PerpGuard already holds for it. Nothing new was created.${this.#forwarding(keyed.forwardingAllowed)}`,
+      reused: true,
+    };
+  }
+
+  #forwarding(allowed: boolean | undefined): string {
+    return allowed === false
+      ? ` One thing left: order forwarding is off for this account, so PerpGuard can’t place orders yet. Turn on One-Click Trading in Perpl’s settings at ${this.#site()}, with this wallet. PerpGuard won’t do it for you.`
+      : '';
   }
 
   #sweep(): void {

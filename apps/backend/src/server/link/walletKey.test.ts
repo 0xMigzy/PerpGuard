@@ -57,10 +57,10 @@ function fakePerpl(enrollAnswer: (popOk: boolean) => { status: number; body: unk
   return { post, calls };
 }
 
-function rig(options: { on?: boolean; enroll?: (popOk: boolean) => { status: number; body: unknown }; forwarding?: boolean; ownership?: 'proven' | 'none' } = {}) {
+function rig(options: { on?: boolean; enroll?: (popOk: boolean) => { status: number; body: unknown }; forwarding?: boolean; ownership?: 'proven' | 'none'; stored?: { apiKey: string; secretHex: string; signsInAs: number | 'revoked' } } = {}) {
   const flags = new InMemoryFeatureFlags(options.on === false ? [] : ['wallet-key']);
   const perpl = fakePerpl(options.enroll ?? ((ok) => (ok ? { status: 200, body: { api_key: { api_key: 'tok-abc' } } } : { status: 400, body: 'bad pop' })));
-  const keyCalls: Array<{ apiKey: string; secretHex: string; proven: number | undefined }> = [];
+  const keyCalls: Array<{ apiKey: string; secretHex: string; proven: number | undefined; label: string | undefined }> = [];
   const logs: string[] = [];
   let t = 1_000_000;
   const flow = new WalletKeyFlow({
@@ -72,10 +72,16 @@ function rig(options: { on?: boolean; enroll?: (popOk: boolean) => { status: num
     verify: (address, td, signature) => verifyTypedData({ address: address as `0x${string}`, signature: signature as `0x${string}`, ...viemTypedData(td) } as never),
     service: {
       proveWallet: async (_id, wallets) => (options.ownership === 'none' ? { kind: 'refused', reason: 'owns nothing' } : { kind: 'proven-needs-key', accountId: 24, reason: 'needs a key', address: wallets[0]! } as never),
-      proveKey: async (_id, creds, proven) => {
-        keyCalls.push({ apiKey: creds.apiKey, secretHex: creds.secretHex, proven });
+      proveKey: async (_id, creds, proven, opts) => {
+        keyCalls.push({ apiKey: creds.apiKey, secretHex: creds.secretHex, proven, label: opts?.perplLabel });
+        // The stored key behaves as the test says: revoked, or signing in as some account.
+        if (options.stored !== undefined && creds.apiKey === options.stored.apiKey) {
+          if (options.stored.signsInAs === 'revoked') return { kind: 'refused', reason: 'Perpl didn’t accept that key.' };
+          if (proven !== undefined && options.stored.signsInAs !== proven) return { kind: 'refused', reason: `That key is for account #${options.stored.signsInAs}, but your wallet owns account #${proven}.` };
+        }
         return { kind: 'linked', accountId: 24, forwardingAllowed: options.forwarding ?? true };
       },
+      storedCredentials: () => (options.stored === undefined ? undefined : { apiKey: options.stored.apiKey, secretHex: options.stored.secretHex }),
     },
     log: (l) => logs.push(l),
     now: () => t,
@@ -89,7 +95,7 @@ const sign = (w: ReturnType<typeof wallet>, td: PerplKeyTypedData) => w.signType
 test('ONE SIGNATURE: the wallet signs Perpl’s typed data, the key proves possession, Perpl enrols it, and it goes through the EXISTING seal-and-link path', async () => {
   const r = rig();
   const w = wallet();
-  const started = await r.flow.start('session-1', w.address);
+  const started = await r.flow.start('session-1', ID, w.address);
   assert.equal(started.kind, 'sign');
   const typed = (started as { typedData: PerplKeyTypedData }).typedData;
   assert.equal(typed.message['signer'], w.address, 'the payload is for the connected wallet');
@@ -109,7 +115,7 @@ test('ONE SIGNATURE: the wallet signs Perpl’s typed data, the key proves posse
 test('FORWARDING OFF IS SAID IN WORDS, with where to turn it on, and nothing is attempted for them', async () => {
   const r = rig({ forwarding: false });
   const w = wallet();
-  const typed = ((await r.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+  const typed = ((await r.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
   const done = await r.flow.finish('s', ID, await sign(w, typed));
   assert.match(done.text, /order forwarding is off for this account, so PerpGuard can’t place orders yet\. Turn on One-Click Trading in Perpl’s settings at testnet\.perpl\.xyz, with this wallet\. PerpGuard won’t do it for you\./);
   assert.deepEqual(r.perpl.calls.map((c) => c.path), ['/v1/api-key/payload', '/v1/api-key/enroll'], 'no transaction, no other call');
@@ -125,7 +131,7 @@ test('THE OWNER’S WORDING: no profile, the key limit, already enrolled, anythi
   for (const [status, words] of cases) {
     const r = rig({ enroll: () => ({ status, body: 'x' }) });
     const w = wallet();
-    const typed = ((await r.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+    const typed = ((await r.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
     const done = await r.flow.finish('s', ID, await sign(w, typed));
     assert.equal(done.kind, 'refused');
     assert.match(done.text, words, String(status));
@@ -137,7 +143,7 @@ test('THE OWNER’S WORDING: no profile, the key limit, already enrolled, anythi
 test('A SIGNATURE FROM ANOTHER WALLET never reaches Perpl; a finish runs once; a request older than five minutes has expired', async () => {
   const r = rig();
   const w = wallet();
-  const typed = ((await r.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+  const typed = ((await r.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
   const forged = await sign(wallet(), typed);
   const bad = await r.flow.finish('s', ID, forged);
   assert.equal(bad.kind === 'refused' && bad.reason, 'bad-signature');
@@ -146,7 +152,7 @@ test('A SIGNATURE FROM ANOTHER WALLET never reaches Perpl; a finish runs once; a
   assert.equal(again.kind === 'refused' && again.reason, 'expired', 'the pending request was spent by the first finish');
 
   const late = rig();
-  const typed2 = ((await late.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+  const typed2 = ((await late.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
   late.advance(5 * 60_000 + 1);
   const expired = await late.flow.finish('s', ID, await sign(w, typed2));
   assert.equal(expired.kind === 'refused' && expired.reason, 'expired');
@@ -154,14 +160,14 @@ test('A SIGNATURE FROM ANOTHER WALLET never reaches Perpl; a finish runs once; a
 
 test('THE SWITCH: off, both steps refuse and point at pasting a key; turned off between start and finish, nothing is enrolled', async () => {
   const off = rig({ on: false });
-  const s = await off.flow.start('s', wallet().address);
+  const s = await off.flow.start('s', ID, wallet().address);
   assert.equal(s.kind === 'refused' && s.reason, 'off');
   assert.match(s.kind === 'refused' ? s.text : '', /Paste an API key you already have instead/);
   assert.equal(off.perpl.calls.length, 0, 'Perpl is never asked while it is off');
 
   const r = rig();
   const w = wallet();
-  const typed = ((await r.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+  const typed = ((await r.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
   r.flags.set('wallet-key', false);
   const done = await r.flow.finish('s', ID, await sign(w, typed));
   assert.equal(done.kind === 'refused' && done.reason, 'off');
@@ -171,8 +177,51 @@ test('THE SWITCH: off, both steps refuse and point at pasting a key; turned off 
 test('a wallet the Exchange does not list as owner (an operator) still links by the key Perpl issued it', async () => {
   const r = rig({ ownership: 'none' });
   const w = wallet();
-  const typed = ((await r.flow.start('s', w.address)) as { typedData: PerplKeyTypedData }).typedData;
+  const typed = ((await r.flow.start('s', ID, w.address)) as { typedData: PerplKeyTypedData }).typedData;
   const done = await r.flow.finish('s', ID, await sign(w, typed));
   assert.equal(done.kind, 'linked');
   assert.equal(r.keyCalls[0]!.proven, undefined);
+});
+
+
+const STORED = { apiKey: 'stored-token-0123456789', secretHex: 'cd'.repeat(32) };
+
+test('REUSE: a key PerpGuard already holds that still signs in for this wallet\u2019s account is used; nothing is created, Perpl is never asked', async () => {
+  const r = rig({ stored: { ...STORED, signsInAs: 24 } });
+  const started = await r.flow.start('s', ID, wallet().address);
+  assert.equal(started.kind, 'linked');
+  assert.equal(started.kind === 'linked' && started.reused, true);
+  assert.match(started.kind === 'linked' ? started.text : '', /with the key PerpGuard already holds for it\. Nothing new was created\./);
+  assert.deepEqual(r.perpl.calls, [], 'no payload, no enrolment');
+  assert.deepEqual(r.keyCalls.map((k) => k.apiKey), [STORED.apiKey], 'the stored key, signed in through proveKey');
+  assert.equal(r.keyCalls[0]!.label, undefined, 'its record is not relabelled');
+});
+
+test('REUSE FAILS SAFE: a stored key that no longer signs in (revoked) means a NEW key is created, never a failure', async () => {
+  const r = rig({ stored: { ...STORED, signsInAs: 'revoked' } });
+  const w = wallet();
+  const started = await r.flow.start('s', ID, w.address);
+  assert.equal(started.kind, 'sign', 'on to creating a new key');
+  const done = await r.flow.finish('s', ID, await sign(w, (started as { typedData: PerplKeyTypedData }).typedData));
+  assert.equal(done.kind, 'linked');
+  assert.deepEqual(r.perpl.calls.map((c) => c.path), ['/v1/api-key/payload', '/v1/api-key/enroll']);
+  assert.deepEqual(r.keyCalls.map((k) => k.apiKey), [STORED.apiKey, 'tok-abc'], 'tried the stored key, then sealed the new one');
+});
+
+test('REUSE ONLY FOR THIS WALLET\u2019S ACCOUNT: a stored key for another account is not used; a new key is created', async () => {
+  const r = rig({ stored: { ...STORED, signsInAs: 999 } });
+  const started = await r.flow.start('s', ID, wallet().address);
+  assert.equal(started.kind, 'sign');
+  assert.equal(r.perpl.calls[0]!.path, '/v1/api-key/payload');
+});
+
+test('A CREATED KEY IS LABELLED "PerpGuard · 8 Oct 2026" on Perpl, and the label is kept with the sealed key for Disconnect to name', async () => {
+  const { walletKeyLabel } = await import('./walletKey.ts');
+  assert.equal(walletKeyLabel(Date.UTC(2026, 9, 8, 23, 59)), 'PerpGuard · 8 Oct 2026');
+  const r = rig();
+  const w = wallet();
+  const started = await r.flow.start('s', ID, w.address);
+  assert.equal(r.perpl.calls[0]!.body['label'], walletKeyLabel(1_000_000), 'the label sent to Perpl');
+  await r.flow.finish('s', ID, await sign(w, (started as { typedData: PerplKeyTypedData }).typedData));
+  assert.equal(r.keyCalls[0]!.label, walletKeyLabel(1_000_000), 'and stored with the key');
 });

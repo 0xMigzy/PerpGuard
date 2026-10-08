@@ -984,6 +984,8 @@ const linkService = new LinkService({
   envAccountId,
   webUrl: PUBLIC_WEB_URL,
   network: network.name,
+  // Where a person revokes a key on Perpl (testnet.perpl.xyz): Disconnect names it, since only our copy is deleted.
+  perplSite: new URL(network.restBaseUrl).hostname,
   ...(bot === undefined ? {} : { notify: async (chatId, text) => { await bot.api.sendMessage(chatId, text); } }),
   logger: { info: log, warn },
 });

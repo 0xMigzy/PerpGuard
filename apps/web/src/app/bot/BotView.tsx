@@ -103,7 +103,7 @@ const SECURITY: readonly { readonly title: string; readonly points: readonly str
       'Linking uses a one-time code and an HTTPS verification page.',
       'Proving you own a wallet is separate from authorising trades with an API key.',
       'An API key can authorise trading but can never withdraw or transfer funds.',
-      'Disconnecting removes the account link and the stored API key.',
+      'Disconnecting removes the account link and PerpGuard’s copy of the API key. The key itself stays on your Perpl profile until you remove it there.',
     ],
   },
   {
