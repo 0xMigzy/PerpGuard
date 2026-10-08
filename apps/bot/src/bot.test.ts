@@ -1315,7 +1315,7 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   await tapNav(h, { to: 'account' });
   const account = lastScreen(h.telegram);
   assert.match(String(account.payload['text']), new RegExp(`🔗 ${h.view.network} #710\nExecution: 🟢 Authorized\nConnected `));
-  assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect #710', '← Back']);
+  assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect #710', '📖 Setup guide', '← Back']);
   await tapNav(h, { to: 'disconnect-ask' });
   assert.match(shown(h.telegram).at(-1)!, /^testnet\n🔌 <b>Disconnect #710\?<\/b>\nYou'll stop getting its alerts here\.\nI'll delete the API key you gave me\./);
   assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect #710', 'Cancel']);
@@ -1514,7 +1514,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
     if (key !== 'home') assert.ok(screen.routes.length > 0, `${key} has no way on or back`);
     // Only routes the site has: its home, and a trader's page by account id.
-    for (const url of screen.urls) assert.match(url, /^https:\/\/perpguard\.example(\/traders\/\d+)?$/, `${key} links somewhere invented: ${url}`);
+    for (const url of screen.urls) assert.match(url, /^https:\/\/perpguard\.example(\/traders\/\d+|\/bot\/guide)?$/, `${key} links somewhere invented: ${url}`);
   }
   // Home, connected: the account in four lines, the network said once.
   const home = seen.get('home')!;
@@ -1535,7 +1535,7 @@ test('PHASE 7: a STRANGER reaches only the public screens, and the Trading accou
   assert.deepEqual(home.labels, ['👁 Watch & Alerts', '🔐 Trading account']);
   const account = seen.get(JSON.stringify({ to: 'account' }))!;
   assert.match(account.html, /No account connected\.\n\nConnect your Perpl account and I can warn you before a position is liquidated, and add margin the moment you tap\.\n\nA Perpl key can trade but can never withdraw or move your funds\./);
-  assert.deepEqual(account.labels, ['🔗 Connect wallet', '🔑 Enter API key', '← Back']);
+  assert.deepEqual(account.labels, ['🔗 Connect wallet', '🔑 Enter API key', '📖 Setup guide', '← Back']);
   assert.equal(answers(h.telegram).filter((t) => t === REFUSAL_TEXT).length, 0, 'no public screen leads to a refusal');
 });
 
@@ -1647,7 +1647,7 @@ test('TRADING ACCOUNT: the account and its network once, the execution state, an
   await tapNav(h, { to: 'account' });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /^🔐 <b>TRADING ACCOUNT<\/b>\n🔗 testnet #710\nExecution: 🟢 Authorized\nConnected \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}$/);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔌 Disconnect #710', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔌 Disconnect #710', '📖 Setup guide', '← Back']);
   // Not authorized is never dressed as authorized.
   const off = harness();
   off.sessionStatus = { trading: { state: 'signed-in', forwardingAllowed: false } };
@@ -1665,7 +1665,7 @@ test('PHASE 13: a link made on another network is refused BY NAME, and the Tradi
   await tapNav(h, { to: 'account' });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /Execution: 🔴 Linked on mainnet, not testnet/);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter a new API key', '🔌 Disconnect #710', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter a new API key', '🔌 Disconnect #710', '📖 Setup guide', '← Back']);
 });
 
 test('PHASE 13: a wallet that proved an account but sent no key is told what is missing, with the way to add the key', async () => {
@@ -1674,7 +1674,7 @@ test('PHASE 13: a wallet that proved an account but sent no key is told what is 
   await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /Your wallet <code>0x169e…5251<\/code> owns testnet #900\.\nTo add margin for you I also need an API key for it\. Enter it on the page, never here\./);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter API key', '🔌 Disconnect #900', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter API key', '🔌 Disconnect #900', '📖 Setup guide', '← Back']);
 });
 
 test('DISCONNECT, WALLET ONLY: a proof with no link can be undone from the bot, and the ask says no key is held', async () => {
@@ -2245,4 +2245,15 @@ test('THE ALERT: Dismiss takes the buttons off and sends nothing', async () => {
   assert.equal(answers(h.telegram).at(-1), 'Dismissed. Nothing was sent.');
   assert.ok(h.telegram.of('editMessageReplyMarkup').length >= 1);
   assert.equal(h.executor.calls.length, 0);
+});
+
+test('📖 SETUP GUIDE: /help and every Trading account screen link to the site’s guide, as a link, never a callback', async () => {
+  const h = harness();
+  await h.bot.handleUpdate(messageUpdate('/help'));
+  const help = h.telegram.last('sendMessage');
+  const helpKeys = (help.payload['reply_markup'] as { inline_keyboard: Array<Array<{ text: string; url?: string; callback_data?: string }>> }).inline_keyboard.flat();
+  assert.deepEqual(helpKeys, [{ text: '📖 Setup guide', url: 'https://perpguard.example/bot/guide' }]);
+  await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
+  const keys = (lastScreen(h.telegram).payload['reply_markup'] as { inline_keyboard: Array<Array<{ text: string; url?: string }>> }).inline_keyboard.flat();
+  assert.deepEqual(keys.find((k) => k.text === '📖 Setup guide'), { text: '📖 Setup guide', url: 'https://perpguard.example/bot/guide' });
 });

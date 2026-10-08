@@ -577,6 +577,12 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   not public even though account ids are. The full report goes only to a
   request made on the box (`curl localhost:8080/health`). The code is the
   same either way, so monitors are unaffected.
+- THE SETUP GUIDE IS /bot/guide (8 Oct 2026, owner's wording): static, no
+  fetch, single column ~720px, a print stylesheet scoped to `[data-guide]`
+  (Cmd+P gives a light PDF). Linked from the /bot card, /help and every
+  🔐 Trading account screen (📖 Setup guide, a URL button). Its link step
+  names the real flow: 🔐 Trading account -> 🔑 Enter API key ->
+  `https://perpguard.app/link?code=XXXX-XXXX` (+`&via=key`), one use, 5 min.
 - EVERY REQUEST IS ONE LOG LINE (8 Oct 2026, `server/requestLog.ts`):
   `http GET /api/analytics/copy/2399?size=1000 200 21ms` in
   `/var/log/perpguard/backend.log`. A query string survives only on

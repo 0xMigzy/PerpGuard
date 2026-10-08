@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { ALERT_EXAMPLE, BOT_HANDLE, BOT_URL, TESTNET_GUIDE_URL } from '@/lib/botPreview.ts';
@@ -202,9 +203,9 @@ export function BotView() {
         {TESTNET_GUIDE_URL === undefined ? (
           <span className="chip flex-none self-start sm:self-center">Coming soon</span>
         ) : (
-          <a className="btn flex-none self-start sm:self-center" href={TESTNET_GUIDE_URL} target="_blank" rel="noopener noreferrer">
-            Read the guide
-          </a>
+          <Link href={TESTNET_GUIDE_URL} className="flex-none self-start text-[14px] font-semibold text-accent-hi underline decoration-border2 underline-offset-4 hover:text-text sm:self-center">
+            Read the guide →
+          </Link>
         )}
       </section>
 

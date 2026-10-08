@@ -13,11 +13,8 @@
 export const BOT_HANDLE = '@PerpGuardBot';
 export const BOT_URL = 'https://t.me/PerpGuardBot';
 
-/**
- * The testnet setup guide. Not written yet: undefined renders "Coming soon"
- * and no link. Set the URL here when the guide exists.
- */
-export const TESTNET_GUIDE_URL: string | undefined = undefined;
+/** The testnet setup guide (apps/web/src/app/bot/guide). Undefined would render "Coming soon" and no link. */
+export const TESTNET_GUIDE_URL: string | undefined = '/bot/guide';
 
 /** The manual alert at the account's alert distance, for a BTC long 2.7% from liquidation. */
 export const ALERT_EXAMPLE = {

@@ -269,6 +269,8 @@ export interface AccountScreenInput {
   readonly linkedAtMs?: number | undefined;
   /** Not linked, but a wallet proved this account: execution waits for a key. */
   readonly proven?: { readonly accountId: number; readonly walletAddress: string };
+  /** The setup guide on the site (perpguard.app/bot/guide). Absent: no button. */
+  readonly guideUrl?: string | undefined;
 }
 
 const shortAddress = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -278,6 +280,9 @@ export function shortWhen(ms: number): string {
   const d = new Date(ms);
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
+
+/** 📖 Setup guide: a link to the site, never a callback. */
+const guideRow = (url: string | undefined): Button[][] => (url === undefined ? [] : [[{ text: '📖 Setup guide', url }]]);
 
 const CONNECT_BUTTONS: readonly (readonly Button[])[] = [
   [{ text: '🔗 Connect wallet', route: { to: 'connect-go' } }],
@@ -301,7 +306,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
         'To add margin for you I also need an API key for it. Enter it on the page, never here.',
       ].join('\n'),
       // A proof with no link is still something held for this person, so it can be undone from here.
-      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [{ text: `🔌 Disconnect #${p.accountId}`, route: { to: 'disconnect-ask' } }], [BACK_HOME]],
+      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [{ text: `🔌 Disconnect #${p.accountId}`, route: { to: 'disconnect-ask' } }], ...guideRow(input.guideUrl), [BACK_HOME]],
     };
   }
   if (input.accountId === undefined) {
@@ -315,7 +320,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
         '',
         'A Perpl key can trade but can never withdraw or move your funds.',
       ].join('\n'),
-      buttons: CONNECT_BUTTONS,
+      buttons: [...CONNECT_BUTTONS.slice(0, -1), ...guideRow(input.guideUrl), [BACK_HOME]],
     };
   }
   const e = input.execution;
@@ -333,6 +338,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
     buttons: [
       ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
       [{ text: `🔌 Disconnect #${input.accountId}`, route: { to: 'disconnect-ask' } }],
+      ...guideRow(input.guideUrl),
       [BACK_HOME],
     ],
   };

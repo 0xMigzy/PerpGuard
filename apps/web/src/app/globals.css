@@ -450,3 +450,36 @@ input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outl
     padding-right: 24px;
   }
 }
+
+/* ── the setup guide, printed (Cmd+P): a clean light page ──────────────────
+ * Scoped to the guide: only a page carrying [data-guide] prints this way. The
+ * site's header, tabs and footer are dropped; the dark tokens become ink on
+ * white; callouts keep a thin coloured rule so they still read as callouts. */
+@media print {
+  @page { margin: 16mm 14mm; }
+  :root:has([data-guide]) {
+    --color-page: #ffffff;
+    --color-card: #ffffff;
+    --color-card2: #f6f6f8;
+    --color-border: #d9d9e0;
+    --color-border2: #c9c9d2;
+    --color-text: #111114;
+    --color-text2: #26262c;
+    --color-muted: #55555e;
+    --color-muted2: #6b6b74;
+    --color-accent: #5a40f0;
+    --color-accent-hi: #4a32d6;
+  }
+  :root:has([data-guide]) body { background: #fff !important; color: #111114; }
+  :root:has([data-guide]) body > header,
+  :root:has([data-guide]) body > footer,
+  :root:has([data-guide]) body > nav { display: none !important; }
+  :root:has([data-guide]) main { padding-top: 0 !important; padding-bottom: 0 !important; max-width: none !important; }
+  [data-guide] { max-width: none !important; }
+  [data-guide] .card, [data-guide] .chip { box-shadow: none !important; background: #fff !important; }
+  [data-guide] .guide-callout { background: #fff !important; }
+  [data-guide] .guide-step, [data-guide] .guide-callout, [data-guide] .guide-table tr, [data-guide] .guide-checklist li { break-inside: avoid; }
+  [data-guide] h2, [data-guide] h3 { break-after: avoid; }
+  [data-guide] a { color: #4a32d6 !important; }
+  [data-guide] input[type="checkbox"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

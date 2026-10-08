@@ -493,6 +493,9 @@ export function createBot(deps: BotDeps): Bot {
     });
   };
 
+  /** The setup guide on the site, for /help and 🔐 Trading account. */
+  const guideUrl = deps.webUrl === undefined ? undefined : `${deps.webUrl.replace(/\/$/, '')}/bot/guide`;
+
   const tradingAccount = (chatId: number, telegramUserId: number): Screen => {
     const link = linkHere(telegramUserId, chatId);
     if (link === undefined) {
@@ -503,6 +506,7 @@ export function createBot(deps: BotDeps): Bot {
         network: deps.tradingNetwork,
         execution: undefined,
         ...(proven === undefined ? {} : { proven: { accountId: proven.accountId, walletAddress: proven.address } }),
+        guideUrl,
       });
     }
     const session = deps.sessions.forAccount(link.accountId);
@@ -511,6 +515,7 @@ export function createBot(deps: BotDeps): Bot {
       network: session?.view.network ?? deps.tradingNetwork,
       execution: executionFor(link),
       linkedAtMs: link.linkedAtMs,
+      guideUrl,
     });
   };
 
@@ -726,7 +731,7 @@ export function createBot(deps: BotDeps): Bot {
 
   // ── /help ─────────────────────────────────────────────────────────────────
   bot.command('help', async (ctx) => {
-    await ctx.reply(HELP_TEXT);
+    await ctx.reply(HELP_TEXT, guideUrl === undefined ? {} : { reply_markup: { inline_keyboard: [[{ text: '📖 Setup guide', url: guideUrl }]] } });
   });
 
   // ── plain text: an answer, a typed amount, or a paste ────────────────────
