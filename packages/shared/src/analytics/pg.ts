@@ -776,10 +776,14 @@ select "closedAt", "netPnlCNS"::text as pnl
  where trader_id = $1 and "openedAt" < $2 and status <> 'OPEN' and "closedAt" >= $2 and "closedAt" <= $3
  order by "closedAt"
 `;
+/** Opens in the window: a range on (trader_id, "openedAt"), 29 ms for #4848's 28,663. Decides a refusal on its own. */
 const COPY_COUNTS_SQL = `
-select (select count(*) from "Position" where trader_id = $1 and "openedAt" >= $2 and "openedAt" <= $3) as opened,
-       (select count(*) from "Position" where trader_id = $1 and "openedAt" < $2
-           and (status = 'OPEN' or "closedAt" >= $2)) as open_at_start
+select count(*) as opened from "Position" where trader_id = $1 and "openedAt" >= $2 and "openedAt" <= $3
+`;
+/** Positions open when the window began: reads every earlier position (0.69 s on #4848), so only for a replay that runs. */
+const COPY_OPEN_AT_START_SQL = `
+select count(*) as open_at_start from "Position" where trader_id = $1 and "openedAt" < $2
+   and (status = 'OPEN' or "closedAt" >= $2)
 `;
 const COPY_POSITIONS_SQL = `
 select p.id as key, p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
@@ -1632,13 +1636,18 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // Counted first: a leader with more opens than the cap is refused whole, so its rows are never read.
     const counts = await this.#one(COPY_COUNTS_SQL, [id, from, to]);
     const tooMany = count(counts?.['opened']) > cap;
-    const [books, start, fees, flows, before, rows] = await Promise.all([
+    // A REFUSAL READS NOTHING ELSE (8 Oct 2026): the replay is refused whole, so the leader's start
+    // equity, its earlier closes and what was open at the start are never needed. On #4848 (172,599
+    // positions) those three read every earlier position: 1.8 s of a 2.1 s refusal.
+    const none = Promise.resolve([] as Array<Record<string, unknown>>);
+    const [books, start, fees, flows, before, rows, atStart] = await Promise.all([
       this.#one(COPY_BOOKS_NOW_SQL, [id]),
-      this.#one(COPY_START_EQUITY_SQL, [id, from]),
+      tooMany ? Promise.resolve(undefined) : this.#one(COPY_START_EQUITY_SQL, [id, from]),
       this.#rows(COPY_FEES_SQL, [id, from, to]),
       this.#rows(COPY_FLOWS_SQL, [id, from, to]),
-      this.#rows(COPY_CLOSED_FROM_BEFORE_SQL, [id, from, to]),
-      tooMany ? Promise.resolve([]) : this.#rows(COPY_POSITIONS_SQL, [id, from, to, cap]),
+      tooMany ? none : this.#rows(COPY_CLOSED_FROM_BEFORE_SQL, [id, from, to]),
+      tooMany ? none : this.#rows(COPY_POSITIONS_SQL, [id, from, to, cap]),
+      tooMany ? Promise.resolve(undefined) : this.#one(COPY_OPEN_AT_START_SQL, [id, from]),
     ]);
     return {
       accountId,
@@ -1649,7 +1658,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       feesByDay: fees.map((r) => ({ atMs: Math.min(requireMs(r['ends']), window.toMs), feesCNS: bigintOrZero(r['fees']) })),
       flows: flows.map((r) => ({ atMs: requireMs(r['timestamp']), deltaCNS: r['kind'] === 'DEPOSIT' ? bigintOrZero(r['amount']) : -bigintOrZero(r['amount']) })),
       closedFromBefore: before.map((r) => ({ atMs: requireMs(r['closedAt']), netPnlCNS: bigintOrZero(r['pnl']) })),
-      openAtStart: count(counts?.['open_at_start']),
+      openAtStart: count(atStart?.['open_at_start']),
       openedInWindow: count(counts?.['opened']),
       now: { freeCNS: bigintOrZero(books?.['free']), openMarginCNS: bigintOrZero(books?.['open_margin']), openResultCNS: bigintOrZero(books?.['open_result']) },
       positions: rows.map((r): CopySourcePosition => {

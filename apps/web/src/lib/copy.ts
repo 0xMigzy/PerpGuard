@@ -29,7 +29,7 @@ export interface CopyTrade {
   readonly closedAtMs: number | null;
   readonly leader: { readonly size: string; readonly margin: string; readonly resultBeforeFees: string; readonly leverage: number | null };
   readonly copy:
-    | { readonly kind: 'copied'; readonly size: string; readonly margin: string; readonly fee: string; readonly result: string | null; readonly resultAusd: number | null; readonly estimate: boolean; readonly scale: number }
+    | { readonly kind: 'copied'; readonly size: string; readonly margin: string; readonly fee: string; readonly result: string | null; readonly resultAusd: number | null; readonly estimate: boolean; readonly scale: number; readonly affordScale: number | null }
     | { readonly kind: 'skipped'; readonly reason: SkipReason; readonly text: string };
 }
 

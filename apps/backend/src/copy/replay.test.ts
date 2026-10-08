@@ -87,16 +87,17 @@ test('2% -> 2%: a 1,000 AUSD follower of a 100,000 AUSD leader copies 1% of ever
   assert.equal(r.totals.wins, 1);
 });
 
-test('ONE NETWORK, MATCHED BY MARKET ID: SOL_v2 (31) in the index copies to SOL 31; a retired market the context no longer offers is skipped by name', () => {
+test('ONE NETWORK, MATCHED BY MARKET ID: SOL_v2 (31) copies to SOL 31; a market the context no longer lists is still copied, on the leader\'s size step and the highest listed fee', () => {
   const r = run(source([
     pos({ openedH: 1, closedH: 2, market: { marketId: 31, symbol: 'SOL', indexerName: 'SOL_v2' }, lotDecimals: 2, peakLotLNS: 50_000n, entryPricePNS: 2_000n, priceDecimals: 1, peakMarginCNS: 10_000n * AUSD }),
-    pos({ openedH: 1, closedH: 2, market: { marketId: 30, symbol: 'SOL', indexerName: 'SOL' } }),
-    pos({ openedH: 1, closedH: 2, market: { marketId: 30, symbol: 'SOL', indexerName: 'SOL' } }),
-  ]));
+    pos({ openedH: 3, closedH: 4, market: { marketId: 30, symbol: 'SOL', indexerName: 'SOL' }, lotDecimals: 2, peakLotLNS: 50_000n, entryPricePNS: 2_000n, priceDecimals: 1, peakMarginCNS: 10_000n * AUSD }),
+  ]), { actingMarkets: [ACTING[0]!, { ...ACTING[1]!, takerFeeMicros: 300 }] });
   assert.equal(copied(r.trades[0]!).actingMarketId, 31);
-  assert.deepEqual(r.trades.slice(1).map((t) => t.copy.kind === 'skipped' && t.copy.text), ['SOL is not open for trading on Perpl today, so a copy could not be opened.', 'SOL is not open for trading on Perpl today, so a copy could not be opened.'], 'same ticker, retired id: never copied onto SOL 31');
-  assert.equal(r.totals.skippedBy['not-listed'], 2);
-  assert.doesNotMatch(r.trades.map((t) => (t.copy.kind === 'skipped' ? t.copy.text : '')).join(' '), /testnet/);
+  const retired = copied(r.trades[1]!);
+  assert.equal(retired.actingMarketId, 30, 'never moved onto SOL 31');
+  assert.equal(retired.sizeDecimals, 2, 'the leader\'s own size step');
+  assert.ok(retired.feeCNS > 0n, 'charged the highest listed fee, never free');
+  assert.equal(r.totals.skipped, 0);
 });
 
 test('a copy that rounds to nothing at the follower\'s size is skipped as too small, never rounded up', () => {
@@ -108,20 +109,21 @@ test('a copy that rounds to nothing at the follower\'s size is skipped as too sm
   assert.match(t.kind === 'skipped' ? t.text : '', /under 0\.00001 BTC/);
 });
 
-test('THE FREE BALANCE MOVES THROUGH TIME: a copy that cannot be covered while another is open is skipped; once that one closes, the next is copied', () => {
-  // Each copy needs 600 AUSD (1% of 60,000): the second opens while the first is open.
+test('AFFORDABILITY SCALES, NEVER SKIPS: a copy the free balance cannot fully cover is cut to what it covers, and says by how much', () => {
+  // Each copy needs 600 AUSD (1% of 60,000): the second opens while the first is open, with 400 free.
   const big = { peakMarginCNS: 60_000n * AUSD };
   const r = run(source([
     pos({ openedH: 1, closedH: 10, ...big }),
     pos({ openedH: 2, closedH: 3, ...big }),
     pos({ openedH: 10, closedH: 12, ...big }),
   ]));
-  copied(r.trades[0]!);
-  const second = r.trades[1]!.copy;
-  assert.equal(second.kind === 'skipped' && second.reason, 'no-balance');
-  assert.match(second.kind === 'skipped' ? second.text : '', /needed 600\.00 AUSD of margin; your free balance was 400\.00 AUSD/);
-  copied(r.trades[2]!); // the first closed at hour 10, the same instant: freed first
-  assert.equal(r.totals.lowestFreeCNS, 400n * AUSD);
+  assert.equal(copied(r.trades[0]!).affordScale, undefined, 'a full copy carries no cut');
+  const second = copied(r.trades[1]!);
+  assert.ok(second.affordScale !== undefined && second.affordScale > 0.66 && second.affordScale <= 0.6667, `cut to two thirds, got ${second.affordScale}`);
+  assert.ok(second.marginCNS <= 400n * AUSD, 'never more margin than the free balance held');
+  assert.equal(second.sizeUnits, 1_333n, '0.02 BTC × 400/600, rounded down');
+  assert.equal(copied(r.trades[2]!).affordScale, undefined, 'the first closed at hour 10, the same instant: freed first');
+  assert.equal(r.totals.skipped, 0);
 });
 
 test('a deposit by the leader halves the copy\'s proportion for every open after it', () => {
@@ -169,12 +171,10 @@ test('a position still open is valued at the current mark, marked as an estimate
   assert.equal(copied(blind.trades[0]!).resultCNS, undefined, 'no mark: no figure, never zero');
 });
 
-test('a leverage above the acting market\'s maximum is skipped and says both figures', () => {
-  // SOL here allows 20x; this one ran 25x.
+test('NO LEVERAGE CHECK: the leader\'s leverage was allowed on the network it used, so a 25x position is copied', () => {
   const r = run(source([pos({ openedH: 1, closedH: 2, market: { marketId: 31, symbol: 'SOL', indexerName: 'SOL_v2' }, lotDecimals: 2, peakLotLNS: 50_000n, entryPricePNS: 2_000n, peakMarginCNS: 4_000n * AUSD })]));
-  const t = r.trades[0]!.copy;
-  assert.equal(t.kind === 'skipped' && t.reason, 'leverage');
-  assert.match(t.kind === 'skipped' ? t.text : '', /^25\.0x is above Perpl's 20x maximum on SOL\./);
+  assert.equal(r.trades[0]!.copy.kind, 'copied');
+  assert.equal(r.totals.skippedBy['leverage'], undefined);
 });
 
 test('positions already open when the window began are counted as skipped, never copied', () => {

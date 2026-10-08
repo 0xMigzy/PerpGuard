@@ -51,7 +51,7 @@ test('a replay at the default size: 30 days back from now, money as text rounded
   assert.equal(body.result.kind, 'replayed');
   assert.equal(body.result.followerStart, '1,000.00 AUSD');
   assert.equal(body.result.totals.closedResult, '−50.00 AUSD');
-  assert.deepEqual(body.result.trades[0].copy, { kind: 'copied', size: '0.02', margin: '200.00 AUSD', fee: '0.00 AUSD', result: '−50.00 AUSD', resultAusd: -50, estimate: false, scale: 0.01 });
+  assert.deepEqual(body.result.trades[0].copy, { kind: 'copied', size: '0.02', margin: '200.00 AUSD', fee: '0.00 AUSD', result: '−50.00 AUSD', resultAusd: -50, estimate: false, scale: 0.01, affordScale: null });
   assert.equal(body.result.trades[0].leader.resultBeforeFees, '−5,000.00 AUSD');
 });
 

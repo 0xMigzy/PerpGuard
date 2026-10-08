@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api.ts';
-import { COPY_SIZE_MAX, COPY_SIZE_MIN, SKIP_LABEL, copyHref, filterTrades, parseCopyDays, parseCopySize, type CopyFilter, type CopyReplayed, type SkipReason } from '@/lib/copy.ts';
+import { COPY_SIZE_MAX, COPY_SIZE_MIN, copyHref, parseCopyDays, parseCopySize, type CopyReplayed } from '@/lib/copy.ts';
 import { formatCount, formatDay, formatDayLong, formatMoney, formatWhen } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -92,10 +92,9 @@ export function CopyView({ accountId }: { readonly accountId: number }) {
 }
 
 function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days: number; readonly ageMs: number }) {
-  const [filter, setFilter] = useState<CopyFilter>('all');
   const [shown, setShown] = useState(PAGE);
   const t = r.totals;
-  const rows = filterTrades(r.trades, filter);
+  const rows = r.trades;
   const span = `${formatDayLong(r.fromMs)} to ${formatDayLong(r.toMs)}`;
   // The line runs to today: the account holds its last figure until the next close.
   const last = r.curve.at(-1);
@@ -155,32 +154,8 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
         </div>
       </div>
 
-      {t.skipped > 0 && (
-        <div className="card mb-4 px-[18px] py-4">
-          <div className="mb-2 font-semibold">Skipped: {formatCount(t.skipped)}</div>
-          <ul className="m-0 list-none p-0 text-[13px]">
-            {(Object.entries(t.skippedBy) as Array<[SkipReason, number]>).map(([reason, n]) => (
-              <li key={reason} className="flex justify-between gap-4 border-t border-border py-[6px] first:border-t-0">
-                <span>
-                  {SKIP_LABEL[reason]}
-                  {reason === 'not-listed' && <span className="text-muted">: {t.notListed.map((x) => `${x.symbol} ×${x.count}`).join(', ')}</span>}
-                </span>
-                <span className="num">{formatCount(n)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div className="font-semibold">Every position #{r.accountId} opened, and what the copy did</div>
-        <div className="flex gap-1" role="group" aria-label="Show">
-          {(['all', 'copied', 'skipped'] as const).map((f) => (
-            <button key={f} type="button" className={`seg ${filter === f ? 'on' : ''}`} aria-pressed={filter === f} onClick={() => { setFilter(f); setShown(PAGE); }}>
-              {f === 'all' ? 'All' : f === 'copied' ? 'Copied' : 'Skipped'}
-            </button>
-          ))}
-        </div>
       </div>
       <div className="card mb-4 overflow-x-auto">
         <table className="data-table">
@@ -210,7 +185,10 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
                   <td className={`${cell} text-muted`}>{x.leader.size}{x.leader.leverage !== null && ` · ${x.leader.leverage.toFixed(1)}x`}</td>
                   {c.kind === 'copied' ? (
                     <>
-                      <td className={cell}>{c.size}</td>
+                      <td className={cell} title={c.affordScale === null ? undefined : `The proportional copy needed more margin than the free balance held, so it was cut to ${Math.round(c.affordScale * 100)}% of it.`}>
+                        {c.size}
+                        {c.affordScale !== null && <span className="block text-[11px] text-watch">cut to {c.affordScale.toFixed(2)}× to fit free balance</span>}
+                      </td>
                       <td className={cell}>{c.margin}</td>
                       <td className={`${cell} text-muted`}>{c.fee}</td>
                       <td className={cell} style={{ color: c.resultAusd === null ? undefined : gainColor(c.resultAusd) }}>
@@ -219,7 +197,7 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
                       </td>
                     </>
                   ) : (
-                    <td colSpan={4} className="px-[10px] py-[9px] text-right text-muted">Skipped: {c.text}</td>
+                    <td colSpan={4} className="px-[10px] py-[9px] text-right text-muted">Not copied: {c.text}</td>
                   )}
                 </tr>
               );
@@ -243,7 +221,7 @@ function Replayed({ r, days, ageMs }: { readonly r: CopyReplayed; readonly days:
           <li>Each copy is the leader&rsquo;s position scaled by this account&rsquo;s equity over the leader&rsquo;s at that moment (the leader&rsquo;s was {r.leaderStart} when the window began). Equity is deposits minus withdrawals plus realised results minus fees, on both sides; unrealised P&amp;L is not in it.</li>
           <li>Sizes are each position&rsquo;s peak: the index keeps a position&rsquo;s open and close, not the adds and reduces between. The result is exact for a proportional copy at the leader&rsquo;s prices; the margin is the most it needed.</li>
           <li>Fees are Perpl&rsquo;s taker rate on opening and closing each copy, the least it would cost. The index keeps fees per account per day, not per position, so the leader&rsquo;s own result per position is before fees.</li>
-          <li>Only new opens are copied.</li>
+          <li>Only new opens are copied{t.skippedBy['open-at-start'] !== undefined ? `: ${t.skippedBy['open-at-start']} position${t.skippedBy['open-at-start'] === 1 ? '' : 's'} already open when the window began ${t.skippedBy['open-at-start'] === 1 ? 'is' : 'are'} not in the list` : ''}. A copy that needed more margin than the account had free is cut to fit, and its row says by how much.</li>
           {ageMs > 45_000 && <li>Computed {Math.round(ageMs / 1000)} s ago.</li>}
         </ul>
       </div>

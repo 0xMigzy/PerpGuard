@@ -88,6 +88,11 @@ export interface ReplayCopy {
   readonly estimate: boolean;
   /** The copy's size over the leader's peak size. */
   readonly scale: number;
+  /**
+   * Set when the proportional copy needed more margin than the free balance held: the fraction of
+   * it that was copied (0.43 = cut to 43%), so the row can say so. Absent for a full copy.
+   */
+  readonly affordScale?: number;
 }
 
 export interface ReplaySkip {
@@ -230,6 +235,9 @@ export function replayCopy(input: ReplayInput): ReplayResult {
   // BY MARKET ID: the leader and the copy are on ONE network (mainnet), and the id is the only key the
   // contract, the index and the API share (mainnet 31 is SOL_v2 on chain and SOL in the context).
   const acting = new Map(input.actingMarkets.map((m) => [m.marketId, m]));
+  // Only for a market the context no longer lists: the leader's own size step and the highest taker fee listed.
+  const highestFee = input.actingMarkets.reduce((max, m) => (m.takerFeeMicros > max ? m.takerFeeMicros : max), 0);
+  const fallbackMarket = (marketId: number, lotDecimals: number): CopyMarket => ({ marketId, symbol: `market ${marketId}`, sizeDecimals: lotDecimals, maxLeverage: Number.POSITIVE_INFINITY, takerFeeMicros: highestFee });
 
   // Every event that moves either side's equity, in time order. At a tie a
   // close lands before an open: money freed at that instant is usable then.
@@ -292,35 +300,45 @@ export function replayCopy(input: ReplayInput): ReplayResult {
           closedAtMs: p.closedAtMs,
           leader: { peakLotLNS: p.peakLotLNS, lotDecimals: p.lotDecimals, peakMarginCNS: p.peakMarginCNS, netPnlCNS: p.netPnlCNS, leverage },
         };
-        const market = acting.get(p.market.marketId);
         let copy: ReplayCopy | ReplaySkip;
-        if (market === undefined) {
-          notListed.set(symbol, (notListed.get(symbol) ?? 0) + 1);
-          copy = skip('not-listed', `${symbol} is not open for trading on Perpl today, so a copy could not be opened.`);
-        } else if (p.peakLotLNS <= 0n) {
+        if (p.peakLotLNS <= 0n) {
           copy = skip('no-size', 'The index has no size for this position.');
         } else if (p.entryPricePNS === undefined) {
           copy = skip('no-entry', 'The index has no entry price for this position, so its cost cannot be worked out.');
         } else if (leaderEq <= 0n) {
           copy = skip('leader-no-equity', 'The leader had no equity on record at that moment, so there is no proportion to copy.');
-        } else if (leverage !== undefined && leverage > market.maxLeverage) {
-          copy = skip('leverage', `${leverage.toFixed(1)}x is above Perpl's ${market.maxLeverage}x maximum on ${market.symbol}.`);
         } else {
-          // Scale = followerEq / leaderEq; size in the acting market's units, rounded down.
+          // NO MARKET OR LEVERAGE CHECK (owner, 8 Oct 2026): leader and copy are on one network, so the
+          // market exists and the leader's leverage was allowed there. The market's own size step and taker
+          // fee are used; a market the context no longer lists (retired, never inside a recent window) falls
+          // back to the leader's size step and the HIGHEST listed taker fee, the conservative cost.
+          const market = acting.get(p.market.marketId) ?? fallbackMarket(p.market.marketId, p.lotDecimals);
+          // Scale = followerEq / leaderEq; size in the market's units, rounded down.
           const num = followerEq * pow10(market.sizeDecimals);
           const den = leaderEq * pow10(p.lotDecimals);
-          const sizeUnits = (p.peakLotLNS * num) / den;
+          let sizeUnits = (p.peakLotLNS * num) / den;
+          const free = followerEq - committed;
+          // AFFORDABILITY SCALES, NEVER SKIPS (owner, 8 Oct 2026): a copy whose margin is more than the free
+          // balance is cut to what the balance covers, and the row says by how much.
+          let affordScale: number | undefined;
+          if (sizeUnits > 0n) {
+            const fullMargin = ceilDiv(p.peakMarginCNS * sizeUnits * pow10(p.lotDecimals), p.peakLotLNS * pow10(market.sizeDecimals));
+            if (fullMargin > free) {
+              const cut = free <= 0n ? 0n : (sizeUnits * free) / fullMargin;
+              affordScale = Number((cut * 1_000_000n) / sizeUnits) / 1_000_000;
+              sizeUnits = cut;
+            }
+          }
           if (sizeUnits <= 0n) {
-            copy = skip('too-small', `At your size this is under ${sizeText(1n, market.sizeDecimals)} ${market.symbol}, the smallest size Perpl takes.`);
+            copy = affordScale !== undefined
+              ? skip('no-balance', `Your free balance was ${ausdText(free < 0n ? 0n : free, 'floor', d)}, not enough for the smallest size Perpl takes on ${market.symbol}.`)
+              : skip('too-small', `At your size this is under ${sizeText(1n, market.sizeDecimals)} ${market.symbol}, the smallest size Perpl takes.`);
           } else {
             // Effective scale after rounding: copy size over the leader's peak, in a common unit.
             const effNum = sizeUnits * pow10(p.lotDecimals);
             const effDen = p.peakLotLNS * pow10(market.sizeDecimals);
             const marginCNS = ceilDiv(p.peakMarginCNS * effNum, effDen);
-            const free = followerEq - committed;
-            if (marginCNS > free) {
-              copy = skip('no-balance', `It needed ${ausdText(marginCNS, 'ceil', d)} of margin; your free balance was ${ausdText(free < 0n ? 0n : free, 'floor', d)}.`);
-            } else {
+            {
               committed += marginCNS;
               lowestFree = followerEq - committed < lowestFree ? followerEq - committed : lowestFree;
               const scale = Number((effNum * 1_000_000n) / effDen) / 1_000_000;
@@ -332,7 +350,7 @@ export function replayCopy(input: ReplayInput): ReplayResult {
                 const leaderResult = openResultCNS(p, input.markOf(p.market.marketId), d);
                 const resultCNS = leaderResult === undefined ? undefined : floorDiv(leaderResult * effNum, effDen) - feeCNS;
                 if (resultCNS !== undefined) openEstimate += resultCNS;
-                copy = { kind: 'copied', actingMarketId: market.marketId, sizeUnits, sizeDecimals: market.sizeDecimals, marginCNS, feeCNS, resultCNS, estimate: true, scale };
+                copy = { kind: 'copied', actingMarketId: market.marketId, sizeUnits, sizeDecimals: market.sizeDecimals, marginCNS, feeCNS, resultCNS, estimate: true, scale, ...(affordScale === undefined ? {} : { affordScale }) };
               } else {
                 const resultCNS = floorDiv(p.netPnlCNS * effNum, effDen) - feeCNS;
                 leaderOnCopied += p.netPnlCNS;
@@ -341,7 +359,7 @@ export function replayCopy(input: ReplayInput): ReplayResult {
                 // Won or lost by the LEADER's result, as a round trip is everywhere else; a forced exit is a loss.
                 if (p.status !== 'forced' && p.netPnlCNS > 0n) wins += 1;
                 else losses += 1;
-                copy = { kind: 'copied', actingMarketId: market.marketId, sizeUnits, sizeDecimals: market.sizeDecimals, marginCNS, feeCNS, resultCNS, estimate: false, scale };
+                copy = { kind: 'copied', actingMarketId: market.marketId, sizeUnits, sizeDecimals: market.sizeDecimals, marginCNS, feeCNS, resultCNS, estimate: false, scale, ...(affordScale === undefined ? {} : { affordScale }) };
                 // The copy closes when the leader's does: its margin comes back with its result.
                 const closedAt = p.closedAtMs;
                 if (closedAt !== undefined) {

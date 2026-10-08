@@ -1,0 +1,11 @@
+# /etc/logrotate.d/perpguard: the units append to these files (systemd
+# StandardOutput=append), so copytruncate, never a move. Daily, two weeks kept.
+/var/log/perpguard/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

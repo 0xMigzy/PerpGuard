@@ -23,6 +23,7 @@
  */
 import type { CopyReplayService } from '../copy/service.ts';
 import { registerCopyRoutes } from './copyRoutes.ts';
+import { requestLine } from './requestLog.ts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { isFromThisMachine } from './origin.ts';
 import type { Analytics, MarketOpenInterest } from '@perpguard/shared';
@@ -35,6 +36,8 @@ export interface HealthServerOptions {
   readonly health: () => HealthReport;
   /** Fastify's own logging. Off by default: this process logs its own lines. */
   readonly logger?: boolean;
+  /** One line per request (`requestLog.ts`): method, path, status, milliseconds. No body, no private query. */
+  readonly requestLog?: (line: string) => void;
   /**
    * Mounts the analytics API when supplied.
    *
@@ -89,6 +92,12 @@ export interface PublicHealthReport {
 
 export function createHealthApp(options: HealthServerOptions): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
+  if (options.requestLog !== undefined) {
+    const write = options.requestLog;
+    app.addHook('onResponse', async (request, reply) => {
+      write(requestLine(request.method, request.url, reply.statusCode, reply.elapsedTime));
+    });
+  }
 
   app.get('/health', async (request, reply) => {
     const report = options.health();

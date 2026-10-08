@@ -1233,3 +1233,19 @@ test('THE LIQUIDATION BOARDS take an account because it was LIQUIDATED, not beca
     assert.doesNotMatch(call.sql, /where w\.trades > 0/, ranking);
   }
 });
+
+test('A COPY REFUSAL READS NOTHING ELSE: over the cap, no start equity, no earlier closes, no positions', async () => {
+  const busy = new FakeSql().on(/select 1 from "Trader"/, [{ '?column?': 1 }]).on(/as opened/, [{ opened: '28663' }]);
+  const source = await reader(busy).copySource(4848, { fromMs: NOW - 30 * 86_400_000, toMs: NOW, cap: 3_000 });
+  assert.equal(source?.openedInWindow, 28_663);
+  const text = busy.calls.map((c) => c.sql).join('\n');
+  assert.doesNotMatch(text, /"closedAt" < \$2\) as pnl/, 'no start-equity scan');
+  assert.doesNotMatch(text, /"openedAt" < \$2 and status <> 'OPEN' and "closedAt" >= \$2/, 'no closed-before scan');
+  assert.doesNotMatch(text, /order by p\."openedAt", p\.id/, 'no position rows');
+  assert.doesNotMatch(text, /as open_at_start/, 'no count of what was open at the start: it reads every earlier position');
+  const calm = new FakeSql().on(/select 1 from "Trader"/, [{ '?column?': 1 }]).on(/as opened/, [{ opened: '9' }]).on(/as open_at_start/, [{ open_at_start: '1' }]);
+  const replayed = await reader(calm).copySource(5213, { fromMs: NOW - 30 * 86_400_000, toMs: NOW, cap: 3_000 });
+  assert.equal(replayed?.openAtStart, 1);
+  const all = calm.calls.map((c) => c.sql).join('\n');
+  for (const piece of [/as pnl/, /"closedAt" >= \$2 and "closedAt" <= \$3/, /order by p\."openedAt", p\.id/]) assert.match(all, piece, 'under the cap every query runs');
+});

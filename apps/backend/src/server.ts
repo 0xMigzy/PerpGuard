@@ -1280,6 +1280,7 @@ treasuryScanner?.start();
 
 const app = createHealthApp({
   health,
+  requestLog: log,
   ...(copyReplay === undefined ? {} : { copyReplay: { service: copyReplay, collateralDecimals: analyticsNetworkConfig?.collateralDecimals ?? 6 } }),
   // The Protect API is bound to the ENVIRONMENT account's session. No page
   // calls it any more (the web is public and read-only), but the routes stay

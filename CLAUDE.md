@@ -516,6 +516,10 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   (`create index concurrently … on "Trade" (maker_id, timestamp desc)`, and the
   same for `taker_id`). A fill records the account's ROLE, never its side or
   action, and only the maker's fee; ~6% have no paired taker.
+  - AND A THIRD, FOR THE COPY REPLAY (8 Oct 2026): `Position_trader_id_openedAt_pg`
+    on `"Position" (trader_id, "openedAt")`, also built CONCURRENTLY outside
+    Envio. Without it a replay's count of opens read every position the
+    leader ever held (#4848: 172,599). Recreate it with the other two.
   - DIRECTION ("Open long", "Add short", "Reduce long", "Close short", "Flip
     to long") comes from the position event in the SAME TRANSACTION, read off
     its receipt (`packages/shared/src/venues/perpl-fill-direction.ts`,
@@ -565,6 +569,11 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   not public even though account ids are. The full report goes only to a
   request made on the box (`curl localhost:8080/health`). The code is the
   same either way, so monitors are unaffected.
+- EVERY REQUEST IS ONE LOG LINE (8 Oct 2026, `server/requestLog.ts`):
+  `http GET /api/analytics/copy/2399?size=1000 200 21ms` in
+  `/var/log/perpguard/backend.log`. A query string survives only on
+  `/api/analytics/*`; never a body, a header or a /link code. Logs rotate
+  daily, 14 kept (`deploy/logrotate/perpguard` -> `/etc/logrotate.d/`).
 - EMPTY STATES ARE DESIGNED. The likeliest first visit is someone with no
   account and no positions; every table and panel has a sentence for that.
 
@@ -967,12 +976,21 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
     mainnet's own markets, sizes, leverage limits and taker fees, matched BY
     MARKET ID; the page never mentions testnet. (Until then it was a testnet
     account and skipped every market testnet does not list.)
+  - NOTHING IS SKIPPED FOR MARKET, LEVERAGE OR MONEY (owner, 8 Oct 2026): no
+    market check (one network; a market the context no longer lists is copied
+    on the leader's size step at the HIGHEST listed taker fee), no leverage
+    check (the leader's was allowed where it was used), and a copy the free
+    balance cannot cover is CUT TO FIT, its row saying by how much
+    (`affordScale`). There is no Skipped section. Only data the index lacks
+    (no size, no entry price, no leader equity) or a size under the market's
+    step leaves a row "Not copied", with why.
   - Only new opens are copied; size is follower equity over leader equity at
-    each open (2% -> 2%); a market the context no longer offers (retired) is
-    skipped by name; size rounds
-    DOWN to the acting step, margin (the leader's PEAK, scaled) UP; leverage
-    above the acting maximum is skipped; a leader with more than 3,000 opens
-    in the window is refused WHOLE, never replayed in part.
+    each open (2% -> 2%); size rounds DOWN to the market's step, margin (the
+    leader's PEAK, scaled) UP; a leader with more than 3,000 opens in the
+    window is refused WHOLE, never replayed in part, and A REFUSAL READS
+    NOTHING ELSE (no start equity, no earlier closes, no rows).
+  - COST, measured 8 Oct 2026: ~7 ms of Postgres for a normal or busy leader
+    (#5213, #2399), cached 60 s per (leader, size, window) in memory.
   - `Position.netPnlCNS` HAS NO FEES: the indexer never writes
     `Position.feesCNS`; fees live per account per UTC day (`TraderDay`). So
     the leader's per-position result is BEFORE fees and is labelled so; each
