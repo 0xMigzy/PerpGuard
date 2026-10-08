@@ -4,10 +4,9 @@ Real-time risk monitoring for Perpl traders on Monad: liquidation alerts,
 stress tests, and a kill switch.
 
 Hackathon deadline: Oct 14 2026, 04:59 GMT+1. Submit by the evening of Oct 13.
-Primary track: Onchain Finance & Trading.
-Bounties: Perpl API, Perpl Analytics/Risk, Envio, Kimi, Dynamic. (Dynamic was
-swapped for RainbowKit on 6 Oct 2026 and brought back on 8 Oct 2026: the
-environment now lists perpguard.app as an allowed origin.)
+Track: Onchain Finance & Trading. Bounties: Envio (indexing), Perpl analytics
+and risk, Perpl API, Dynamic (auth, wallet connect, and the typed-data
+signature on /link that creates the Perpl trade-only key; built, no new work).
 
 ## The problem we solve
 Perpl uses ISOLATED MARGIN. Every position has its own collateral, and free
@@ -611,7 +610,7 @@ TypeScript everywhere, pnpm workspaces.
 - `apps/bot`      — Telegram bot (grammY)
 - `apps/web`      — Next.js App Router, Tailwind, dark mode
 - `packages/shared` — config, types, units, Perpl client, venue adapters
-Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the proof is verified server-side with viem.
+Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified server-side with viem.
 
 ## The Telegram bot: two tiers
 - PUBLIC WATCH TIER: anyone, any chat, no wallet, no link. `/watch <address or
@@ -716,8 +715,7 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   second concept: 30D PnL and all-time ROI, ☆ Remove on each), Liquidations,
   Large trades, Warning levels, Alert settings. AT MOST 10 WALLETS PER CHAT
   ("Watching 1 of 10"). A watched wallet's screen: how many are open, the
-  closest, "Watching only — nothing here to press." TOP TRADERS AND COPY ARE
-  OFF THE BOT (owner, 8 Oct 2026); the website keeps both. All public: they read the index or
+  closest, "Watching only — nothing here to press." All public: they read the index or
   change the chat's OWN settings (`alert_preferences`). EVERY SCREEN STATES
   ITS LIMITS: index blocks behind, watched wallets re-read every 30 s, ~6% of
   fills with no taker, direction sometimes not known, past results do not
@@ -729,7 +727,7 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   read the lifetime rows whatever window is asked. The Top ROI board also
   takes Top PnL's 10-round-trip floor (427 on 100 over 4 round trips is
   +426%, and noise). Rendered "+1,034% on 2,045 AUSD deposited". Top PnL is
-  30 days. Shown on the bot's Watchlist; the boards themselves left the bot.
+  30 days. Shown on the bot's Watchlist.
 - WARNING LEVELS FOR WATCHED WALLETS (`events/warnings.ts`,
   `events/watchWarnings.ts`): Early 20/10/5, Standard 10/5 (default), Late
   5/2, Custom up to five (typed, force_reply), Off. Per (chat, account,
@@ -848,8 +846,8 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   whichever strategy held it, and reports a rescue in flight as stopped
   before sending or already sent (a sent top-up cannot be recalled). It sends
   NOTHING to the venue: no close, no reduce, no margin removed. Pending
-  orders: PerpGuard places none (Rescue adds margin directly; Copy is not
-  built), and the result says so. DATABASE ONLY: the bot routes resolve the
+  orders: PerpGuard places none (Rescue adds margin directly), and the
+  result says so. DATABASE ONLY: the bot routes resolve the
   chat's LINK, never its session, so a stop works with the socket down or the
   key needing re-linking (spec 54). Two taps (explain, confirm), the result is
   a NEW message. Idempotent. While on, enabling Rescue is refused. RESUME
@@ -949,7 +947,7 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
     (`ActionCommand.stopCheck`, refusal `automation-stopped`). A person's own
     tap carries no stopCheck: the switch stops automation, never the person.
   - ONE AUTOMATION PER ACCOUNT: `automation_state.mode` moves NONE <->
-    LIQUIDATION_RESCUE by compare-and-set; COPY_TRADING refuses Rescue.
+    LIQUIDATION_RESCUE by compare-and-set.
   - Messages: rescued (spec 44, verified figures; the `sr 32` lines when the
     receipt disagreed), not landed, paused, held (once per reason; transient
     reasons only after 30 s), ended, and THE HANDOVER when limits are spent
@@ -988,13 +986,8 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   clients on one key collide on request ids) drive the real bot with only
   Telegram's wire faked and write the chat as JSON for screenshots.
 
-## Copy trading
-- OFF THE BOT (owner, 8 Oct 2026): the live copier (Half B) is DELETED and
-  "What if I'd copied?" left the bot with Top Traders. The website keeps the
-  replay (`/copy/[id]`, `GET /api/analytics/copy/:id`); the owner decides its
-  future separately. `copy_rules`/`copy_legs` stay in Postgres (0 rows at
-  removal); the automation mode COPY_TRADING stays in the enum.
-- HALF A, WHAT WOULD HAVE HAPPENED (7 Oct 2026, owner): one leader's last 30
+## The website's copy replay ("What if I'd copied?")
+- WHAT WOULD HAVE HAPPENED (7 Oct 2026, owner): one leader's last 30
   days replayed onto an account of a given size, from the index ONLY; nothing
   is ever sent. `apps/backend/src/copy/replay.ts` (pure), `service.ts`,
   `GET /api/analytics/copy/:id?size=`, web `/copy/[id]` (linked from the
@@ -1029,7 +1022,7 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
     off, unexplained.
   - EVERY REPLAY RECONCILES THE LEADER'S BOOKS: its balance walked to today
     by the replay's own rule against the index's (free + open margin), within
-    1 AUSD or 0.1%; outside that the page and bot say NOT RECONCILED with the
+    1 AUSD or 0.1%; outside that the page says NOT RECONCILED with the
     gap, before any figure. 7 Oct 2026, top 10 by 30-day P&L: 2 of the 7
     replayable reconcile (#4532 exact, #5213 within 0.31); 5 do not, gaps both
     ways from 16 to 3,218 AUSD (#4886 2,007.40, flat). Ruled out on #4886:
@@ -1196,8 +1189,6 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
     in `packages/shared`, so no consumer ever learns the word `perpId`.
 - Secrets only via environment variables. Never log or print keys.
 - Risk maths must be pure functions with unit tests. No I/O inside them.
-- AI output must be validated against a schema. AI NEVER triggers a trade.
-  It suggests; the user confirms.
 - Every action gets an idempotency key and a row in `action_log`.
   One in-flight action per position.
 - Monitoring and actionability are SEPARATE. A market we can watch is not
