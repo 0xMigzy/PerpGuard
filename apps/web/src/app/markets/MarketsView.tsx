@@ -126,7 +126,7 @@ export function MarketsView() {
     <div data-ui="terminal">
       <PageHeader title="Markets" subtitle="Live Perpl market data, including prices, OI & funding." right={<TimeframePills />} />
 
-      <StaleMarker envelope={markets.data} />
+      <StaleMarker envelopes={[markets.data, series.data, funding.data, listings.data]} />
       <ErrorNote error={markets.error} what="Market breakdown" />
       <ErrorNote error={oi.error} what="Open interest" />
       <ErrorNote error={series.error} what="Mark history" />

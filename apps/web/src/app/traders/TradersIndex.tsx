@@ -187,7 +187,7 @@ export function TradersIndex() {
           {data?.query !== undefined && <span className="text-text"> Showing matches for {data.query}.</span>}
         </div>
 
-        <StaleMarker envelope={list.data} />
+        <StaleMarker envelopes={[list.data, summary.data]} />
         <ErrorNote error={list.error} what="The traders list" />
 
         <div className="overflow-x-auto">

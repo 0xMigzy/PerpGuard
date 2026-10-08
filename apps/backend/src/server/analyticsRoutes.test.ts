@@ -383,6 +383,21 @@ test('an indexed answer is served from the cache, with its age, and refreshed be
   assert.equal(analytics.asked.filter((a) => a === 'metrics:7d').length, 1);
 });
 
+test('a WARMED default view is not re-scanned by a reader inside the warm TTL; anything else is', async () => {
+  let clock = 1_000_000;
+  const { instance, analytics } = app(new FakeAnalytics(), { openInterest: async () => OI, now: () => clock, cacheTtlMs: 20_000, warmedTtlMs: 65 * 60_000 });
+  await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' });
+  await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=7d' });
+  clock += 30 * 60_000;
+  const warmed = body((await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=30d' })).payload);
+  assert.equal(warmed['ageMs'], 30 * 60_000, 'served with its real age');
+  assert.equal(warmed['revalidating'], false);
+  await instance.inject({ method: 'GET', url: '/api/analytics/metrics?timeframe=7d' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(analytics.asked.filter((a) => a === 'metrics:30d').length, 1, 'the default 30D view waits for the warm pass');
+  assert.equal(analytics.asked.filter((a) => a === 'metrics:7d').length, 2, 'a non-default view refreshes behind its reader');
+});
+
 test('a stale envelope has no staleReason when the indexer is fine', async () => {
   const { instance } = app();
   const response = await instance.inject({ method: 'GET', url: '/api/analytics/metrics' });

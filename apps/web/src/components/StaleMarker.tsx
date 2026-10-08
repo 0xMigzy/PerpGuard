@@ -1,12 +1,14 @@
 import type { Envelope } from '@/lib/api.ts';
 import { blocksToApproxMs, formatAge, formatCount } from '@/lib/format.ts';
+import { worstOf } from '@/lib/worstEnvelope.ts';
 
 /**
  * The one thing every analytics envelope must render: whether its numbers are
  * current. Nothing when they are. When they are not, how far behind and why —
  * and the figures around it stay visible, because a blank dashboard helps nobody.
  */
-export function StaleMarker({ envelope }: { readonly envelope: Envelope<unknown> | undefined }) {
+export function StaleMarker(props: { readonly envelope: Envelope<unknown> | undefined } | { readonly envelopes: readonly (Envelope<unknown> | undefined)[] }) {
+  const envelope = 'envelopes' in props ? worstOf(props.envelopes) : props.envelope;
   if (envelope === undefined) return null;
   if (!envelope.stale) return <ComputedAge envelope={envelope} />;
   const blocks = envelope.health.blocksBehind;

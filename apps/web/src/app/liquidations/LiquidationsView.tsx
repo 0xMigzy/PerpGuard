@@ -65,7 +65,7 @@ export function LiquidationsView() {
         right={<TimeframePills />}
       />
 
-      <StaleMarker envelope={metrics.data} />
+      <StaleMarker envelopes={[metrics.data, summary.data, markets.data, series.data, list.data]} />
       <ErrorNote error={metrics.error} what="Liquidation totals" />
 
       {/* ── the finding ─────────────────────────────────────────────────── */}

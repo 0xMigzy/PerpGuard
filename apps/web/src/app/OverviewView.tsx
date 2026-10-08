@@ -137,7 +137,7 @@ export function OverviewView() {
           {risk.data !== undefined && riskSentence(risk.data.data) !== undefined && ` ${riskSentence(risk.data.data)}`}
         </p>
       )}
-      <StaleMarker envelope={metrics.data} />
+      <StaleMarker envelopes={[metrics.data, allTime.data, series.data, byMarket.data, seriesAll.data, markets.data]} />
       <ErrorNote error={metrics.error} what="Protocol metrics" />
 
       {/* ── five tiles ──────────────────────────────────────────────────── */}

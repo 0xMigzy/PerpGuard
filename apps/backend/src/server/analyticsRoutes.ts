@@ -64,6 +64,12 @@ export interface AnalyticsRouteOptions {
   readonly cache?: SwrCache;
   /** How long an indexed answer is served without a refresh behind it. */
   readonly cacheTtlMs?: number;
+  /**
+   * The TTL for the default views the process warms itself (`defaultWarmEntries`):
+   * a little past its warm interval, so a reader never triggers the scan the warm
+   * pass is about to run anyway. Absent, they take `cacheTtlMs` like the rest.
+   */
+  readonly warmedTtlMs?: number;
   readonly now?: () => number;
   /**
    * The open-interest LEVEL, from the analytics network's venue.
@@ -289,6 +295,8 @@ export function registerAnalyticsRoutes(
   const cache = options.cache ?? new SwrCache({ now });
   const ttlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   const loaders = analyticsLoaders(analytics);
+  const warmedKeys = new Set(defaultWarmEntries(analytics).map((e) => e.key));
+  const ttlFor = (key: string): number => (options.warmedTtlMs !== undefined && warmedKeys.has(key) ? options.warmedTtlMs : ttlMs);
 
   /**
    * Wraps a payload with the health verdict.
@@ -325,7 +333,7 @@ export function registerAnalyticsRoutes(
 
   /** An indexed answer: served from the cache, refreshed behind the reader past its TTL. */
   async function served<T>(entry: { readonly key: string; readonly load: () => Promise<T> }): Promise<Envelope<T>> {
-    const hit = await cache.get(entry.key, ttlMs, entry.load);
+    const hit = await cache.get(entry.key, ttlFor(entry.key), entry.load);
     return envelope(hit.value, hit);
   }
 

@@ -1334,9 +1334,10 @@ function cachedChainHead(rpcUrl: string): Promise<number | undefined> {
 const analyticsCache = new SwrCache({
   onRefreshError: (key, error) => warn(`analytics cache: refresh of ${key} failed, serving the previous answer: ${error instanceof Error ? error.message : String(error)}`),
 });
-// Ten minutes, not one (8 Oct 2026): every-minute warming of the default views kept
-// Postgres near a full core, and the host capped the VPS for it.
-const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 10 * 60_000);
+// An hour (8 Oct 2026): every-minute warming of the default views kept Postgres
+// near a full core and the host capped the VPS for it; at ten minutes each pass
+// still drove steal to ~78% and dropped the trading sockets.
+const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 60 * 60_000);
 
 // ── 8. the health report, buildable before anything is ready ────────────────
 
@@ -1453,7 +1454,8 @@ const app = createHealthApp({
   // Mounted only when the indexer database is configured. A backend that refused
   // to serve alerts because Postgres was unreachable would have the priorities
   // exactly backwards; /health reports the degradation instead.
-  ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache }),
+  // The warmed default views are refreshed only by the hourly pass, never by a reader.
+  ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache, analyticsWarmedTtlMs: KEEP_WARM_MS + 5 * 60_000 }),
   // The treasury's in/out per day, from the incremental scan's own state.
   ...(treasuryScanner === undefined ? {} : { protocolTreasuryDays: async () => treasuryDaysOf(treasuryScanner.movements(), treasuryScanner.status()) }),
   // WALLET -> ACCOUNT OFF THE CHAIN, on the analytics network: the same
