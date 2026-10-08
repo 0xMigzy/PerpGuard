@@ -147,8 +147,12 @@ interface Envelope<T> {
   readonly generatedAtMs: number;
 }
 
-/** Twenty seconds: shorter than the page's 30s poll, so a poll usually finds a fresh answer. */
-const DEFAULT_CACHE_TTL_MS = 20_000;
+/**
+ * Five minutes (8 Oct 2026; was 20 s). Past it a read is served at once and refreshed
+ * behind the reader, and every refresh is a scan: at 20 s each visitor's poll re-scanned
+ * millions of rows. The page still says how old the answer is.
+ */
+const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 /** The health verdict: one small query plus a chain RPC, and every response wants it. */
 const HEALTH_TTL_MS = 2_000;
 

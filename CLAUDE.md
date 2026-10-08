@@ -354,13 +354,22 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   OLD THEY ARE. A 30-day `/metrics` is five aggregate scans over millions of
   fill rows (3.6s measured; the timestamp index cannot help when the window is
   the whole table), so every indexed route serves its last computed answer at
-  once and refreshes behind the reader past a 20s TTL (`SwrCache` in
-  `apps/backend/src/server/responseCache.ts`); the indexer-health verdict is
-  cached 2s. The envelope carries `computedAtMs`, `ageMs` and `revalidating`,
+  once and refreshes behind the reader past a 5-minute TTL (`SwrCache` in
+  `apps/backend/src/server/responseCache.ts`; 20 s until 8 Oct 2026); the
+  indexer-health verdict is cached 2s. The envelope carries `computedAtMs`, `ageMs` and `revalidating`,
   and the page says "computed Ns ago" past 45s. Never cache without the age:
   a snapshot presented as the present is the same lie as a frozen price. The
-  default views are warmed at boot and every 60s; the first request for any
-  other window pays its scan once.
+  default views are warmed at boot and every 10 minutes; the first request for
+  any other window pays its scan once.
+  - THE HOST CAPPED THIS VPS FOR CPU (8 Oct 2026): Postgres was using ~0.9 of
+    a core around the clock, and Hostinger's table blamed "the Envio
+    indexer" because the backend's analytics reader logs in as the indexer's
+    database user. It was OUR reads: every-minute warming of 16 default views,
+    57 hot profiles every 20 minutes (the busiest are bots with up to 207,681
+    round trips, ~19 s of Postgres each), each scan split over parallel
+    workers. Cut to: views every 10 min, a 5-min TTL, no busiest-account
+    warming, the leaderboard's top 10 hourly, and no parallel workers for the
+    `envio` role. The indexer itself costs ~2-3% of a core.
 - PUBLIC AND READ-ONLY. THE BROWSER NEVER EXECUTES ANYTHING. No add margin,
   reduce, close or kill switch from the web; every action happens in Telegram.
   The backend's `/api/protect/*` routes still exist and no page calls them —
@@ -495,8 +504,9 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
     opens/closes agree with the index. Receipts are cached; a page resolves
     every fill, the CSV its newest 2,000 transactions.
 - HOT PROFILES ARE KEPT WARM (`apps/backend/src/server/hotProfiles.ts`): the
-  10 busiest accounts, the default leaderboard's top 50 (net PnL, 30 days)
-  and every bot-watched account, at boot and every 20 minutes, one at a time.
+  default leaderboard's top 10 (net PnL, 30 days) and every bot-watched
+  account, at boot and hourly, one at a time. The busiest accounts are NOT
+  warmed any more (8 Oct 2026, CPU cap): bots nobody opens, ~19 s each.
   Saved wallets live in visitors' browsers; the server cannot see them.
 - COMPARE (`/compare?a=…`, up to 4): every figure is the profile's own, through
   the profile's helpers; each wallet is named by short address and id beside

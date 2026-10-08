@@ -1334,7 +1334,9 @@ function cachedChainHead(rpcUrl: string): Promise<number | undefined> {
 const analyticsCache = new SwrCache({
   onRefreshError: (key, error) => warn(`analytics cache: refresh of ${key} failed, serving the previous answer: ${error instanceof Error ? error.message : String(error)}`),
 });
-const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 60_000);
+// Ten minutes, not one (8 Oct 2026): every-minute warming of the default views kept
+// Postgres near a full core, and the host capped the VPS for it.
+const KEEP_WARM_MS = intFromEnv('ANALYTICS_KEEP_WARM_MS', 10 * 60_000);
 
 // ── 8. the health report, buildable before anything is ready ────────────────
 
@@ -1521,10 +1523,13 @@ const app = createHealthApp({
 // raw libuv stack trace, leaving the market-data socket open behind it.
 
 /** Profiles kept warm (hotProfiles.ts): the busiest, the default leaderboard's top, every watched account. */
-const BUSIEST_PROFILES_WARMED = 10;
-const LEADERBOARD_PROFILES_WARMED = 50;
-/** Under the cache's 30-minute idle eviction, so a warmed profile is never more than this old. */
-const HOT_PROFILE_INTERVAL_MS = 20 * 60_000;
+// CUT BACK 8 Oct 2026, after the host capped the VPS for CPU: the busiest accounts are
+// bots with up to 207,681 round trips (~19 s of Postgres each, per pass) whose profiles
+// nobody opens, so they are no longer warmed (still computed on demand); the leaderboard's
+// top 10, not 50, hourly, not every 20 minutes. Postgres had been using ~0.9 of a core.
+const BUSIEST_PROFILES_WARMED = 0;
+const LEADERBOARD_PROFILES_WARMED = 10;
+const HOT_PROFILE_INTERVAL_MS = 60 * 60_000;
 
 const shutdown = new ShutdownSequence({
   deadlineMs: SHUTDOWN_TIMEOUT_MS,
@@ -1634,7 +1639,8 @@ if (analyticsReader !== undefined) {
   let warming = false;
   const profileWarmer = new ProfileWarmer({
     sources: {
-      busiest: () => reader.busiestAccounts(BUSIEST_PROFILES_WARMED),
+      // The reader clamps a limit to at least one, so none is asked for as none.
+      busiest: () => (BUSIEST_PROFILES_WARMED === 0 ? Promise.resolve([]) : reader.busiestAccounts(BUSIEST_PROFILES_WARMED)),
       leaderboard: async () => (await reader.traders('30d', { ranking: 'pnl', limit: LEADERBOARD_PROFILES_WARMED })).rows.map((r) => r.accountId),
       watched: () => watchStore.accountIds(),
     },
