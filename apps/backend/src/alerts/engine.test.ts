@@ -306,7 +306,7 @@ test('the suppression reason is specific to which rule held the alert', async ()
   await r.engine.drain();
   assert.match(r.logger.infos[0]!, /nothing to recover from/);
 
-  // An outage, twice: the second is held by the once-per-outage rule.
+  // An outage, twice: the second is the same blind spell.
   const { harness } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
   harness.advance(1_000);
   harness.health = { state: 'disconnected', reconnectAttempt: 1 };
@@ -315,7 +315,7 @@ test('the suppression reason is specific to which rule held the alert', async ()
   r.engine.handle(down);
   r.engine.handle(down);
   await r.engine.drain();
-  assert.match(r.logger.infos.at(-1)!, /already announced for this outage/);
+  assert.match(r.logger.infos.at(-1)!, /still the same blind spell/);
 });
 
 test('the history is kept per position, so two markets do not share a cooldown', async () => {

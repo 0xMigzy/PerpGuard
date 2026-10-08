@@ -75,6 +75,8 @@ test('through the real engine: a suppressed alert writes no alert_log row and ra
     log,
     userId: 'owner',
     now: () => 0,
+    // The minute of quiet has passed: this is about what the gate does next.
+    schedule: (fn: () => void) => { fn(); return () => {}; },
     onDeliveryFailure: (e: unknown) => failures.push(e),
   } as never);
   engine.start();

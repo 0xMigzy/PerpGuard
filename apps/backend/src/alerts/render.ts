@@ -442,6 +442,12 @@ export function renderAlert(
     }
     case 'recovered': {
       lines.push(positionLine(assessment, market, config));
+      // Out of a blind spell the position may be anywhere: say we can see it,
+      // never that it is above the threshold unless it is.
+      if (assessment.previousState === 'FEED_DOWN' || assessment.previousState === 'POSITIONS_UNTRUSTED') {
+        lines.push(assessment.state === 'SAFE' ? 'I can see it again, and it is above the safe threshold.' : 'I can see it again.');
+        break;
+      }
       const target = assessment.topUp?.toSafe.targetBufferPct;
       lines.push(
         target === undefined

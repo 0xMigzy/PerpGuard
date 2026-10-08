@@ -31,6 +31,8 @@ function booting(): {
   readonly harness: LoopHarness;
   readonly engine: AlertEngine;
   readonly transport: FakeTransport;
+  /** The blind minute passes: fires the engine's pending timers. */
+  readonly minutePasses: () => Promise<void>;
 } {
   const harness = new LoopHarness();
   harness.health = {
@@ -45,6 +47,7 @@ function booting(): {
   harness.price(FIXTURE_BTC.marketId, FIXTURE_BTC.symbol, FIXTURE_BTC_MARK);
 
   const transport = new FakeTransport();
+  const timers: Array<() => void> = [];
   const engine = new AlertEngine({
     source: harness.loop,
     configs: CONFIGS,
@@ -53,22 +56,33 @@ function booting(): {
     userId: 'trader-1',
     sleep: new FakeSleep().sleep,
     logger: new RecordingLogger(),
+    schedule: (fn) => {
+      timers.push(fn);
+      return () => timers.splice(timers.indexOf(fn), 1);
+    },
   });
-  return { harness, engine, transport };
+  const minutePasses = async (): Promise<void> => {
+    for (const fn of timers.splice(0)) fn();
+    await engine.drain();
+  };
+  return { harness, engine, transport, minutePasses };
 }
 
 const kinds = (transport: FakeTransport): string[] =>
   transport.sent.map((sent) => `${sent.message.symbol} ${sent.message.kind}`);
 
-test('starting before the feed is up fires a FEED_DOWN alert about a feed that was merely starting', async () => {
+test('starting before the feed is up fires a FEED_DOWN alert about a feed that was merely starting, once its minute is up', async () => {
   // This is the burst the gate exists to prevent. Asserting it keeps the gate
-  // from being quietly deleted as unnecessary.
-  const { harness, engine, transport } = booting();
+  // from being quietly deleted as unnecessary. The blind minute delays it; it
+  // does not make it go away for a feed that stays down.
+  const { harness, engine, transport, minutePasses } = booting();
 
   engine.start();
   harness.loop.start();
   await engine.drain();
+  assert.deepEqual(kinds(transport), [], 'nothing in the first minute');
 
+  await minutePasses();
   assert.deepEqual(kinds(transport), ['BTC feed-down']);
 });
 
@@ -153,7 +167,7 @@ test('a stack that never becomes ready still alerts nothing, so giving up is saf
 test('once the gate has opened, a feed that really drops does alert', async () => {
   // The gate delays the first assessment; it must not suppress a genuine outage
   // afterwards.
-  const { harness, engine, transport } = booting();
+  const { harness, engine, transport, minutePasses } = booting();
   harness.health = { state: 'connected', reconnectAttempt: 0 };
 
   engine.start();
@@ -169,6 +183,8 @@ test('once the gate has opened, a feed that really drops does alert', async () =
   harness.advance(1_000);
   harness.loop.evaluate();
   await engine.drain();
+  assert.deepEqual(kinds(transport), ['BTC danger'], 'not in its first minute');
 
+  await minutePasses();
   assert.deepEqual(kinds(transport), ['BTC danger', 'BTC feed-down']);
 });

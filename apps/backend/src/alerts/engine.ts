@@ -22,10 +22,22 @@
  * recipient list is then asked for, and each recipient gets a copy shaped by
  * its rights: the owner with actions, a watcher with none. Adding recipients
  * never changes when an alert fires; it only changes who hears it.
+ *
+ * BLINDNESS IS ONE STATE, AND IT IS NEWS ONLY AFTER A MINUTE (owner, 8 Oct
+ * 2026). FEED_DOWN and POSITIONS_UNTRUSTED are one outage per position: moving
+ * between them is never a message. Nothing is sent for the first
+ * `blindQuietMs` (60 s); if the position is still blind then, ONE message
+ * (the latest cause), and nothing more until it clears; when it clears, ONE
+ * message, and none at all if nobody was told. The trading socket drops ~40
+ * times an hour and is back within a second; each drop was a message per
+ * position. A restart is an outage like any other, so its first minute is
+ * silent too (and `StartupDeliveryGate` still holds and drops on top).
  */
 import type { MarketRiskConfig } from '@perpguard/shared';
 import type { MarketConfigs, RiskChange } from '../risk/types.ts';
-import { decide } from './rules.ts';
+import { isBlind } from '../risk/types.ts';
+import { buildMessage } from './render.ts';
+import { decide, kindFor } from './rules.ts';
 import {
   DEFAULT_ALERT_CONFIG,
   emptyHistory,
@@ -90,6 +102,29 @@ export interface AlertEngineOptions {
   /** Called once per exhausted attempt sequence, after the row is written. */
   readonly onDeliveryFailure?: (entry: AlertLogEntry, message: AlertMessage) => void;
   readonly logger?: AlertLogger;
+  /** How long a position may be blind before anyone is told. Default 60 s. */
+  readonly blindQuietMs?: number;
+  /** Runs `fn` after `ms`; returns a cancel. Injected so tests drive the minute. */
+  readonly schedule?: (fn: () => void, ms: number) => () => void;
+}
+
+/** Default: a blind spell shorter than this is never mentioned, before or after. */
+export const BLIND_QUIET_MS = 60_000;
+
+const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
+  const timer = setTimeout(fn, ms);
+  timer.unref?.();
+  return () => clearTimeout(timer);
+};
+
+/** One position's blind spell: when it began, what it would say now, whether it has been said. */
+interface Outage {
+  readonly sinceMs: number;
+  change: RiskChange;
+  message: AlertMessage;
+  market: MarketRiskConfig;
+  announced: boolean;
+  cancel: () => void;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -111,6 +146,10 @@ export class AlertEngine {
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #onDeliveryFailure: ((entry: AlertLogEntry, message: AlertMessage) => void) | undefined;
   readonly #logger: AlertLogger;
+  readonly #blindQuietMs: number;
+  readonly #schedule: (fn: () => void, ms: number) => () => void;
+  /** Positions blind right now, by history key. */
+  readonly #outages = new Map<string, Outage>();
 
   /** Per-position alert history. IN MEMORY on purpose — see AlertHistory. */
   readonly #history = new Map<string, AlertHistory>();
@@ -132,6 +171,8 @@ export class AlertEngine {
     this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#onDeliveryFailure = options.onDeliveryFailure;
+    this.#blindQuietMs = options.blindQuietMs ?? BLIND_QUIET_MS;
+    this.#schedule = options.schedule ?? defaultSchedule;
     this.#logger = options.logger ?? {
       error: (message, detail) => console.error(message, detail ?? ''),
       warn: (message, detail) => console.warn(message, detail ?? ''),
@@ -153,6 +194,14 @@ export class AlertEngine {
   stop(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
+    for (const outage of this.#outages.values()) outage.cancel();
+    this.#outages.clear();
+  }
+
+  /** Whether this position is in a blind spell, and whether it has been told. For tests and /health. */
+  outageFor(marketId: number, accountId?: number): { readonly sinceMs: number; readonly announced: boolean } | undefined {
+    const outage = this.#outages.get(historyKey(marketId, accountId));
+    return outage === undefined ? undefined : { sinceMs: outage.sinceMs, announced: outage.announced };
   }
 
   /**
@@ -206,8 +255,9 @@ export class AlertEngine {
     // latches, and dropping it would silence the next real alert.
     this.#history.set(key, decision.history);
 
-    if (decision.send && decision.message !== undefined) {
-      const message = decision.message;
+    const verdict = this.#throughOutage(key, change, market, decision);
+    if (verdict.send && verdict.message !== undefined) {
+      const message = verdict.message;
       // The list is read NOW, once per decision, so every copy of this alert
       // goes to the same set and a subscription change mid-delivery cannot
       // split it.
@@ -227,11 +277,71 @@ export class AlertEngine {
       // reason still has to be recoverable, so it goes to the application log.
       this.#logger.info(
         `no alert for ${assessment.symbol} (${assessment.state}): ` +
-          `${decision.suppressedReason ?? 'no reason given'}`,
+          `${verdict.suppressedReason ?? 'no reason given'}`,
         { marketId: assessment.marketId, state: assessment.state, atMs: assessment.atMs },
       );
     }
-    return decision;
+    return verdict;
+  }
+
+  /**
+   * The blind-spell rule, applied to the rules' verdict. Blind: never sent from
+   * here; the spell is opened (or its message replaced) and the timer says it.
+   * Not blind: closes any spell, with one message if it was told, none if not.
+   */
+  #throughOutage(key: string, change: RiskChange, market: MarketRiskConfig, decision: AlertDecision): AlertDecision {
+    const assessment = change.assessment;
+    const outage = this.#outages.get(key);
+    const quiet = (reason: string): AlertDecision => ({ send: false, message: undefined, suppressedReason: reason, history: decision.history });
+
+    if (isBlind(assessment.state)) {
+      const message = buildMessage(assessment, kindFor(assessment.state), { alerts: this.#alerts, market });
+      if (outage !== undefined) {
+        // ONE STATE: the cause may change, the outage does not.
+        outage.change = change;
+        outage.message = message;
+        outage.market = market;
+        return quiet(`still the same blind spell (since ${Math.round((this.#now() - outage.sinceMs) / 1000)}s ago${outage.announced ? ', already told' : ''}); a change of cause is not news`);
+      }
+      const opened: Outage = { sinceMs: this.#now(), change, message, market, announced: false, cancel: () => {} };
+      this.#outages.set(key, opened);
+      opened.cancel = this.#schedule(() => this.#announce(key, opened), this.#blindQuietMs);
+      return quiet(`blind: said only if it lasts ${Math.round(this.#blindQuietMs / 1000)}s`);
+    }
+
+    if (outage === undefined) return decision;
+    outage.cancel();
+    this.#outages.delete(key);
+    const lastedS = Math.round((this.#now() - outage.sinceMs) / 1000);
+
+    if (!outage.announced) {
+      // Nobody was told it went blind, so its "can see it again" is not news.
+      // A real severity alert on coming back (worse than before) still goes.
+      if (decision.send && decision.message?.kind === 'recovered') return quiet(`blind for ${lastedS}s, under ${Math.round(this.#blindQuietMs / 1000)}s: nobody was told, so no recovery`);
+      return decision;
+    }
+
+    // Told: exactly ONE message says it cleared. The rules' own if they send
+    // a recovery; otherwise "can see it again", as a recovery FROM blind, which
+    // is what every filter downstream lets through.
+    if (decision.send && decision.message?.kind === 'recovered') return decision;
+    if (assessment.heldOnStalePrice) {
+      return quiet(`blind spell of ${lastedS}s cleared, but the price is old, so no all-clear can be built on it`);
+    }
+    const cleared = { ...change, assessment: { ...assessment, previousState: outage.change.assessment.state } };
+    return { send: true, message: buildMessage(cleared.assessment, 'recovered', { alerts: this.#alerts, market }), suppressedReason: undefined, history: decision.history };
+  }
+
+  /** The minute is up and the position is still blind: say it, once. */
+  #announce(key: string, outage: Outage): void {
+    if (this.#outages.get(key) !== outage || outage.announced) return;
+    outage.announced = true;
+    const message = outage.message;
+    const recipients = this.#recipients(outage.change);
+    this.#logger.info(`${message.symbol} blind for ${Math.round((this.#now() - outage.sinceMs) / 1000)}s (${message.state}): telling ${recipients.length} recipient(s), once`);
+    for (const recipient of recipients) {
+      this.#queue = this.#queue.then(() => this.#deliver(message, outage.market, recipient));
+    }
   }
 
   /**
