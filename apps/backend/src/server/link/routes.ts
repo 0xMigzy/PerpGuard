@@ -23,6 +23,7 @@ import type { TelegramIdentity } from '@perpguard/bot';
 import type { ChallengeHolder, WalletChallenger } from './walletChallenge.ts';
 import { parseCookies } from '../protect/session.ts';
 import type { LinkService, LinkStatus } from './service.ts';
+import type { WalletKeyFlow } from './walletKey.ts';
 
 export const LINK_COOKIE = 'pg_link';
 export const LINK_SESSION_TTL_MS = 30 * 60_000;
@@ -84,6 +85,8 @@ export interface LinkRouteOptions {
   readonly sessions?: LinkSessionStore;
   /** 👁 Watch a proven mainnet account, read-only, in this person's own chat. Absent: no button works. */
   readonly watchInstead?: (identity: TelegramIdentity, accountId: number) => Promise<{ readonly ok: boolean; readonly text: string }>;
+  /** 🔗 Connect with one wallet signature: the key is created for you. Behind the `wallet-key` switch. */
+  readonly walletKey?: WalletKeyFlow;
   /**
    * EVERY OUTCOME ON THE PAGE LEAVES A LINE: a code redeemed or refused, a
    * challenge issued, a signature refused and why. Never the code, the
@@ -112,6 +115,8 @@ export interface LinkMe {
   readonly wallet: { readonly address: string; readonly accountId: number } | null;
   /** Whether the page can prove a wallet (signed challenge). */
   readonly walletSignIn: boolean;
+  /** Whether one wallet signature can create the key (the `wallet-key` switch, read now). */
+  readonly walletKey: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: NetworkName;
 }
@@ -142,10 +147,14 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
     provenAccountId: link !== null ? null : (session.provenAccountId ?? kept?.accountId ?? null),
     wallet: kept === undefined ? null : { address: kept.address, accountId: kept.accountId },
     walletSignIn: options.wallet !== undefined,
+    walletKey: options.walletKey?.enabled() ?? false,
     keyStorageConfigured: options.keyStorageConfigured,
     network: options.network,
     };
   };
+
+  // What the page and the setup guide may offer, with no session: the switch's state, nothing else.
+  app.get(`${prefix}/features`, async () => ({ walletKey: options.walletKey?.enabled() ?? false }));
 
   app.post<{ Body: { code?: unknown } }>(`${prefix}/session`, async (request, reply) => {
     const code = typeof request.body?.code === 'string' ? request.body.code : '';
@@ -225,6 +234,31 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
       const result = await options.watchInstead(session.identity, accountId);
       log(`${session.identity.userId} chose to watch mainnet account ${accountId} instead: ${result.ok ? 'watching' : result.text} (session ${sessionTag(session.token)})`);
       return reply.code(result.ok ? 200 : 409).send(result.ok ? { ok: true, text: result.text, accountId } : { error: result.text });
+    });
+
+    // 🔗 ONE SIGNATURE: Perpl's typed data for the connected wallet. The key's secret stays on the server.
+    scope.post<{ Body: { address?: unknown } }>(`${prefix}/wallet-key/start`, async (request, reply) => {
+      const session = sessionOf(request);
+      const flow = options.walletKey;
+      if (flow === undefined) return reply.code(404).send({ error: 'Creating a key from your wallet isn’t available here. Paste an API key you already have instead.' });
+      const started = await flow.start(session.token, typeof request.body?.address === 'string' ? request.body.address : '');
+      log(`${session.identity.userId} asked to create a key by wallet: ${started.kind === 'sign' ? 'typed data issued' : `refused (${started.reason})`} (session ${sessionTag(session.token)}; ${describeClient(request.headers['user-agent'])})`);
+      return started.kind === 'sign' ? { typedData: started.typedData } : reply.code(started.reason === 'off' ? 404 : 400).send({ error: started.text, reason: started.reason });
+    });
+
+    scope.post<{ Body: { signature?: unknown } }>(`${prefix}/wallet-key/finish`, async (request, reply) => {
+      const session = sessionOf(request);
+      const flow = options.walletKey;
+      if (flow === undefined) return reply.code(404).send({ error: 'Creating a key from your wallet isn’t available here. Paste an API key you already have instead.' });
+      try {
+        const done = await flow.finish(session.token, session.identity, typeof request.body?.signature === 'string' ? request.body.signature : '');
+        log(`${session.identity.userId} finished creating a key by wallet: ${done.kind === 'linked' ? `linked account ${done.accountId} (forwarding ${done.forwardingAllowed ?? 'unknown'})` : `refused (${done.reason})`} (session ${sessionTag(session.token)})`);
+        if (done.kind === 'linked') session.provenAccountId = undefined;
+        // The verdict and the account, never the key or its secret.
+        return done.kind === 'linked' ? { result: done, me: me(session) } : reply.code(400).send({ error: done.text, reason: done.reason, me: me(session) });
+      } catch {
+        return reply.code(500).send({ error: 'That didn’t work, and nothing was saved. Try again, or paste an API key you already have instead.' });
+      }
     });
 
     scope.post<{ Body: { apiKey?: unknown; secret?: unknown } }>(`${prefix}/key`, async (request, reply) => {

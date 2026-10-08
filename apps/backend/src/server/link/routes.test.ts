@@ -13,8 +13,11 @@ import { KeyVault } from './crypto.ts';
 import { registerLinkRoutes, LINK_COOKIE } from './routes.ts';
 import { LinkService } from './service.ts';
 import { InMemoryKeyStore } from './stores.ts';
-import { verifyMessage } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { hashTypedData, verifyMessage, verifyTypedData } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { InMemoryFeatureFlags } from '../featureFlags.ts';
+import { viemTypedData } from './typedData.ts';
+import { WalletKeyFlow } from './walletKey.ts';
 import { CHALLENGE_TTL_MS, WalletChallenger } from './walletChallenge.ts';
 
 const SECRET_HEX = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
@@ -25,7 +28,7 @@ const STRANGER_KEY = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367
 const OWNER = OWNER_KEY.address.toLowerCase();
 const T0 = Date.parse('2026-10-06T12:00:00Z');
 
-function rig(options: { wallet?: boolean; probeAccount?: number | undefined; chainId?: number; site?: string; strangerOnMainnet?: number } = {}) {
+function rig(options: { wallet?: boolean; probeAccount?: number | undefined; chainId?: number; site?: string; strangerOnMainnet?: number; walletKey?: 'on' | 'off' } = {}) {
   const clock = { t: T0 };
   const identities = new InMemoryIdentityStore();
   identities.register(4242, 5150, 1_000);
@@ -68,7 +71,33 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
     logger: { info: (m) => logs.push(m), warn: (m) => logs.push(m) },
     now: () => 2_000,
   });
+  const flags = new InMemoryFeatureFlags(options.walletKey === 'on' ? ['wallet-key'] : []);
+  const perplCalls: string[] = [];
+  const walletKey =
+    options.walletKey === undefined
+      ? undefined
+      : new WalletKeyFlow({
+          flags,
+          // A fake Perpl: real-shaped typed data for the address; a key for any enrolment that carries a proof.
+          post: async (_base, path, body) => {
+            perplCalls.push(path);
+            const b = body as Record<string, unknown>;
+            if (path === '/v1/api-key/payload') {
+              const typed_data = { types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'chainId', type: 'uint256' }], PerplRegisterApiKey: [{ name: 'signer', type: 'address' }, { name: 'publicKey', type: 'string' }] }, primaryType: 'PerplRegisterApiKey', domain: { name: 'perpl.xyz', chainId: '0x279f' }, message: { signer: b['address'], publicKey: String(b['public_key']) } };
+              return { status: 200, body: JSON.stringify({ typed_data, mac: '0xmac' }), sentHeaders: {} };
+            }
+            return typeof b['pop_signature'] === 'string' ? { status: 200, body: JSON.stringify({ api_key: { api_key: 'wallet-made-token-0123456789' } }), sentHeaders: {} } : { status: 400, body: 'no pop', sentHeaders: {} };
+          },
+          restBaseUrl: 'https://testnet.perpl.xyz/api',
+          chainId: 10143,
+          digestOf: (td) => hashTypedData(viemTypedData(td) as never),
+          verify: (address, td, signature) => verifyTypedData({ address: address as `0x${string}`, signature: signature as `0x${string}`, ...viemTypedData(td) } as never),
+          service,
+          log: (l) => logs.push(l),
+          now: () => 2_000,
+        });
   const app = registerLinkRoutes(Fastify({ logger: false }), {
+    ...(walletKey === undefined ? {} : { walletKey }),
     service,
     network: 'testnet',
     envAccountId: 710,
@@ -82,7 +111,7 @@ function rig(options: { wallet?: boolean; probeAccount?: number | undefined; cha
       ? { wallet: new WalletChallenger({ publicWebUrl: options.site ?? 'https://perpguard.example', chainId: options.chainId ?? 10143, verifyMessage: (a) => verifyMessage(a), now: () => clock.t }) }
       : {}),
   });
-  return { app, service, links, keys, logs, closed, running, clock, watched };
+  return { app, service, links, keys, logs, closed, running, clock, watched, flags, perplCalls };
 }
 
 const cookieOf = (setCookie: string | string[] | undefined): string => {
@@ -342,4 +371,62 @@ test('WATCH IT INSTEAD: a wallet that owns a MAINNET account is refused for acti
 
   const noCookie = await r.app.inject({ method: 'POST', url: '/api/link/watch-instead', payload: {} });
   assert.equal(noCookie.statusCode, 401);
+});
+
+
+test('🔗 THE SWITCH IS READ NOW: /features and /me say whether one wallet signature can create the key', async () => {
+  for (const [mode, expected] of [[undefined, false], ['off', false], ['on', true]] as const) {
+    const r = rig(mode === undefined ? {} : { walletKey: mode });
+    const features = await r.app.inject({ method: 'GET', url: '/api/link/features' });
+    assert.deepEqual(features.json(), { walletKey: expected }, `features, ${mode}`);
+    const { cookie } = await page(r);
+    assert.equal((await r.app.inject({ method: 'GET', url: '/api/link/me', headers: { cookie } })).json().walletKey, expected, `me, ${mode}`);
+  }
+  const r = rig({ walletKey: 'on' });
+  r.flags.set('wallet-key', false);
+  assert.deepEqual((await r.app.inject({ method: 'GET', url: '/api/link/features' })).json(), { walletKey: false }, 'thrown off at run time, no restart');
+});
+
+test('🔗 SWITCH OFF: the wallet routes refuse and point at pasting a key, Perpl is never asked, and PASTING A KEY STILL LINKS', async () => {
+  const r = rig({ walletKey: 'off' });
+  const { cookie } = await page(r);
+  const start = await r.app.inject({ method: 'POST', url: '/api/link/wallet-key/start', headers: { cookie }, payload: { address: privateKeyToAccount(generatePrivateKey()).address } });
+  assert.equal(start.statusCode, 404);
+  assert.match(start.json().error, /Paste an API key you already have instead/);
+  assert.deepEqual(r.perplCalls, []);
+  const pasted = await r.app.inject({ method: 'POST', url: '/api/link/key', headers: { cookie }, payload: { apiKey: API_KEY, secret: SECRET_HEX } });
+  assert.equal(pasted.statusCode, 200);
+  assert.deepEqual(pasted.json().proof, { kind: 'linked', accountId: 711, forwardingAllowed: true });
+});
+
+test('🔗 SWITCH ON, THROUGH THE ROUTES: connect, one signature, the key is created, sealed like a pasted one and linked; the secret is in no reply or log', async () => {
+  const r = rig({ walletKey: 'on' });
+  const { cookie } = await page(r);
+  const w = privateKeyToAccount(generatePrivateKey());
+  const start = await r.app.inject({ method: 'POST', url: '/api/link/wallet-key/start', headers: { cookie }, payload: { address: w.address } });
+  assert.equal(start.statusCode, 200);
+  const typed = start.json().typedData;
+  assert.equal(typed.message.signer, w.address);
+  const signature = await w.signTypedData(viemTypedData(typed) as never);
+  const finish = await r.app.inject({ method: 'POST', url: '/api/link/wallet-key/finish', headers: { cookie }, payload: { signature } });
+  assert.equal(finish.statusCode, 200);
+  assert.equal(finish.json().result.kind, 'linked');
+  assert.equal(finish.json().me.link.accountId, 711);
+  assert.equal(finish.json().me.link.proof, 'key', 'execution by a sealed key, as a pasted one');
+  assert.deepEqual(r.perplCalls, ['/v1/api-key/payload', '/v1/api-key/enroll']);
+  const stored = r.keys.get('tg:4242');
+  assert.ok(stored !== undefined && stored.accountId === 711, 'sealed in the same key store');
+  const everything = [start.body, finish.body, ...r.logs].join('\n');
+  assert.ok(!everything.includes('wallet-made-token-0123456789'), 'the token is in no reply or log');
+  // A second finish has nothing to finish: the pending request was spent.
+  const again = await r.app.inject({ method: 'POST', url: '/api/link/wallet-key/finish', headers: { cookie }, payload: { signature } });
+  assert.equal(again.statusCode, 400);
+  assert.match(again.json().error, /expired/);
+});
+
+test('🔗 the wallet routes need the page\u2019s cookie, like every proof route', async () => {
+  const r = rig({ walletKey: 'on' });
+  for (const url of ['/api/link/wallet-key/start', '/api/link/wallet-key/finish']) {
+    assert.equal((await r.app.inject({ method: 'POST', url, payload: {} })).statusCode, 401, url);
+  }
 });

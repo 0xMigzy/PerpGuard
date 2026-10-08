@@ -3,8 +3,8 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 /**
- * THE SETUP GUIDE (/bot/guide). Static: no data, no fetch, no client code, so it
- * costs the server nothing. The owner's wording, as written; the one change is
+ * THE SETUP GUIDE (/bot/guide). No client code; the one read is the backend's
+ * `wallet-key` switch, at most once a minute (ISR), which picks step 4. The owner's wording, as written; the one change is
  * the link step, which names the bot's real buttons and URL
  * (https://perpguard.app/link?code=…, from apps/backend/src/server/link/service.ts).
  * Prints to a clean light page (globals.css, `[data-guide]` under @media print).
@@ -76,25 +76,45 @@ function Table({ head, rows }: { readonly head: readonly [string, string]; reado
   );
 }
 
-const CHECKLIST = [
+const checklist = (walletKey: boolean): readonly string[] => [
   'Wallet on Monad testnet, chain 10143',
   'Perpl account created and funded with test AUSD',
   'One-Click Trading turned on — the step that’s easy to miss',
-  'API key created with read and trade permission, both parts saved',
-  'Key entered on perpguard.app only, never in Telegram',
+  ...(walletKey
+    ? ['Wallet connected on perpguard.app and one signature approved', 'If you pasted a key instead: on perpguard.app only, never in Telegram']
+    : ['API key created with read and trade permission, both parts saved', 'Key entered on perpguard.app only, never in Telegram']),
   'The bot shows the right account and network',
   'One small trade placed by hand, so you know the account works',
   'You’ve opened the kill switch screen and read it',
 ];
 
-export default function GuidePage() {
+/** Re-read at most once a minute: the guide follows the backend's switch without a deploy. */
+export const revalidate = 60;
+
+/**
+ * THE `wallet-key` SWITCH, read on the server. The one-signature step is published only while it is
+ * ON and answering; off, unreachable or unreadable, the guide describes pasting a key.
+ */
+async function walletKeyOn(): Promise<boolean> {
+  try {
+    const backend = process.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
+    const res = await fetch(`${backend}/api/link/features`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(3_000) });
+    if (!res.ok) return false;
+    return ((await res.json()) as { walletKey?: unknown }).walletKey === true;
+  } catch {
+    return false;
+  }
+}
+
+export default async function GuidePage() {
+  const walletKey = await walletKeyOn();
   return (
     <div data-ui="terminal" data-guide="" className="mx-auto max-w-[720px]">
       <div className="text-[12px] font-semibold tracking-[0.08em] text-muted uppercase">PerpGuard · Testnet setup</div>
       <h1 className="mt-2 mb-3 text-[30px] font-bold tracking-[-0.03em] sm:text-[34px]">Getting started with PerpGuard</h1>
       <p className="mt-0 mb-4 text-[16.5px] leading-[1.6] text-text2">Create a Perpl testnet account, give PerpGuard permission to add margin for you, and connect it to Telegram.</p>
       <div className="mb-2 flex flex-wrap gap-2">
-        <span className="chip">About 15 minutes</span>
+        <span className="chip">{walletKey ? 'About 10 minutes' : 'About 15 minutes'}</span>
         <span className="chip">Monad testnet · chain 10143</span>
         <span className="chip">Test funds only</span>
       </div>
@@ -164,39 +184,66 @@ export default function GuidePage() {
         </Callout>
       </Step>
 
-      <Step n={4} title="Create an API key" minutes={2}>
-        <P>The key is what PerpGuard uses to place orders. A Perpl key can trade, and can never withdraw or move your funds.</P>
-        <Ol>
-          <li>With the same wallet connected, open {ext('https://testnet.perpl.xyz/apikeys', 'testnet.perpl.xyz/apikeys')}.</li>
-          <li>Create a new key and label it PerpGuard.</li>
-          <li>Give it read and trade permission. Nothing more.</li>
-          <li>Approve the wallet signature.</li>
-          <li>Save both parts of the key when they&rsquo;re shown. The secret cannot be recovered later — if you lose it, make a new key.</li>
-        </Ol>
-        <Callout tone="warn">The API secret is not your wallet&rsquo;s recovery phrase. It&rsquo;s a separate credential. Never paste either into a Telegram message, including to PerpGuard.</Callout>
-      </Step>
+      {walletKey ? (
+        <Step n={4} title="Connect PerpGuard" minutes={2}>
+          <Ol>
+            <li>Open {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} in Telegram and send /start.</li>
+            <li>Choose 🔐 Trading account.</li>
+            <li>
+              Tap 🔗 Connect wallet. The bot gives you a one-time link. It opens <code>https://perpguard.app/link?code=…</code> over HTTPS and works once, for five minutes.
+            </li>
+            <li>
+              Check the address bar reads <b className="text-text">perpguard.app</b> before you go on.
+            </li>
+            <li>Connect the same wallet, then approve one signature.</li>
+            <li>Go back to Telegram. The bot confirms which account it&rsquo;s connected to.</li>
+          </Ol>
+          <P>
+            <span className="mt-3 block">
+              Then: that one signature creates a trade-only key for PerpGuard and proves the account is yours. There&rsquo;s nothing to copy down and nothing to save. The signature should read perpl.xyz and authorise
+              creating a key — if a prompt ever mentions moving, transferring or withdrawing funds, reject it.
+            </span>
+          </P>
+          <Callout>
+            Already have a Perpl API key? The same page still accepts one by hand. Paste it on that page only — never into a Telegram message, including to PerpGuard. The key must have read and trade permission, and
+            nothing more.
+          </Callout>
+          <Callout tone="warn">A trade-only key can never withdraw or move your funds. It can open and close positions, which can lose money. Treat the permission seriously even though nothing can leave your account.</Callout>
+        </Step>
+      ) : (
+        <Step n={4} title="Connect PerpGuard" minutes={5}>
+          <P>PerpGuard places orders with a Perpl API key. A Perpl key can trade, and can never withdraw or move your funds.</P>
+          <H3>Create an API key</H3>
+          <Ol>
+            <li>With the same wallet connected, open {ext('https://testnet.perpl.xyz/apikeys', 'testnet.perpl.xyz/apikeys')}.</li>
+            <li>Create a new key and label it PerpGuard.</li>
+            <li>Give it read and trade permission. Nothing more.</li>
+            <li>Approve the wallet signature.</li>
+            <li>Save both parts of the key when they&rsquo;re shown. The secret cannot be recovered later — if you lose it, make a new key.</li>
+          </Ol>
+          <Callout tone="warn">The API secret is not your wallet&rsquo;s recovery phrase. It&rsquo;s a separate credential. Never paste either into a Telegram message, including to PerpGuard.</Callout>
+          <H3>Enter it on PerpGuard</H3>
+          <Ol>
+            <li>Open {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} in Telegram and send /start.</li>
+            <li>Choose 🔐 Trading account.</li>
+            <li>
+              Tap 🔑 Enter API key. The bot gives you a one-time link. It opens <code>https://perpguard.app/link?code=…</code> over HTTPS and works once, for five minutes.
+            </li>
+            <li>
+              Check the address bar reads <b className="text-text">perpguard.app</b> before you type anything.
+            </li>
+            <li>Enter your API key on that page only.</li>
+            <li>Go back to Telegram. The bot confirms which account it&rsquo;s connected to.</li>
+          </Ol>
+          <P>
+            <span className="mt-3 block">
+              Then: you can also connect your wallet on that page. That proves which account is yours, so you don&rsquo;t have to know its number — but the key is still what lets PerpGuard act, so you need both.
+            </span>
+          </P>
+        </Step>
+      )}
 
-      <Step n={5} title="Connect PerpGuard" minutes={3}>
-        <Ol>
-          <li>Open {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} in Telegram and send /start.</li>
-          <li>Choose 🔐 Trading account.</li>
-          <li>
-            Tap 🔑 Enter API key. The bot gives you a one-time link. It opens <code>https://perpguard.app/link?code=…</code> over HTTPS and works once, for five minutes.
-          </li>
-          <li>
-            Check the address bar reads <b className="text-text">perpguard.app</b> before you type anything.
-          </li>
-          <li>Enter your API key on that page only.</li>
-          <li>Go back to Telegram. The bot confirms which account it&rsquo;s connected to.</li>
-        </Ol>
-        <P>
-          <span className="mt-3 block">
-            Then: you can also connect your wallet on that page. That proves which account is yours, so you don&rsquo;t have to know its number — but the key is still what lets PerpGuard act, so you need both.
-          </span>
-        </P>
-      </Step>
-
-      <Step n={6} title="Decide what it may do" minutes={2}>
+      <Step n={5} title="Decide what it may do" minutes={2}>
         <P>Nothing automatic is on when you connect. PerpGuard watches and asks.</P>
         <H3>Alerts, which are always on</H3>
         <P>
@@ -221,7 +268,7 @@ export default function GuidePage() {
           Before you rely on it
         </h2>
         <ul className="guide-checklist card m-0 flex list-none flex-col gap-0 p-0">
-          {CHECKLIST.map((item, i) => (
+          {checklist(walletKey).map((item, i) => (
             <li key={item} className="border-b border-border last:border-b-0">
               <label className="flex cursor-pointer items-start gap-3 px-[14px] py-[11px] text-[15px] leading-[1.5] text-text2">
                 <input type="checkbox" id={`check-${i}`} className="mt-[3px] h-[17px] w-[17px] flex-none accent-[#6E54FF]" />
@@ -241,6 +288,7 @@ export default function GuidePage() {
           rows={[
             ['Orders rejected with sr 34', 'Order forwarding is off. Turn on One-Click Trading in Perpl’s settings. This is the most common one.'],
             ['Account not found', 'The deposit hasn’t completed, or you’re on the wrong wallet. Check the account exists in Perpl’s own interface first.'],
+            ...(walletKey ? ([['This wallet hasn’t used Perpl yet', 'No account exists for it. Do steps 1 and 2 first, then come back.']] as const) : []),
             ['The key is refused', 'A mainnet key on a testnet account, or the other way round. PerpGuard’s actions are testnet only.'],
             ['You can see positions but nothing can be sent', 'Either the key lacks trade permission, or forwarding is off.'],
             ['A wallet transaction fails', 'Wrong network, or no MON for gas.'],
@@ -255,7 +303,14 @@ export default function GuidePage() {
         </h2>
         <ul className="m-0 flex flex-col gap-2 pl-[22px] text-[15px] leading-[1.6] text-text2">
           <li>Never share a recovery phrase or private key. Nothing in this guide needs one.</li>
+          {walletKey ? (
+            <>
+              <li>Never paste an API secret into Telegram, including into a message to PerpGuard. If you&rsquo;re entering one by hand it goes on the HTTPS page, nowhere else.</li>
+              <li>Read what you&rsquo;re signing. PerpGuard&rsquo;s signature asks to create a Perpl key with read and trade permission. Reject anything that mentions withdrawing or transferring.</li>
+            </>
+          ) : (
           <li>Never paste an API secret into Telegram, including into a message to PerpGuard. It goes on the HTTPS page, nowhere else.</li>
+          )}
           <li>Use a separate wallet for testing.</li>
           <li>A trading key can lose money without being able to withdraw any. Treat the permission seriously even though funds can&rsquo;t leave.</li>
           <li>Check the bot&rsquo;s username and the domain in the address bar before connecting.</li>

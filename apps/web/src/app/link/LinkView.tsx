@@ -212,12 +212,28 @@ export function LinkView() {
       <div className="grid max-w-[1000px] grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card px-[22px] py-5">
           <div className="eyebrow">Option 1</div>
-          <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Sign in with the wallet that owns the account</h2>
-          <p className="mt-2 mb-3 text-[13px] text-muted">
-            Signing in shows which wallet you hold; PerpGuard then looks up the Perpl account it owns. No funds move and nothing is approved or spent.
-          </p>
-          {me.walletSignIn ? (
+          {me.walletKey ? (
+            <>
+              <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Connect your wallet, approve one signature</h2>
+              <p className="mt-2 mb-3 text-[13px] text-muted">
+                Connect the wallet that owns your Perpl account. One signature creates a trade-only key for PerpGuard and proves the account is yours: nothing to copy, nothing to save. A trade-only key can never withdraw or move your funds.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Sign in with the wallet that owns the account</h2>
+              <p className="mt-2 mb-3 text-[13px] text-muted">
+                Signing in shows which wallet you hold; PerpGuard then looks up the Perpl account it owns. No funds move and nothing is approved or spent.
+              </p>
+            </>
+          )}
+          {me.walletSignIn || me.walletKey ? (
             <WalletProofCard
+              mode={me.walletKey ? 'key' : 'sign-in'}
+              onKeyResult={(result, next) => {
+                setPhase({ kind: 'ready', me: next });
+                setNotice({ tone: result.forwardingAllowed === false ? 'warn' : 'ok', text: result.text });
+              }}
               verifiedAddress={me.wallet?.address}
               onProof={(proof: WalletProof, next: LinkMe) => {
                 setPhase({ kind: 'ready', me: next });
@@ -289,7 +305,7 @@ function KeyProofCard({ me, focus, onProof, onProblem }: { readonly me: LinkMe; 
   return (
     <div ref={card} className="card px-[22px] py-5">
       <div className="eyebrow">Option 2</div>
-      <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Paste an API key for the account</h2>
+      <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">{me.walletKey ? 'Already have a Perpl API key?' : 'Paste an API key for the account'}</h2>
       <p className="mt-2 text-[13px] text-muted">
         <b className="font-semibold text-text">A Perpl key can trade but can never withdraw or move your funds.</b> It is how the bot adds margin when you tap. Enter it here and nowhere else, never in Telegram. PerpGuard stores it encrypted and never shows it again.
       </p>

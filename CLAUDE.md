@@ -1098,6 +1098,27 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   other account proves ownership and still needs a key for it, and a key for
   a different account than the wallet proved is refused.
   (`apps/backend/src/server/link/{service,routes,crypto,stores}.ts`.)
+- 🔗 ONE WALLET SIGNATURE CREATES THE KEY (8 Oct 2026, behind the `wallet-key`
+  switch: `pnpm flag wallet-key on|off`, Postgres `feature_flags`, re-read
+  every 10 s, no deploy; a flag never set is OFF). `/link` Option 1 becomes
+  "connect, approve one signature": the backend makes the Ed25519 key, asks
+  Perpl for the enrolment payload (`/v1/api-key/payload`), the wallet signs
+  Perpl's EIP-712 typed data, the backend checks it (viem, smart wallets
+  too), proves possession and enrols (`/v1/api-key/enroll`), then hands the
+  key to the EXISTING `proveWallet` + `proveKey` path: sealed and linked
+  exactly as a pasted key. The secret never reaches the browser. Proven live
+  8 Oct 2026 on testnet with the owner's wallet: enroll 200, signed in as #24,
+  forwarding on. PASTING A KEY STAYS a visible Option 2 ("Already have a
+  Perpl API key?"), and is the whole page while the switch is off.
+  `/bot/guide` reads the switch (ISR, 1 min) and publishes the one-signature
+  step 4 only while it is on. The sign-in-with-Ethereum challenge is NOT used
+  while the switch is on (the key signature proves ownership) and is kept for
+  the switch-off path until the owner says remove it.
+  - NEVER AN ORIGIN OR REFERER TO PERPL, on any request, anywhere
+    (`postToPerpl`: content-type, content-length, host; a test checks what
+    arrives). Perpl refuses an Origin it has not approved (perpguard.app:
+    400) and accepts none; its docs say integrating sites are approved
+    first. If it ever needs Perpl's own Origin, it is a no.
 - THREE STATES, KEPT AND NEVER COLLAPSED (Phases 10-11, 6 Oct 2026): wallet
   (connected in the browser), OWNERSHIP VERIFIED (`wallet_proofs`: the wallet
   signed our challenge and the Exchange says it owns the account on the

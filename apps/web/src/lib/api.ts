@@ -186,6 +186,8 @@ export interface LinkMe {
   readonly wallet: { readonly address: string; readonly accountId: number } | null;
   /** Wallet ownership by signed challenge is available on this page. */
   readonly walletSignIn: boolean;
+  /** One wallet signature creates the key (the backend's `wallet-key` switch, read now). */
+  readonly walletKey: boolean;
   readonly keyStorageConfigured: boolean;
   readonly network: string;
 }
@@ -201,6 +203,15 @@ export type KeyProof =
 
 const L = '/api/link';
 
+/** Perpl's key typed data, signed exactly as given. */
+export interface WalletKeyTypedData {
+  readonly types: Record<string, readonly { readonly name: string; readonly type: string }[]>;
+  readonly primaryType?: string;
+  readonly domain: Record<string, unknown>;
+  readonly message: Record<string, unknown>;
+}
+export type WalletKeyResult = { readonly kind: 'linked'; readonly accountId: number; readonly forwardingAllowed: boolean | undefined; readonly text: string };
+
 export const link = {
   session: (code: string) => postJson<LinkMe>(`${L}/session`, { code }),
   signOut: () => postJson<{ signedOut: boolean }>(`${L}/session`, undefined, 'DELETE'),
@@ -212,6 +223,10 @@ export const link = {
   /** The key goes to this origin's backend and nowhere else, and is never read back. */
   key: (apiKey: string, secret: string) => postJson<{ proof: KeyProof; me: LinkMe }>(`${L}/key`, { apiKey, secret }),
   unlink: () => postJson<{ ok: boolean; text: string; me: LinkMe }>(`${L}/unlink`, {}),
+  /** 🔗 Perpl's typed data for the connected wallet: the key's secret stays on the server. */
+  walletKeyStart: (address: string) => postJson<{ typedData: WalletKeyTypedData }>(`${L}/wallet-key/start`, { address }),
+  /** The wallet's signature over it: the server creates, seals and links the key. */
+  walletKeyFinish: (signature: string) => postJson<{ result: WalletKeyResult; me: LinkMe }>(`${L}/wallet-key/finish`, { signature }),
   /** Watch the mainnet account this page's signed wallet proved it owns. Read-only; the server picks the account. */
   watchInstead: () => postJson<{ ok: boolean; text: string; accountId: number }>(`${L}/watch-instead`, {}),
 };

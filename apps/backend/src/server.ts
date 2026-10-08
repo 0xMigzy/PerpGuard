@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import {
   ApiSecret,
+  postToPerpl,
   reconcileOpenInterest,
   toOpenInterest,
   type OiReconciliation,
@@ -124,7 +125,6 @@ import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { DEFAULT_TTL_MS as RISK_SNAPSHOT_TTL_MS, RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { providerDomain } from './server/infrastructure.ts';
-import { registerKeyTestRoutes } from './server/keytest.ts';
 import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
 import { buildVenueFundingPayload, describeFetchError, VENUE_FUNDING_TTL_MS, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
@@ -143,7 +143,10 @@ import { SwrCache } from './server/responseCache.ts';
 import { ShutdownSequence, waitUntilReady } from './server/lifecycle.ts';
 import { ActionProgressTracker } from './server/protect/progress.ts';
 import { WalletChallenger } from './server/link/walletChallenge.ts';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, hashTypedData, http } from 'viem';
+import { InMemoryFeatureFlags, PostgresFeatureFlags, type FeatureFlags } from './server/featureFlags.ts';
+import { WalletKeyFlow } from './server/link/walletKey.ts';
+import { viemTypedData } from './server/link/typedData.ts';
 import { LinkCodeStore, SessionStore, WebPendingActionStore } from './server/protect/session.ts';
 import { AccountRegistry, DEFAULT_MAX_SESSIONS } from './sessions/registry.ts';
 import { KeyVault } from './server/link/crypto.ts';
@@ -985,6 +988,32 @@ const linkService = new LinkService({
   logger: { info: log, warn },
 });
 linkServiceImpl = linkService;
+
+// THE OWNER'S SWITCHES (`pnpm flag`), re-read every 10 s: no deploy, no restart.
+let featureFlags: FeatureFlags = new InMemoryFeatureFlags();
+if (alertDb !== undefined) {
+  try {
+    featureFlags = await PostgresFeatureFlags.load(alertDb, { warn });
+  } catch (error) {
+    warn(`feature flags: Postgres unavailable (${error instanceof Error ? error.message : String(error)}); every switch is OFF until the next restart`);
+  }
+}
+log(`feature flags: wallet-key ${featureFlags.isOn('wallet-key') ? 'on' : 'off'}`);
+
+// 🔗 CONNECT WITH ONE WALLET SIGNATURE: Perpl creates the key, PerpGuard seals it (behind `wallet-key`).
+// No Origin and no Referer reach Perpl: postToPerpl sends content-type, content-length and host only.
+const walletKeyFlow = new WalletKeyFlow({
+  flags: featureFlags,
+  post: postToPerpl,
+  restBaseUrl: network.restBaseUrl,
+  chainId: network.chainId,
+  digestOf: (typedData) => hashTypedData(viemTypedData(typedData) as never),
+  verify: (address, typedData, signature) =>
+    // Perpl's typed data is shaped at run time; viem's generics cannot check it, so it is passed as given.
+    createPublicClient({ transport: http(network.rpcUrl) }).verifyTypedData({ address: address as `0x${string}`, signature: signature as `0x${string}`, ...viemTypedData(typedData) } as never),
+  service: linkService,
+  log,
+});
 await linkService.reopenAll();
 
 // ── 6b. the watch tier's alerts: the same engine, a recipient list per change ──
@@ -1362,6 +1391,7 @@ const app = createHealthApp({
   link: {
     service: linkService,
     wallet: walletChallenger,
+    walletKey: walletKeyFlow,
     logger: { info: log },
     network: network.name,
     ...(envAccountId === undefined ? {} : { envAccountId }),
@@ -1549,26 +1579,6 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
 // ── 10. now serve health, failing cleanly if the port is taken ──────────────
 
 try {
-  // TEMPORARY: the wallet-signed key enrolment test (/_keytest). Only with KEYTEST_TOKEN set.
-  const keytestToken = process.env['KEYTEST_TOKEN']?.trim();
-  if (keytestToken !== undefined && keytestToken.length >= 24) {
-    registerKeyTestRoutes(app, {
-      token: keytestToken,
-      restBaseUrl: network.restBaseUrl,
-      chainId: network.chainId,
-      signIn: async (apiKey, secretHex) => {
-        const probeVenue = new PerplVenue(network, { credentials: { apiKey, secret: ApiSecret.fromHex(secretHex) } });
-        try {
-          const socket = await probeVenue.connectTrading();
-          return { accountId: socket.accountId, forwardingAllowed: socket.forwardingAllowed };
-        } finally {
-          probeVenue.disconnect();
-        }
-      },
-      log,
-    });
-    log('keytest: TEMPORARY key enrolment test routes are mounted (KEYTEST_TOKEN is set)');
-  }
   await app.listen({ host: HEALTH_HOST, port: HEALTH_PORT });
   log(`health on http://${HEALTH_HOST}:${HEALTH_PORT}/health`);
 } catch (error) {

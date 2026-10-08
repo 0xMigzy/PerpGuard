@@ -21,7 +21,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
-import { describeError, link, type LinkMe, type WalletProof } from '@/lib/api.ts';
+import { isEthereumWallet } from '@dynamic-labs/ethereum';
+import { describeError, link, ApiError, type LinkMe, type WalletKeyResult, type WalletKeyTypedData, type WalletProof } from '@/lib/api.ts';
 import { DYNAMIC_ENVIRONMENT_ID } from './dynamicEnv.ts';
 
 const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -33,6 +34,18 @@ interface Props {
   readonly verifiedAddress: string | undefined;
   readonly onProof: (proof: WalletProof, me: LinkMe) => void;
   readonly onProblem: (text: string) => void;
+  /**
+   * 'key' (the `wallet-key` switch on): the ONE signature is Perpl's own key authorisation; the server
+   * creates, seals and links the key. 'sign-in' (off): the signed challenge, proving ownership only.
+   */
+  readonly mode?: 'sign-in' | 'key';
+  readonly onKeyResult?: (result: WalletKeyResult, me: LinkMe) => void;
+}
+
+/** Perpl's typed data in the wallet's shape: the domain entry out of `types`, the chain id as a bigint. */
+function forWallet(t: WalletKeyTypedData): Record<string, unknown> {
+  const { EIP712Domain: _domainType, ...types } = t.types;
+  return { domain: { ...t.domain, chainId: BigInt(t.domain['chainId'] as string) }, types, primaryType: t.primaryType ?? Object.keys(types)[0]!, message: t.message };
 }
 
 /** Without a Dynamic environment there is no provider, so no wallet: the key path is the way in. */
@@ -43,7 +56,7 @@ export function WalletProofCard(props: Props) {
   return <DynamicWalletProof {...props} />;
 }
 
-function DynamicWalletProof({ verifiedAddress, onProof, onProblem }: Props) {
+function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-in', onKeyResult }: Props) {
   const { primaryWallet, sdkHasLoaded, setShowAuthFlow, handleLogOut } = useDynamicContext();
   const address = primaryWallet?.address;
   const [step, setStep] = useState<Step>('idle');
@@ -56,12 +69,31 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem }: Props) {
   }, [sdkHasLoaded]);
   /** Each connected address is asked automatically once per page; after that, the button asks. */
   const asked = useRef(new Set<string>());
-  const verified = address !== undefined && verifiedAddress !== undefined && address.toLowerCase() === verifiedAddress.toLowerCase();
+  // In key mode a proven wallet still needs its key: ownership alone is not the end of the page.
+  const verified = mode === 'sign-in' && address !== undefined && verifiedAddress !== undefined && address.toLowerCase() === verifiedAddress.toLowerCase();
 
   const prove = useCallback(async () => {
     if (primaryWallet === null || address === undefined) return;
     setStep('signing');
     try {
+      if (mode === 'key') {
+        // 🔗 ONE SIGNATURE: Perpl's typed data, signed by this wallet; the server does the rest.
+        const { typedData } = await link.walletKeyStart(address);
+        if (!isEthereumWallet(primaryWallet)) {
+          setStep('idle');
+          onProblem('This wallet can’t sign the request. Connect an Ethereum wallet, or paste an API key you already have.');
+          return;
+        }
+        const client = await primaryWallet.getWalletClient();
+        // Perpl's typed data is shaped at run time; viem's generics cannot check it, so it is passed as given.
+        const sign = client.signTypedData as unknown as (args: Record<string, unknown>) => Promise<string>;
+        const signature = await sign({ account: client.account, ...forWallet(typedData) });
+        setStep('checking');
+        const r = await link.walletKeyFinish(signature);
+        onKeyResult?.(r.result, r.me);
+        setStep('idle');
+        return;
+      }
       const { message } = await link.challenge(address);
       const signature = await primaryWallet.signMessage(message);
       if (signature === undefined) {
@@ -79,9 +111,9 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem }: Props) {
         return;
       }
       setStep('idle');
-      onProblem(describeError(error));
+      onProblem(error instanceof ApiError && mode === 'key' ? error.message : describeError(error));
     }
-  }, [primaryWallet, address, onProof, onProblem]);
+  }, [primaryWallet, address, onProof, onProblem, mode, onKeyResult]);
 
   // THE SECOND STEP STARTS ITSELF: a newly connected, not-yet-verified wallet is asked to sign at once.
   useEffect(() => {
@@ -134,20 +166,28 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem }: Props) {
             <b>One more step: sign in your wallet.</b> <span className="text-muted">The request is waiting in your wallet app; if it didn&apos;t open, switch to it.</span>
           </>
         ) : step === 'checking' ? (
-          <span className="text-muted">Checking the signature and looking up your account…</span>
+          <span className="text-muted">{mode === 'key' ? 'Creating your key with Perpl and connecting your account…' : 'Checking the signature and looking up your account…'}</span>
         ) : step === 'declined' ? (
           <>
-            <b>The signature was declined.</b> <span className="text-muted">Nothing was linked. Sign to prove this wallet is yours.</span>
+            <b>The signature was declined.</b> <span className="text-muted">{mode === 'key' ? 'Nothing was created and nothing was linked.' : 'Nothing was linked. Sign to prove this wallet is yours.'}</span>
           </>
         ) : (
           <>
-            <b>One more step: sign to prove this wallet is yours.</b> <span className="text-muted">It moves no funds and places no trade.</span>
+            {mode === 'key' ? (
+              <>
+                <b>One more step: approve one signature.</b> <span className="text-muted">It reads perpl.xyz and authorises creating a trade-only key for PerpGuard. It moves no funds; reject anything that mentions withdrawing or transferring.</span>
+              </>
+            ) : (
+              <>
+                <b>One more step: sign to prove this wallet is yours.</b> <span className="text-muted">It moves no funds and places no trade.</span>
+              </>
+            )}
           </>
         )}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" className="btn primary" disabled={step === 'signing' || step === 'checking'} onClick={() => void prove()}>
-          {step === 'signing' ? 'Waiting for your wallet…' : step === 'checking' ? 'Checking…' : 'Sign to prove ownership'}
+          {step === 'signing' ? 'Waiting for your wallet…' : step === 'checking' ? (mode === 'key' ? 'Creating your key…' : 'Checking…') : mode === 'key' ? 'Approve the signature' : 'Sign to prove ownership'}
         </button>
         {forget}
       </div>
