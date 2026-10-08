@@ -996,8 +996,12 @@ select count(*)                                                        as trader
        count(*) filter (where round_trips > 0 and net_pnl > 0)         as profitable,
        (percentile_cont(0.5) within group (order by net_pnl)
           filter (where round_trips > 0))::text                        as median_pnl,
-       coalesce(sum(liquidations), 0)                                  as liquidations,
-       coalesce(sum(rescuable), 0)                                     as rescuable
+       -- LIQUIDATIONS READ "Liquidation" DIRECTLY, as the Overview does (8 Oct 2026): summed over the
+       -- accounts that traded, they dropped every account liquidated without a fill of its own (44 of 87).
+       (select count(*) from "Liquidation"
+         where ${lifetime ? 'true' : 'timestamp >= $1::timestamptz'})                          as liquidations,
+       (select count(*) filter (where "wasRescuable") from "Liquidation"
+         where ${lifetime ? 'true' : 'timestamp >= $1::timestamptz'})                          as rescuable
   from a
 `;
 

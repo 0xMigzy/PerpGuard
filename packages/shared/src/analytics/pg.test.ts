@@ -1183,3 +1183,16 @@ test('the ALL trader summary binds exactly the parameters its SQL uses (it binds
     assert.equal(call.values.length, highest, `binds ${call.values.length}, uses ${highest}: ${call.sql.slice(0, 60)}`);
   }
 });
+
+test('TRADER SUMMARY LIQUIDATIONS READ "Liquidation" DIRECTLY: never summed over the accounts that traded', async () => {
+  // Summed off the active set, an account liquidated without a fill of its own vanished: 44 shown against 87.
+  const sql = new FakeSql();
+  await reader(sql).traderSummary('30d');
+  await reader(sql).traderSummary('all');
+  const summaries = sql.calls.filter((c) => /as liquidations/.test(c.sql));
+  assert.equal(summaries.length, 2);
+  for (const call of summaries) {
+    assert.match(call.sql, /\(select count\(\*\) from "Liquidation"\s+where [^)]*\)\s+as liquidations/);
+    assert.doesNotMatch(call.sql, /sum\(liquidations\)|sum\(rescuable\)/);
+  }
+});
