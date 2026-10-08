@@ -752,6 +752,7 @@ const bot =
           needsRelink: (id) => linkServiceImpl?.needsRelink(id),
           status: (id) => linkServiceImpl?.status(id),
           walletProof: (id) => linkServiceImpl?.walletProof(id),
+          hasKey: (id) => linkServiceImpl?.hasKey(id) ?? false,
         },
         watch: {
           store: watchStore,

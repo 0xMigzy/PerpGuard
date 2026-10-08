@@ -755,7 +755,12 @@ Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the p
   and 🔗 Connect wallet / 🔑 Enter API key, both through the one-time code and
   the HTTPS page (🔑 opens it with `via=key`: the key form, focused).
   Connected: 🔗 testnet #24, Execution, "Connected 8 Oct, 06:48", 🔌
-  Disconnect. THE EXECUTION LINE NAMES WHAT IS WRONG (Phase 13): it says which failure it is (key rotated,
+  Disconnect #24. DISCONNECT IS ON THE SCREEN WHENEVER ANYTHING IS HELD
+  (8 Oct 2026): a link, a key, or a WALLET PROOF WITH NO LINK (until then a
+  wallet-only proof could not be undone from the bot). Its routes are public
+  and read only the tapper's own records at tap time, so a dead session
+  never blocks it; the ask names exactly what goes (alerts, the wallet
+  proof, the key, or "No API key is stored"), each delete confirmed. THE EXECUTION LINE NAMES WHAT IS WRONG (Phase 13): it says which failure it is (key rotated,
   linked on another network, key for another account, not running, order
   forwarding off, with what to do) and offers "🔑 Enter a new API key" only
   where a new key fixes it, never for forwarding, which needs the owner's

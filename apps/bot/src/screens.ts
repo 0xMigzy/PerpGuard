@@ -300,7 +300,8 @@ export function accountScreen(input: AccountScreenInput): Screen {
         `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${input.network ?? 'testnet'} #${p.accountId}.`,
         'To add margin for you I also need an API key for it. Enter it on the page, never here.',
       ].join('\n'),
-      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [BACK_HOME]],
+      // A proof with no link is still something held for this person, so it can be undone from here.
+      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [{ text: `🔌 Disconnect #${p.accountId}`, route: { to: 'disconnect-ask' } }], [BACK_HOME]],
     };
   }
   if (input.accountId === undefined) {
@@ -331,7 +332,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
     html: lines.join('\n'),
     buttons: [
       ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
-      [{ text: '🔌 Disconnect', route: { to: 'disconnect-ask' } }],
+      [{ text: `🔌 Disconnect #${input.accountId}`, route: { to: 'disconnect-ask' } }],
       [BACK_HOME],
     ],
   };

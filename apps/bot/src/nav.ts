@@ -203,6 +203,9 @@ const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>([
   // Phase 8: read the index, or change this chat's OWN alert settings. Nothing touches an account.
   'wallets', 'star', 'unstar', 'liq', 'liq-set', 'big', 'big-set',
   'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
+  // Disconnect undoes whatever this person has given us (a link, a key, a wallet proof with no link yet): their
+  // own records, read at tap time, and it can only remove. Public so a proof-only identity is never stuck with it.
+  'disconnect-ask', 'disconnect',
 ]);
 
 /** The `level` that means Off on the threshold and warning routes. */

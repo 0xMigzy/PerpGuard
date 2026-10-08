@@ -128,6 +128,33 @@ export class LinkService {
     this.#proofs = deps.proofs ?? new InMemoryWalletProofStore();
   }
 
+  /** Whether an API key is stored for this identity. */
+  hasKey(userId: string): boolean {
+    return this.#deps.keys.get(userId) !== undefined;
+  }
+
+  /**
+   * Disconnect with NO LINK: a wallet proved an account and no key followed (or a key outlived its link).
+   * Whatever is held goes, each delete confirmed in storage; the reply names only what was really removed.
+   */
+  async #forgetUnlinked(userId: string): Promise<{ readonly ok: boolean; readonly text: string }> {
+    const proof = this.#proofs.get(userId);
+    const stray = this.#deps.keys.get(userId);
+    const accountId = proof?.accountId ?? stray?.accountId;
+    if (accountId === undefined) return { ok: false, text: 'This chat is not linked to any account.' };
+    let hadKey: boolean;
+    try {
+      hadKey = await this.#deps.keys.deleteConfirmed(userId);
+      await this.#proofs.deleteConfirmed(userId);
+    } catch (error) {
+      this.#deps.logger.warn(`link: ${userId} asked to disconnect unlinked account ${accountId}, but the delete could not be confirmed (${error instanceof Error ? error.message : String(error)})`);
+      return { ok: false, text: "I couldn't confirm that just now, so I'm not telling you it's gone. Try Disconnect again in a minute." };
+    }
+    this.#needsRelink.delete(userId);
+    this.#deps.logger.info(`link: ${userId} disconnected unlinked account ${accountId}; wallet proof ${proof !== undefined ? 'deleted' : 'none'}; key ${hadKey ? 'deleted' : 'none stored'}`);
+    return { ok: true, text: `Disconnected #${accountId}.${proof !== undefined ? ' Your wallet proof is forgotten.' : ''}${hadKey ? ' Your key is deleted.' : ''}` };
+  }
+
   /** The verified wallet this identity proved, kept across page sessions. */
   walletProof(userId: string): WalletProofRecord | undefined {
     return this.#proofs.get(userId);
@@ -291,7 +318,7 @@ export class LinkService {
   /** `/unlink`: the link goes, the key is DELETED, the session is closed (never the environment account's). */
   async unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }> {
     const link = this.#deps.links.byUserId(userId);
-    if (link === undefined) return { ok: false, text: 'This chat is not linked to any account.' };
+    if (link === undefined) return this.#forgetUnlinked(userId);
     // THE KEY GOES FIRST, AND IS CONFIRMED GONE (owner, 8 Oct 2026: never a sentence about someone's
     // key that is not true). If storage cannot confirm the delete, nothing changes and the reply says so.
     let hadKey: boolean;

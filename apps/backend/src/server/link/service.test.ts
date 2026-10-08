@@ -242,6 +242,18 @@ test('one account per user: a new proof replaces the previous link', async () =>
 
 // ── Phases 10-11: three states, kept ────────────────────────────────────────
 
+test('DISCONNECT WITH NO LINK: a wallet proof waiting for a key is forgotten, and the reply names only what went', async () => {
+  const r = rig();
+  r.lookups.set('0x' + '1'.repeat(40), { found: true, accountId: 900, address: '0x' + '1'.repeat(40) });
+  assert.equal((await r.service.proveWallet(r.identity, ['0x' + '1'.repeat(40)])).kind, 'proven-needs-key');
+  assert.equal(r.service.hasKey(r.identity.userId), false);
+  const result = await r.service.unlink(r.identity.userId);
+  assert.deepEqual(result, { ok: true, text: 'Disconnected #900. Your wallet proof is forgotten.' });
+  assert.equal(r.service.walletProof(r.identity.userId), undefined);
+  assert.match(r.logs.join('\n'), /disconnected unlinked account 900; wallet proof deleted; key none stored/);
+  assert.deepEqual(await r.service.unlink(r.identity.userId), { ok: false, text: 'This chat is not linked to any account.' }, 'nothing held, nothing claimed');
+});
+
 test('OWNERSHIP IS KEPT: a wallet proven without a key survives the page closing, and binds the key that follows', async () => {
   const proofs = new InMemoryWalletProofStore();
   const first = rig({ proofs });

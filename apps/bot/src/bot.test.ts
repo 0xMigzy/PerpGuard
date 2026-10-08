@@ -1169,7 +1169,7 @@ test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, 
 test('SERVER-SIDE: a stranger tapping an ACCOUNT route, or a crafted nav payload, is refused at the gate', async () => {
   const h = harness();
   h.view.assessments = [dangerAssessment()];
-  for (const route of [{ to: 'positions' }, { to: 'position', marketId: 1 }, { to: 'settings' }, { to: 'disconnect' }] as const) {
+  for (const route of [{ to: 'positions' }, { to: 'position', marketId: 1 }, { to: 'settings' }, { to: 'warn-ask' }] as const) {
     await h.bot.handleUpdate(callbackUpdate(encodeNav(route as Route), { from: STRANGER_ID, chat: STRANGER_CHAT }));
   }
   for (const crafted of ['n1:zz', 'n1:w:abc', 'n1:h:1', 'n2:h', 'n1:p:5']) {
@@ -1315,17 +1315,17 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   await tapNav(h, { to: 'account' });
   const account = lastScreen(h.telegram);
   assert.match(String(account.payload['text']), new RegExp(`🔗 ${h.view.network} #710\nExecution: 🟢 Authorized\nConnected `));
-  assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect', '← Back']);
+  assert.deepEqual(keyboardOf(account).map((b) => b.text), ['🔌 Disconnect #710', '← Back']);
   await tapNav(h, { to: 'disconnect-ask' });
-  assert.match(shown(h.telegram).at(-1)!, /^testnet\n🔌 <b>Disconnect #710\?<\/b>\nYou'll stop getting its alerts here, and I'll delete the API key you gave me\./);
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect', 'Cancel']);
+  assert.match(shown(h.telegram).at(-1)!, /^testnet\n🔌 <b>Disconnect #710\?<\/b>\nYou'll stop getting its alerts here\.\nI'll delete the API key you gave me\./);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect #710', 'Cancel']);
   assert.deepEqual(fake.unlinked, [], 'asking is not doing');
   await tapNav(h, { to: 'disconnect' });
   assert.deepEqual(fake.unlinked, [USER_ID]);
   assert.match(shown(h.telegram).at(-1)!, /^Unlinked from account 710\./, 'home for a chat with no account carries no network badge');
-  // A stranger cannot reach it at all.
+  // A stranger with nothing connected removes nothing: their own records are the only ones read.
   await tapNav(h, { to: 'disconnect' }, { from: STRANGER_ID, chat: 7_777 });
-  assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
+  assert.equal(answers(h.telegram).at(-1), 'Nothing is connected here.');
   assert.deepEqual(fake.unlinked, [USER_ID]);
 });
 
@@ -1645,7 +1645,7 @@ test('TRADING ACCOUNT: the account and its network once, the execution state, an
   await tapNav(h, { to: 'account' });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /^🔐 <b>TRADING ACCOUNT<\/b>\n🔗 testnet #710\nExecution: 🟢 Authorized\nConnected \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}$/);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔌 Disconnect', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔌 Disconnect #710', '← Back']);
   // Not authorized is never dressed as authorized.
   const off = harness();
   off.sessionStatus = { trading: { state: 'signed-in', forwardingAllowed: false } };
@@ -1663,7 +1663,7 @@ test('PHASE 13: a link made on another network is refused BY NAME, and the Tradi
   await tapNav(h, { to: 'account' });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /Execution: 🔴 Linked on mainnet, not testnet/);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter a new API key', '🔌 Disconnect', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter a new API key', '🔌 Disconnect #710', '← Back']);
 });
 
 test('PHASE 13: a wallet that proved an account but sent no key is told what is missing, with the way to add the key', async () => {
@@ -1672,7 +1672,33 @@ test('PHASE 13: a wallet that proved an account but sent no key is told what is 
   await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), /Your wallet <code>0x169e…5251<\/code> owns testnet #900\.\nTo add margin for you I also need an API key for it\. Enter it on the page, never here\./);
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter API key', '← Back']);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter API key', '🔌 Disconnect #900', '← Back']);
+});
+
+test('DISCONNECT, WALLET ONLY: a proof with no link can be undone from the bot, and the ask says no key is held', async () => {
+  const fake = fakeLinkService();
+  const h = harness({ link: { ...fake.service, walletProof: () => ({ address: '0x169e49ece0d4f19b92de549482d1562ddd235251', accountId: 900 }), hasKey: () => false } });
+  const who = { from: STRANGER_ID, chat: STRANGER_CHAT };
+  await tapNav(h, { to: 'disconnect-ask' }, who);
+  const ask = shown(h.telegram).at(-1)!;
+  assert.match(ask, /🔌 <b>Disconnect #900\?<\/b>\nI'll forget that your wallet <code>0x169e…5251<\/code> proved it\.\nNo API key is stored for it, so there is none to delete\./);
+  assert.doesNotMatch(ask, /stop getting its alerts|delete the API key you gave me/, 'only what is really held is named');
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔌 Disconnect #900', 'Cancel']);
+  assert.deepEqual(fake.unlinked, [], 'asking is not doing');
+  await tapNav(h, { to: 'disconnect' }, who);
+  assert.equal(fake.unlinked.length, 1, 'the link service is asked for the tapper\u2019s own identity');
+  assert.match(fake.unlinked[0]!, /^tg:/);
+});
+
+test('DISCONNECT, KEY HELD: the ask says the key is deleted only when one is stored', async () => {
+  const fake = fakeLinkService();
+  const withKey = harness({ link: { ...fake.service, hasKey: () => true } });
+  await tapNav(withKey, { to: 'disconnect-ask' });
+  assert.match(shown(withKey.telegram).at(-1)!, /I'll delete the API key you gave me\./);
+  const noKey = harness({ link: { ...fake.service, hasKey: () => false } });
+  await tapNav(noKey, { to: 'disconnect-ask' });
+  const text = shown(noKey.telegram).at(-1)!;
+  assert.match(text, /You'll stop getting its alerts here\.\nNo API key is stored for it, so there is none to delete\./);
 });
 
 test('PHASE 13: a rotated key and order forwarding off are told apart; only the first offers a new key', async () => {

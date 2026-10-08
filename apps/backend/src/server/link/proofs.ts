@@ -30,6 +30,8 @@ export interface WalletProofStore {
   get(userId: string): WalletProofRecord | undefined;
   put(record: WalletProofRecord): void;
   delete(userId: string): boolean;
+  /** Deleted and CONFIRMED gone from storage, or it throws with the proof still held. */
+  deleteConfirmed(userId: string): Promise<boolean>;
 }
 
 export class InMemoryWalletProofStore implements WalletProofStore {
@@ -45,6 +47,9 @@ export class InMemoryWalletProofStore implements WalletProofStore {
   }
   delete(userId: string): boolean {
     return this.#byUser.delete(userId);
+  }
+  deleteConfirmed(userId: string): Promise<boolean> {
+    return Promise.resolve(this.#byUser.delete(userId));
   }
 }
 
@@ -100,6 +105,16 @@ export class PostgresWalletProofStore implements WalletProofStore {
     const removed = this.#inner.delete(userId);
     if (removed) this.#write('delete from wallet_proofs where user_id = $1', [userId]);
     return removed;
+  }
+
+  /** The row goes FIRST, awaited behind any queued write; only then the copy in memory. Same rule as the key store. */
+  async deleteConfirmed(userId: string): Promise<boolean> {
+    const had = this.#inner.get(userId) !== undefined;
+    const done = this.#pending.then(() => this.#pool.query('delete from wallet_proofs where user_id = $1', [userId]));
+    this.#pending = done.then(() => undefined, () => undefined);
+    await done;
+    this.#inner.delete(userId);
+    return had;
   }
 
   flush(): Promise<void> {

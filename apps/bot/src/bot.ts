@@ -180,6 +180,8 @@ export interface BotDeps {
     needsRelink?(userId: string): string | undefined;
     /** Ownership a wallet proved for this identity, kept even when nothing is linked yet (it waits for a key). */
     walletProof?(userId: string): { readonly address: string; readonly accountId: number } | undefined;
+    /** Whether an API key is stored for this identity: Disconnect says it deletes one only when there is one. */
+    hasKey?(userId: string): boolean;
     /** How the link is backed, from records: for the Trading Account's Wallet and Ownership rows. */
     status?(userId: string): { readonly proof: 'wallet' | 'key' | 'owner'; readonly wallet: { readonly address: string } | undefined } | undefined;
   };
@@ -999,6 +1001,34 @@ export function createBot(deps: BotDeps): Bot {
         await showScreen(ctx, connectGoScreen(url, Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000)), via));
         return;
       }
+      case 'disconnect-ask':
+      case 'disconnect': {
+        // PUBLIC, BECAUSE ANYTHING HELD CAN BE UNDONE: a wallet proof with no link yet, or a link whose
+        // session is down (a rotated key). Only the tapper's OWN records are read, at tap time.
+        const { identity } = identities.register(telegramUserId, chatId, now());
+        const linked = linkHere(telegramUserId, chatId);
+        const proof = deps.link?.walletProof?.(identity.userId);
+        const accountId = linked?.accountId ?? proof?.accountId;
+        if (accountId === undefined) {
+          await ctx.answerCallbackQuery({ text: 'Nothing is connected here.' });
+          await showScreen(ctx, tradingAccount(chatId, telegramUserId));
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        if (route.to === 'disconnect-ask') {
+          const wallet = proof !== undefined && proof.accountId === accountId ? proof.address : undefined;
+          await showScreen(ctx, badged(deps, disconnectAskScreen({ accountId, linked: linked !== undefined, hasKey: deps.link?.hasKey?.(identity.userId) ?? linked !== undefined, ...(wallet === undefined ? {} : { walletAddress: wallet }) })));
+          return;
+        }
+        const result =
+          deps.link !== undefined
+            ? await deps.link.unlink(linked?.userId ?? identity.userId)
+            : { ok: deps.links.unlink(telegramUserId), text: `Disconnected from account #${accountId}.` };
+        const after = home(chatId, telegramUserId);
+        // Home for a chat that is no longer connected: no account, so no network badge.
+        await showScreen(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
+        return;
+      }
       case 'dismiss':
         // The alert's words stay as the record; its buttons go, so nothing on it can be tapped later.
         await ctx.answerCallbackQuery({ text: 'Dismissed. Nothing was sent.' });
@@ -1120,19 +1150,6 @@ export function createBot(deps: BotDeps): Bot {
         amounts.delete(telegramUserId);
         questions.ask(chatId, telegramUserId, { kind: 'alert-distance' });
         await ctx.reply(`Alert me at what distance from liquidation? Send a percentage between ${MIN_ALERT_DISTANCE_PCT} and ${MAX_ALERT_DISTANCE_PCT}, like 4 or 3.5.`, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
-        return;
-      }
-      case 'disconnect-ask':
-        await ctx.answerCallbackQuery();
-        await showScreen(ctx, disconnectAskScreen(account.accountId));
-        return;
-      case 'disconnect': {
-        await ctx.answerCallbackQuery();
-        const result = deps.link !== undefined ? await deps.link.unlink(link.userId) : { ok: deps.links.unlink(telegramUserId), text: `Disconnected from account #${account.accountId}.` };
-        const chatId = ctx.chat?.id ?? link.chatId;
-        const after = home(chatId, telegramUserId);
-        // Home for a chat that is no longer connected: no account, so no network badge.
-        await showScreenRaw(ctx, { ...after, html: `${esc(result.text)}\n\n${after.html}` });
         return;
       }
       default:

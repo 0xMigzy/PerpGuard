@@ -25,10 +25,11 @@ test('every route round-trips, fits in 64 bytes, and is never readable as an act
 test('the public set is exactly the screens a watcher needs, and nothing that reads an account', () => {
   assert.deepEqual(ALL.filter(isPublicRoute).map((r) => r.to), [
     'home', 'watch-menu', 'watch-ask', 'watch-id', 'watchlist', 'wallet', 'unwatch', 'account', 'connect', 'connect-go', 'connect-key',
+    'disconnect-ask', 'disconnect',
     'wallets', 'star', 'unstar', 'liq', 'liq-set', 'big', 'big-set',
     'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
   ]);
-  for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'position', 'settings', 'warn-ask', 'warn-set', 'disconnect-ask', 'disconnect'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
+  for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'position', 'settings', 'warn-ask', 'warn-set'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
 });
 
 test('the decoder rejects anything it did not write', () => {

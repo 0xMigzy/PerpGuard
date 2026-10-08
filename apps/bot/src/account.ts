@@ -329,10 +329,27 @@ export function warnAskScreen(currentPct: number): Screen {
   };
 }
 
-export function disconnectAskScreen(accountId: number): Screen {
+/** What a Disconnect would remove, read from the records at tap time. */
+export interface DisconnectTarget {
+  readonly accountId: number;
+  /** Linked: this chat gets the account's alerts with buttons. False: only a wallet proof is held. */
+  readonly linked: boolean;
+  /** An API key is stored for this person. */
+  readonly hasKey: boolean;
+  /** The wallet that proved the account, when one did. */
+  readonly walletAddress?: string;
+}
+
+/** Says exactly what goes: each clause only when it is true. */
+export function disconnectAskScreen(target: DisconnectTarget): Screen {
+  const wallet = target.walletAddress === undefined ? undefined : `${target.walletAddress.slice(0, 6)}…${target.walletAddress.slice(-4)}`;
+  const removes: string[] = [];
+  if (target.linked) removes.push("You'll stop getting its alerts here.");
+  if (wallet !== undefined) removes.push(`I'll forget that your wallet <code>${wallet}</code> proved it.`);
+  removes.push(target.hasKey ? "I'll delete the API key you gave me." : 'No API key is stored for it, so there is none to delete.');
   return {
-    html: `🔌 <b>Disconnect #${accountId}?</b>\nYou'll stop getting its alerts here, and I'll delete the API key you gave me. Wallets you watch stay. You can connect again any time.`,
-    buttons: [[{ text: '🔌 Disconnect', route: { to: 'disconnect' } }], [{ text: 'Cancel', route: { to: 'account' } }]],
+    html: [`🔌 <b>Disconnect #${target.accountId}?</b>`, ...removes, 'Wallets you watch stay. You can connect again any time.'].join('\n'),
+    buttons: [[{ text: `🔌 Disconnect #${target.accountId}`, route: { to: 'disconnect' } }], [{ text: 'Cancel', route: { to: 'account' } }]],
   };
 }
 
