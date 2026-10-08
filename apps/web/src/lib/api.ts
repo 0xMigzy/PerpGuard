@@ -13,6 +13,7 @@
 import type { CopyReplayPayload } from './copy.ts';
 import type {
   AccountFillsPage,
+  OiReconciliation,
   ProtocolTreasuryDays,
   VenueFundingPayload,
   AssessedPositions,
@@ -222,6 +223,8 @@ export const api = {
   metrics: (t: Timeframe) => getJson<Envelope<ProtocolMetrics>>(`${A}/metrics?timeframe=${t}`),
   tvl: () => getJson<Envelope<TvlReading>>(`${A}/tvl`),
   infrastructure: () => getJson<Envelope<InfrastructureFacts>>(`${A}/infrastructure`),
+  /** Index beside venue, per market, each with its block: the backend's 5-minute timer, served from memory. */
+  oiReconciliation: () => getJson<Envelope<OiReconciliation>>(`${A}/open-interest/reconciliation`),
   series: (t: Timeframe) => getJson<Envelope<readonly DailyPoint[]>>(`${A}/series?timeframe=${t}`),
   /** Every UTC month since the index's first event, and where that history starts. */
   history: () => getJson<Envelope<HistoryCurve>>(`${A}/history`),

@@ -233,7 +233,7 @@ export function qualityFields(i: StatusInputs): readonly StatusField[] {
     {
       label: 'Validation checks',
       value: value(
-        'Live: the index’s progress is checked against an independent chain head on every read, and the exchange balance is reconciled against the contract every 15 minutes. Offline: the index is checked against the raw chain logs, and the funding unit, open interest history and skew were measured against the venue.',
+        'Live: the index’s progress is checked against an independent chain head on every read, and the exchange balance is reconciled against the contract every 15 minutes, and open interest against the venue, market by market at recorded blocks, every 5 minutes (table below). Offline: the index is checked against the raw chain logs, and the funding unit, open interest history and skew were measured against the venue.',
       ),
     },
   ];

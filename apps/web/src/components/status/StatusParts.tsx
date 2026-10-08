@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import type { OiReconciliation } from '@perpguard/shared';
+import { gapPct } from '@/lib/oiHistory.ts';
 import type { DataSourceRow, FieldState, MetricMethod, StatusField } from '@/lib/status.ts';
 
 /**
@@ -164,6 +166,62 @@ export function MethodList({ metrics }: { readonly metrics: readonly MetricMetho
       {metrics.map((m) => (
         <MethodAccordion key={m.name} metric={m} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Open interest, index beside venue, per market: the backend's 5-minute like-for-like check. Lots in
+ * each market's own units; the gap is indexed − venue; each side's block is shown, so a gap can be
+ * read as trades between the two reads rather than taken on trust.
+ */
+export function OiReconciliationTable({ reconciliation, nowMs }: { readonly reconciliation: OiReconciliation | undefined; readonly nowMs: number }) {
+  if (reconciliation === undefined) {
+    return <div className="card mt-3 px-[18px] py-3 text-[13px] text-muted2">Open interest check: not available yet. It runs every 5 minutes.</div>;
+  }
+  const r = reconciliation;
+  const lots = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 6 });
+  const age = Math.max(0, Math.round((nowMs - r.atMs) / 60_000));
+  const at = new Date(r.atMs).toISOString().slice(11, 16);
+  return (
+    <div className="card mt-3 overflow-hidden">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-[18px] py-[10px]">
+        <div className="text-[13.5px] font-semibold text-text">Open interest: index vs venue</div>
+        <div className="text-[12px] text-muted">
+          Checked {at} UTC ({age < 1 ? 'under a minute' : `${age} min`} ago) · index block {r.indexBlock.toLocaleString('en-US')} · every 5 minutes
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-border text-[11.5px] uppercase tracking-[0.06em] text-muted">
+              <th scope="col" className="px-[14px] py-[8px] text-left font-semibold">Market</th>
+              <th scope="col" className="px-[14px] py-[8px] text-right font-semibold">Indexed lots</th>
+              <th scope="col" className="px-[14px] py-[8px] text-right font-semibold">Venue lots</th>
+              <th scope="col" className="px-[14px] py-[8px] text-right font-semibold">Gap</th>
+              <th scope="col" className="px-[14px] py-[8px] text-right font-semibold">Index block</th>
+              <th scope="col" className="px-[14px] py-[8px] text-right font-semibold">Venue block</th>
+            </tr>
+          </thead>
+          <tbody>
+            {r.markets.map((m) => (
+              <tr key={m.marketId} className="border-b border-border last:border-b-0">
+                <th scope="row" className="px-[14px] py-[8px] text-left font-semibold text-text">{m.symbol}</th>
+                <td className="num px-[14px] py-[8px] text-right">{lots(m.indexedLots)}</td>
+                <td className="num px-[14px] py-[8px] text-right">{lots(m.venueLots)}</td>
+                <td className={`num px-[14px] py-[8px] text-right ${m.gapLots === 0 ? 'text-safe' : 'text-watch'}`}>
+                  {m.gapLots === 0 ? 'matches' : `${m.gapLots > 0 ? '+' : '−'}${lots(Math.abs(m.gapLots))} (${gapPct(m.gapShare)})`}
+                </td>
+                <td className="num px-[14px] py-[8px] text-right text-muted">{r.indexBlock.toLocaleString('en-US')}</td>
+                <td className="num px-[14px] py-[8px] text-right text-muted">{m.venueBlock.toLocaleString('en-US')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-border px-[18px] py-[9px] text-[12px] leading-[1.5] text-muted">
+        The venue&rsquo;s reading first, the index&rsquo;s live total straight after, each with its block. A gap is trades that landed between the two reads; the index also trails the chain by its lag.
+      </div>
     </div>
   );
 }

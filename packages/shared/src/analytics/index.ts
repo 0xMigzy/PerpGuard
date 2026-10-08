@@ -6,3 +6,4 @@ export * from './pg.ts';
 export * from './types.ts';
 export * from './exposure.ts';
 export * from './feed.ts';
+export * from './oiReconcile.ts';

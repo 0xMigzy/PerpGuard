@@ -24,7 +24,9 @@ import { DailyBars } from '@/components/charts/DailyBars.tsx';
 import { LevelChart, type LevelPoint } from '@/components/charts/LevelChart.tsx';
 import { ShortLine } from '@/components/Explain.tsx';
 import { marketName } from '@/lib/markets.ts';
-import { ANCHOR_TOLERANCE, oiHistory, type OiHistory } from '@/lib/oiHistory.ts';
+import { oiHistory, reconciliationText, type OiHistory } from '@/lib/oiHistory.ts';
+import { InfoTip } from '@/components/InfoTip.tsx';
+import Link from 'next/link';
 import { VolumeByMarketChart } from '@/components/charts/VolumeByMarketChart.tsx';
 import { activitySentence, riskSentence } from '@/lib/summary.ts';
 
@@ -106,6 +108,9 @@ export function OverviewView() {
   const skew = skewOf(markets.data?.data);
   const chartNote = t === '24h' ? 'Day buckets: the last 7 UTC days are shown for a 24h window.' : undefined;
   const oiHist = useMemo(() => (byMarket.data === undefined ? undefined : oiHistory(byMarket.data.data, oi.data?.data.markets)), [byMarket.data, oi.data]);
+  // The like-for-like check: the backend's 5-minute timer, served from memory (no query on this read).
+  const oiCheck = usePoll(api.oiReconciliation, 60_000, 'oi-reconciliation');
+  const oiNote = reconciliationText(oiCheck.data?.data, Date.now());
   const oiPoints = useMemo(() => (oiHist === undefined ? undefined : oiLevelPoints(oiHist, showDays, Date.now())), [oiHist, showDays]);
   const marketNames = useMemo(() => new Map((byMarket.data?.data ?? []).map((s) => [s.market.marketId, marketName(s.market)])), [byMarket.data]);
   const block = health.data?.data.latestProcessedBlock;
@@ -210,7 +215,15 @@ export function OverviewView() {
       <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card px-[18px] py-4">
           <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-[10px]">
-            <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">Open interest</h2>
+            <h2 className="m-0 flex items-center gap-[7px] text-[15px] font-bold tracking-[-0.01em]">
+              Open interest
+              <InfoTip label="How the open interest history is drawn">
+                {oiNote.lead} {oiNote.detail}{' '}
+                <Link href="/status#data-quality" className="text-accent-hi underline underline-offset-2">
+                  Per market
+                </Link>
+              </InfoTip>
+            </h2>
             <span className="text-[12.5px] text-muted">one side · each UTC day&rsquo;s close, then now</span>
           </div>
           <ErrorNote error={byMarket.error} what="Open interest history" />
@@ -227,14 +240,7 @@ export function OverviewView() {
             Each day is every market&rsquo;s open lots × its closing mark. The index runs from the Exchange&rsquo;s deployment block, so its running lot count is the level itself; the last point is the venue&rsquo;s own reading now.
             {chartNote !== undefined && ` ${chartNote}`}
           </ShortLine>
-          <div className="text-[11.5px] leading-[1.5] text-muted2">
-            {oiHist !== undefined && oiHist.mismatches.length > 0 && (
-              <span className="mt-1 block text-watch">
-                Indexed lots differ from the venue&rsquo;s by more than {formatPct(ANCHOR_TOLERANCE)} on{' '}
-                {oiHist.mismatches.map((x) => `${x.symbol} (${x.indexedLots.toLocaleString('en-US')} indexed vs ${x.venueLots === undefined ? 'not listed' : x.venueLots.toLocaleString('en-US')})`).join(', ')}. The history is drawn as indexed.
-              </span>
-            )}
-          </div>
+
         </div>
 
         <div className="card px-[18px] py-4">

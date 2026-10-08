@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/PageHeader.tsx';
-import { FieldCard, MethodList, SourcesTable, StatusSection } from '@/components/status/StatusParts.tsx';
+import { FieldCard, MethodList, OiReconciliationTable, SourcesTable, StatusSection } from '@/components/status/StatusParts.tsx';
 import { api } from '@/lib/api.ts';
 import { STATUS_SECTIONS } from '@/lib/status.ts';
 import { DISCLAIMER_FIELDS, conventionFields, coverageFields, dataStatusFields, infrastructureFields, methodology, qualityFields, sourceRows, type StatusInputs } from '@/lib/statusContent.ts';
@@ -30,6 +30,8 @@ export function StatusView() {
   const openInterest = usePoll(api.openInterest, 30_000, 'status-oi');
   const treasury = usePoll(api.protocolTreasuryDays, 5 * 60_000, 'status-treasury');
   const venues = usePoll(api.venueFunding, 60_000, 'status-venues');
+  // The backend's 5-minute open interest check, from memory: no query on this read.
+  const oiCheck = usePoll(api.oiReconciliation, 60_000, 'status-oi-check');
 
   // "N s ago" moves on its own between polls.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -106,6 +108,7 @@ export function StatusView() {
 
       <StatusSection id="data-quality" title={TITLE['data-quality']}>
         <FieldCard fields={qualityFields(inputs)} />
+        <OiReconciliationTable reconciliation={oiCheck.data?.data} nowMs={nowMs} />
       </StatusSection>
 
       <StatusSection id="infrastructure" title={TITLE.infrastructure}>

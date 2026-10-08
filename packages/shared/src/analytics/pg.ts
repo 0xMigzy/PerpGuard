@@ -50,7 +50,7 @@ import {
   type SymbolResolver,
 } from './map.ts';
 import type { TvlReading } from './tvl.ts';
-import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig } from '../units.ts';
+import { maintenanceMarginRatioFromConfig, maxLeverageFromConfig, scaledToNumber } from '../units.ts';
 import type {
   Analytics,
   CollateralFlowStats,
@@ -129,6 +129,17 @@ const HEALTH_SQL = `
 select latest_processed_block, block_height, num_events_processed, start_block,
        timestamp_caught_up_to_head_or_endblock as caught_up_at
   from chain_metadata where chain_id = $1
+`;
+
+/**
+ * Each market's LIVE indexed open interest (the running lot total, which is the level because the
+ * index starts at the deployment block) and the block it is from. ~0.1 ms to run, ~0.6 ms to plan
+ * (measured 8 Oct 2026): 17 rows and one row of chain_metadata. For the like-for-like reconciliation.
+ */
+const INDEXED_OI_SQL = `
+select m.id, m."openInterestDeltaLNS"::text as oi, m."lotDecimals",
+       (select latest_processed_block from chain_metadata where chain_id = $1) as block
+  from "Market" m
 `;
 
 /** Exchange-level running totals. Exact, and the source for `all`. */
@@ -1289,6 +1300,15 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       this.#lastProgress = progress;
     }
     return health;
+  }
+
+  /** The index's live open interest per market, in lots, with its block. See INDEXED_OI_SQL. */
+  async indexedOpenInterest(): Promise<{ readonly block: number; readonly markets: readonly { readonly marketId: number; readonly lots: number }[] }> {
+    const rows = await this.#rows(INDEXED_OI_SQL, [this.#chainId]);
+    return {
+      block: count(rows[0]?.['block']),
+      markets: rows.map((r) => ({ marketId: count(r['id']), lots: scaledToNumber(bigintOrZero(r['oi']), count(r['lotDecimals'])) })),
+    };
   }
 
   async protocolMetrics(timeframe: Timeframe): Promise<ProtocolMetrics> {

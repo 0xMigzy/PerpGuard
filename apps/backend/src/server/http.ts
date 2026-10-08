@@ -61,6 +61,8 @@ export interface HealthServerOptions {
   /** The stale-while-revalidate cache for indexed answers, owned by the process so it can warm it. */
   readonly analyticsCache?: AnalyticsRouteOptions['cache'];
   readonly analyticsWarmedTtlMs?: number;
+  /** The last open interest reconciliation, from memory. */
+  readonly analyticsOiReconciliation?: AnalyticsRouteOptions['oiReconciliation'];
   /** Static facts for /status. */
   readonly analyticsInfrastructure?: AnalyticsRouteOptions['infrastructure'];
   /** 🔁 The copy replay (Copy Trading, Half A). Read-only. */
@@ -118,6 +120,7 @@ export function createHealthApp(options: HealthServerOptions): FastifyInstance {
       ...(options.analyticsCache === undefined ? {} : { cache: options.analyticsCache }),
       ...(options.analyticsWarmedTtlMs === undefined ? {} : { warmedTtlMs: options.analyticsWarmedTtlMs }),
       ...(options.analyticsInfrastructure === undefined ? {} : { infrastructure: options.analyticsInfrastructure }),
+      ...(options.analyticsOiReconciliation === undefined ? {} : { oiReconciliation: options.analyticsOiReconciliation }),
     });
   }
 

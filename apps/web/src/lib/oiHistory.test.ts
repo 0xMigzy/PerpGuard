@@ -40,17 +40,26 @@ test('the series ends on the venue\'s level now, and history is never shifted to
   assert.equal(h.now!.totalAusd, 8.14836 * 85_300 + 190.032 * 2_696);
   assert.equal(h.now!.atMs, 4, 'dated by the oldest reading');
   assert.equal(h.days[0]!.totalAusd, 8.14921 * 85_000, 'unchanged by the anchor');
-  assert.deepEqual(h.mismatches, [], 'BTC differs by 0.01%: inside the tolerance');
 });
 
-test('a disagreement beyond the tolerance is reported, never hidden', () => {
-  const h = oiHistory(
-    [market(1, 'BTC', [pt(D(2), 9, 85_000)]), market(30, 'SOL', [pt(D(2), 0, 120)]), market(99, 'GHOST', [pt(D(2), 4, 1)])],
-    [venue(1, 'BTC', 8, 85_000)],
-  );
-  assert.deepEqual(h.mismatches, [
-    { marketId: 1, symbol: 'BTC', indexedLots: 9, venueLots: 8 },
-    { marketId: 99, symbol: 'GHOST', indexedLots: 4, venueLots: undefined },
-  ]);
-  // A retired market (SOL v1) at exactly 0 lots is what the venue's silence means: no report.
+
+test('THE INFO ICON SAYS WHAT WAS MEASURED: matches to the lot, the largest gap and its cause with both blocks, and how old the check is', async () => {
+  const { reconciliationText } = await import('./oiHistory.ts');
+  const r = {
+    atMs: 1_000_000,
+    indexBlock: 111_679_505,
+    matched: 9,
+    markets: Array.from({ length: 11 }, (_, i) => ({ marketId: i, symbol: `M${i}`, indexedLots: 1, venueLots: 1, gapLots: 0, gapShare: 0, venueBlock: 111_679_431 })),
+    largest: { marketId: 10, symbol: 'MON', indexedLots: 2_629_097, venueLots: 2_626_096, gapLots: 3_001, gapShare: 0.001143, venueBlock: 111_679_430 },
+  };
+  const t = reconciliationText(r, 1_000_000 + 3 * 60_000);
+  assert.equal(t.lead, 'Drawn as indexed.');
+  assert.equal(t.detail, "Read beside the venue's own figure, the index matches the venue to the lot on 9 of 11 markets. The largest gap is MON, 0.11% (3,001 lots): trades landing between the two reads, the venue's at block 111,679,430 and the index's at 111,679,505. Checked 3 min ago.");
+  assert.doesNotMatch(t.detail!, /30%|7 of 11/);
+  assert.match(reconciliationText({ ...r, matched: 11, largest: undefined }, 1_000_000).detail!, /on all 11 markets\. Checked under a minute ago\.$/);
+  assert.match(reconciliationText(undefined, 0).detail!, /has not run yet/);
+  const { gapPct } = await import('./oiHistory.ts');
+  assert.equal(gapPct(0.0000352), '0.0035%', 'a real gap never reads 0%');
+  assert.equal(gapPct(0.3062), '30.62%');
+  assert.equal(gapPct(0), '0%');
 });

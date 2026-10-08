@@ -481,8 +481,16 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   block: a market's cumulative lot delta at a day's close IS its OI then
   (measured equal to the venue on every market, 6 Oct 2026). Lots × that day's
   close mark, one side, ending on the venue's reading now. History is NEVER
-  shifted to meet the venue; a market more than 0.5% off is named on the chart
-  (`apps/web/src/lib/oiHistory.ts`).
+  shifted to meet the venue (`apps/web/src/lib/oiHistory.ts`).
+  - THE INDEX IS CHECKED AGAINST THE VENUE LIKE FOR LIKE (8 Oct 2026): a
+    5-minute backend timer reads the venue (a fresh context) and, straight
+    after, the index's live `Market.openInterestDeltaLNS` (~0.1 ms), each with
+    its block (`analytics/oiReconcile.ts`, GET /api/analytics/open-interest/
+    reconciliation, served from MEMORY: no query on a page load). The Overview
+    says it behind an info icon; /status shows the per-market table. NEVER
+    compare a cached series with the live venue: it reported NEAR 30% out
+    (an hour-old 2,849 against a live 2,181) when, read side by side, NEAR,
+    LIT and seven others matched to the lot.
 - THE EXCHANGE BALANCE IS REBUILT FORWARD FROM LAUNCH, never walked back from
   today: indexed deposits − withdrawals + the protocol treasury's own
   `ProtocolBalanceDeposit` − `ProtocolBalanceWithdraw`. The treasury events are

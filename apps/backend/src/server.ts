@@ -36,6 +36,9 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import {
   ApiSecret,
+  reconcileOpenInterest,
+  toOpenInterest,
+  type OiReconciliation,
   assessOpenPositions,
   ConfigError,
   DEFAULT_CONTEXT_TTL_MS,
@@ -1020,6 +1023,9 @@ const indexerUrl = process.env['INDEXER_DATABASE_URL']?.trim();
 let indexerDb: Pool | undefined;
 let indexerMonitor: IndexerLagMonitor | undefined;
 let analyticsVenue: PerplVenue | undefined;
+/** The last like-for-like open interest reconciliation, from the 5-minute timer. Served from memory. */
+let oiReconciliation: OiReconciliation | undefined;
+const OI_RECONCILE_MS = 5 * 60_000;
 if (indexerUrl !== undefined && indexerUrl !== '') {
   // A pool, and NOT connected eagerly, for the same two reasons as the alert
   // log: a dead single client never recovers, and an indexer database that is
@@ -1086,6 +1092,28 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
     tvlProbe,
   });
   log(`analytics API ready on chain ${analyticsNetwork.chainId} (TVL via ${new URL(tvlRpcUrl).host})`);
+
+  // OPEN INTEREST, RECONCILED LIKE FOR LIKE (8 Oct 2026): every 5 minutes and once now, the venue's
+  // reading (a fresh context) and, straight after, the index's live totals (~0.1 ms), each with its
+  // block. NOT ON A REQUEST: page loads read the last result from memory and cost nothing.
+  {
+    const reader = analyticsReader;
+    const oiVenue = analyticsVenue;
+    const reconcile = async (): Promise<void> => {
+      try {
+        const context = await oiVenue.getContext({ force: true });
+        const venue = context.markets.map((m) => toOpenInterest(m, analyticsNetwork.name)).map((o) => ({ marketId: o.marketId, symbol: o.symbol, lots: o.openInterestSize, block: o.atBlock }));
+        const indexed = await reader.indexedOpenInterest();
+        oiReconciliation = reconcileOpenInterest(indexed, venue, Date.now());
+        const l = oiReconciliation.largest;
+        log(`open interest reconciled at index block ${indexed.block}: ${oiReconciliation.matched} of ${venue.length} markets match${l === undefined ? '' : `; largest gap ${l.symbol} ${(l.gapShare * 100).toFixed(2)}% (venue block ${l.venueBlock})`}`);
+      } catch (error) {
+        warn(`open interest reconciliation did not run (${error instanceof Error ? error.message : String(error)}); keeping the last one`);
+      }
+    };
+    void reconcile();
+    setInterval(() => void reconcile(), OI_RECONCILE_MS).unref();
+  }
 
   // 🔁 COPY REPLAY (Half A): a MAINNET account copying a MAINNET leader (owner,
   // 8 Oct 2026): the analytics network's index, marks AND markets (sizes,
@@ -1352,6 +1380,7 @@ const app = createHealthApp({
   // The warmed default views are refreshed only by the hourly pass, never by a reader.
   ...(analyticsReader === undefined ? {} : { analytics: analyticsReader, analyticsCache, analyticsWarmedTtlMs: KEEP_WARM_MS + 5 * 60_000 }),
   // /status: configuration only. The RPC is reduced to its provider's domain; the URL never leaves the process.
+  analyticsOiReconciliation: () => oiReconciliation,
   analyticsInfrastructure: () => ({
     network: { name: analyticsNetworkConfig?.name ?? 'unknown', chainId: analyticsNetworkConfig?.chainId ?? 0 },
     rpcProvider: providerDomain(analyticsNetworkConfig?.rpcUrl),

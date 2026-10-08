@@ -53,12 +53,15 @@ import {
 } from '@perpguard/shared';
 import { SwrCache } from './responseCache.ts';
 import type { InfrastructureFacts } from './infrastructure.ts';
+import type { OiReconciliation } from '@perpguard/shared';
 import type { FillDirections } from './fillDirections.ts';
 
 export interface AnalyticsRouteOptions {
   readonly analytics: Analytics;
   /** Static facts for the Data & Methodology page; the cache and health TTLs are added here. No query. */
   readonly infrastructure?: () => Omit<InfrastructureFacts, 'cacheTtlMs' | 'healthTtlMs'>;
+  /** The last like-for-like open interest reconciliation (a 5-minute timer, not a request). Memory only. */
+  readonly oiReconciliation?: () => OiReconciliation | undefined;
   /**
    * The stale-while-revalidate cache for indexed answers. Supplied by the
    * process so it can warm the default views at boot and keep them warm; a
@@ -389,6 +392,13 @@ export function registerAnalyticsRoutes(
    * what a client should read. The envelope is still attached for shape consistency.
    */
   scope.get(`${prefix}/tvl`, async () => envelope(await analytics.tvl()));
+
+  /** Open interest, index beside venue, each with its block: the timer's last result, from memory. No query. */
+  scope.get(`${prefix}/open-interest/reconciliation`, async (_request, reply) => {
+    const r = options.oiReconciliation?.();
+    if (r === undefined) return reply.code(503).send({ error: 'the open interest reconciliation has not run yet; it runs every 5 minutes.' });
+    return envelope(r);
+  });
 
   /** How PerpGuard runs, for /status: configuration only, never a query. The RPC is named by provider domain alone. */
   scope.get(`${prefix}/infrastructure`, async (_request, reply) => {
@@ -769,6 +779,7 @@ export function registerAnalyticsRoutes(
       `${prefix}/metrics?timeframe=24h|7d|30d|all`,
       `${prefix}/tvl`,
       `${prefix}/infrastructure`,
+      `${prefix}/open-interest/reconciliation`,
       `${prefix}/series?timeframe=30d`,
       `${prefix}/series/markets?timeframe=30d`,
       `${prefix}/open-interest`,
