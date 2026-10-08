@@ -24,19 +24,23 @@
  * never changes when an alert fires; it only changes who hears it.
  *
  * BLINDNESS IS ONE STATE, AND IT IS NEWS ONLY AFTER A MINUTE (owner, 8 Oct
- * 2026). FEED_DOWN and POSITIONS_UNTRUSTED are one outage per position: moving
- * between them is never a message. Nothing is sent for the first
- * `blindQuietMs` (60 s); if the position is still blind then, ONE message
- * (the latest cause), and nothing more until it clears; when it clears, ONE
- * message, and none at all if nobody was told. The trading socket drops ~40
- * times an hour and is back within a second; each drop was a message per
- * position. A restart is an outage like any other, so its first minute is
- * silent too (and `StartupDeliveryGate` still holds and drops on top).
+ * 2026). FEED_DOWN and POSITIONS_UNTRUSTED are one blind spell PER ACCOUNT:
+ * moving between them is never a message, and neither is a second position
+ * going blind. Nothing is sent for the first `blindQuietMs` (60 s); if any
+ * position is still blind then, ONE message for the account naming them all,
+ * and nothing more until the last one clears; then ONE message, and none at
+ * all if nobody was told. The trading socket drops ~40 times an hour and is
+ * back within a second; each drop was a message per position. A restart is a
+ * spell like any other, so its first minute is silent too (and
+ * `StartupDeliveryGate` still holds and drops on top). A position that closes
+ * while blind leaves no change behind, so the spell reads the loop's own
+ * snapshot, and re-reads it every `blindRecheckMs` once told.
  */
 import type { MarketRiskConfig } from '@perpguard/shared';
-import type { MarketConfigs, RiskChange } from '../risk/types.ts';
+import type { MarketConfigs, RiskAssessment, RiskChange } from '../risk/types.ts';
 import { isBlind } from '../risk/types.ts';
 import { buildMessage } from './render.ts';
+import { accountBlindMessage, accountClearMessage, type SpellMember } from './blindAccount.ts';
 import { decide, kindFor } from './rules.ts';
 import {
   DEFAULT_ALERT_CONFIG,
@@ -56,6 +60,8 @@ import {
 /** Just enough of the risk loop to subscribe to. Keeps the engine testable. */
 export interface RiskChangeSource {
   onChange(listener: (change: RiskChange) => void): Unsubscribe;
+  /** Every position's current assessment. Lets a blind spell notice a position that closed while blind. */
+  snapshot?(): readonly RiskAssessment[];
 }
 
 /** Where the engine reports problems. `console` satisfies it. */
@@ -104,6 +110,8 @@ export interface AlertEngineOptions {
   readonly logger?: AlertLogger;
   /** How long a position may be blind before anyone is told. Default 60 s. */
   readonly blindQuietMs?: number;
+  /** Once told, how often a spell re-reads the loop for positions that closed while blind. Default 15 s. */
+  readonly blindRecheckMs?: number;
   /** Runs `fn` after `ms`; returns a cancel. Injected so tests drive the minute. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
 }
@@ -117,12 +125,16 @@ const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
   return () => clearTimeout(timer);
 };
 
-/** One position's blind spell: when it began, what it would say now, whether it has been said. */
-interface Outage {
+/** One account's blind spell. `first` speaks for it downstream (see blindAccount.ts). */
+interface Spell {
   readonly sinceMs: number;
-  change: RiskChange;
-  message: AlertMessage;
-  market: MarketRiskConfig;
+  readonly first: { readonly change: RiskChange; readonly market: MarketRiskConfig; readonly message: AlertMessage };
+  /** The positions blind now, by history key, with their latest assessment. */
+  readonly members: Map<string, RiskAssessment>;
+  /** Every position seen blind in the spell, for the clear message. */
+  readonly names: Set<string>;
+  /** The latest non-blind state seen, for the clear message's own state. */
+  lastClear: RiskAssessment['state'];
   announced: boolean;
   cancel: () => void;
 }
@@ -148,8 +160,9 @@ export class AlertEngine {
   readonly #logger: AlertLogger;
   readonly #blindQuietMs: number;
   readonly #schedule: (fn: () => void, ms: number) => () => void;
-  /** Positions blind right now, by history key. */
-  readonly #outages = new Map<string, Outage>();
+  readonly #blindRecheckMs: number;
+  /** Accounts in a blind spell, by account (or 'global'). */
+  readonly #spells = new Map<string, Spell>();
 
   /** Per-position alert history. IN MEMORY on purpose — see AlertHistory. */
   readonly #history = new Map<string, AlertHistory>();
@@ -172,6 +185,7 @@ export class AlertEngine {
     this.#sleep = options.sleep ?? defaultSleep;
     this.#onDeliveryFailure = options.onDeliveryFailure;
     this.#blindQuietMs = options.blindQuietMs ?? BLIND_QUIET_MS;
+    this.#blindRecheckMs = options.blindRecheckMs ?? 15_000;
     this.#schedule = options.schedule ?? defaultSchedule;
     this.#logger = options.logger ?? {
       error: (message, detail) => console.error(message, detail ?? ''),
@@ -194,14 +208,14 @@ export class AlertEngine {
   stop(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
-    for (const outage of this.#outages.values()) outage.cancel();
-    this.#outages.clear();
+    for (const spell of this.#spells.values()) spell.cancel();
+    this.#spells.clear();
   }
 
-  /** Whether this position is in a blind spell, and whether it has been told. For tests and /health. */
-  outageFor(marketId: number, accountId?: number): { readonly sinceMs: number; readonly announced: boolean } | undefined {
-    const outage = this.#outages.get(historyKey(marketId, accountId));
-    return outage === undefined ? undefined : { sinceMs: outage.sinceMs, announced: outage.announced };
+  /** Whether this account is in a blind spell, how many positions, and whether it has been told. For tests and /health. */
+  spellFor(accountId?: number): { readonly sinceMs: number; readonly blind: number; readonly announced: boolean } | undefined {
+    const spell = this.#spells.get(spellKey(accountId));
+    return spell === undefined ? undefined : { sinceMs: spell.sinceMs, blind: spell.members.size, announced: spell.announced };
   }
 
   /**
@@ -255,7 +269,7 @@ export class AlertEngine {
     // latches, and dropping it would silence the next real alert.
     this.#history.set(key, decision.history);
 
-    const verdict = this.#throughOutage(key, change, market, decision);
+    const verdict = this.#throughSpell(key, change, market, decision);
     if (verdict.send && verdict.message !== undefined) {
       const message = verdict.message;
       // The list is read NOW, once per decision, so every copy of this alert
@@ -286,62 +300,103 @@ export class AlertEngine {
 
   /**
    * The blind-spell rule, applied to the rules' verdict. Blind: never sent from
-   * here; the spell is opened (or its message replaced) and the timer says it.
-   * Not blind: closes any spell, with one message if it was told, none if not.
+   * here; the account's spell is opened or joined, and its timer speaks. Not
+   * blind: leaves the spell, and the last one out closes it with one message
+   * if it was told, none if not. A recovery FROM blind is never sent per
+   * position: the account's message says it. A real alert (worse than before)
+   * always goes.
    */
-  #throughOutage(key: string, change: RiskChange, market: MarketRiskConfig, decision: AlertDecision): AlertDecision {
+  #throughSpell(key: string, change: RiskChange, market: MarketRiskConfig, decision: AlertDecision): AlertDecision {
     const assessment = change.assessment;
-    const outage = this.#outages.get(key);
+    const account = spellKey(scopeOf(assessment));
     const quiet = (reason: string): AlertDecision => ({ send: false, message: undefined, suppressedReason: reason, history: decision.history });
+    let spell = this.#spells.get(account);
 
     if (isBlind(assessment.state)) {
-      const message = buildMessage(assessment, kindFor(assessment.state), { alerts: this.#alerts, market });
-      if (outage !== undefined) {
-        // ONE STATE: the cause may change, the outage does not.
-        outage.change = change;
-        outage.message = message;
-        outage.market = market;
-        return quiet(`still the same blind spell (since ${Math.round((this.#now() - outage.sinceMs) / 1000)}s ago${outage.announced ? ', already told' : ''}); a change of cause is not news`);
+      if (spell === undefined) {
+        const message = buildMessage(assessment, kindFor(assessment.state), { alerts: this.#alerts, market });
+        const opened: Spell = { sinceMs: this.#now(), first: { change, market, message }, members: new Map(), names: new Set(), lastClear: 'SAFE', announced: false, cancel: () => {} };
+        opened.members.set(key, assessment);
+        opened.names.add(nameOf(assessment));
+        this.#spells.set(account, opened);
+        opened.cancel = this.#schedule(() => this.#announce(account, opened), this.#blindQuietMs);
+        spell = opened;
       }
-      const opened: Outage = { sinceMs: this.#now(), change, message, market, announced: false, cancel: () => {} };
-      this.#outages.set(key, opened);
-      opened.cancel = this.#schedule(() => this.#announce(key, opened), this.#blindQuietMs);
-      return quiet(`blind: said only if it lasts ${Math.round(this.#blindQuietMs / 1000)}s`);
+      spell.members.set(key, assessment);
+      spell.names.add(nameOf(assessment));
+      return quiet(`blind: one spell for ${account} (${spell.members.size} position(s), since ${Math.round((this.#now() - spell.sinceMs) / 1000)}s ago${spell.announced ? ', already told' : `, said only if it lasts ${Math.round(this.#blindQuietMs / 1000)}s`})`);
     }
 
-    if (outage === undefined) return decision;
-    outage.cancel();
-    this.#outages.delete(key);
-    const lastedS = Math.round((this.#now() - outage.sinceMs) / 1000);
-
-    if (!outage.announced) {
-      // Nobody was told it went blind, so its "can see it again" is not news.
-      // A real severity alert on coming back (worse than before) still goes.
-      if (decision.send && decision.message?.kind === 'recovered') return quiet(`blind for ${lastedS}s, under ${Math.round(this.#blindQuietMs / 1000)}s: nobody was told, so no recovery`);
+    const previous = decision.message?.previousState;
+    const fromBlind = decision.send && decision.message?.kind === 'recovered' && previous !== undefined && isBlind(previous);
+    if (spell === undefined) {
+      return fromBlind ? quiet('a recovery from blindness is said once per account, by the spell') : decision;
+    }
+    spell.members.delete(key);
+    spell.lastClear = assessment.state;
+    this.#prune(account, spell);
+    const closing = spell.members.size === 0 ? this.#close(account, spell) : undefined;
+    if (!fromBlind && decision.send) {
+      // A real alert on coming back. If the spell's clear message is due too,
+      // it goes first, then this.
+      if (closing !== undefined) this.#sendTo(spell.first.change, closing, spell.first.market);
       return decision;
     }
-
-    // Told: exactly ONE message says it cleared. The rules' own if they send
-    // a recovery; otherwise "can see it again", as a recovery FROM blind, which
-    // is what every filter downstream lets through.
-    if (decision.send && decision.message?.kind === 'recovered') return decision;
-    if (assessment.heldOnStalePrice) {
-      return quiet(`blind spell of ${lastedS}s cleared, but the price is old, so no all-clear can be built on it`);
-    }
-    const cleared = { ...change, assessment: { ...assessment, previousState: outage.change.assessment.state } };
-    return { send: true, message: buildMessage(cleared.assessment, 'recovered', { alerts: this.#alerts, market }), suppressedReason: undefined, history: decision.history };
+    if (closing !== undefined) return { send: true, message: closing, suppressedReason: undefined, history: decision.history };
+    return quiet(spell.members.size === 0 ? `blind spell for ${account} over in ${Math.round((this.#now() - spell.sinceMs) / 1000)}s, under the quiet minute: nobody was told, so no recovery` : `${spell.members.size} position(s) of ${account} still blind; the clear is said once, for the account`);
   }
 
-  /** The minute is up and the position is still blind: say it, once. */
-  #announce(key: string, outage: Outage): void {
-    if (this.#outages.get(key) !== outage || outage.announced) return;
-    outage.announced = true;
-    const message = outage.message;
-    const recipients = this.#recipients(outage.change);
-    this.#logger.info(`${message.symbol} blind for ${Math.round((this.#now() - outage.sinceMs) / 1000)}s (${message.state}): telling ${recipients.length} recipient(s), once`);
-    for (const recipient of recipients) {
-      this.#queue = this.#queue.then(() => this.#deliver(message, outage.market, recipient));
+  /** Drop members the loop no longer has blind (closed while blind leave no change). */
+  #prune(account: string, spell: Spell): void {
+    const snapshot = this.#source.snapshot?.();
+    if (snapshot === undefined) return;
+    const blindNow = new Set(snapshot.filter((a) => isBlind(a.state) && spellKey(scopeOf(a)) === account).map((a) => historyKey(a.marketId, scopeOf(a))));
+    for (const key of [...spell.members.keys()]) if (!blindNow.has(key)) spell.members.delete(key);
+  }
+
+  /** Ends the spell. The clear message if it was told, else undefined. */
+  #close(account: string, spell: Spell): AlertMessage | undefined {
+    spell.cancel();
+    if (this.#spells.get(account) === spell) this.#spells.delete(account);
+    const lastedMs = this.#now() - spell.sinceMs;
+    if (!spell.announced) {
+      this.#logger.info(`blind spell for ${account} over in ${Math.round(lastedMs / 1000)}s: under ${Math.round(this.#blindQuietMs / 1000)}s, nobody told, nothing to say`);
+      return undefined;
     }
+    return accountClearMessage(spell.first.message, [...spell.names], spell.first.change.assessment.state, lastedMs, this.#now(), spell.lastClear);
+  }
+
+  #sendTo(change: RiskChange, message: AlertMessage, market: MarketRiskConfig): void {
+    const recipients = this.#recipients({ ...change, previousState: message.previousState, assessment: { ...change.assessment, state: message.state, previousState: message.previousState } });
+    for (const recipient of recipients) {
+      this.#queue = this.#queue.then(() => this.#deliver(message, market, recipient));
+    }
+  }
+
+  /** The minute is up: if anything of the account is still blind, say it, once; then watch for the clear. */
+  #announce(account: string, spell: Spell): void {
+    if (this.#spells.get(account) !== spell || spell.announced) return;
+    this.#prune(account, spell);
+    if (spell.members.size === 0) {
+      this.#close(account, spell);
+      return;
+    }
+    spell.announced = true;
+    const members: SpellMember[] = [...spell.members.values()];
+    const message = accountBlindMessage(spell.first.message, members, this.#now() - spell.sinceMs, this.#now());
+    this.#logger.info(`${account} blind for ${Math.round((this.#now() - spell.sinceMs) / 1000)}s (${members.length} position(s), ${message.state}): telling once`);
+    this.#sendTo(spell.first.change, message, spell.first.market);
+    const recheck = (): void => {
+      if (this.#spells.get(account) !== spell) return;
+      this.#prune(account, spell);
+      if (spell.members.size === 0) {
+        const clear = this.#close(account, spell);
+        if (clear !== undefined) this.#sendTo(spell.first.change, clear, spell.first.market);
+        return;
+      }
+      spell.cancel = this.#schedule(recheck, this.#blindRecheckMs);
+    };
+    spell.cancel = this.#schedule(recheck, this.#blindRecheckMs);
   }
 
   /**
@@ -475,3 +530,10 @@ function historyKey(marketId: number, accountId: number | undefined): string {
 function scopeOf(assessment: { readonly accountId?: number; readonly watch?: { readonly accountId: number } }): number | undefined {
   return assessment.accountId ?? assessment.watch?.accountId;
 }
+
+/** The account a spell belongs to. */
+function spellKey(accountId: number | undefined): string {
+  return accountId === undefined ? 'global' : `account ${accountId}`;
+}
+
+const nameOf = (a: Pick<RiskAssessment, 'symbol' | 'side'>): string => (a.side === undefined ? a.symbol : `${a.symbol} ${a.side}`);

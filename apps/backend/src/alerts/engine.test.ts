@@ -315,7 +315,7 @@ test('the suppression reason is specific to which rule held the alert', async ()
   r.engine.handle(down);
   r.engine.handle(down);
   await r.engine.drain();
-  assert.match(r.logger.infos.at(-1)!, /still the same blind spell/);
+  assert.match(r.logger.infos.at(-1)!, /blind: one spell for/);
 });
 
 test('the history is kept per position, so two markets do not share a cooldown', async () => {
