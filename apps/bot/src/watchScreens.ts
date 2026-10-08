@@ -155,7 +155,8 @@ export function watchlistScreen(stats: readonly TraderStats[]): Screen {
   lines.push('<i>Past results do not predict future returns.</i>');
   return {
     html: lines.join('\n'),
-    buttons: [...stats.map((s): Button[] => [{ text: `👁 #${s.accountId}`, route: { to: 'wallet', accountId: s.accountId } }]), [BACK_TO_WATCH]],
+    // Each wallet opens; ☆ takes it off the Watchlist (it stays watched).
+    buttons: [...stats.map((s): Button[] => [{ text: `👁 #${s.accountId}`, route: { to: 'wallet', accountId: s.accountId } }, { text: '☆ Remove', route: { to: 'unstar', accountId: s.accountId } }]), [BACK_TO_WATCH]],
   };
 }
 

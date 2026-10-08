@@ -593,6 +593,7 @@ await direct({ to: 'rescue-resume', marketId: M }, WHO.owner, [], 'an Auto rule 
 await direct({ to: 'close-retry', marketId: M }, WHO.owner, [], 'Stop everything left a position open (its result offers Retry per position)');
 await direct({ to: 'close-retry-go', marketId: M }, WHO.owner, [{ to: 'close-retry', marketId: M }], 'Retry was tapped on a position Stop everything left open');
 await direct({ to: 'dismiss' }, WHO.owner, [], 'the manual alert is on screen (its Dismiss button)');
+await direct({ to: 'watch-id', accountId: 4532 }, WHO.stranger, ['4532'], 'a bare number was sent without being asked, and offered as an account to watch');
 await typed(WHO.owner, 'rescue-amt-custom', 'linked testnet', '150', [{ to: 'rescue' }, { to: 'rescue-pos', marketId: M }, { to: 'rescue-cfg', marketId: M }, { to: 'rescue-amt-custom' }].map((r) => encodeNav(r as Route)), 'answer the custom Auto amount question with 150');
 
 // ── completeness: anything a user can reach that the map did not cover ──────
