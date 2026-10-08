@@ -1169,3 +1169,17 @@ test('ROI: lifetime net PnL over lifetime deposits, withheld under 100 AUSD depo
   assert.equal(roiPct(427, 99.99), undefined, 'under the floor: no ROI at all, not a huge one');
   assert.equal(roiPct(0, 100), 0, 'at the floor counts');
 });
+
+test('the ALL trader summary binds exactly the parameters its SQL uses (it binds none)', async () => {
+  // Bound [null] against a statement with no $1, Postgres refuses the whole query:
+  // "bind message supplies 1 parameters, but prepared statement requires 0". The
+  // Traders page's All tab showed "The trader totals could not be loaded."
+  const sql = new FakeSql();
+  await reader(sql).traderSummary('all');
+  await reader(sql).traderSummary('30d');
+  for (const call of sql.calls) {
+    const used = new Set([...call.sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
+    const highest = used.size === 0 ? 0 : Math.max(...used);
+    assert.equal(call.values.length, highest, `binds ${call.values.length}, uses ${highest}: ${call.sql.slice(0, 60)}`);
+  }
+});

@@ -261,7 +261,7 @@ test('not-applied earns a fresh token; unknown gets a next step and never a toke
     await settle();
     const p = (await h.app.inject({ method: 'GET', url: `/api/protect/actions/${idempotencyKey}`, headers: { cookie: COOKIE } })).json() as { outcome: { kind: string; retryToken?: string; nextStep?: string } };
     assert.equal(p.outcome.retryToken !== undefined, expectToken, p.outcome.kind);
-    if (!expectToken) assert.match(p.outcome.nextStep!, /Do NOT send this action again/);
+    if (!expectToken) assert.match(p.outcome.nextStep!, /Don't send it again until you've checked\./);
     if (expectToken) {
       const r = await h.app.inject({ method: 'POST', url: '/api/protect/execute', headers: { cookie: COOKIE }, payload: { token: p.outcome.retryToken } });
       assert.equal(r.statusCode, 202, 'Send again is a fresh action with a fresh key');

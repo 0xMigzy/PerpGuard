@@ -2196,7 +2196,8 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // stay in whole UTC days: the per-trader record is kept by day.
     const { sinceMs } = windowFor(timeframe, now);
     const [row, { totals, traders }] = await Promise.all([
-      this.#one(traderSummarySql(start === null), [start]),
+      // The lifetime form has no parameter; binding one is a Postgres error (08P01), not a no-op.
+      this.#one(traderSummarySql(start === null), start === null ? [] : [start]),
       this.#windowTotals(sinceMs, now),
     ]);
     const closed = count(row?.['closed']);
