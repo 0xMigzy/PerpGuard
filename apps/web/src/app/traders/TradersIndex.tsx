@@ -226,7 +226,7 @@ export function TradersIndex() {
                       ) : (
                         c.label
                       )}
-                      <span className="block text-[10px] font-medium normal-case tracking-normal text-muted2">{active?.note ?? c.sub}</span>
+                      <span className="block text-[10px] font-medium normal-case tracking-normal whitespace-normal text-muted2">{active?.note ?? c.sub}</span>
                     </th>
                   );
                 })}
@@ -240,7 +240,7 @@ export function TradersIndex() {
                   >
                     {c.label}
                     {c.key === info.column && <span className="ml-1" aria-hidden="true">{ranking === 'losses' ? '↑' : '↓'}</span>}
-                    {c.sub !== '' && <span className="block text-[10px] font-medium normal-case tracking-normal text-muted2">{c.sub}</span>}
+                    {c.sub !== '' && <span className="block text-[10px] font-medium normal-case tracking-normal whitespace-normal text-muted2">{c.sub}</span>}
                   </th>
                 ))}
               </tr>
