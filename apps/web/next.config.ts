@@ -32,6 +32,9 @@ const config: NextConfig = {
   async redirects() {
     // The wallet pages became the Traders section. Old links keep working.
     return [
+      // ONE ORIGIN: www redirects to the apex. Dynamic answers only from the origins on its
+      // environment (https://perpguard.app), so /link on www would have a dead wallet button.
+      { source: '/:path*', has: [{ type: 'host', value: 'www.perpguard.app' }], destination: 'https://perpguard.app/:path*', permanent: true },
       { source: '/wallets', destination: '/traders', permanent: true },
       { source: '/wallets/:query', destination: '/traders/:query', permanent: true },
       // The Alerts section became Bot: it acts as well as alerts. Old links keep working, in one hop.
