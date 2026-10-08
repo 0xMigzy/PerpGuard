@@ -129,16 +129,33 @@ export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutco
           `Sending it again is safe — I verified nothing landed, so it cannot go through twice.`,
       };
     case 'unknown':
-      return {
-        kind: 'unknown',
-        detail:
-          `I sent it and I cannot tell you yet what it did. ${outcome.detail}`,
-        // Verbatim from the actions layer. It never says "retry".
-        nextStep: outcome.nextStep,
-      };
+      // ONE SHORT PARAGRAPH, NO CODES (owner, 8 Oct 2026). The actions layer's
+      // detail (the command, the venue's status and reason) stays in action_log
+      // and the server log, where somebody debugging needs it. It never says "retry".
+      return { kind: 'unknown', ...unknownText(outcome.command) };
     case 'refused':
       return { kind: 'refused', detail: refusedText(outcome) };
   }
+}
+
+/** What the trader is told when an action's result cannot be confirmed: what was sent, how to check, what not to do. */
+function unknownText(command: ActionCommand): { readonly detail: string; readonly nextStep: string } {
+  const [what, landed] = ((): readonly [string, string] => {
+    switch (command.kind) {
+      case 'add-margin':
+        return [`the top-up to your ${command.symbol} position`, 'if its margin went up, it landed'];
+      case 'reduce-position':
+        return [`the reduce of your ${command.symbol} position`, 'if it is smaller, it went through'];
+      case 'close-position':
+        return [`the close of your ${command.symbol} position`, 'if it is gone, it closed'];
+      case 'open-position':
+        return [`the ${command.symbol} open`, 'if a new position is there, it opened'];
+    }
+  })();
+  return {
+    detail: `I sent ${what} once but couldn't confirm whether it landed, so it may still go through. Open My Positions in a minute: ${landed}.`,
+    nextStep: "Don't send it again until you've checked.",
+  };
 }
 
 function appliedText(outcome: Extract<ActionOutcome, { kind: 'applied' }>): string {

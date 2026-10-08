@@ -445,7 +445,7 @@ export function outcomeScreen(input: OutcomeInput): Screen {
       };
     case 'unknown':
       // NO RETRY HERE. Something may have landed.
-      return { html: `<b>Sent, and I cannot tell yet what it did.</b>\n${esc(outcome.detail)}\n\n${esc(outcome.nextStep)}`, buttons: [nav] };
+      return { html: `${esc(outcome.detail)} <b>${esc(outcome.nextStep)}</b>`, buttons: [nav] };
     case 'refused':
       return { html: `<b>Refused before sending.</b> ${esc(outcome.detail)}`, buttons: [nav] };
     case 'not-implemented':

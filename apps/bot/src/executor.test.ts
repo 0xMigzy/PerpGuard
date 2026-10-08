@@ -129,7 +129,7 @@ test('a top-up that did not land says so, and says no collateral moved', async (
   assert.match(outcome.detail, /no collateral left your balance/);
 });
 
-test('an unknown outcome carries the next step verbatim, and never suggests retrying', async () => {
+test('an unknown outcome is one short paragraph in plain words, and never suggests retrying', async () => {
   const h = harness();
   h.runner.outcome = (command) => ({
     kind: 'unknown',
@@ -145,8 +145,10 @@ test('an unknown outcome carries the next step verbatim, and never suggests retr
 
   assert.equal(outcome.kind, 'unknown');
   assert.ok(outcome.kind === 'unknown');
-  assert.equal(outcome.nextStep, 'Read the position directly. Do NOT send this action again until you have.');
-  assert.match(outcome.detail, /I cannot tell you yet what it did/);
+  // One short paragraph in the trader's terms: what was sent, how to check, what not to do. No codes.
+  assert.equal(outcome.detail, `I sent the top-up to your ${h.runner.seen[0]!.symbol} position once but couldn't confirm whether it landed, so it may still go through. Open My Positions in a minute: if its margin went up, it landed.`);
+  assert.equal(outcome.nextStep, "Don't send it again until you've checked.");
+  assert.doesNotMatch(outcome.detail + outcome.nextStep, /timeout|sr |st |venue|cannot be compared|add-margin/);
   // It must read as neither success nor failure.
   assert.doesNotMatch(outcome.detail, /^Done/);
   assert.doesNotMatch(outcome.detail, /Nothing was added/);
