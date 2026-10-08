@@ -17,6 +17,7 @@
  * refusal, not the refusal itself.
  */
 import type { ReplayResult } from '@perpguard/backend/copy/replay';
+import { makeResilient } from './resilience.ts';
 import { copyReplayScreen, copySummary, DEFAULT_COPY_SIZE_AUSD, type CopySize } from './copyScreens.ts';
 import { copySetupScreen, copyStatusScreen, DEFAULT_KEEP_FREE_INDEX, KEEP_FREE_PRESETS_AUSD, type CopyLiveControl } from './copyLive.ts';
 import { ausdText } from '@perpguard/backend/copy/replay';
@@ -317,6 +318,7 @@ export function createBot(deps: BotDeps): Bot {
   const bot = new Bot(deps.config.token, {
     ...(deps.botInfo === undefined ? {} : { botInfo: deps.botInfo }),
   });
+  makeResilient(bot, deps.log);
 
   const limiter = deps.watch?.limiter ?? new RateLimiter({ ...DEFAULT_RATE_LIMIT, now });
   const identities = deps.identities ?? new InMemoryIdentityStore();
