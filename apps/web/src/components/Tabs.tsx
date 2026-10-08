@@ -14,7 +14,7 @@ export const SECTIONS = [
   { href: '/traders', label: 'Traders', timeframed: true },
   { href: '/liquidations', label: 'Liquidations', timeframed: true },
   { href: '/risk', label: 'Risk', timeframed: false },
-  { href: '/bot', label: 'PerpGuard Live', timeframed: false },
+  { href: '/bot', label: 'Bot', timeframed: false },
 ] as const;
 
 export function Tabs() {
