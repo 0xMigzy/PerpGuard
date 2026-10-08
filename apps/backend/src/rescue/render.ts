@@ -89,9 +89,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
     case 'not-applied':
       return {
         html: [
-          `🛟 <b>RESCUE DID NOT LAND</b>`,
-          '',
-          `<b>${name(n.rule)}</b>`,
+          `🛟 <b>The top-up didn't land on ${name(n.rule)}</b>`,
           '',
           `I sent ${money(n.amountCNS, 'ceil')} and then checked the position: its margin did not move.`,
           'Nothing was added, so nothing can have been added twice.',
@@ -102,11 +100,9 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
     case 'paused':
       return {
         html: [
-          `🛟 <b>RESCUE PAUSED</b>`,
+          `🛟 <b>Rescue paused on ${name(n.rule)}</b>`,
           '',
-          `<b>${name(n.rule)}</b>`,
-          '',
-          `I sent ${money(n.amountCNS, 'ceil')} and could not confirm from the position whether it landed.`,
+          `I sent ${money(n.amountCNS, 'ceil')} and couldn't confirm from the position whether it landed.`,
           'Check the position before adding anything: it may already be there.',
           'Rescue is paused on this position and will not send again until you turn it back on.',
           '',
@@ -117,11 +113,9 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
     case 'paused-refused':
       return {
         html: [
-          `🛟 <b>RESCUE PAUSED</b>`,
+          `🛟 <b>Rescue paused on ${name(n.rule)}</b>`,
           '',
-          `<b>${name(n.rule)}</b>`,
-          '',
-          'Rescue was refused twice in a row for the same reason, before anything was sent. Nothing was added either time.',
+          'The exchange refused it twice in a row for the same reason, before anything was sent. Nothing was added either time.',
           'It is paused on this position so it does not keep trying against the same wall. Resume it from 🛟 Rescue once the cause has cleared.',
           '',
           `<i>${esc(n.detail)}</i>`,
@@ -145,12 +139,9 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
     case 'held':
       return {
         html: [
-          `🛟 <b>RESCUE WAITING</b>`,
-          '',
           BEFORE_TRIGGER.has(n.reason)
-            ? `Rescue for <b>${name(n.rule)}</b> cannot judge the position right now.`
-            : `<b>${name(n.rule)}</b>${n.assessment === undefined ? '' : ` is <b>${distance(n.assessment.liqBufferPct)}</b>`}, at its rescue trigger.`,
-          '',
+            ? `🛟 <b>Rescue can't judge ${name(n.rule)} right now</b>`
+            : `🛟 <b>Rescue didn't add to ${name(n.rule)}</b>${n.assessment === undefined ? '' : ` · ${distance(n.assessment.liqBufferPct)}`}`,
           `Nothing was sent: ${esc(n.detail)}.`,
           HOLD_NEXT[n.reason](n.rule, heldMoney),
         ].join('\n'),
@@ -160,12 +151,12 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
       return {
         html: (n.cause === 'market'
           ? [
-              `🛟 <b>RESCUE ENDED</b>`,
+              `🛟 <b>Rescue ended for ${name(n.rule)}</b>`,
               '',
-              `Rescue for <b>${name(n.rule)}</b> has ended: ${esc(n.detail)}.`,
+              `${esc(n.detail)}.`,
               'Nothing can be sent to a market the exchange no longer lists. This says nothing about the position itself: check it on Perpl.',
             ]
-          : [`🛟 <b>RESCUE ENDED</b>`, '', `Rescue for <b>${name(n.rule)}</b> has ended: ${esc(n.detail)}.`, 'A new position needs its own rule.']
+          : [`🛟 <b>Rescue ended for ${name(n.rule)}</b>`, '', `${esc(n.detail)}.`, 'A new position needs its own rule.']
         ).join('\n'),
         buttons: [{ text: '🛟 Rescue', route: 'rescue' }],
       };
@@ -176,12 +167,12 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
 const BEFORE_TRIGGER: ReadonlySet<HoldReason> = new Set<HoldReason>(['positions-untrusted', 'unassessed']);
 
 const HOLD_NEXT: Record<HoldReason, (r: RescueRule, heldMoney: (cns: bigint) => string) => string> = {
-  stopped: () => 'Automation is stopped. Rescue acts again once you turn it back on.',
+  stopped: () => 'Automation is stopped. Rescue acts again once you resume it under 🆘 Kill switch.',
   'feed-down': () => 'It will act once prices are live again.',
   'positions-untrusted': () => 'It will act once I can see your positions again.',
   unassessed: () => 'It will act once I can price the position. It is not closed.',
   'market-closed': () => 'It will act once the exchange reopens the market. Nothing is recorded as an attempt meanwhile.',
-  cooldown: (r) => `Rescues on one position are at least ${minutes(r.cooldownMs)} apart. Add margin yourself if it cannot wait.`,
+  cooldown: (r) => `Top-ups on one position are at least ${minutes(r.cooldownMs)} apart. Add margin yourself if it can't wait.`,
   'balance-unknown': () => 'It will act once I can see your balance.',
   'balance-low': (r, heldMoney) => `Rescue never takes your free balance below ${heldMoney(r.minRemainingCNS)}. Add margin yourself if you want to go below it.`,
   'no-session': () => 'It will act once the account reconnects.',

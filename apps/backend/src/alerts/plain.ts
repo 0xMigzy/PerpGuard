@@ -7,8 +7,9 @@
  *   - AUSD AMOUNTS IN BOLD. The money is what a beginner looks for first.
  *   - MONEY BEFORE PERCENTAGES. What they would lose comes before how far away.
  *   - EACH TERM EXPLAINED ONCE where it appears ({@link DISTANCE_EXPLAINED}).
- *   - NEVER THE WORD "SAFE". Say what the closing price becomes instead.
- *   - A NEGATIVE BUFFER IS "past the closing price", never a negative number.
+ *   - NEVER THE WORD "SAFE". Say what the liquidation price becomes instead.
+ *   - A NEGATIVE BUFFER IS "past liquidation", never a negative number.
+ *   - ONE WORD FOR IT: liquidation (owner, 8 Oct 2026), never "being closed".
  *
  * Money is integer micros all the way to the string. A figure shown as what
  * someone HAS is floored, so it never overstates; a figure shown as what
@@ -79,13 +80,13 @@ export function pct(buffer: number): string {
 }
 
 /**
- * How far from being closed, in words. SIGNED buffer in, never a negative
+ * How far from liquidation, in words. SIGNED buffer in, never a negative
  * percentage out.
  */
 export function distance(buffer: number | undefined): string {
-  if (buffer === undefined) return 'no closing price (no size)';
-  if (buffer < 0) return 'past its closing price';
-  return `${pct(buffer)} from being closed`;
+  if (buffer === undefined) return 'no liquidation price (no size)';
+  if (buffer < 0) return 'past liquidation';
+  return `${pct(buffer)} from liquidation`;
 }
 
 /** `2.7% from liquidation`, or `past liquidation`. Signed buffer in, never a negative percentage out. */
@@ -95,10 +96,10 @@ export function fromLiquidation(buffer: number | undefined): string {
   return `${pct(buffer)} from liquidation`;
 }
 
-/** The short form used in lists: `5.1%`, or `past closing price`. */
+/** The short form used in lists: `5.1%`, or `past liquidation`. */
 export function shortDistance(buffer: number | undefined): string {
   if (buffer === undefined) return '—';
-  if (buffer < 0) return 'past closing price';
+  if (buffer < 0) return 'past liquidation';
   return pct(buffer);
 }
 
@@ -212,9 +213,9 @@ export function watchedPositionLines(assessment: RiskAssessment, market: MarketR
   }
   lines.push(`Price now ${formatPricePNS(assessment.markPricePNS, market)}`);
   if (assessment.liquidationPricePNS !== undefined && assessment.liquidationPricePNS > 0n) {
-    lines.push(`Closed out at ${formatPricePNS(assessment.liquidationPricePNS, market)} · ${distance(assessment.liqBufferPct)}`);
+    lines.push(`Liquidation at ${formatPricePNS(assessment.liquidationPricePNS, market)} · ${distance(assessment.liqBufferPct)}`);
   } else {
-    lines.push('No closing price: there is more behind it than it could lose.');
+    lines.push('No liquidation price: there is more behind it than it could lose.');
   }
   if (assessment.marginCNS !== undefined) lines.push(`They would lose ${held(assessment.marginCNS, market.collateralDecimals)}`);
   return lines;
@@ -223,8 +224,8 @@ export function watchedPositionLines(assessment: RiskAssessment, market: MarketR
 /**
  * A watch alert, in the screen's voice.
  *
- *   🔴 #3388 · MON long is 1.8% from being closed
- *   MON is 2.3980. At 2.3510 the exchange closes this position
+ *   🔴 #3388 · MON long is 1.8% from liquidation
+ *   MON is 2.3980. Liquidation at 2.3510
  *   and they lose the 1,940 AUSD behind it.
  *   They hold 2,910 AUSD free — enough to survive, if they move it.
  *   Watching only — nothing here to press.
@@ -258,11 +259,11 @@ export function renderWatchAlertHtml(assessment: RiskAssessment, kind: AlertKind
       const closes = formatPricePNS(liq, market);
       lines.push(
         kind === 'past-liquidation'
-          ? `${symbol} is ${now}, already past ${closes}, where the exchange closes this position. They can lose ${lose} at any moment.`
-          : `${symbol} is ${now}. At ${closes} the exchange closes this position and they lose ${lose}.`,
+          ? `${symbol} is ${now}, already past liquidation at ${closes}. They can lose ${lose} at any moment.`
+          : `${symbol} is ${now}. Liquidation at ${closes}: they would lose ${lose}.`,
       );
     } else {
-      lines.push(`${symbol} is ${now}. There is more behind this position than it could lose, so it has no closing price.`);
+      lines.push(`${symbol} is ${now}. There is more behind this position than it could lose, so it has no liquidation price.`);
     }
     if (kind !== 'recovered' && scope.freeBalanceCNS !== undefined) {
       const need = scope.toClearDangerCNS ?? 0n;

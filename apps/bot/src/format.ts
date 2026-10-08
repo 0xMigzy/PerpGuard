@@ -26,6 +26,7 @@ import type { ActionAvailability } from '@perpguard/shared';
 import type { AlertAction, AlertMessage } from '@perpguard/backend/alerts';
 import { encodeCallback, type CallbackKind } from './callback.ts';
 import type { PendingActionStore } from './actions.ts';
+import { boughtDistance } from './account.ts';
 
 export interface ActionButton {
   /** The action's own rendered line. Never composed here. */
@@ -57,7 +58,7 @@ export function buttonsFor(
 ): readonly ActionButton[] {
   const kind = kindFor(availability);
   return actions.map((action) => ({
-    label: action.label,
+    label: buttonLabel(action),
     data: encodeCallback({
       kind,
       token: tokenFor(action),
@@ -65,6 +66,18 @@ export function buttonsFor(
       amountCNS: action.amountCNS,
     }),
   }));
+}
+
+/**
+ * `+562 → 4.0%`: the amount and the distance it buys, as on every other amount
+ * button. The amount is read off the action's own label, so it is the very
+ * figure (already ceiled, at the collateral's own precision) that is sent and
+ * logged; the label itself stays whole in `action_log`.
+ */
+export function buttonLabel(action: AlertAction): string {
+  const amount = /^Add ([\d,.]+)/.exec(action.label)?.[1];
+  const to = boughtDistance(action.resultingBufferPct);
+  return amount === undefined || to === undefined ? action.label : `+${amount} → ${to}`;
 }
 
 /** The third button's label. A prompt, not an amount: there is no amount yet. */

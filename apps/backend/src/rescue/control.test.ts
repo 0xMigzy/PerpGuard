@@ -49,7 +49,7 @@ test('ONE AUTOMATION AT A TIME: Copy Trading running refuses Rescue', async () =
   await r.automation.transition(710, 'NONE', 'COPY_TRADING');
   const res = await r.control.enable(710, draft(), TAP);
   assert.equal(res.ok, false);
-  assert.match(res.text, /Copy Trading/);
+  assert.match(res.text, /Another automation is running on this account/);
 });
 
 test('a second enable on the same position REPLACES the rule, never stacks it', async () => {
@@ -152,12 +152,12 @@ test('ARMED AT THE LINE: turned on inside the alert distance, the person chooses
   // open[0] is at 3.16%, inside the 4% alert distance.
   const now = rig();
   const a = await now.control.enable(710, draft(), TAP);
-  assert.match(a.text, /already inside that distance, so as you chose the first top-up goes out now/);
+  assert.match(a.text, /It's already inside 4%, so the first top-up goes out now/);
   assert.notEqual(now.store.enabledRules()[0]!.waitForCrossing, true);
 
   const later = rig();
   const b = await later.control.enable(710, draft(), TAP, { fromNextCrossing: true });
-  assert.match(b.text, /it acts only after the position has been back above 4\.0% and falls to it again/);
+  assert.match(b.text, /It's already inside 4%, so it waits until BTC climbs back above and falls to it again/);
   assert.equal(later.store.enabledRules()[0]!.waitForCrossing, true);
 
   // Outside the line the choice means nothing: no wait is stored.
@@ -174,9 +174,9 @@ test('TURNING OFF WHILE A TOP-UP IS ON ITS WAY says it cannot be recalled and th
   await control.enable(710, draft(), TAP);
   busy = true;
   const off = await control.disable(710, 16);
-  assert.match(off.text, /One top-up was already on its way when you tapped: it cannot be recalled, and you will get its result/);
-  assert.doesNotMatch(off.text, /^Auto top-up is off for BTC\. Nothing more will be added automatically\./);
+  assert.match(off.text, /One top-up was already on its way when you tapped: it can't be recalled, and I'll tell you how it landed/);
+  assert.doesNotMatch(off.text, /^Rescue is off for BTC\. Nothing more will be added automatically\./);
   await control.enable(710, draft(), TAP);
   busy = false;
-  assert.match((await control.disable(710, 16)).text, /^Auto top-up is off for BTC\. Nothing more will be added automatically\./);
+  assert.match((await control.disable(710, 16)).text, /^Rescue is off for BTC\. Nothing more will be added automatically\./);
 });

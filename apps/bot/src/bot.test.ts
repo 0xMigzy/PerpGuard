@@ -643,15 +643,7 @@ test('tapping Custom amount asks for a figure and states where the position stan
   const prompt = texts(h.telegram).at(-1)!;
   assert.equal(
     prompt,
-    [
-      'Custom amount — add margin to BTC long',
-      'Now: buffer 2.7%, liquidation 81,770.1, mark 84,007.3.',
-      'Position size at the mark: 42,003.65 AUSD.',
-      'At least 10,000 AUSD free — a floor, not your balance.',
-      'Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.',
-      'Smallest increment 0.000001 AUSD. Tap Back on the position to drop this.',
-      'Nothing has been sent, and nothing will be until you confirm.',
-    ].join('\n'),
+    "How much to add to BTC long? It's 2.7% from liquidation, with 10,000 AUSD free.\nReply with an amount, like 250.",
   );
   // Asked with force_reply, so the answer is heard.
   assert.deepEqual(h.telegram.last('sendMessage').payload['reply_markup'], { force_reply: true, input_field_placeholder: 'Amount in AUSD' });
@@ -842,7 +834,7 @@ test('ordinary chatter gets one pointer to the menu an hour, not a reply each', 
   // is the one whose DANGER alert goes unread.
   const h = harness();
   await h.bot.handleUpdate(messageUpdate('morning'));
-  assert.match(texts(h.telegram).at(-1)!, /^I did not catch that\./);
+  assert.match(texts(h.telegram).at(-1)!, /^I didn't catch that\./);
   await h.bot.handleUpdate(messageUpdate('how are you'));
   await h.bot.handleUpdate(messageUpdate('hello?'));
   assert.equal(texts(h.telegram).length, 1, 'once, not three times');
@@ -1230,8 +1222,9 @@ test('/start never points at the old Protect page, and /help names the menu and 
   await h.bot.handleUpdate(stranger('/start'));
   assert.doesNotMatch(texts(h.telegram).at(-1)!, /\/web|Protect/);
   assert.doesNotMatch(HELP_TEXT, /\/web|Protect page|\/unwatch|\/watching/);
-  assert.match(HELP_TEXT, /\/watch <0x address or account id>/);
-  assert.match(HELP_TEXT, /send \/start for the menu/);
+  assert.match(HELP_TEXT, /use \/watch/);
+  assert.match(HELP_TEXT, /Send \/start for the menu/);
+  assert.doesNotMatch(HELP_TEXT, /Margin goes|reducing or closing|Analyse/, 'nothing from the old menu');
 });
 
 test('SERVER-SIDE: an unlinked chat sending a hand-crafted action payload is refused before any handler, and the executor is never called', async () => {
@@ -1294,14 +1287,14 @@ function fakeLinkService() {
   };
 }
 
-test('/link from a stranger registers an identity and replies with a one-time URL that says it proves nothing by itself', async () => {
+test('/link from a stranger registers an identity and replies with a one-time URL, and never asks for a key here', async () => {
   const fake = fakeLinkService();
   const h = harness({ links: new InMemoryLinkStore({ capacity: 2 }), link: fake.service });
   await h.bot.handleUpdate(messageUpdate('/link', { from: STRANGER_ID, chat: 7_777 }));
   const reply = texts(h.telegram).at(-1)!;
   assert.match(reply, /https:\/\/perpguard\.example\/link\?code=ABCD-EFGH/);
-  assert.match(reply, /works once, for 5 minutes, and it proves nothing by itself/);
-  assert.match(reply, /Never paste a key here in Telegram/);
+  assert.match(reply, /works once, for 5 minutes/);
+  assert.match(reply, /Never paste a key here\./);
   assert.deepEqual(fake.minted, ['tg:6060'], 'minted for the Telegram identity, not a slot');
   assert.equal(h.links.byTelegramUserId(STRANGER_ID), undefined, 'minting links nothing');
   const call = h.telegram.of('sendMessage').at(-1)!;
@@ -1635,7 +1628,7 @@ test('PHASE 8: watching shows WALLET ADDED with what will be reported, and offer
   h.resolver.answers.set('4088', { accountId: 4088, address: undefined, resolvedBy: 'index' });
   await h.bot.handleUpdate(messageUpdate('/watch 4088', { from: STRANGER_ID, chat: STRANGER_CHAT }));
   const added = h.telegram.last('sendMessage');
-  assert.match(String(added.payload['text']), /^✅ <b>WALLET ADDED<\/b> · #4088\n\nPerpGuard will tell this chat about:\n• position opens, increases, reductions and closes\n• getting close to liquidation, at your warning levels\n• liquidation/);
+  assert.match(String(added.payload['text']), /^✅ <b>WALLET ADDED<\/b> · #4088\n\nI'll tell you about:\n• position opens, increases, reductions and closes\n• getting close to liquidation, at your warning levels\n• liquidation/);
   assert.deepEqual(keyboardOf(added).map((b) => b.text), ['👁 View wallet', '⭐ Add to Watchlist', '🗑 Stop watching', '← Back']);
 });
 

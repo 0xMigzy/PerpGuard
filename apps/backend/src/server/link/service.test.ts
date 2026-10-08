@@ -109,7 +109,7 @@ test('a wallet that owns the environment account links at once; the token alone 
   assert.deepEqual(proof, { kind: 'linked', accountId: ENV });
   assert.equal(r.links.byTelegramUserId(4242)?.accountId, ENV);
   assert.equal(r.service.status(r.identity.userId)?.proof, 'wallet');
-  assert.match(r.notices[0]!.text, /Linked to Perpl account 710: your wallet proved you own it/);
+  assert.match(r.notices[0]!.text, /^Connected \w+ #710\. Alerts here now come with buttons to add margin\.$/);
   assert.deepEqual(r.opened, [], 'no session opened: the environment account already runs');
 });
 
@@ -180,7 +180,7 @@ test('unlink removes the link, DELETES the key, and closes the session; the envi
   await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
   const result = await r.service.unlink(r.identity.userId);
   assert.equal(result.ok, true);
-  assert.match(result.text, /Unlinked from account 711.*key you pasted has been deleted.*session is closed/s);
+  assert.equal(result.text, 'Disconnected #711. Your key is deleted.');
   assert.equal(r.keys.get(r.identity.userId), undefined, 'deleted, not unreferenced');
   assert.equal(r.links.byTelegramUserId(4242), undefined);
   assert.deepEqual(r.closed, [711]);
@@ -192,6 +192,23 @@ test('unlink removes the link, DELETES the key, and closes the session; the envi
   assert.deepEqual(r.closed, [711], 'still only 711');
   assert.ok(r.running.has(ENV));
   assert.equal((await r.service.unlink(r.identity.userId)).ok, false);
+  assert.equal(env.text, 'Disconnected #710.', 'no key was stored for the owner link, so no sentence about one');
+});
+
+test('DISCONNECT NEVER CLAIMS A KEY IS GONE THAT IS NOT: if storage cannot confirm the delete, nothing changes and the reply says so', async () => {
+  const keys = new InMemoryKeyStore();
+  const r = rig({ keys });
+  await r.service.proveKey(r.identity, { apiKey: 'the-plain-api-key-0123456789', secretHex: SECRET_HEX }, undefined);
+  keys.deleteConfirmed = async () => {
+    throw new Error('connection terminated');
+  };
+  const result = await r.service.unlink(r.identity.userId);
+  assert.equal(result.ok, false);
+  assert.equal(result.text, "I couldn't delete your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute.");
+  assert.doesNotMatch(result.text, /is deleted/);
+  assert.ok(keys.get(r.identity.userId) !== undefined, 'the key is still stored, and nothing said otherwise');
+  assert.equal(r.links.byTelegramUserId(4242)?.accountId, 711, 'still connected');
+  assert.deepEqual(r.closed, [], 'the session was not closed');
 });
 
 test('at boot, sealed keys reopen their sessions; a key sealed under a rotated environment key marks the user as needing to re-link', async () => {

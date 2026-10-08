@@ -35,8 +35,10 @@ test('a watched position falling through 10% then 5% warns twice, once each, in 
   const r = rig();
   for (const d of [12, 9, 8.5, 4.5, 4]) await r.pass([watched(d)]);
   assert.equal(r.sent.length, 2);
-  assert.match(r.sent[0]!.html, /^⚠️ <b>RISK WARNING — HIGH<\/b> 🟠\n<b>#4088<\/b> reached your 10% level\./);
-  assert.match(r.sent[1]!.html, /^⚠️ <b>RISK WARNING — CRITICAL<\/b> 🔴\n<b>#4088<\/b> reached your 5% level\./);
+  // What happened, not which setting fired: the position's own distance (owner, 8 Oct 2026).
+  assert.match(r.sent[0]!.html, /^🟠 <b>#4088 is 9\.0% from liquidation<\/b>\n/);
+  assert.match(r.sent[1]!.html, /^🔴 <b>#4088 is 4\.5% from liquidation<\/b>\n/);
+  assert.doesNotMatch(r.sent[1]!.html, /RISK WARNING|reached your/);
   assert.match(r.sent[1]!.html, /You warn at 10% \/ 5%\. Each level warns once/);
   assert.match(r.sent[1]!.html, /Positions as of block 111,000,000, 140 blocks behind the chain/);
 });

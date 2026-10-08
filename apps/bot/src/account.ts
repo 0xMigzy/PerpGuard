@@ -259,9 +259,9 @@ export function outcomeScreen(input: OutcomeInput): Screen {
       const lines: string[] = [];
       if (action.type === 'add-margin' && market !== undefined) {
         lines.push(`✓ <b>Added ${wholeOf(action.amountCNS, market)} AUSD to ${name}</b>`);
-        if (action.resultingLiquidationPricePNS !== undefined && action.resultingLiquidationPricePNS > 0n) lines.push(`Closes at now: ${formatPricePNS(action.resultingLiquidationPricePNS, market)}`);
+        if (action.resultingLiquidationPricePNS !== undefined && action.resultingLiquidationPricePNS > 0n) lines.push(`Liquidation price now ${formatPricePNS(action.resultingLiquidationPricePNS, market)}`);
         if (action.resultingBufferPct !== undefined && action.resultingBufferPct >= 0) {
-          lines.push(`Room to fall: ${action.fromBufferPct === undefined || action.fromBufferPct < 0 ? '' : `${pct(action.fromBufferPct)} → `}${pct(action.resultingBufferPct)}`);
+          lines.push(`${action.fromBufferPct === undefined || action.fromBufferPct < 0 ? '' : `${pct(action.fromBufferPct)} → `}${pct(action.resultingBufferPct)} from liquidation`);
         }
         if (outcome.venueRejected === true) {
           // THE sr 32 CASE (owner's wording, 6 Oct 2026): never "failed", never "rejection".

@@ -108,7 +108,7 @@ export function walletAddedScreen(input: { readonly accountId: number; readonly 
   if (input.label.startsWith('0x')) lines.push(`<code>${esc(input.label)}</code>`);
   lines.push(
     '',
-    'PerpGuard will tell this chat about:',
+    "I'll tell you about:",
     '• position opens, increases, reductions and closes',
     '• getting close to liquidation, at your warning levels',
     '• liquidation',
@@ -209,11 +209,11 @@ export function warningLevelsScreen(levels: readonly number[]): Screen {
   return {
     html: [
       '⚠️ <b>LIQUIDATION WARNINGS</b>',
-      `For the wallets you watch: how far from its closing price a position is when I warn you. Now: <b>${levelsLabel(levels)}</b>.`,
+      `For the wallets you watch: how far from liquidation a position is when I warn you. Now: <b>${levelsLabel(levels)}</b>.`,
       '',
       'Each level warns once, then waits until the position recovers past it before it can warn again. A fall through several at once is one warning.',
       `<i>Positions are re-read every ${WATCH_EVERY_SECONDS} seconds from the index, which itself trails the chain: a fast fall can pass a level between two reads.</i>`,
-      '<i>Your own connected account keeps "Warn me at" in Settings.</i>',
+      "<i>Your own account's alert distance is in ⚙️ Settings.</i>",
     ].join('\n'),
     buttons: [
       ...PRESET_ORDER.map((name, i): Button[] => [{ text: `${mark(now === name)}${PRESET_LABEL[name]} — ${levelsLabel(WARNING_PRESETS[name])}`, route: { to: 'warn-preset', level: i } }]),

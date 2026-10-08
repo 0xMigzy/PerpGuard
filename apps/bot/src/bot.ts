@@ -367,6 +367,13 @@ export function createBot(deps: BotDeps): Bot {
       const linked = authorise(deps.links, ctx.from?.id, ctx.chat?.id).ok;
       deps.log(`tap tg:${ctx.from?.id ?? '?'} chat ${ctx.chat?.id ?? '?'} (${linked ? 'linked' : 'not linked'}): ${describeTap(data)}`);
     }
+    // EVERY COMMAND, LOGGED TOO (8 Oct 2026): "did /start reach the bot?" must be answerable from the box.
+    // The command name only, never its argument (an address someone is watching is theirs).
+    const command = commandOf(ctx.message?.text);
+    if (command !== undefined && deps.log !== undefined) {
+      const linked = authorise(deps.links, ctx.from?.id, ctx.chat?.id).ok;
+      deps.log(`command tg:${ctx.from?.id ?? '?'} chat ${ctx.chat?.id ?? '?'} (${linked ? 'linked' : 'not linked'}): /${command}`);
+    }
     await next();
   });
 
@@ -687,12 +694,7 @@ export function createBot(deps: BotDeps): Bot {
     const { identity } = identities.register(telegramUserId, chatId, now());
     const minted = deps.link.mint(identity.userId, telegramNameOf(ctx));
     const minutes = Math.max(1, Math.round((minted.expiresAtMs - now()) / 60_000));
-    await ctx.reply(
-      `Open this to link your Perpl account to this chat:\n${minted.url}\n\n` +
-        `It works once, for ${minutes} minutes, and it proves nothing by itself: the page asks you to prove you own the account, ` +
-        `with the wallet that owns it or with an API key for it. Never paste a key here in Telegram — only on that page.`,
-      { link_preview_options: { is_disabled: true } },
-    );
+    await ctx.reply(`Open this to connect your Perpl account (works once, for ${minutes} minutes):\n${minted.url}\n\nNever paste a key here.`, { link_preview_options: { is_disabled: true } });
   });
 
   // ── the public watch tier ─────────────────────────────────────────────────
@@ -833,7 +835,7 @@ export function createBot(deps: BotDeps): Bot {
     if (last !== undefined && now() - last < HINT_EVERY_MS) return;
     hinted.set(chatId, now());
     await sendScreen(ctx, {
-      html: 'I did not catch that. Paste an address or an account id to watch it, or open the menu.',
+      html: "I didn't catch that. Send an address or account number to watch it, or open the menu.",
       buttons: [[{ text: '🏠 Menu', route: { to: 'home' } }]],
     });
   });
@@ -943,7 +945,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         // The offer is answered: its buttons go, so it cannot be tapped twice
         // or read later as still open.
-        await ctx.editMessageText(`Watch account <b>#${route.accountId}</b>? Yes.`, { parse_mode: 'HTML' }).catch(() => undefined);
+        await ctx.editMessageText(`Watching <b>#${route.accountId}</b>.`, { parse_mode: 'HTML' }).catch(() => undefined);
         await watchTarget(ctx, { kind: 'account', accountId: route.accountId });
         return;
       }

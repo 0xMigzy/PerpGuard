@@ -189,7 +189,7 @@ export class LinkService {
           return { kind: 'refused', reason: bound.reason };
         }
         this.#deps.logger.info(`link: ${identity.userId} proved account ${accountId} by wallet; session already running`);
-        await this.#notify(identity.chatId, `Linked to Perpl account ${accountId}: your wallet proved you own it. Alerts here now carry the buttons to act.`);
+        await this.#notify(identity.chatId, `Connected ${this.#deps.network ?? 'testnet'} #${accountId}. Alerts here now come with buttons to add margin.`);
         return { kind: 'linked', accountId };
       }
       // EVERY OUTCOME IS LOGGED. This one was silent until 6 Oct 2026, so a phone
@@ -282,8 +282,8 @@ export class LinkService {
     this.#deps.logger.info(`link: ${identity.userId} linked account ${accountId} by API key (forwarding ${probe.forwardingAllowed ?? 'unknown'})`);
     await this.#notify(
       identity.chatId,
-      `Linked to Perpl account ${accountId} with an API key. Alerts here now carry the buttons to act.` +
-        (probe.forwardingAllowed === false ? ' One thing first: this account doesn\'t allow trading by API key yet, so the buttons won\'t send. Turn on order forwarding in Perpl with the wallet that owns it.' : ''),
+      `Connected ${this.#deps.network ?? 'testnet'} #${accountId}. Alerts here now come with buttons to add margin.` +
+        (probe.forwardingAllowed === false ? " One thing first: this account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it." : ''),
     );
     return { kind: 'linked', accountId, forwardingAllowed: probe.forwardingAllowed };
   }
@@ -292,8 +292,16 @@ export class LinkService {
   async unlink(userId: string): Promise<{ readonly ok: boolean; readonly text: string }> {
     const link = this.#deps.links.byUserId(userId);
     if (link === undefined) return { ok: false, text: 'This chat is not linked to any account.' };
+    // THE KEY GOES FIRST, AND IS CONFIRMED GONE (owner, 8 Oct 2026: never a sentence about someone's
+    // key that is not true). If storage cannot confirm the delete, nothing changes and the reply says so.
+    let hadKey: boolean;
+    try {
+      hadKey = await this.#deps.keys.deleteConfirmed(userId);
+    } catch (error) {
+      this.#deps.logger.warn(`link: ${userId} asked to disconnect account ${link.accountId}, but the key delete could not be confirmed (${error instanceof Error ? error.message : String(error)}); nothing changed`);
+      return { ok: false, text: "I couldn't delete your API key just now, so nothing changed: you're still connected. Try Disconnect again in a minute." };
+    }
     this.#deps.links.unlink(link.telegramUserId);
-    const hadKey = this.#deps.keys.delete(userId);
     this.#proofs.delete(userId);
     this.#needsRelink.delete(userId);
     let closed = false;
@@ -303,11 +311,8 @@ export class LinkService {
     this.#deps.logger.info(`link: ${userId} unlinked account ${link.accountId}; key ${hadKey ? 'deleted' : 'none stored'}; session ${closed ? 'closed' : 'kept'}`);
     return {
       ok: true,
-      text:
-        `Unlinked from account ${link.accountId}. ` +
-        (hadKey ? 'The API key you pasted has been deleted. ' : '') +
-        (closed ? 'Its session is closed: no more alerts, nothing can act on it from here. ' : '') +
-        'You can still /watch it, read-only.',
+      // Each clause only when it is true: the key sentence only for a key that was stored and is now confirmed gone.
+      text: `Disconnected #${link.accountId}.${hadKey ? ' Your key is deleted.' : ''}`,
     };
   }
 

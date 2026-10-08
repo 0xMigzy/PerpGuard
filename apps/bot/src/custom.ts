@@ -368,24 +368,14 @@ export function nameOf(symbol: string, side: Side | undefined): string {
  * them is the difference between a custom amount and a guess.
  */
 export function renderAmountPrompt(context: AmountPromptContext): string {
-  const { market, bufferDecimals } = context;
-  const lines = [
-    `Custom amount — add margin to ${nameOf(context.symbol, context.side)}`,
-    `Now: ${describeBuffer(context.bufferPct, bufferDecimals)}` +
-      (context.liquidationPricePNS === undefined
-        ? ''
-        : `, liquidation ${formatPricePNS(context.liquidationPricePNS, market)}`) +
-      `, mark ${formatPricePNS(context.markPricePNS, market)}.`,
-    `Position size at the mark: ${formatCustomAusd(context.notionalCNS, market.collateralDecimals)} AUSD.`,
-    context.freeBalance.known
-      ? `At least ${formatCustomAusd(context.freeBalance.floorCNS, market.collateralDecimals)} AUSD free — ` +
-        `a floor, not your balance.`
-      : `I could not check your free balance: ${context.freeBalance.reason}`,
-    `Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.`,
-    `Smallest increment ${smallestIncrement(market)} AUSD. Tap Back on the position to drop this.`,
-    'Nothing has been sent, and nothing will be until you confirm.',
-  ];
-  return lines.join('\n');
+  const { market } = context;
+  const where = context.bufferPct === undefined ? '' : context.bufferPct < 0 ? " It's past liquidation" : ` It's ${(context.bufferPct * 100).toFixed(1)}% from liquidation`;
+  const free = context.freeBalance.known
+    ? `, with ${formatCustomAusd(context.freeBalance.floorCNS, market.collateralDecimals)} AUSD free.`
+    : where === ''
+      ? " I couldn't check your free balance."
+      : ". I couldn't check your free balance.";
+  return `How much to add to ${nameOf(context.symbol, context.side)}?${where}${free}\nReply with an amount, like 250.`;
 }
 
 // ── the action ─────────────────────────────────────────────────────────────

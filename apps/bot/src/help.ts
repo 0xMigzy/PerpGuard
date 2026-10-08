@@ -1,21 +1,17 @@
 /** `/help` — one sentence each, and the isolated-margin fact that explains the bot. */
 export const HELP_TEXT = [
-  'PerpGuard watches Perpl positions and warns before a liquidation. Analyse. Watch. Act.',
+  'I message you before a Perpl position gets liquidated.',
   '',
-  'Everything is on buttons: send /start for the menu. /help shows this.',
+  'Send /start for the menu. Everything is on buttons; /help shows this.',
   '',
-  '👁 Watch & Alerts — any account, read-only: no wallet, no sign-up, no link.',
-  '/watch <0x address or account id> alerts this chat about that account’s positions. Or just paste an address or account id. The Watchlist shows them all and stops one.',
+  '👁 Watch any account: send its address or account number, or use /watch. No key, nothing to set up.',
   '',
-  '🔐 Trading Account — your own account, with the buttons to act.',
-  '/link opens a one-time page where you prove you own your Perpl account (wallet signature, or an API key pasted there and nowhere else).',
-  'Then 📊 My Positions shows each position and what adding margin, reducing or closing it does; 💰 Margin goes straight to adding margin; ⚙️ Settings sets how early I warn you.',
+  '🔐 Connect your own account with /link (a wallet signature or an API key, on a one-time page, never here). Then:',
+  '📊 My positions shows how far each position is from liquidation, and adds margin when you tap and confirm.',
+  '🛟 Rescue adds margin by itself at your alert distance, within limits you set. Off until you turn it on.',
+  '🆘 Kill switch stops automation, and can close every position.',
   '',
-  'Every top-up comes with what it buys: the closing price and the room it leaves you. That holds for an amount you type yourself, worked out before anything is sent.',
-  '',
-  'Perpl uses isolated margin: each position has its own collateral, and your free',
-  'AUSD is never pulled in to rescue a losing one. That is the whole reason I exist.',
-  'Adding margin is explicit, per position, and you confirm it — I never trade on my own.',
+  'Perpl uses isolated margin: each position has its own margin, and your free AUSD is never moved in to save one. That is why I exist.',
 ].join('\n');
 
 /** Answered to a button from an older menu (the retired close-all kill switch, say). Nothing ran. */
@@ -30,13 +26,13 @@ export const OLD_MENU_TEXT = 'That button is from an older version of the menu. 
  * probing a bot whose token has leaked.
  */
 export const REFUSAL_TEXT =
-  'PerpGuard is not linked to you, so that is off: this bot acts for one account and nobody else. ' +
-  'You can still watch any account, read-only: paste its address or account id, or send /start for the menu.';
+  "That needs a connected account, and this chat doesn't have one. Connect yours with /link, " +
+  'or watch any account: send its address or account number.';
 
 /** Shown to a linked user who spoke to the bot from somewhere other than their linked chat. */
 export const WRONG_CHAT_TEXT =
-  'PerpGuard only answers in the chat it was linked in. Your position data does not ' +
-  'go anywhere else. Send /start there, or unlink and link again from here.';
+  "Your account is connected in another chat, and its positions are only shown there. " +
+  'Send /start there, or disconnect and connect again from here.';
 
 /**
  * The command menu Telegram shows next to the text box. Only what is faster

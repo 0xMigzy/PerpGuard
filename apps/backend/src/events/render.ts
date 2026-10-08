@@ -15,7 +15,7 @@
  */
 import type { FillAction } from '@perpguard/shared';
 import type { MarketRiskConfig } from '@perpguard/shared';
-import { NO_BUTTONS, esc, freeVerdict, freshness, held, watchedPositionLines } from '../alerts/plain.ts';
+import { NO_BUTTONS, esc, freeVerdict, freshness, fromLiquidation, held, watchedPositionLines } from '../alerts/plain.ts';
 import type { RiskAssessment } from '../risk/types.ts';
 import { levelsLabel, severityOf } from './warnings.ts';
 import type { EventFreshness, LargeTradeEvent, LiquidationEvent, PerpEvent, PositionChangeEvent } from './types.ts';
@@ -143,8 +143,8 @@ export function renderWarning(assessment: RiskAssessment, level: number, levels:
   const distancePct = (assessment.liqBufferPct ?? 0) * 100;
   const s = severityOf(level, levels, distancePct);
   const lines = [
-    `⚠️ <b>RISK WARNING — ${s.word}</b> ${s.dot}`,
-    `<b>#${scope.accountId}</b> reached your ${level}% level${distancePct <= 0 ? ', and is past its closing price' : ''}.`,
+    // WHAT HAPPENED, NOT WHICH SETTING FIRED (owner, 8 Oct 2026): the position's own distance.
+    `${s.dot} <b>#${scope.accountId} is ${fromLiquidation(assessment.liqBufferPct)}</b>`,
     '',
     ...watchedPositionLines(assessment, market),
     '',

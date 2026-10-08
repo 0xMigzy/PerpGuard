@@ -442,7 +442,7 @@ test('a PAST_LIQUIDATION alert says past liquidation rather than a minus sign', 
     alerts: config,
     market: BTC,
   });
-  assert.ok(message.text.includes('Past liquidation — liquidation 75,390.7, mark 74,000.0'));
+  assert.ok(message.text.startsWith('🔴 BTC long is past liquidation\n'), message.text);
   assert.ok(!/-\d/.test(message.lines[0]!), 'no negative number in the headline figure');
 });
 

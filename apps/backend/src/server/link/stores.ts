@@ -117,6 +117,12 @@ export interface KeyStore {
   get(userId: string): StoredKey | undefined;
   /** Deleted, not unreferenced: an unlink must leave no key behind. */
   delete(userId: string): boolean;
+  /**
+   * Deleted AND CONFIRMED where it is stored: resolves once no copy is left,
+   * throws if that cannot be confirmed (the key is then still there, and
+   * nothing may say it is gone). True when there was a key to delete.
+   */
+  deleteConfirmed(userId: string): Promise<boolean>;
   list(): readonly StoredKey[];
 }
 
@@ -136,6 +142,10 @@ export class InMemoryKeyStore implements KeyStore {
   }
 
   delete(userId: string): boolean {
+    return this.#keys.delete(userId);
+  }
+
+  async deleteConfirmed(userId: string): Promise<boolean> {
     return this.#keys.delete(userId);
   }
 
@@ -193,6 +203,22 @@ export class PostgresKeyStore implements KeyStore {
     const removed = this.#inner.delete(userId);
     if (removed) this.#write('delete from account_keys where user_id = $1', [userId]);
     return removed;
+  }
+
+  /**
+   * The row goes FIRST, awaited, behind any write still queued; only then the
+   * copy in memory. If Postgres refuses, it throws with the key still stored
+   * in both places, so the caller can say so instead of claiming it is gone,
+   * and a restart cannot bring a "deleted" key back (`reopenAll` opens a
+   * session for every stored key).
+   */
+  async deleteConfirmed(userId: string): Promise<boolean> {
+    const had = this.#inner.get(userId) !== undefined;
+    const done = this.#pending.then(() => this.#pool.query('delete from account_keys where user_id = $1', [userId]));
+    this.#pending = done.then(() => undefined, () => undefined);
+    await done;
+    this.#inner.delete(userId);
+    return had;
   }
 
   list(): readonly StoredKey[] {

@@ -54,7 +54,10 @@ test('a message with no actions gets no note, whatever the availability says', (
   assert.deepEqual(buttonsFor([], closed, () => 'tok'), []);
 });
 
-test('the label on a button is the action’s own, byte for byte', () => {
+test('the AMOUNT on a button is the action’s own figure, byte for byte; the distance beside it is rounded down', () => {
   const built = buttonsFor(actions, open, () => 'tok');
-  assert.deepEqual(built.map((b) => b.label), actions.map((a) => a.label));
+  for (const [i, b] of built.entries()) {
+    const own = /^Add ([\d,.]+)/.exec(actions[i]!.label)![1];
+    assert.match(b.label, new RegExp(`^\\+${own!.replace(/[.,]/g, '\\$&')} → [\\d.]+%$`));
+  }
 });

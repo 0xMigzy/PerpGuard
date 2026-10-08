@@ -5,8 +5,9 @@ stress tests, and a kill switch.
 
 Hackathon deadline: Oct 14 2026, 04:59 GMT+1. Submit by the evening of Oct 13.
 Primary track: Onchain Finance & Trading.
-Bounties: Perpl API, Perpl Analytics/Risk, Envio, Kimi. (Dynamic was dropped
-for RainbowKit on 6 Oct 2026: no Dynamic origin could be set for perpguard.app.)
+Bounties: Perpl API, Perpl Analytics/Risk, Envio, Kimi, Dynamic. (Dynamic was
+swapped for RainbowKit on 6 Oct 2026 and brought back on 8 Oct 2026: the
+environment now lists perpguard.app as an allowed origin.)
 
 ## The problem we solve
 Perpl uses ISOLATED MARGIN. Every position has its own collateral, and free
@@ -569,7 +570,7 @@ TypeScript everywhere, pnpm workspaces.
 - `apps/bot`      — Telegram bot (grammY)
 - `apps/web`      — Next.js App Router, Tailwind, dark mode
 - `packages/shared` — config, types, units, Perpl client, venue adapters
-Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /link.
+Postgres. Kimi API for AI. Dynamic (connect-only) for the wallet on /link; the proof is verified server-side with viem.
 
 ## The Telegram bot: two tiers
 - PUBLIC WATCH TIER: anyone, any chat, no wallet, no link. `/watch <address or
@@ -599,17 +600,17 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
   persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
   does not unsubscribe anyone.
-- THE TWO TIERS ARE NAMED ON EVERY SCREEN (7 Oct 2026, owner). /start says
-  both: WATCH any mainnet account (read-only) and LINK your own testnet
-  account to act. Home says which tier ("👁 Watching 2 mainnet accounts",
-  "🔗 Linked: testnet #710"). Every watched-account message ends in
-  `NO_BUTTONS`, which says why: actions run on testnet only. Every ACTION
-  screen (account, margin, confirm, outcome, Rescue, Emergency, manual and
-  Rescue alerts) opens with `actingBadge` ("🧪 TESTNET · test funds"), added
-  by `badged()`/`withBadge`, never by hand. On /link, a wallet that owns a
-  MAINNET account is refused for acting and offered "👁 Watch it instead"
-  (`POST /api/link/watch-instead`), which watches ONLY the account the page
-  session proved, never one posted in the body.
+- THE NETWORK IS SAID ONCE (owner, 8 Oct 2026; was a 🧪 TESTNET banner on
+  every screen). Home says "🔗 testnet #24" and "👁 Watching 1"; headings that
+  name the account carry the network ("📊 MY POSITIONS · testnet #24"). Every
+  other ACTION screen and message gets the one word "testnet" on its first
+  line from `actingBadge`/`withBadge`/`badged()`, which skip a screen that
+  already names the network; never added by hand. Every watched-account
+  message ends in `NO_BUTTONS`, "Watching only — nothing here to press." On
+  /link, a wallet that owns a MAINNET account is refused for acting and
+  offered "👁 Watch it instead" (`POST /api/link/watch-instead`), which
+  watches ONLY the account the page session proved, never one posted in the
+  body.
 - EVERY TELEGRAM USER IS SOMEBODY: `/start` registers an identity
   (`tg:<telegram user id>`, `apps/bot/src/identity.ts`, persisted in
   `telegram_identities`) for anyone, and NEVER hands out the acting slot
@@ -647,21 +648,35 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   the chain; position changes also say they are checked every 30 s.
 
 ## The Telegram bot: screens, not commands
-- THE MENU IS THE REBUILD SPEC'S (sections 18-30), and `docs/bot-screens.html`
-  is GENERATED from the real bot by `pnpm bot:screens`: every screen reachable
-  from /start, as the owner and as a stranger. Regenerate it after any screen
-  change. Home is "🛡 PERPGUARD / Analyse. Watch. Act." with a status block
-  (Trading Account + network, Execution, Automation, Alerts) and the buttons
-  Watch & Alerts, My Positions, Rescue and Margin, 🆘 Emergency and Trading
-  Account (Rescue and Emergency for linked chats), Settings, Open PerpGuard. AN UNBUILT FEATURE HAS NO BUTTON
-  (owner, 6 Oct 2026): Copy Trading appears when its phase lands, never as a
-  dead button; the roadmap belongs in the README. A test walks every screen
-  and fails on any label for an unbuilt feature.
+- THE MENU IS THE OWNER'S 8 OCT 2026 SPEC, and `docs/bot-screens.html` is
+  GENERATED from the real bot by `pnpm bot:screens` (and `pnpm bot:map`
+  writes every screen, outside the repo). Regenerate after any screen change.
+  Home, nothing connected: "🛡 PERPGUARD / I message you before a Perpl
+  position gets liquidated. / Send me any address or account number…" and two
+  buttons, 👁 Watch & Alerts and 🔐 Trading account. Home, connected: the
+  account in four lines (🔗 testnet #24, Execution, Automation, Alerts) and six
+  buttons: 👁 Watch & Alerts | 📊 My positions, 🛟 Rescue | 🔐 Trading account,
+  🆘 Kill switch | ⚙️ Settings. AN UNBUILT FEATURE HAS NO BUTTON; a test walks
+  every screen and fails on any label for one. LABELS: sentence case; 📊 View
+  position for one, 📊 My positions for the list; 🗑 Stop watching; 🎛 Custom
+  amount, always with the icon; 🏠 Menu is the only word for home.
+- RETIRED BUTTON CODES ARE NEVER REUSED (`RETIRED_CODES` in
+  `apps/bot/src/nav.ts`, checked by `nav.test.ts`): an old button in a chat
+  decodes to nothing and is answered "older version of the menu. Nothing was
+  sent", never read as a new meaning.
+- ONE BAD UPDATE NEVER STOPS THE BOT LISTENING (`apps/bot/src/resilience.ts`,
+  8 Oct 2026): a stale tap's 400 on `answerCallbackQuery` had stopped long
+  polling for hours while alerts still went out. A stale answer is logged and
+  the tap carries on; `bot.catch` logs any handler error and keeps polling.
+  Every tap AND every command name is logged (`tap …`, `command …`).
 - 👁 WATCH & ALERTS (Phase 8, `apps/bot/src/watchScreens.ts`): Watch Wallet
   (the watched-wallets list; a new watch shows "✅ WALLET ADDED" and what will
   be reported), Watchlist (a `starred` flag on `watch_subscriptions`, not a
-  second concept: 30D PnL and all-time ROI), Top Traders, Liquidations, Large
-  Trades, Warning Levels, Alert Settings. All public: they read the index or
+  second concept: 30D PnL and all-time ROI, ☆ Remove on each), Liquidations,
+  Large trades, Warning levels, Alert settings. AT MOST 10 WALLETS PER CHAT
+  ("Watching 1 of 10"). A watched wallet's screen: how many are open, the
+  closest, "Watching only — nothing here to press." TOP TRADERS AND COPY ARE
+  OFF THE BOT (owner, 8 Oct 2026); the website keeps both. All public: they read the index or
   change the chat's OWN settings (`alert_preferences`). EVERY SCREEN STATES
   ITS LIMITS: index blocks behind, watched wallets re-read every 30 s, ~6% of
   fills with no taker, direction sometimes not known, past results do not
@@ -673,7 +688,7 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   read the lifetime rows whatever window is asked. The Top ROI board also
   takes Top PnL's 10-round-trip floor (427 on 100 over 4 round trips is
   +426%, and noise). Rendered "+1,034% on 2,045 AUSD deposited". Top PnL is
-  30 days. Not on the website.
+  30 days. Shown on the bot's Watchlist; the boards themselves left the bot.
 - WARNING LEVELS FOR WATCHED WALLETS (`events/warnings.ts`,
   `events/watchWarnings.ts`): Early 20/10/5, Standard 10/5 (default), Late
   5/2, Custom up to five (typed, force_reply), Off. Per (chat, account,
@@ -719,51 +734,51 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   something NEEDS is ceiled, and P&L ROUNDS AGAINST THE READER: a loss AWAY
   from zero, a gain toward it (`signedPnl`; owner, 7 Oct 2026: −64.8 reads
   −65, never a smaller loss than the real one); under one AUSD is "under 1 AUSD",
-  never "0 AUSD"; never the word "safe"; a negative buffer is "past its
-  closing price". Watch alerts carry freshness and "No buttons" every time.
-- MY POSITIONS IS THE SCREEN A JUDGE READS LONGEST (Phase 14, `positionCard`
-  in `apps/bot/src/account.ts`). Each position is a card: the DISTANCE FROM
-  LIQUIDATION leads, bold, on the first line, then the band (OK, WATCH,
-  DANGER, PAST LIQUIDATION, CANNOT SEE; never "safe"); then size and value,
-  leverage (position value ÷ margin, said as such), margin and unrealised PnL,
-  mark and liquidation price. Closest to liquidation first, at most 8 cards
-  in one message, the rest counted and still on the buttons. A blind
-  position shows no figure at all.
-- THE TRADING ACCOUNT NAMES WHAT IS WRONG (Phase 13): Wallet, Ownership and
-  Execution as three rows; Execution says which failure it is (key rotated,
+  never "0 AUSD"; never the word "safe"; ONE WORD FOR IT, LIQUIDATION (owner,
+  8 Oct 2026): "2.7% from liquidation", "liquidation at 81,770", a negative
+  buffer is "past liquidation", never "being closed". Watch alerts carry
+  freshness and "Watching only" every time. A watched-wallet warning states
+  what happened: "🔴 #4532 is 4.8% from liquidation", never which setting
+  fired.
+- 📊 MY POSITIONS IS BUTTONS ONLY (owner, 8 Oct 2026): one per position,
+  closest to liquidation first, "🔴 BTC long · 2.7%" (🔴 danger or past it,
+  🟡 watch, 🟢 ok, ⚪ can't see). 📊 VIEW POSITION: the distance, margin and
+  liquidation price, free balance, and +100/+250/+500 AUSD each showing THE
+  DISTANCE IT BUYS ("+100 → 2.9%"), priced by the engine when the screen is
+  built, then 🎛 Custom amount and ← Back. The bought distance is ROUNDED DOWN,
+  with ONE DECIMAL BELOW 10% (a whole percent there can read below where the
+  position already is: 2.7% plus a top-up is not "→ 2%"); whole percents
+  from 10%. An amount above the free floor is offered with ⚠️, not hidden. No
+  amount on a position it cannot see. REDUCE AND CLOSE ARE NOT OFFERED from a
+  position; closing is the kill switch's.
+- 🔐 TRADING ACCOUNT (owner, 8 Oct 2026): not connected, what connecting does
+  and 🔗 Connect wallet / 🔑 Enter API key, both through the one-time code and
+  the HTTPS page (🔑 opens it with `via=key`: the key form, focused).
+  Connected: 🔗 testnet #24, Execution, "Connected 8 Oct, 06:48", 🔌
+  Disconnect. THE EXECUTION LINE NAMES WHAT IS WRONG (Phase 13): it says which failure it is (key rotated,
   linked on another network, key for another account, not running, order
-  forwarding off, with what to do) and offers "Fix authorization" (the
-  connect page) only where a new key fixes it, never for forwarding, which
-  needs the owner's wallet. A wallet proven without a key shows ownership
-  verified and execution waiting, with "Add API key". THE LINK STORES ITS
+  forwarding off, with what to do) and offers "🔑 Enter a new API key" only
+  where a new key fixes it, never for forwarding, which needs the owner's
+  wallet. A wallet proven without a key is told it owns the account and that
+  a key is still needed, with 🔑 Enter API key. DISCONNECT SAYS "Your key is
+  deleted" ONLY WHEN IT IS: the sealed key is deleted FIRST and the Postgres
+  delete is awaited (`KeyStore.deleteConfirmed`); if it cannot be confirmed,
+  nothing changes and the reply says so (owner, 8 Oct 2026). THE LINK STORES ITS
   NETWORK (`account_links.network`); a link from another network is refused by
   name. MAINNET TRADING IS OFF unless `PERPGUARD_MAINNET_TRADING=1`: the
   registry refuses every session, monitoring is unaffected.
-- MANUAL ADD MARGIN (Phase 15, spec 33-34): Margin → a position's 💰 MARGIN
-  screen (manual, never automated; no Remove Margin, it is cut) → ➕ ADD
-  MARGIN with +100/+250/+500/+1,000 AUSD and Custom, each amount PRICED BY
-  THE ENGINE when the screen is built (no amount offered on a position it
-  cannot see), one above the free floor offered with ⚠️, not hidden. Every
-  amount is an action token: its tap shows ⚠️ CONFIRM ADD MARGIN with the
-  before and after (margin, available, and the liquidation price and
-  distance only when projected), and nothing sends before ✅ Confirm. The
-  send path is the existing one: one in flight, reconciled against the
-  position's margin, never re-sent on `sr 32`.
-- THE ACCOUNT HALF (`apps/bot/src/account.ts`): My Positions, Margin (the
-  same positions framed for adding margin; sends nothing itself), a position
-  screen with Add (computed or custom), Reduce 25% and Close position,
-  Settings. Every money button is a pending-action token through
-  the existing confirmation, one-in-flight lock and reconciliation; nothing is
-  offered while the feed or the position list is blind. The confirmation turns
-  into the progress line and then the outcome IN PLACE, so Send cannot be
-  tapped twice; Cancel deletes the token; Send again only after a reconciled
-  not-applied. Reduce says the closing price does not move (proportional
-  release). A top-up above the free-balance FLOOR is offered WITH a warning,
-  not hidden: the floor can understate (warn, don't refuse). The `sr 32`
-  top-up's outcome (owner's wording, 6 Oct 2026) leads with the success, then
-  "The exchange's own report disagreed with what actually happened. The
-  margin applied — I checked the position itself, not the receipt. Do not
-  send it again." Never "failed", never "rejection".
+- ADDING MARGIN: every amount (on View position, on the alert) is an action
+  token; its tap shows "⚠️ Add 100 AUSD to BTC long?" with the before and
+  after for margin, liquidation price, distance and free balance (the
+  liquidation figures only when projected), and nothing sends before ✅
+  Confirm. The confirmation turns into the progress line and then the outcome
+  IN PLACE, so Send cannot be tapped twice; Cancel deletes the token; Send
+  again only after a reconciled not-applied. The send path is the existing
+  one: one in flight, reconciled against the position's margin, never re-sent
+  on `sr 32`. The `sr 32` outcome (owner's wording, 6 Oct 2026) leads with
+  the success, then "The exchange's own report disagreed with what actually
+  happened. The margin applied — I checked the position itself, not the
+  receipt. Do not send it again." Never "failed", never "rejection".
 - 🔴 THE KILL SWITCH (Phase 20, spec 54-57, 59, 80) STOPS AUTOMATION AND
   LEAVES POSITIONS OPEN (`apps/backend/src/rescue/killSwitch.ts`, bot half
   `apps/bot/src/killSwitch.ts`). Stop writes the persisted flag
@@ -780,32 +795,29 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   a NEW message. Idempotent. While on, enabling Rescue is refused. RESUME
   only lifts the block: every strategy stays off until turned on per
   position. A person's own taps still work while it is on.
-  - 🆘 EMERGENCY (7 Oct 2026, owner): the Kill Switch's screen now holds TWO
-    SEPARATE actions, never one button: 🔴 STOP PERPGUARD (the switch above,
-    unchanged) and 🚪 CLOSE EVERYTHING (`apps/backend/src/emergency/`, bot
-    half `apps/bot/src/emergency.ts`). Close everything:
-    - lists every position (side, size, unrealised P&L, a loss rounded away
-      from zero) and the total, says prices move, and is
-      confirmed by TYPING "CLOSE ALL" (a parked `force_reply` question, good
-      for two minutes, closed by the first answer whatever it is);
-    - STOPS PERPGUARD FIRST, then closes one at a time through the account's
-      own executor, key `closeall:<acct>:<request>:<pid>`. One run in flight
-      per account; each request id runs once (the confirmation's, minted when
-      the list was shown; a retry's, minted when its confirm screen was), so
-      two taps or two typed answers send one set of orders. NEVER RE-SENT;
+  - 🆘 THE KILL SWITCH SCREEN (owner, 8 Oct 2026): ONE MAIN ACTION, 🆘 STOP
+    EVERYTHING (stop automation, then close every position,
+    `apps/backend/src/emergency/`, bot half `apps/bot/src/emergency.ts`), and
+    beneath it, smaller, "Stop automation only — leaves your positions open"
+    (the switch above). Stop-only stays because on the day the connection is
+    dropping, closing is impossible but stopping still works. ▶️ Resume
+    automation on the same screen. No typed confirmation on either:
+    - Stop everything is confirmed by a TAP on the screen that shows what it
+      costs: each position (side, size, unrealised P&L, a loss rounded away
+      from zero) and "You realise" the total, that prices move, that
+      automation stops first. Its request id is minted when the cost is
+      shown and runs once; a confirmation older than two minutes sends
+      nothing and shows the cost again. Blind: it offers Stop automation
+      only and closes nothing. Flat: it only stops automation;
+    - STOPS AUTOMATION FIRST (always, even blind), then closes one at a time
+      through the account's own executor, key `closeall:<acct>:<request>:<pid>`.
+      One run in flight per account; NEVER RE-SENT;
     - READS THE OUTCOME FROM THE POSITION LIST AFTERWARDS (`verify.ts`):
-      closed (with `xp` from the closing row, which the trading socket now
-      keeps), partly closed with what remains, still open with why, or NOT
-      SEEN when the list is not fully loaded. Never "closed" for anything
-      still open or unseen; DONE only when every one is closed. Retry per
-      position for what is left. Already flat: says so, sends nothing;
-    - logged per run in `close_all_runs` (requested, each receipt, each
-      verified outcome) beside each close's own `action_log` row.
-  - The retired close-all's nav codes (`kq`, `kx`) still decode to nothing,
-    forever: the new switch uses `ks`/`ksc`/`ksx`/`ksr`/`ksv`, so an old button
-    can never be read as the new meaning. The executor's old
-    `fireKillSwitch` is reachable from no bot path; Close everything is the
-    new module above, not that one.
+      closed (with `xp`), partly closed with what remains, still open with
+      why, or NOT SEEN when the list is not fully loaded. Never "closed" for
+      anything still open or unseen; "ALL CLOSED" only when every one is.
+      Retry per position for what is left;
+    - logged per run in `close_all_runs` beside each close's `action_log` row.
 - RESCUE IS TWO MODES (Part 2, owner, 7 Oct 2026). ONE NUMBER per account,
   THE ALERT DISTANCE (`apps/backend/src/manual/distance.ts`, `account_settings
   .alert_pct`): presets 2/3/5/8/10% or custom 0.5-20%, default 5% for new
@@ -917,13 +929,16 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   Telegram's wire faked and write the chat as JSON for screenshots.
 
 ## Copy trading
+- OFF THE BOT (owner, 8 Oct 2026): the live copier (Half B) is DELETED and
+  "What if I'd copied?" left the bot with Top Traders. The website keeps the
+  replay (`/copy/[id]`, `GET /api/analytics/copy/:id`); the owner decides its
+  future separately. `copy_rules`/`copy_legs` stay in Postgres (0 rows at
+  removal); the automation mode COPY_TRADING stays in the enum.
 - HALF A, WHAT WOULD HAVE HAPPENED (7 Oct 2026, owner): one leader's last 30
   days replayed onto an account of a given size, from the index ONLY; nothing
   is ever sent. `apps/backend/src/copy/replay.ts` (pure), `service.ts`,
   `GET /api/analytics/copy/:id?size=`, web `/copy/[id]` (linked from the
-  trader page), bot "🔁 What if I'd copied? · 30D" on a trader's card (public
-  route `copy-sim`; a linked chat is sized to its own account's equity, any
-  other to 1,000 AUSD, said so). `pnpm copy:replay` runs it live and checks
+  trader page), `pnpm copy:replay` runs it live and checks
   the rebuilt equity against the index.
   - Only new opens are copied; size is follower equity over leader equity at
     each open (2% -> 2%); markets match by each network's CONTEXT ticker,
@@ -949,46 +964,8 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
     recycle fees (one clearing, 0 AUSD, in six active hours). Cause not found;
     a full-history scan of the unindexed events would take ~12 h on the
     shared HyperSync token. Demo leader: #5213.
-  - THE REPLAY HAS 7 DAYS BESIDE 30, toggled (`?days=7`, routes `copy-sim7`);
-    the trader card shows ACTIVITY (last open, opens in 24 h and 7 days; a
-    week of silence said) and both windows' copy results side by side. No
-    24-hour P&L, on purpose: too few trades in a day to mean anything.
-- HALF B, LIVE COPY ONTO TESTNET (`apps/backend/src/copy/live/`, bot
-  `apps/bot/src/copyLive.ts`; owner, 7 Oct 2026). OPENS AND CLOSES ONLY, said
-  on every screen and message ("PerpGuard copies when they open and when they
-  close, not every adjustment in between"): the index has no adds and
-  reduces, and a 30-second read would mistime them.
-  - STARTED BY A SIGNED TAP ONLY (`CopyArmSigner`, its own derived key); one
-    leader per follower; Copy and Auto top-up never together; refused while
-    the kill switch is on; A LEADER WHOSE BOOKS DO NOT RECONCILE IS REFUSED:
-    "PerpGuard won't copy a trader whose books it can't verify against the
-    chain." Too-busy leaders are refused too.
-  - NO CAPS on how much is copied. ONE NUMBER: the free balance never spent
-    (default 500 AUSD, settable, 0 allowed); an open that would go under it is
-    SKIPPED AND SAID with the figures.
-  - SIZED BY NOTIONAL at the ACTING mark (prices differ across networks):
-    leader value at entry × follower equity ÷ leader equity, rounded down to
-    the step. Leverage above the acting maximum opens AT the maximum (same
-    size, more margin) and says so. Markets by context ticker, skips named; a
-    market the follower already holds is skipped (a copy would change it).
-  - Every 30 s (`CopyEngine`), steps in time order, ONE ACTION IN FLIGHT PER
-    ACCOUNT. Each leader position is a leg CLAIMED (`copy_legs`, unique per
-    rule and leader position) BEFORE the send; the kill switch is read before
-    the pass, before the claim and by the executor (`stopCheck`). Opens go
-    through the executor's new `open-position` (refused if a position exists;
-    judged by whether a position APPEARS: applied / not-applied when the
-    venue refused / unknown otherwise). NOT OPENED is said and never retried;
-    UNKNOWN pauses copying and says so; Resume settles unknown legs against
-    the position list. Held, never guessed, while the index is not synced or
-    the account is blind (said once).
-  - STOPPING (the button, or the kill switch, which now also stops copying)
-    LEAVES COPIED POSITIONS OPEN AND SAYS SO. It never moves money.
-  - MEASURED: `pnpm probe:opens` landed 16 of 16 testnet market opens
-    (MON 8, PUMP 4, NEAR 4) in 1.1-1.4 s, every close too
-    (`fixtures/open-probe-testnet*.json`). `pnpm copy:live-demo` runs the real
-    copier on testnet with a SYNTHETIC leader and an IN-MEMORY rule (nothing
-    persists; backend stopped): MON copied and verified in 0.9 s, HYPE skipped
-    by name, nothing re-sent on the second pass, the close verified.
+  - THE REPLAY HAS 7 DAYS BESIDE 30, toggled (`?days=7`). No 24-hour P&L, on
+    purpose: too few trades in a day to mean anything.
 
 ## Account sessions: one of everything PER LINKED ACCOUNT
 - `AccountRegistry` (`apps/backend/src/sessions/registry.ts`) owns an
@@ -1089,21 +1066,24 @@ Postgres. Kimi API for AI. RainbowKit + wagmi + viem for the wallet proof on /li
   at boot, `needsRelink` marks the user and every command and tap tells them
   to `/link` again. Nothing is re-encrypted and nothing is ever kept in the
   clear.
-- `/unlink` (bot or page) removes the link, DELETES the key and closes the
-  session at once; the environment account's session is never closed by an
-  unlink. The web app has exactly ONE route with a session and ONE provider
-  stack: wagmi + RainbowKit live in `apps/web/src/app/link/layout.tsx`, the
-  root layout knows nothing of them, and every other page is public and
-  read-only. The WalletConnect project id is OPTIONAL and inlined at BUILD
-  time (`build-web.sh` lifts `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` from the
-  shared `.env`); without it the page lists extension wallets only, no QR.
-- THE WALLET LIST IS DELIBERATE (`apps/web/src/app/link/walletConfig.ts`),
-  the same on desktop and phones: MetaMask, Rabby, Rainbow, Coinbase, then
-  WalletConnect as the catch-all. EIP-6963 auto-discovery is OFF, so no
-  installed extension adds itself; Phantom ended Monad support in August 2026
-  and must never be offered. Rabby reaches phones through its registered
-  WalletConnect deep link (`rabby://`, from the WalletConnect registry), not
-  RainbowKit's extension-only entry.
+- Disconnect (bot or page) DELETES the key FIRST, confirmed in Postgres, then
+  removes the link and closes the session; if the delete cannot be
+  confirmed, nothing changes and it says so. The environment account's
+  session is never closed by an unlink. The web app has exactly ONE route
+  with a session and ONE provider: Dynamic's, in
+  `apps/web/src/app/link/layout.tsx`, CONNECT-ONLY (its own sign-in and JWT
+  are off; the proof is the backend's SIWE challenge, verified with a viem
+  public client, so smart-contract wallets verify too). The root layout knows
+  nothing of it, and every other page is public and read-only. The
+  environment id is public and inlined at BUILD time (`build-web.sh` lifts
+  `NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID` from the shared `.env`; ON VERCEL, which
+  serves perpguard.app, it must be set in the project). Dynamic answers it
+  only from the origins on that environment (perpguard.app; localhost is
+  refused, so the wallet path is tested on the live site). Without the id
+  the page offers the key path; if Dynamic never loads, the card says so
+  after 8 s. Monad is declared to Dynamic (`overrides.evmNetworks`) so no
+  wallet is sent to switch chains; EVM embedded wallets are off on the
+  environment.
 
 ## Rules
 - Venue-specific code lives ONLY in `packages/shared/src/venues/`. The risk
@@ -1176,6 +1156,17 @@ says drop it. "All" is named from the index's real start ("since Feb 11,
 2026"), never "all time" on trust. The rescuable finding over all time
 is 2,318 of 3,463 (66.9%) against 467 of 637 (73.3%) over 30 days, captured
 in `docs/liquidation-finding-2026-10-01.md`; always quote one with its window.
+- BLINDNESS IS ONE STATE PER ACCOUNT, NEWS ONLY AFTER A MINUTE (owner, 8 Oct
+  2026; `AlertEngine` + `alerts/blindAccount.ts`): FEED_DOWN and
+  POSITIONS_UNTRUSTED are one outage per account; moving between them, or
+  another position going blind, is never a message. Nothing for the first
+  60 s; then ONE message ("I've lost sight of your positions and I'm
+  reconnecting. Nothing automatic will run until I can see again."), nothing
+  more until the last position clears, then ONE ("I can see your positions
+  again"), none at all if nobody was told. A position that closes while
+  blind leaves no change, so the outage re-reads the loop's snapshot every
+  15 s once told. The trading socket drops ~40 times an hour; each drop was
+  a message per position.
 - A RESTART NEVER SENDS "I CANNOT SEE THIS POSITION": each alert is held
   until ITS scope (its account's session, the watch loop) has assessed
   cleanly (`alerts/startupGate.ts`), then the startup blindness is dropped;

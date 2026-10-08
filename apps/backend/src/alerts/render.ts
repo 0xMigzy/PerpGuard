@@ -30,7 +30,7 @@ import type {
   AlertKind,
   AlertMessage,
 } from './types.ts';
-import { renderWatchAlertHtml } from './plain.ts';
+import { renderWatchAlertHtml, wholeAusd } from './plain.ts';
 
 /**
  * Grouped decimal formatting, pinned to en-US.
@@ -400,6 +400,19 @@ export function renderAlert(
         `${market.marketId} (${market.symbol}) config: every price and amount ` +
         `would be scaled by the wrong market's decimals.`,
     );
+  }
+
+  // A CONNECTED ACCOUNT'S PAST-LIQUIDATION ALERT, in the shape of the alert
+  // that carries the action (owner, 8 Oct 2026): the fact, the margin, and the
+  // amounts as buttons. The amounts' figures are on the buttons, not in prose.
+  if (kind === 'past-liquidation' && assessment.watch === undefined && context.snapshot !== true) {
+    const name = assessment.side === undefined ? assessment.symbol : `${assessment.symbol} ${assessment.side}`;
+    const heading = `🔴 ${name} is past liquidation`;
+    const margin = assessment.marginCNS === undefined ? '' : `Margin ${wholeAusd(assessment.marginCNS, 'floor', market.collateralDecimals)} AUSD · `;
+    const lines = [`${margin}the exchange can close it at any moment.`];
+    const actions = topUpBlock(assessment, market, config).actions;
+    if (assessment.priceIsOld) lines.push(`Note: ${describeAge(assessment.priceAgeMs)}.`);
+    return { title: heading, lines, text: [heading, ...lines].join('\n'), actions };
   }
 
   const heading = title(assessment);

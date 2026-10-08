@@ -88,21 +88,15 @@ test('a DANGER alert is sent as plain text with a button per top-up option', asy
   assert.equal(call.payload['parse_mode'], undefined);
 });
 
-test('button labels are the action’s own rendered line, never composed here', () => {
-  // The button and the sentence above it are literally the same string, so they
-  // cannot come to disagree about the amount.
+test('button labels carry the action’s own amount, so the button and what is sent cannot disagree', () => {
+  // The amount is read off the action's own line (the figure sent and logged);
+  // only the distance it buys is added, rounded down.
   const message = dangerMessage();
   const h = harness();
   return h.transport.send({ userId: USER_ID, rights: 'act' }, message).then(() => {
     const labels = buttons(h.telegram).map((b) => b.text);
-    assert.deepEqual(labels.slice(0, message.actions.length), message.actions.map((a) => a.label));
-    // Both computed options, unchanged, then the custom option BELOW them. It is
-    // a third choice, never a replacement for either.
-    assert.deepEqual(labels, [
-      'Add 562 → buffer 4.0%, liquidation 80,647.1',
-      'Add 2,662 → buffer 9.0%, liquidation 76,446.7',
-      CUSTOM_BUTTON_LABEL,
-    ]);
+    // Both computed options, then the custom option BELOW them. It is a third choice, never a replacement for either.
+    assert.deepEqual(labels, ['+562 → 3.9%', '+2,662 → 8.9%', CUSTOM_BUTTON_LABEL]);
   });
 });
 

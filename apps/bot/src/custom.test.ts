@@ -271,7 +271,7 @@ test('both warnings can apply at once, and neither is a refusal', () => {
 
 // ── the prompt's words ─────────────────────────────────────────────────────
 
-test('the prompt names the position, restates where it stands, and offers a way out', () => {
+test('the prompt names the position and says where it stands, in plain words', () => {
   const text = renderAmountPrompt({
     symbol: 'BTC',
     side: 'long',
@@ -284,18 +284,8 @@ test('the prompt names the position, restates where it stands, and offers a way 
     bufferDecimals: 1,
   });
 
-  assert.equal(
-    text,
-    [
-      'Custom amount — add margin to BTC long',
-      'Now: buffer 2.7%, liquidation 81,770.1, mark 84,007.3.',
-      'Position size at the mark: 42,003.65 AUSD.',
-      'At least 12,480 AUSD free — a floor, not your balance.',
-      'Reply with an amount in AUSD and I will show you the buffer and liquidation price it buys.',
-      'Smallest increment 0.000001 AUSD. Tap Back on the position to drop this.',
-      'Nothing has been sent, and nothing will be until you confirm.',
-    ].join('\n'),
-  );
+  assert.equal(text, "How much to add to BTC long? It's 2.7% from liquidation, with 12,480 AUSD free.\nReply with an amount, like 250.");
+  assert.doesNotMatch(text, /buffer|mark|floor|increment/, 'no word a trader would not use');
 });
 
 test('the prompt renders a position past liquidation in words, not as a negative percentage', () => {
@@ -310,15 +300,11 @@ test('the prompt renders a position past liquidation in words, not as a negative
     notionalCNS: NOTIONAL_CNS,
     bufferDecimals: 1,
   });
-  assert.match(text, /^Custom amount — add margin to BTC short$/m);
-  assert.match(text, /Now: past liquidation,/);
+  assert.match(text, /^How much to add to BTC short\? It's past liquidation\. I couldn't check your free balance\.$/m);
   assert.doesNotMatch(text, /-1\.4%/);
-  assert.match(text, /could not check your free balance/);
 });
 
-test('the prompt renders each market at its own precision', () => {
-  // MON prices carry six decimal places. A hard-coded precision would look right
-  // on BTC and be wrong here.
+test('the prompt states the free balance in the collateral\'s own precision', () => {
   const text = renderAmountPrompt({
     symbol: 'MON',
     side: 'long',
@@ -330,8 +316,7 @@ test('the prompt renders each market at its own precision', () => {
     notionalCNS: 500_000_000n,
     bufferDecimals: 1,
   });
-  assert.match(text, /liquidation 0\.048620, mark 0\.050000\./);
-  assert.match(text, /At least 1 AUSD free/);
+  assert.match(text, /with 1 AUSD free\./);
 });
 
 // ── the action a custom amount becomes ─────────────────────────────────────

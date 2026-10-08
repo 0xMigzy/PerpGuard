@@ -26,16 +26,16 @@ test('money: floors what someone holds, ceils what is needed, groups thousands, 
 });
 
 test('a negative buffer is words, never a negative percentage', () => {
-  assert.equal(distance(-0.014), 'past its closing price');
-  assert.equal(shortDistance(-0.014), 'past closing price');
-  assert.equal(distance(0.0313), '3.1% from being closed');
+  assert.equal(distance(-0.014), 'past liquidation');
+  assert.equal(shortDistance(-0.014), 'past liquidation');
+  assert.equal(distance(0.0313), '3.1% from liquidation');
 });
 
 test('the watch alert leads with the account and position, then money, and says it is watching only', () => {
   const html = renderWatchAlertHtml(watched({ freeBalanceCNS: 2_910_000_000n }), 'danger', BTC);
   const lines = html.split('\n');
-  assert.equal(lines[0], '🔴 <b>#3388 · BTC long is 2.7% from being closed</b>');
-  assert.equal(lines[1], 'BTC is 84,007.3. At 81,770.1 the exchange closes this position and they lose the <b>2,810 AUSD</b> behind it.');
+  assert.equal(lines[0], '🔴 <b>#3388 · BTC long is 2.7% from liquidation</b>');
+  assert.equal(lines[1], 'BTC is 84,007.3. Liquidation at 81,770.1: they would lose the <b>2,810 AUSD</b> behind it.');
   assert.equal(lines[2], 'They hold <b>2,910 AUSD</b> free — enough to survive, if they move it.');
   assert.match(lines[3]!, /^<i>Positions as of block 109,575,809, 12 blocks behind the chain\.<\/i>$/);
   assert.equal(lines[4], 'Watching only — nothing here to press.');
@@ -52,12 +52,12 @@ test('not enough free balance says what it would take, ceiled; unknown balance c
 test('a recovery never says "safe"; past liquidation says "already past"', () => {
   const { change } = assessOne(FIXTURE_BTC, FIXTURE_BTC_MARK);
   const recovered = renderWatchAlertHtml(watched({ freeBalanceCNS: 1n }, { state: 'SAFE', liqBufferPct: 0.092 }), 'recovered', BTC);
-  assert.match(recovered.split('\n')[0]!, /^🟢 <b>#3388 · BTC long is 9\.2% from being closed again<\/b>$/);
+  assert.match(recovered.split('\n')[0]!, /^🟢 <b>#3388 · BTC long is 9\.2% from liquidation again<\/b>$/);
   assert.ok(!/safe/i.test(recovered));
   assert.ok(!recovered.includes('free'), 'a recovery does not lecture about the balance');
   const past = renderWatchAlertHtml(watched({}, { state: 'PAST_LIQUIDATION', liqBufferPct: -0.01 }), 'past-liquidation', BTC);
-  assert.match(past, /is past its closing price/);
-  assert.match(past, /already past 81,770\.1/);
+  assert.match(past, /is past liquidation/);
+  assert.match(past, /already past liquidation at 81,770\.1/);
   void change;
 });
 
@@ -86,7 +86,7 @@ test('the wallet screen lines put money last and in bold; the verdict sums the n
   assert.deepEqual(watchedPositionLines(a, BTC), [
     '🔴 <b>BTC long</b> · 0.5 BTC',
     'Price now 84,007.3',
-    'Closed out at 81,770.1 · 2.7% from being closed',
+    'Liquidation at 81,770.1 · 2.7% from liquidation',
     'They would lose <b>2,810 AUSD</b>',
   ]);
   assert.match(freeVerdict(a.watch, [a]), /^They are holding more than enough to survive this: pulling it out of danger takes <b>562 AUSD<\/b>\./);
@@ -104,7 +104,7 @@ test('a balance under one AUSD is "under 1 AUSD", never a floored "0 AUSD"; an e
 
 test('a position with under one AUSD behind it says "under 1 AUSD", never "lose the 0 AUSD"', () => {
   const tiny = watched({}, { marginCNS: 268_340n });
-  assert.match(renderWatchAlertHtml(tiny, 'danger', BTC), /they lose the <b>under 1 AUSD<\/b> behind it/);
+  assert.match(renderWatchAlertHtml(tiny, 'danger', BTC), /they would lose the <b>under 1 AUSD<\/b> behind it/);
   assert.ok(watchedPositionLines(tiny, BTC).includes('They would lose <b>under 1 AUSD</b>'));
 });
 
