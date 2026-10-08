@@ -19,10 +19,9 @@ const config: NextConfig = {
   // Types only: the web app imports the analytics TYPES from shared and never
   // its runtime, but the bundler still has to be able to read them.
   transpilePackages: ['@perpguard/shared'],
-  // wagmi's connector bundle reaches Coinbase's CDP SDK, which imports the
-  // x402 payment packages as OPTIONAL peers that are not installed, and the
-  // MetaMask SDK imports React Native's storage. /link never pays anything and
-  // never runs on React Native, so those imports resolve to empty modules.
+  // Wallet SDKs under /link reach optional imports that are not installed (the
+  // x402 payment packages, React Native's storage). /link never pays anything
+  // and never runs on React Native, so those imports resolve to empty modules.
   webpack(webpackConfig: { resolve: { alias: Record<string, unknown> } }) {
     for (const m of ['@react-native-async-storage/async-storage', '@x402/core/client', '@x402/evm', '@x402/evm/exact/client', '@x402/evm/upto/client', '@x402/svm/exact/client']) webpackConfig.resolve.alias[m] = false;
     return webpackConfig;

@@ -11,7 +11,7 @@
  * API key pasted into a form that posts to this origin's backend and nowhere
  * else. The key is never shown again, by this page or any route.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ApiError, describeError, link, type KeyProof, type LinkMe, type WalletProof } from '@/lib/api.ts';
 import { PageHeader } from '@/components/PageHeader.tsx';
@@ -27,6 +27,8 @@ function executionOk(l: NonNullable<LinkMe['link']>): boolean {
 export function LinkView() {
   const params = useSearchParams();
   const code = params.get('code') ?? '';
+  // 🔑 Enter API key in the bot opens the page on the key form. Read once: the address is cleaned after the code is used.
+  const [viaKey] = useState(() => params.get('via') === 'key');
   const [phase, setPhase] = useState<Phase>({ kind: 'opening' });
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | undefined>(undefined);
   /** A mainnet account the signed wallet owns: it cannot be acted on here, but it can be watched. */
@@ -235,7 +237,7 @@ export function LinkView() {
           )}
         </div>
 
-        <KeyProofCard me={me} onProof={(proof, next) => {
+        <KeyProofCard me={me} focus={viaKey} onProof={(proof, next) => {
           setPhase({ kind: 'ready', me: next });
           setNotice(proof.kind === 'linked' ? { tone: 'ok', text: `Connected to Perpl account #${proof.accountId}.${proof.forwardingAllowed === false ? " One thing first: this account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it." : ' Alerts in your Telegram chat now come with buttons to act.'}` } : { tone: 'bad', text: proof.reason });
         }} onProblem={(text) => setNotice({ tone: 'bad', text })} />
@@ -253,7 +255,15 @@ export function LinkView() {
 }
 
 /** The key form. Posts to this origin's backend over HTTPS; refuses plain HTTP off localhost. */
-function KeyProofCard({ me, onProof, onProblem }: { readonly me: LinkMe; readonly onProof: (proof: KeyProof, me: LinkMe) => void; readonly onProblem: (text: string) => void }) {
+function KeyProofCard({ me, focus, onProof, onProblem }: { readonly me: LinkMe; readonly focus: boolean; readonly onProof: (proof: KeyProof, me: LinkMe) => void; readonly onProblem: (text: string) => void }) {
+  const card = useRef<HTMLDivElement>(null);
+  const first = useRef<HTMLInputElement>(null);
+  // Opened from 🔑 Enter API key: the key form is what was asked for, so it comes into view, focused.
+  useEffect(() => {
+    if (!focus) return;
+    card.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    first.current?.focus({ preventScroll: true });
+  }, [focus]);
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
@@ -277,11 +287,11 @@ function KeyProofCard({ me, onProof, onProblem }: { readonly me: LinkMe; readonl
   };
 
   return (
-    <div className="card px-[22px] py-5">
+    <div ref={card} className="card px-[22px] py-5">
       <div className="eyebrow">Option 2</div>
       <h2 className="m-0 mt-1 text-[16px] font-bold tracking-[-0.02em]">Paste an API key for the account</h2>
       <p className="mt-2 text-[13px] text-muted">
-        <b className="font-semibold text-text">A Perpl API key cannot withdraw or transfer funds.</b> It can add margin, reduce and close positions, which is what the buttons do. Enter it here and nowhere else, never in Telegram. PerpGuard stores it encrypted and never shows it again.
+        <b className="font-semibold text-text">A Perpl key can trade but can never withdraw or move your funds.</b> It is how the bot adds margin when you tap. Enter it here and nowhere else, never in Telegram. PerpGuard stores it encrypted and never shows it again.
       </p>
       {!me.keyStorageConfigured && <p className="mt-2 text-[12.5px] text-danger">Connecting with an API key isn&rsquo;t available right now. Sign in with your wallet instead.</p>}
       {insecure && <p className="mt-2 text-[12.5px] text-danger">This page isn&rsquo;t on a secure (HTTPS) connection, so the key form is switched off. A key should only ever travel encrypted.</p>}
@@ -292,7 +302,7 @@ function KeyProofCard({ me, onProof, onProblem }: { readonly me: LinkMe; readonl
           void submit();
         }}
       >
-        <input className="input" placeholder="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled={disabled} />
+        <input ref={first} className="input" placeholder="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled={disabled} />
         <input className="input" type="password" placeholder="API key secret (hex)" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} disabled={disabled} />
         <button type="submit" className="btn primary" disabled={disabled || apiKey.trim() === '' || secret.trim() === ''}>
           {busy ? 'Checking the key…' : 'Connect with this key'}
