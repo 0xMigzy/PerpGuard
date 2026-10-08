@@ -114,11 +114,20 @@ export function OverviewView() {
     // Opts this page into the terminal design system (globals.css).
     <div data-ui="terminal">
       <PageHeader
-        title="Perpl protocol"
+        title="Perpl"
+        thin="Analytics"
         subtitle="Everything below is derived from indexed on-chain events. No account needed."
         right={
           <>
             {block !== undefined && <span className="chip">indexed to block {formatCount(block)}</span>}
+            <a className="btn primary" href="https://app.perpl.xyz/trade" target="_blank" rel="noopener noreferrer">
+              Trade on Perpl
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 4h6v6" />
+                <path d="M20 4 10 14" />
+                <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+              </svg>
+            </a>
             <TimeframePills />
           </>
         }

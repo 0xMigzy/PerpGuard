@@ -65,7 +65,7 @@ export function Search() {
       <input
         ref={inputRef}
         className={`min-w-0 flex-1 border-0 bg-transparent text-text outline-none placeholder:text-muted ${open ? '' : 'hidden sm:block'}`}
-        placeholder="Search an address, part of one, or an account id"
+        placeholder="Search 0x address or account id"
         spellCheck={false}
         autoComplete="off"
         value={value}
