@@ -984,6 +984,12 @@ export interface TraderWindow {
   readonly days: number | undefined;
   readonly fromMs: number | undefined;
   readonly toMs: number;
+  /**
+   * Set on the 24H list: its volume, trades and liquidations run over the ROLLING
+   * window from this instant (the Overview's), while P&L, round trips and money in
+   * and out stay on the whole UTC days above.
+   */
+  readonly rollingFromMs?: number | undefined;
 }
 
 export interface TraderRow {

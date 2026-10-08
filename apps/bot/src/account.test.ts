@@ -11,9 +11,17 @@ const screen = (assessments: RiskAssessment[]) =>
 
 test('MY POSITIONS: one button per position, closest to liquidation first, the distance on it; past liquidation in words', () => {
   const s = screen([at(0.2, { marketId: base.marketId }), at(0.027), at(0.05), at(-0.004)]);
-  assert.equal(s.html, '📊 <b>MY POSITIONS</b> · testnet #710');
-  assert.deepEqual(s.buttons.flat().map((b) => b.text), ['🔴 BTC long · past liquidation', '🔴 BTC long · 2.7%', '🟡 BTC long · 5.0%', '🟢 BTC long · 20.0%', '← Back']);
+  assert.equal(s.html, '📊 <b>MY POSITIONS</b> · testnet #710\nFree balance <b>10,000 AUSD</b> · unrealised −45 AUSD');
+  assert.deepEqual(s.buttons.flat().map((b) => b.text), ['🔴 BTC long · past liquidation · −12 AUSD', '🔴 BTC long · 2.7% · −12 AUSD', '🟡 BTC long · 5.0% · −12 AUSD', '🟢 BTC long · 20.0% · −12 AUSD', '← Back']);
   assert.doesNotMatch(s.buttons.flat().map((b) => b.text).join(' '), /-0\./, 'never a negative percentage');
+});
+
+test('MY POSITIONS: the total is UNREALISED over what it can see; a blind one is left out of it, said in words, and has no P&L on its line', () => {
+  const s = screen([at(0.027), { ...base, state: 'FEED_DOWN', marketId: 999 }]);
+  assert.match(s.html, /\nFree balance <b>10,000 AUSD<\/b> · unrealised −12 AUSD \(1 I can't see left out\)$/);
+  assert.equal(s.buttons.flat()[0]!.text, "⚪ BTC long · can't see");
+  const allBlind = screen([{ ...base, state: 'FEED_DOWN' }]);
+  assert.doesNotMatch(allBlind.html, /unrealised/, 'no P&L claimed for a book it cannot see');
 });
 
 test('MY POSITIONS: a blind position shows no figure at all; every position has its button, however many', () => {

@@ -16,10 +16,14 @@ export function TraderCards({
   summary,
   openInterest,
   period,
+  wholeDays,
 }: {
   readonly summary: TraderSummary | undefined;
   readonly openInterest: OpenInterestPayload | undefined;
+  /** The rolling window's label: the trader count, volume and liquidations are the Overview's own queries. */
   readonly period: string;
+  /** The whole-UTC-day label: profitable traders are summed from day buckets. */
+  readonly wholeDays: string;
 }) {
   if (summary === undefined) {
     return (
@@ -43,7 +47,7 @@ export function TraderCards({
         secondary={`${formatMoney(summary.volumeAusd)} traded, counted once per match`}
       />
       <StatTile
-        label={`Profitable traders · ${period}`}
+        label={`Profitable traders · ${wholeDays}`}
         value={share === undefined ? '—' : formatCount(summary.profitableTraders)}
         exact={
           share === undefined

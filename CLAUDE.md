@@ -308,6 +308,17 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   day bucket, so this is the only exact total there is. The rolling maker half
   is served under its own name, `makerFeesAusd`, and is NEVER called "fees":
   it is a third of the real figure and looks like the whole.
+- ONE LABEL PER WINDOW, EVERYWHERE (8 Oct 2026). A ROLLING figure carries the
+  picked window's words ("24h", "7 days"); a figure summed from UTC DAY
+  BUCKETS carries `wholeDaysLabel` ("yesterday + today", "last 7 whole days +
+  today"), never the rolling words: trader P&L, round trips, money in and out,
+  profitable traders, profiles, Compare, the Overview Fees tile. Traders 24H
+  reads volume, trades and liquidations over the ROLLING 24 hours
+  (`TRADER_SOURCE_24H`); its P&L stays on whole days until the attribution
+  question is settled (`docs/notes/traders-one-scan-per-window-later.md`).
+  Traders card liquidations are the Overview's rolling query on every window.
+  The liquidation boards take an account because it was LIQUIDATED, not
+  because it also traded (gated on trades they held 18 of 50).
 - RATIOS ARE WITHHELD BELOW `MIN_ROUND_TRIPS_FOR_RATIOS` = 10 ROUND TRIPS.
   Win rate and profit factor come back undefined under the floor, on the
   profile and on the traders list; the counts and the history are still served

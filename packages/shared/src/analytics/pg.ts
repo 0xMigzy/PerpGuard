@@ -909,7 +909,9 @@ const TRADER_SORT: Record<TraderSortKey, string> = {
  * traded in the window); Flows lists accounts that moved capital in it,
  * traded or not.
  */
-const TRADER_ACTIVITY = { trades: 'w.trades > 0', flows: '(w.deposited > 0 or w.withdrawn > 0)' } as const;
+// Who is ON a board: an account belongs to the liquidation boards because it was LIQUIDATED, not because it
+// also traded (8 Oct 2026: gated on trades, the 24H "Most liquidated" board held 18 of 50 liquidations).
+const TRADER_ACTIVITY = { trades: 'w.trades > 0', flows: '(w.deposited > 0 or w.withdrawn > 0)', liquidations: 'w.liquidations > 0' } as const;
 
 /** Each leaderboard's order and filter. See `TraderRanking`. */
 const TRADER_RANKING: Record<
@@ -919,8 +921,8 @@ const TRADER_RANKING: Record<
   pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
   losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
   volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false, activity: 'trades' },
-  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'trades' },
-  spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false, activity: 'trades' },
+  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'liquidations' },
+  spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false, activity: 'liquidations' },
   flows: { sort: 'netFlowAbs', direction: 'desc', where: 'true', floor: false, activity: 'flows', sortable: FLOW_SORT_KEYS },
   // ALL TIME ONLY: `traders()` reads the lifetime rows for it whatever window is asked. The board
   // also takes Top PnL's round-trip floor: 427 made on 100 over 4 round trips is +426% and noise.
@@ -951,11 +953,61 @@ const TRADER_SOURCE_WINDOW = `
    group by trader_id`;
 
 /**
+ * THE 24H SOURCE (8 Oct 2026): volume, trades and liquidations over the
+ * ROLLING 24 hours, the Overview's window, read fill by fill and liquidation
+ * by liquidation; P&L, round trips and money in and out stay on WHOLE UTC DAYS
+ * (yesterday and today so far) and are labelled so. A rolling P&L would need
+ * per-position attribution that is not yet settled, and taker fees, which
+ * exist only per day. $3 is the rolling start; the day start is derived from
+ * it in UTC whatever the session's time zone.
+ */
+const TRADER_SOURCE_24H = `
+  with d as (
+    select trader_id,
+           sum("netPnlCNS")    as net_pnl,
+           sum(wins + losses)  as round_trips,
+           sum(wins)           as wins,
+           sum(losses)         as losses,
+           sum("depositedCNS") as deposited,
+           sum("withdrawnCNS") as withdrawn
+      from "TraderDay"
+     where day >= (date_trunc('day', $3::timestamptz at time zone 'UTC') at time zone 'UTC')
+     group by trader_id
+  ),
+  f as (
+    select trader_id, sum(v) as volume, count(*) as trades
+      from (select maker_id as trader_id, "notionalCNS" as v from "Trade" where timestamp >= $3::timestamptz
+            union all
+            select taker_id, "notionalCNS" from "Trade" where timestamp >= $3::timestamptz and taker_id is not null) legs
+     group by trader_id
+  ),
+  q as (
+    select trader_id, count(*) as liquidations, count(*) filter (where "wasRescuable") as rescuable
+      from "Liquidation" where timestamp >= $3::timestamptz
+     group by trader_id
+  )
+  select coalesce(d.trader_id, f.trader_id, q.trader_id) as trader_id,
+         coalesce(d.net_pnl, 0)      as net_pnl,
+         coalesce(f.volume, 0)       as volume,
+         coalesce(f.trades, 0)       as trades,
+         coalesce(d.round_trips, 0)  as round_trips,
+         coalesce(d.wins, 0)         as wins,
+         coalesce(d.losses, 0)       as losses,
+         coalesce(q.liquidations, 0) as liquidations,
+         coalesce(q.rescuable, 0)    as rescuable,
+         coalesce(d.deposited, 0)    as deposited,
+         coalesce(d.withdrawn, 0)    as withdrawn
+    from d full join f using (trader_id) full join q using (trader_id)`;
+
+type TraderSource = 'lifetime' | 'days' | 'rolling24h';
+const traderSource = (source: TraderSource): string => (source === 'lifetime' ? TRADER_SOURCE_LIFETIME : source === 'rolling24h' ? TRADER_SOURCE_24H : TRADER_SOURCE_WINDOW);
+
+/**
  * Binds: $1 limit, $2 offset, $3 window start (null for lifetime), $4 address
  * prefix (lowercased, or null), $5 account id (or null).
  */
-const tradersSql = (lifetime: boolean, sort: TraderSortKey, direction: SortDirection, where: string, activity: keyof typeof TRADER_ACTIVITY = 'trades'): string => `
-with w as (${lifetime ? TRADER_SOURCE_LIFETIME : TRADER_SOURCE_WINDOW}),
+const tradersSql = (source: TraderSource, sort: TraderSortKey, direction: SortDirection, where: string, activity: keyof typeof TRADER_ACTIVITY = 'trades'): string => `
+with w as (${traderSource(source)}),
 l as (
   select trader_id,
          max("freeBalanceBeforeCNS") filter (where "wasRescuable" = true) as spare_held,
@@ -984,9 +1036,11 @@ select t.id, t.owner, t."freeBalanceCNS"::text as free_balance, t."openPositionC
 `;
 
 /**
- * The Traders cards' per-trader figures. Binds: $1 window start (null for
- * lifetime). Same source as the list, so they agree with its rows. The cards'
- * trader count and volume come from the Overview's rolling queries instead.
+ * The Traders cards' per-trader figures. Binds: $1 whole-day window start and
+ * $2 rolling start (neither for lifetime). Closed and profitable traders and
+ * the median are WHOLE UTC DAYS, the list's own source. Liquidations are the
+ * ROLLING window, the Overview's query, so "Liquidations · 7 days" is one
+ * number on every page. The trader count and volume are the Overview's too.
  */
 const traderSummarySql = (lifetime: boolean): string => `
 with w as (${lifetime ? TRADER_SOURCE_LIFETIME.replace('$3', '$1') : TRADER_SOURCE_WINDOW.replace('$3', '$1')}),
@@ -999,9 +1053,9 @@ select count(*)                                                        as trader
        -- LIQUIDATIONS READ "Liquidation" DIRECTLY, as the Overview does (8 Oct 2026): summed over the
        -- accounts that traded, they dropped every account liquidated without a fill of its own (44 of 87).
        (select count(*) from "Liquidation"
-         where ${lifetime ? 'true' : 'timestamp >= $1::timestamptz'})                          as liquidations,
+         where ${lifetime ? 'true' : 'timestamp >= $2::timestamptz'})                          as liquidations,
        (select count(*) filter (where "wasRescuable") from "Liquidation"
-         where ${lifetime ? 'true' : 'timestamp >= $1::timestamptz'})                          as rescuable
+         where ${lifetime ? 'true' : 'timestamp >= $2::timestamptz'})                          as rescuable
   from a
 `;
 
@@ -2129,10 +2183,13 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     // ROI is lifetime over lifetime, whatever window was asked: never a window's PnL over all-time deposits.
     const lifetimeOnly = sort === 'roi';
     const { window, start } = traderWindow(lifetimeOnly ? 'all' : timeframe, now);
-    const rows = await this.#rows(tradersSql(start === null, sort, direction, where, rule?.activity ?? 'trades'), [
+    // 24H: volume, trades and liquidations over the rolling 24 hours (TRADER_SOURCE_24H), bound by the rolling start.
+    const source: TraderSource = start === null ? 'lifetime' : !lifetimeOnly && timeframe === '24h' ? 'rolling24h' : 'days';
+    const bound = source === 'rolling24h' ? iso(windowFor('24h', now).sinceMs) : start;
+    const rows = await this.#rows(tradersSql(source, sort, direction, where, rule?.activity ?? 'trades'), [
       limit,
       offset,
-      start,
+      bound,
       search?.kind === 'address' ? search.prefix : null,
       search?.kind === 'account' ? String(search.accountId) : null,
     ]);
@@ -2166,7 +2223,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     return {
       rows: list,
       total: count(rows[0]?.['total']),
-      window,
+      window: source === 'rolling24h' ? { ...window, rollingFromMs: windowFor('24h', now).sinceMs } : window,
       sort,
       direction,
       limit,
@@ -2175,15 +2232,15 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       ranking,
       // From the first row, which carries it; with no row, the floor still left
       // these out, so it is asked for alone rather than reported as zero.
-      belowFloor: !floorApplied ? undefined : rows[0] !== undefined ? count(rows[0]['below_floor']) : await this.#belowFloor(start),
+      belowFloor: !floorApplied ? undefined : rows[0] !== undefined ? count(rows[0]['below_floor']) : await this.#belowFloor(source, bound),
       query: search === undefined ? undefined : search.kind === 'address' ? search.prefix : `#${search.accountId}`,
     };
   }
 
-  async #belowFloor(start: string | null): Promise<number> {
+  async #belowFloor(source: TraderSource, bound: string | null): Promise<number> {
     const row = await this.#one(
-      `with w as (${start === null ? TRADER_SOURCE_LIFETIME : TRADER_SOURCE_WINDOW.replace('$3', '$1')}) select count(*) as n from w where trades > 0 and round_trips < ${MIN_ROUND_TRIPS_FOR_RATIOS}`,
-      start === null ? [] : [start],
+      `with w as (${traderSource(source).replaceAll('$3', '$1')}) select count(*) as n from w where trades > 0 and round_trips < ${MIN_ROUND_TRIPS_FOR_RATIOS}`,
+      source === 'lifetime' ? [] : [bound],
     );
     return count(row?.['n']);
   }
@@ -2201,7 +2258,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     const { sinceMs } = windowFor(timeframe, now);
     const [row, { totals, traders }] = await Promise.all([
       // The lifetime form has no parameter; binding one is a Postgres error (08P01), not a no-op.
-      this.#one(traderSummarySql(start === null), start === null ? [] : [start]),
+      this.#one(traderSummarySql(start === null), start === null ? [] : [start, iso(sinceMs)]),
       this.#windowTotals(sinceMs, now),
     ]);
     const closed = count(row?.['closed']);

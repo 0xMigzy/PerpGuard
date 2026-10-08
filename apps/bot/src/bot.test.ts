@@ -291,7 +291,7 @@ test('the configured owner links with /start; an unlinked chat gets an identity 
 
   // And now the same screens work.
   await tapNav(h, { to: 'positions' });
-  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · testnet #710$/);
+  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · testnet #710\nFree balance <b>10,000 AUSD<\/b> · unrealised −\d+ AUSD\nAlerting you at 5% from liquidation$/);
 
   // A stranger's /start is an identity and the first-run home screen, not a link and not a refusal.
   await h.bot.handleUpdate(messageUpdate('/start', { from: STRANGER_ID, chat: 7_777 }));
@@ -338,8 +338,8 @@ test('My positions lists each position closest first as a button; its screen off
 
   await tapNav(h, { to: 'positions' });
   const list = lastScreen(h.telegram);
-  assert.equal(String(list.payload['text']), '📊 <b>MY POSITIONS</b> · testnet #710');
-  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['🔴 BTC long · 2.7%', '← Back']);
+  assert.match(String(list.payload['text']), /^📊 <b>MY POSITIONS<\/b> · testnet #710\nFree balance <b>10,000 AUSD<\/b> · unrealised −\d+ AUSD\nAlerting you at 5% from liquidation$/);
+  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['🔴 BTC long · 2.7% · −12 AUSD', '← Back']);
 
   const screen = await openPosition(h);
   const html = String(screen.payload['text']);
@@ -1420,7 +1420,7 @@ test('a linked user whose key needs renewing is told to /link again on every gat
   // Renewed: the same screens work again, with no restart.
   fake.setRelink(undefined);
   await tapNav(h, { to: 'positions' });
-  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · testnet #710$/);
+  assert.match(shown(h.telegram).at(-1)!, /^📊 <b>MY POSITIONS<\/b> · testnet #710\nFree balance <b>10,000 AUSD<\/b> · unrealised −\d+ AUSD\nAlerting you at 5% from liquidation$/);
 });
 
 test('a URL button Telegram refuses does not lose the screen: it goes out again without that button', async () => {
@@ -1564,8 +1564,8 @@ test('MY POSITIONS: one button per position, closest first, the distance on it; 
   h.view.assessments = [far, near];
   await tapNav(h, { to: 'positions' });
   const list = lastScreen(h.telegram);
-  assert.equal(String(list.payload['text']), '📊 <b>MY POSITIONS</b> · testnet #710');
-  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['🔴 BTC long · 2.7%', '🟡 ETH long · 6.1%', '← Back']);
+  assert.match(String(list.payload['text']), /^📊 <b>MY POSITIONS<\/b> · testnet #710\nFree balance <b>10,000 AUSD<\/b> · unrealised −\d+ AUSD\nAlerting you at 5% from liquidation$/);
+  assert.deepEqual(keyboardOf(list).map((b) => b.text), ['🔴 BTC long · 2.7% · −12 AUSD', '🟡 ETH long · 6.1% · −12 AUSD', '← Back']);
   assert.equal(actionButtons(list).length, 0, 'no action button on the list itself');
   assert.equal(h.executor.calls.length, 0);
   await tapNav(h, { to: 'positions' }, { from: STRANGER_ID, chat: STRANGER_CHAT });

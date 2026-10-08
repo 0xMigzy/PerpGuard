@@ -8,7 +8,7 @@ import type { AssessedPosition, Timeframe, TraderDayPoint, WalletMatch, WalletPr
 import { ApiError, api } from '@/lib/api.ts';
 import { alignedCumulative, compareColumn, MAX_COMPARE, parseCompareIds, walletLabel, withAdded, withRemoved, type CompareColumn } from '@/lib/compare.ts';
 import { formatCount, formatDay, formatDayLong, formatDuration, formatMoney, formatPct, formatSignedMoney, shortAddress } from '@/lib/format.ts';
-import { DAY_BUCKET_24H, dayPeriodLabel } from '@/lib/history.ts';
+import { WHOLE_DAY_PILLS, wholeDaysLabel } from '@/lib/history.ts';
 import { marketName } from '@/lib/markets.ts';
 import { SERIES, VAR } from '@/lib/theme.ts';
 import { parseTraderQuery } from '@/lib/traders.ts';
@@ -80,7 +80,7 @@ export function CompareView() {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTimeframe();
-  const period = dayPeriodLabel(t, useHistoryStart());
+  const period = wholeDaysLabel(t, useHistoryStart());
   const { ids, dropped } = useMemo(() => parseCompareIds(params.get('a')), [params]);
   const data = useCompareData(ids, t);
   const saved = useSavedWallets();
@@ -104,7 +104,7 @@ export function CompareView() {
         title="Compare"
         thin={ids.length === 0 ? undefined : `${formatCount(ids.length)} of ${MAX_COMPARE}`}
         subtitle="Up to four accounts side by side: the same figures as each trader's profile."
-        right={<TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />}
+        right={<TimeframePills labels={WHOLE_DAY_PILLS} />}
       />
 
       <AddWallet ids={ids} onAdd={(next) => go(next)} savedIds={saved.list.map((w) => w.accountId)} />

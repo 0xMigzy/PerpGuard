@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import type { TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAusdExact, formatCount, formatMoney, formatPct, formatSignedExact, formatSignedMoney, shortAddress } from '@/lib/format.ts';
-import { DAY_BUCKET_24H, dayPeriodLabel, inDayPeriod } from '@/lib/history.ts';
+import { inWholeDays, periodLabel, wholeDaysLabel } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -76,11 +76,15 @@ export function TradersIndex() {
   const data = list.data?.data;
   const start = useHistoryStart();
   const window = data?.window ?? summary.data?.data.window;
-  const period = dayPeriodLabel(t, start);
-  // Day buckets: "24h" is today and yesterday so far, and the column says so.
-  // The window the reader picked; the whole-UTC-day span is on each column's hover.
-  const windowed = period;
+  // TWO WINDOWS, EACH NAMED (8 Oct 2026). P&L, round trips and money in and out are summed over WHOLE UTC
+  // DAYS and say so ("last 7 whole days + today"). At 24H, volume, trades and liquidations run over the
+  // ROLLING 24 hours, the Overview's window, and carry its label; at 7D and 30D they are whole days too.
+  const rolling = periodLabel(t, start);
+  const windowed = wholeDaysLabel(t, start);
   const spanNote = window?.days === undefined ? '' : ` Summed over whole UTC days: ${window.label}.`;
+  const rollingNote = window?.rollingFromMs === undefined ? undefined : ` Every fill and liquidation in the rolling 24 hours, the Overview's window, not day buckets.`;
+  const activity = rollingNote === undefined ? windowed : rolling;
+  const activityNote = rollingNote ?? spanNote;
   const floor = data?.minRoundTripsForRatios ?? 10;
 
   const choose = (next: TraderRanking) => {
@@ -108,9 +112,9 @@ export function TradersIndex() {
   const tradeColumns: readonly Column[] = [
     { key: 'account', label: 'Account', sub: '' },
     { key: 'netPnl', label: 'Net PnL', sub: windowed, title: `Realised + funding − fees over the window.${spanNote}` },
-    { key: 'volume', label: 'Volume', sub: windowed, title: `The account’s own traded volume.${spanNote}` },
+    { key: 'volume', label: 'Volume', sub: activity, title: `The account’s own traded volume.${activityNote}` },
     { key: 'winRate', label: 'Win rate, before fees', sub: windowed, title: `Round trips won, by realised P&L plus funding BEFORE trading fees: Perpl's index records fees per account per day, not per position. Net PnL includes fees. Withheld below ${floor} round trips.${spanNote}` },
-    { key: 'liquidations', label: 'Liquidations', sub: windowed, title: `Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.${spanNote}` },
+    { key: 'liquidations', label: 'Liquidations', sub: activity, title: `Count; how many were rescuable underneath. Margin lost and the largest free balance held on hover.${activityNote}` },
   ];
   const columns = flows ? flowColumns : tradeColumns;
   /** Which Flows header is the active order, and which way it points. */
@@ -128,12 +132,12 @@ export function TradersIndex() {
       <PageHeader
         title="Traders"
         subtitle="Every account the indexer has seen. Search an address, or sort the table."
-        right={<TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />}
+        right={<TimeframePills />}
       />
 
       <ErrorNote error={summary.error} what="The trader totals" />
       <ErrorNote error={oi.error} what="Open interest" />
-      <TraderCards summary={summary.data?.data} openInterest={oi.data?.data} period={period} />
+      <TraderCards summary={summary.data?.data} openInterest={oi.data?.data} period={rolling} wholeDays={windowed} />
 
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-[14px] py-[10px]">
@@ -258,7 +262,7 @@ export function TradersIndex() {
                 <tr>
                   <td colSpan={columns.length} className="px-[10px] py-8 text-center text-muted">
                     <div className="text-[14px] font-semibold text-text">
-                      {data.query !== undefined ? `No account matching ${data.query} is in the ${info.label} list ${inDayPeriod(t, start)}.` : info.empty(inDayPeriod(t, start))}
+                      {data.query !== undefined ? `No account matching ${data.query} is in the ${info.label} list ${inWholeDays(t, start)}.` : info.empty(inWholeDays(t, start))}
                     </div>
                     <div className="mt-1 text-[12.5px]">{data.query !== undefined ? 'Try Volume, which lists every account that traded, or widen the window.' : 'Widen the window, or choose another ranking.'}</div>
                   </td>

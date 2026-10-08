@@ -8,7 +8,7 @@ import { ApiError, api } from '@/lib/api.ts';
 import { formatAge, formatAusdExact, formatCount, formatDayLong, formatDuration, formatMoney, formatPct, formatPriceAsServed, formatSignedExact, formatSignedMoney, formatSignedPct, formatWhen, shortAddress } from '@/lib/format.ts';
 import { LIST_CAP, LIST_STEP, mayHaveMore, nextLimit } from '@/lib/liquidations.ts';
 import { COLORS } from '@/lib/theme.ts';
-import { DAY_BUCKET_24H, dayPeriodLabel, periodLabel } from '@/lib/history.ts';
+import { WHOLE_DAY_PILLS, inWholeDays, wholeDaysLabel } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { bufferTier, cumulativeDays, cumulativePnl, parseTraderQuery, sumDays, winRateOf, type TraderQuery } from '@/lib/traders.ts';
@@ -107,7 +107,8 @@ function PrefixSearch({ query, prefix }: { readonly query: string; readonly pref
 function TraderProfile({ query, parsed }: { readonly query: string; readonly parsed: Exclude<TraderQuery, { kind: 'prefix' }> }) {
   const t = useTimeframe();
   const start = useHistoryStart();
-  const period = dayPeriodLabel(t, start);
+  // Every window figure here is summed from the account's UTC day buckets, and says so.
+  const period = wholeDaysLabel(t, start);
 
   // One lookup by whatever was typed. An address resolves to a profile or to
   // `not-linked`; an id resolves to a profile or a 404. Both are answers.
@@ -150,7 +151,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
   const window = useMemo(() => (dayRows === undefined ? undefined : sumDays(dayRows)), [dayRows]);
   const dayCurve = useMemo(() => (dayRows === undefined ? undefined : cumulativeDays(dayRows)), [dayRows]);
   // The window the reader picked; the whole-UTC-day span, and how many of those days the account traded, on hover.
-  const windowLabel = t === 'all' ? periodLabel('all', start) : period;
+  const windowLabel = period;
   const windowTitle =
     window === undefined
       ? undefined
@@ -236,7 +237,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
                 What if I&rsquo;d copied?
               </Link>
             )}
-            <TimeframePills labels={{ '24h': { text: DAY_BUCKET_24H.pill, title: DAY_BUCKET_24H.title } }} />
+            <TimeframePills labels={WHOLE_DAY_PILLS} />
           </>
         }
       />
@@ -343,7 +344,7 @@ function TraderProfile({ query, parsed }: { readonly query: string; readonly par
           <Skeleton className="mt-2 h-[262px] w-full" />
         ) : dayCurve.length === 0 ? (
           <div className="flex h-[200px] flex-col items-center justify-center text-center">
-            <div className="text-[14px] font-semibold text-text">No activity in {t === 'all' ? 'the index' : `the last ${period}`}.</div>
+            <div className="text-[14px] font-semibold text-text">No activity {t === 'all' ? 'in the index' : inWholeDays(t, start)}.</div>
             <div className="mt-1 text-[12.5px] text-muted">A day appears here once the account trades, deposits or withdraws on it. Widen the window to see earlier days.</div>
           </div>
         ) : (

@@ -42,27 +42,46 @@ export interface PositionsInput {
   readonly positions: PositionSourceStatus;
   readonly free: FreeBalanceReading;
   readonly configs: ReadonlyMap<number, MarketRiskConfig>;
+  /** The account's alert distance, in percent. Undefined leaves the line off. */
+  readonly alertPct?: number | undefined;
 }
 
 /**
- * 📊 MY POSITIONS (owner, 8 Oct 2026): one button per position, closest to
- * liquidation first, the distance on the button. The detail is on View position.
+ * 📊 MY POSITIONS (owner, 8 Oct 2026): free balance and the book's unrealised
+ * P&L on top, then one button per position, closest to liquidation first, the
+ * distance and that position's unrealised P&L on the button. All from the live
+ * socket and the loop's last pass: nothing here is a query. A position it
+ * cannot see has no P&L to show and is left out of the total, said in words.
  */
 export function positionsScreen(input: PositionsInput): Screen {
   const all = ordered(input.assessments);
   const lines = [`📊 <b>MY POSITIONS</b> · ${input.network ?? 'testnet'} #${input.accountId}`];
+  const d = collateralDecimalsOf(input.configs);
+  const seen = all.filter((a) => !isBlind(a.state));
+  const unseen = all.length - seen.length;
+  const free = input.free.known ? `Free balance ${held(input.free.floorCNS, d)}` : 'Free balance unknown';
+  const unrealised = seen.length === 0 ? undefined : `unrealised ${signedPnl(seen.reduce((sum, a) => sum + a.metrics.unrealisedPnlCNS, 0n), d)}${unseen > 0 ? ` (${unseen} I can't see left out)` : ''}`;
+  lines.push(unrealised === undefined ? free : `${free} · ${unrealised}`);
+  if (input.alertPct !== undefined) lines.push(`Alerting you at ${distanceLabel(input.alertPct)} from liquidation`);
   // AN EMPTY LIST IS NOT "NO POSITIONS" unless the list is live.
   if (all.length === 0) lines.push('', input.positions.state === 'live' ? 'No open positions.' : "I haven't been told what's open yet, so this may not be empty.");
   const blind = blindLine(input.feed, input.positions);
   if (blind !== undefined) lines.push('', blind);
-  const buttons: Button[][] = all.map((a) => [{ text: positionButton(a), route: { to: 'position', marketId: a.marketId } }]);
+  const buttons: Button[][] = all.map((a) => [{ text: positionButton(a, input.configs.get(a.marketId)?.collateralDecimals ?? d), route: { to: 'position', marketId: a.marketId } }]);
   buttons.push([{ text: '← Back', route: { to: 'home' } }]);
   return { html: lines.join('\n'), buttons };
 }
 
-/** `🔴 BTC long · 2.7%`. */
-export function positionButton(a: RiskAssessment): string {
-  return `${bandDot(a)} ${a.symbol}${a.side === undefined ? '' : ` ${a.side}`} · ${isBlind(a.state) ? "can't see" : shortBuffer(a.liqBufferPct)}`;
+/** `🔴 BTC long · 2.7% · −84 AUSD`: the unrealised P&L only for a position it can see. */
+export function positionButton(a: RiskAssessment, collateralDecimals = 6): string {
+  const head = `${bandDot(a)} ${a.symbol}${a.side === undefined ? '' : ` ${a.side}`}`;
+  return isBlind(a.state) ? `${head} · can't see` : `${head} · ${shortBuffer(a.liqBufferPct)} · ${signedPnl(a.metrics.unrealisedPnlCNS, collateralDecimals)}`;
+}
+
+/** The collateral's decimals, from the market configs (one collateral per venue). */
+function collateralDecimalsOf(configs: ReadonlyMap<number, MarketRiskConfig>): number {
+  for (const c of configs.values()) return c.collateralDecimals;
+  return 6;
 }
 
 /** `2.7%`, or `past liquidation`: a signed buffer, never a negative percentage. */

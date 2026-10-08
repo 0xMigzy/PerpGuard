@@ -1082,7 +1082,8 @@ test('adding Flows changes no other ranking: their order is still fixed and they
     await reader(sql).traders('30d', { ranking, sort: 'netFlow', direction: 'asc' });
     const text = sql.touching('Trader')[0]!.sql;
     assert.match(text, order, `${ranking} ignores a requested sort`);
-    assert.match(text, /where w\.trades > 0/, `${ranking} still lists traders`);
+    // The liquidation board lists the LIQUIDATED (8 Oct 2026), never flow-only accounts; the rest list traders.
+    assert.match(text, ranking === 'liquidated' ? /where w\.liquidations > 0/ : /where w\.trades > 0/, `${ranking} lists its own accounts, not flows`);
   }
 });
 
@@ -1194,5 +1195,41 @@ test('TRADER SUMMARY LIQUIDATIONS READ "Liquidation" DIRECTLY: never summed over
   for (const call of summaries) {
     assert.match(call.sql, /\(select count\(\*\) from "Liquidation"\s+where [^)]*\)\s+as liquidations/);
     assert.doesNotMatch(call.sql, /sum\(liquidations\)|sum\(rescuable\)/);
+  }
+});
+
+test('TRADERS 24H: volume, trades and liquidations over the ROLLING 24 hours; P&L and flows over whole UTC days; 7D stays whole days', async () => {
+  const sql = new FakeSql();
+  const list = await reader(sql).traders('24h', { sort: 'volume' });
+  const call = sql.calls.find((c) => /from "Trader" t|join "Trader" t/.test(c.sql))!;
+  assert.match(call.sql, /from "Trade" where timestamp >= \$3::timestamptz/, 'fills read one by one over the rolling window');
+  assert.match(call.sql, /from "Liquidation" where timestamp >= \$3::timestamptz/);
+  assert.match(call.sql, /day >= \(date_trunc\('day', \$3::timestamptz at time zone 'UTC'\) at time zone 'UTC'\)/, 'P&L from the whole UTC days the rolling start falls in, in UTC whatever the session zone');
+  assert.equal(call.values[2], new Date(NOW - 86_400_000).toISOString(), 'bound by the rolling start, not midnight');
+  assert.equal(list.window.rollingFromMs, NOW - 86_400_000);
+
+  const days = new FakeSql();
+  const week = await reader(days).traders('7d', { sort: 'volume' });
+  const weekCall = days.calls.find((c) => /join "Trader" t/.test(c.sql))!;
+  assert.doesNotMatch(weekCall.sql, /from "Trade" where/, '7D is whole UTC days, from TraderDay');
+  assert.equal(week.window.rollingFromMs, undefined);
+});
+
+test('TRADER SUMMARY: liquidations over the ROLLING window (the Overview’s), the per-trader figures over whole days', async () => {
+  const sql = new FakeSql();
+  await reader(sql).traderSummary('7d');
+  const call = sql.calls.find((c) => /as liquidations/.test(c.sql))!;
+  assert.match(call.sql, /from "Liquidation"\s+where timestamp >= \$2::timestamptz/);
+  assert.equal(call.values[1], new Date(NOW - 7 * 86_400_000).toISOString(), 'rolling, the Overview’s start');
+  assert.ok(String(call.values[0]).endsWith('T00:00:00.000Z'), 'whole-day start for the per-trader figures');
+});
+
+test('THE LIQUIDATION BOARDS take an account because it was LIQUIDATED, not because it also traded', async () => {
+  for (const ranking of ['liquidated', 'spare'] as const) {
+    const sql = new FakeSql();
+    await reader(sql).traders('30d', { ranking });
+    const call = sql.calls.find((c) => /join "Trader" t/.test(c.sql))!;
+    assert.match(call.sql, /where w\.liquidations > 0/, ranking);
+    assert.doesNotMatch(call.sql, /where w\.trades > 0/, ranking);
   }
 });

@@ -7,7 +7,7 @@ import { formatAge, formatAusdExact, formatCount, formatDayLong, formatMoney, fo
 import { deltaOf, deltaVsPrevious, lastDays, stackByMarket } from '@/lib/overview.ts';
 import { balanceBefore, rebuiltBalance, treasuryLines } from '@/lib/exchangeBalance.ts';
 import { chartWindow } from '@/lib/timeframe.ts';
-import { periodLabel } from '@/lib/history.ts';
+import { periodLabel, wholeDaysLabel } from '@/lib/history.ts';
 import { useHistory, useHistoryStart } from '@/lib/useHistory.ts';
 import { biggestStep, formatMonth } from '@/lib/growth.ts';
 import { GrowthChart } from '@/components/charts/GrowthChart.tsx';
@@ -186,7 +186,7 @@ export function OverviewView() {
               sparkline={tvlSpark}
             />
             <StatTile
-              label={`Fees · ${period}`}
+              label={`Fees · ${wholeDaysLabel(t, historyStart)}`}
               labelTitle={m.fees.days === 0 ? 'No whole UTC day in the window yet.' : `Fees are summed over whole UTC days: ${m.fees.label}.`}
               value={formatMoney(m.fees.totalAusd)}
               exact={`${formatAusdExact(m.fees.totalAusd)} over ${m.fees.label}`}

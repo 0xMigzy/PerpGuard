@@ -1078,14 +1078,14 @@ export function createBot(deps: BotDeps): Bot {
     switch (route.to) {
       case 'positions':
         await ctx.answerCallbackQuery();
-        await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+        await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs, alertPct: settings.get(account.accountId).alertPct }));
         return;
       case 'position': {
         const assessment = view.snapshot().find((a) => a.marketId === route.marketId);
         const market = deps.configs.get(route.marketId);
         if (assessment === undefined || market === undefined) {
           await answer(ctx, assessment === undefined ? "That position isn't open any more." : "I have no market details for that position, so I can't price it.");
-          await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs }));
+          await showScreen(ctx, positionsScreen({ accountId: account.accountId, network: view.network ?? deps.tradingNetwork, assessments: view.snapshot(), feed: view.feedStatus(), positions: view.positionsStatus(), free: account.balance.freeBalance(), configs: deps.configs, alertPct: settings.get(account.accountId).alertPct }));
           return;
         }
         await ctx.answerCallbackQuery();
