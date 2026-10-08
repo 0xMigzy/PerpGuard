@@ -251,9 +251,11 @@ function AlertPreview() {
       </div>
       <div className="rounded-[14px] border border-border2 bg-[#0E1621] p-3">
         <div className="mb-2 flex items-center gap-2">
-          {/* The site's own icon (favicon set, manifest), round as Telegram draws a bot's photo, at a message avatar's size. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/perpguard-icon-192.png?v=2" alt="" aria-hidden="true" width={34} height={34} className="h-[34px] w-[34px] flex-none rounded-full object-cover" />
+          {/* The header's own mark (public/perpguard-mark.svg), on a round dark disc as Telegram draws a bot's photo, 34px. */}
+          <span aria-hidden="true" className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-[#080A0F]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/perpguard-mark.svg" alt="" width={808} height={888} style={{ height: 19, width: 'auto' }} />
+          </span>
           <div className="leading-tight">
             <div className="text-[13px] font-semibold text-text">PerpGuard Bot</div>
             <div className="text-[11px] text-muted">bot</div>
