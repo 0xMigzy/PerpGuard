@@ -8,7 +8,7 @@ Perpl uses isolated margin: each position carries its own collateral, and the ac
 
 Since Perpl launched on 11 Feb 2026, 2,426 of 3,653 mainnet liquidations (66.4%) hit accounts whose free balance could have covered the top-up that would have kept the position above maintenance margin. Over the last 30 days: 428 of 634 (67.5%).
 
-![A trader's page on perpguard.app showing how many of their liquidations were rescuable](docs/images/trader-rescuable.png)
+![A trader's page on perpguard.app showing how many of their liquidations were rescuable](docs/images/trader-card.png)
 *A trader's page: their liquidations over the window, and how many their free balance could have prevented.*
 
 PerpGuard watches each position and warns before liquidation. It adds margin only if the trader has turned that on, for that position.
@@ -69,7 +69,7 @@ Every figure on the site names its window, and [/status](https://perpguard.app/s
 ![The open interest reconciliation table on /status](docs/images/status-reconciliation.png)
 *Open interest per market, the index beside the venue, each with the block it was read at.*
 
-**The index matches the venue.** Every 5 minutes the backend reads open interest from Perpl's API and, straight after, from the index, each with its block. At 11:31 UTC the index was at block 111,884,822 and the venue's readings at blocks 111,884,763 to 111,884,859. Ten of 11 markets matched to the lot. The largest gap was PUMP, 0.25% (17,096 lots), read 23 blocks after the index. The per-market table is on /status.
+**The index matches the venue.** Every 5 minutes the backend reads open interest from Perpl's API and, straight after, from the index, each with its block. In the reading above, at 12:56 UTC, the index was at block 111,901,715 and the venue's readings at blocks 111,901,733 to 111,901,763. Seven of 11 markets matched to the lot. The largest gap was NEAR, 1.51% (20.95 lots), then MON 0.57% and BTC 0.034%. The count varies from one check to the next (10 of 11 matched at 11:31 the same day): a gap is trades that landed in the seconds between the two reads. The per-market table is live on /status.
 
 **Funding settles every 2,580 seconds, about 43 minutes, not hourly.** That is `funding_interval_sec` on all 11 markets in Perpl's live context. Over the last 24 hours the index recorded 512 settlement intervals with a median of 2,588 s (range 2,587 to 2,592).
 
