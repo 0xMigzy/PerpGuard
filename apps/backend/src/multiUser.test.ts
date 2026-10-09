@@ -110,7 +110,7 @@ test('POSITIONS AND RISK READINGS: each person sees only their own account', asy
 test('ACTIONS: B cannot use a button issued to A; A\'s action runs on A\'s executor only', async () => {
   const w = world();
   await w.tap(A, { to: 'position', marketId: w.base.marketId });
-  const aButton = buttonsIn(w.telegram, A.chatId).find((x) => x.text.startsWith('+100') && decodeCallback(x.callback_data).ok);
+  const aButton = buttonsIn(w.telegram, A.chatId).find((x) => /^\+[\d,]+ → /.test(x.text) && decodeCallback(x.callback_data).ok);
   assert.ok(aButton !== undefined, 'A was offered a top-up');
   // B replays A's exact payload from B's own chat.
   await w.bot.handleUpdate(callbackUpdate(aButton.callback_data, { from: B.telegramUserId, chat: B.chatId }));

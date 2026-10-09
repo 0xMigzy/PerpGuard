@@ -26,8 +26,12 @@ export const ALERT_EXAMPLE = {
   /** "Margin 122 AUSD · 9,762 AUSD free", each amount bold in the chat. */
   margin: '122 AUSD',
   free: '9,762 AUSD',
-  /** The keyboard, row by row, exactly as labelled. Each amount shows the distance it buys. */
-  keyboard: [['+100 → 8.4%', '+250 → 17%'], ['🎛 Custom amount', 'Dismiss'], ['📊 View position']],
+  /**
+   * The keyboard, row by row, exactly as labelled. The two amounts are sized to
+   * distances (the alert line, 5%, plus 2 and plus 5 points), each showing the
+   * distance it buys.
+   */
+  keyboard: [['+75 → 7.0%'], ['+130 → 10%'], ['🎛 Custom amount', 'Dismiss'], ['📊 View position']],
 } as const;
 
 /** What the example is built from, for the bot-side test: the inputs behind the lines above. */
@@ -35,9 +39,8 @@ export const ALERT_EXAMPLE_INPUTS = {
   liqBufferPct: 0.027,
   marginCNS: 122_000_000n,
   freeCNS: 9_762_000_000n,
-  /** The distance each amount would buy, as the engine priced it for this example. */
-  bought: [
-    { ausd: 100, resultingBufferPct: 0.0849 },
-    { ausd: 250, resultingBufferPct: 0.1712 },
-  ],
+  /** The account's alert distance, percent. */
+  alertPct: 5,
+  /** The position's notional at the mark, AUSD: a top-up moves the distance by amount ÷ notional. */
+  notionalAusd: 1_727,
 } as const;

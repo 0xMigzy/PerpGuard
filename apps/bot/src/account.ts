@@ -19,6 +19,7 @@ import { dot, esc, fromLiquidation, held, pct, positionName, shortDistance, sign
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import { ALERT_DISTANCE_PRESETS, distanceLabel } from '@perpguard/backend/manual/distance';
 import type { FreeBalanceReading } from './balance.ts';
+import type { Suggestions } from './suggestedAmounts.ts';
 import type { ExecutionOutcome } from './actions.ts';
 import type { AccountSettings } from './settings.ts';
 import type { Button, Screen } from './screens.ts';
@@ -94,10 +95,6 @@ export function bandDot(a: Pick<RiskAssessment, 'state'>): string {
   return a.state === 'WATCH' ? '🟡' : dot(a.state);
 }
 
-/** The fixed amounts View position offers, in whole AUSD. */
-export const ADD_MARGIN_PRESETS_AUSD = [100, 250, 500] as const;
-/** The amounts an alert carries. */
-export const ALERT_PRESETS_AUSD = [100, 250] as const;
 
 /**
  * The distance an amount buys, for its button: `8.4%`, `17%`. ROUNDED DOWN, so
@@ -113,10 +110,31 @@ export function boughtDistance(buffer: number | undefined): string | undefined {
   return p >= 10 ? `${Math.floor(p)}%` : `${(Math.floor(p * 10 + 1e-9) / 10).toFixed(1)}%`;
 }
 
-/** `+100 → 8%`, `+1,000 → 31% ⚠️` when it may be more than the free balance. */
-export function amountButton(ausd: number, resultingBufferPct: number | undefined, overFree: boolean): string {
+/**
+ * `+1,900 → 7.1%`, `+3,100 → 10% ⚠️` when it may be more than the free balance,
+ * `+979 → 3.4% · most of free` when it is capped at most of the free balance.
+ */
+export function amountButton(ausd: number, resultingBufferPct: number | undefined, overFree: boolean, mostOfFree = false): string {
   const to = boughtDistance(resultingBufferPct);
-  return `+${ausd.toLocaleString('en-US')}${to === undefined ? '' : ` → ${to}`}${overFree ? ' ⚠️' : ''}`;
+  return `+${ausd.toLocaleString('en-US')}${to === undefined ? '' : ` → ${to}`}${overFree ? ' ⚠️' : ''}${mostOfFree ? ' · most of free' : ''}`;
+}
+
+/**
+ * The words beside suggested amounts (`suggestedAmounts.ts`), shared by the
+ * alert and View position: which amount is most of the free balance, that the
+ * free balance buys almost nothing when it does, and what ⚠️ means.
+ */
+export function suggestionLines(s: Suggestions, free: FreeBalanceReading, decimals: number): string[] {
+  const lines: string[] = [];
+  const freeText = free.known ? held(free.floorCNS, decimals) : undefined;
+  const most = s.amounts.find((a) => a.mostOfFree);
+  if (most !== undefined && freeText !== undefined) lines.push(`+${most.ausd.toLocaleString('en-US')} is most of your free balance (${freeText}), leaving the rest for fees and the next alert.`);
+  if (s.note !== undefined && freeText !== undefined) {
+    const points = s.note.gain * 100;
+    lines.push(`Your free balance, ${freeText}, would move it ${points < 0.1 ? 'less than 0.1 points' : `only ${(Math.floor(points * 10) / 10).toFixed(1)} points`}, so I'm not offering it as a button.`);
+  }
+  if (s.amounts.some((a) => a.overFree)) lines.push('⚠️ may be more than your free balance. The exchange refuses what you can’t cover.');
+  return lines;
 }
 
 /** Closest to its closing price first; blind ones first of all. */
@@ -134,8 +152,12 @@ export interface PositionInput {
   readonly positions: PositionSourceStatus;
   /** Asked of the ACTING venue. Undefined means it could not be asked. */
   readonly availability: ActionAvailability | undefined;
-  /** One per preset: its action button's data and the distance it buys, or why it cannot be priced. */
-  readonly presets: ReadonlyArray<{ readonly ausd: number; readonly data: string; readonly resultingBufferPct: number | undefined } | { readonly ausd: number; readonly reason: string }>;
+  /** The suggested amounts (`suggestedAmounts.ts`), each with its action button's data and the distance it buys. */
+  readonly amounts: ReadonlyArray<{ readonly ausd: number; readonly data: string; readonly resultingBufferPct: number | undefined; readonly overFree: boolean; readonly mostOfFree: boolean }>;
+  /** The words beside them (`suggestionLines`). */
+  readonly amountLines: readonly string[];
+  /** Why no amount could be priced, when none could. */
+  readonly unpricedReason?: string | undefined;
   readonly customData: string;
 }
 
@@ -166,20 +188,14 @@ export function positionScreen(input: PositionInput): Screen {
     return { html: lines.join('\n'), buttons: [[{ text: '↻ Look again', route: { to: 'position', marketId: a.marketId } }], [back]] };
   }
 
-  const unit = 10n ** BigInt(d);
-  const floor = input.free.known ? input.free.floorCNS : undefined;
-  const priced = input.presets.filter((p): p is { ausd: number; data: string; resultingBufferPct: number | undefined } => 'data' in p);
-  const over = (ausd: number): boolean => floor !== undefined && BigInt(ausd) * unit > floor;
-  // Two to a row, Custom amount last among them: [+100][+250] / [+500][🎛 Custom amount].
-  const amounts: Button[] = [...priced.map((p): Button => ({ text: amountButton(p.ausd, p.resultingBufferPct, over(p.ausd)), data: p.data })), { text: '🎛 Custom amount', data: input.customData }];
-  const buttons: Button[][] = [];
-  for (let i = 0; i < amounts.length; i += 2) buttons.push(amounts.slice(i, i + 2));
+  // One amount to a row (a "most of free" label is long), then 🎛 Custom amount, 🚪 Close position, ← Back.
+  // Offered, not hidden: the balance read is a floor, and refusing a real rescue on our own conservative number costs a position.
+  const buttons: Button[][] = input.amounts.map((p) => [{ text: amountButton(p.ausd, p.resultingBufferPct, p.overFree, p.mostOfFree), data: p.data }]);
+  buttons.push([{ text: '🎛 Custom amount', data: input.customData }]);
   buttons.push([{ text: '🚪 Close position', route: { to: 'close-pos', marketId: a.marketId } }]);
   buttons.push([back]);
-  // Offered, not hidden: the balance read is a floor, and refusing a real rescue on our own conservative number costs a position.
-  if (priced.some((p) => over(p.ausd))) lines.push('', '⚠️ may be more than your free balance. The exchange refuses what you can’t cover.');
-  const unpriced = input.presets.find((p): p is { ausd: number; reason: string } => 'reason' in p);
-  if (unpriced !== undefined && priced.length === 0) lines.push('', `I can't price an amount right now: ${esc(unpriced.reason)}`);
+  if (input.amountLines.length > 0) lines.push('', ...input.amountLines);
+  if (input.unpricedReason !== undefined && input.amounts.length === 0) lines.push('', `I can't price an amount right now: ${esc(input.unpricedReason)}`);
   const av = input.availability;
   if (av === undefined || !av.actionable) {
     lines.push('', av === undefined ? "I couldn't check whether this market takes orders, so these buttons only explain why they won't send." : `${esc(av.network)} isn't taking orders on ${esc(a.symbol)} right now: ${esc(av.reason)}. I'm still watching it.`);

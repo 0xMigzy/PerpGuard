@@ -19,10 +19,10 @@ import type { MarketRiskConfig } from '@perpguard/shared';
 import type { AlertAction, AlertConfig } from '@perpguard/backend/alerts';
 import { esc, fromLiquidation, held, money, positionName, withBadge } from '@perpguard/backend/alerts/plain';
 import type { RiskAssessment } from '@perpguard/backend/risk';
-import { ALERT_PRESETS_AUSD, amountButton, bandDot } from './account.ts';
+import { amountButton, bandDot, suggestionLines } from './account.ts';
 import type { FreeBalanceReading } from './balance.ts';
 import { encodeCallback, type CallbackKind } from './callback.ts';
-import { customAction } from './custom.ts';
+import { pricedOffers, type PricedOffers } from './offers.ts';
 import type { LinkStore } from './links.ts';
 import { encodeNav } from './nav.ts';
 import type { PendingActionStore } from './actions.ts';
@@ -83,7 +83,13 @@ export function createManualAlertSender(deps: ManualAlertDeps): (input: ManualAl
     const market = deps.configs.get(a.marketId);
     const free: FreeBalanceReading = account?.balance.freeBalance() ?? { known: false, reason: 'the account is not connected right now' };
     // THE NETWORK ON EVERY ACTION SCREEN: this message offers actions.
-    const text = withBadge(manualAlertText(input, free, market), deps.network);
+    // SIZED TO DISTANCES (owner, 9 Oct 2026; `suggestedAmounts.ts`): priced once, shown to every linked chat.
+    const priced: PricedOffers | undefined =
+      input.auto.kind !== 'adding' && account !== undefined && market !== undefined && a.positionId !== undefined
+        ? pricedOffers({ view: account.view, assessment: a, market, alertPct: input.alertPct, free, bufferDecimals: deps.alerts.bufferDecimals })
+        : undefined;
+    const said = priced === undefined || market === undefined ? [] : suggestionLines(priced.suggestions, free, market.collateralDecimals);
+    const text = withBadge([manualAlertText(input, free, market), ...said].join('\n'), deps.network);
     const nav = (to: Parameters<typeof encodeNav>[0]): string => encodeNav(to, { fresh: true });
 
     // Asked of the ACTING venue BY MARKET ID before any amount is offered as live.
@@ -105,22 +111,19 @@ export function createManualAlertSender(deps: ManualAlertDeps): (input: ManualAl
         // Minted PER PERSON: a token is issued to one Telegram user and refused to anyone else.
         const mint = (action: AlertAction, kind: CallbackKind): string =>
           encodeCallback({ kind, token: deps.store.put({ userId: link.userId, telegramUserId: link.telegramUserId, action }).token, marketId: action.marketId, amountCNS: action.amountCNS });
-        const unit = 10n ** BigInt(market.collateralDecimals);
-        const amounts: Key[] = [];
-        const floor = free.known ? free.floorCNS : undefined;
-        for (const ausd of ALERT_PRESETS_AUSD) {
-          // Priced by the engine NOW, so the button shows the distance it buys and the confirmation's after-figures are this position's.
-          const projected = account.view.projectAddMargin(a.marketId, BigInt(ausd) * unit);
-          if (!projected.ok) continue;
-          const action = { ...customAction(projected.projection, market, a.positionId, deps.alerts.bufferDecimals, a.liqBufferPct), accountId: input.accountId };
-          amounts.push({ text: amountButton(ausd, action.resultingBufferPct, floor !== undefined && BigInt(ausd) * unit > floor), callback_data: mint(action, actionable ? 'act' : 'blocked') });
+        // One amount to a row: a "most of free" label is long. Each priced by the engine, so the button shows the
+        // distance it buys and the confirmation's after-figures are this position's.
+        for (const { amount, action } of priced?.offers ?? []) {
+          const owned = { ...action, accountId: input.accountId };
+          rows.push([{ text: amountButton(amount.ausd, owned.resultingBufferPct, amount.overFree, amount.mostOfFree), callback_data: mint(owned, actionable ? 'act' : 'blocked') }]);
         }
-        if (amounts.length > 0) rows.push(amounts);
         const custom: AlertAction = { type: 'add-margin', intent: 'custom', marketId: a.marketId, symbol: a.symbol, positionId: a.positionId, accountId: input.accountId, amountCNS: 0n, label: 'Custom amount' };
         rows.push([
           { text: '🎛 Custom amount', callback_data: mint(custom, actionable ? 'custom' : 'blocked') },
           { text: 'Dismiss', callback_data: encodeNav({ to: 'dismiss' }) },
         ]);
+        // Back on the alert (owner, 9 Oct 2026): 🚪 Close position lives on View position, and the alert is where people land.
+        rows.push([{ text: '📊 View position', callback_data: nav({ to: 'position', marketId: a.marketId }) }]);
       } else {
         rows.push([{ text: '📊 View position', callback_data: nav({ to: 'position', marketId: a.marketId }) }]);
       }

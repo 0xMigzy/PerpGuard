@@ -792,14 +792,27 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
 - 📊 MY POSITIONS IS BUTTONS ONLY (owner, 8 Oct 2026): one per position,
   closest to liquidation first, "🔴 BTC long · 2.7%" (🔴 danger or past it,
   🟡 watch, 🟢 ok, ⚪ can't see). 📊 VIEW POSITION: the distance, margin and
-  liquidation price, free balance, and +100/+250/+500 AUSD each showing THE
-  DISTANCE IT BUYS ("+100 → 2.9%"), priced by the engine when the screen is
-  built, then 🎛 Custom amount and ← Back. The bought distance is ROUNDED DOWN,
+  liquidation price, free balance, and TWO AMOUNTS SIZED TO DISTANCES (owner,
+  9 Oct 2026; `apps/bot/src/suggestedAmounts.ts`, shared with the alert),
+  each showing THE DISTANCE IT BUYS ("+1,900 → 7.1%"), priced by the engine
+  when the screen is built, then 🎛 Custom amount, 🚪 Close position and ←
+  Back, one to a row.
+  - THE RULE: targets are the alert distance D + 2 and D + 5 points (a
+    position already at or past D + 2 aims at its own distance + 2 and + 5);
+    each amount is the smallest whole AUSD the engine says reaches it,
+    ROUNDED UP to two significant figures. A fixed +100 bought 0.1 points on
+    a 93,754 AUSD position and read "2.4% → 2.4%".
+  - THE FIRST IS ALWAYS AFFORDABLE: when its target costs more, it is MOST of
+    the free balance, 90% rounded down ("+979 → 3.4% · most of free", and a
+    line saying so), never all of it; under half a point bought, no button and
+    a sentence instead. The second keeps D + 5 with ⚠️ when over the balance.
+    Free balance unknown: both targets, nothing marked.
+  The bought distance is ROUNDED DOWN,
   with ONE DECIMAL BELOW 10% (a whole percent there can read below where the
   position already is: 2.7% plus a top-up is not "→ 2%"); whole percents
   from 10%. An amount above the free floor is offered with ⚠️, not hidden. No
   amount on a position it cannot see. The balance line carries the position's
-  unrealised P&L; amounts sit two to a row, Custom last.
+  unrealised P&L.
 - 🚪 CLOSE POSITION IS BACK on View position, under the amounts (owner, 8 Oct
   2026), on the KILL SWITCH'S RULES (`CloseEverything.closePosition`, bot
   `emergency.ts`): a confirmation first (size, price now, what it realises,
@@ -895,9 +908,10 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     `manualAlert.ts`): at the distance, ONE message per position per crossing
     (re-armed after recovering a quarter of the distance, at least half a
     point; remembered in `manual_alert_state`, so a restart does not repeat
-    it; held while blind): the position, distance, P&L, free balance, and
-    +100/+250/+500/+1,000 (priced by the engine), Custom, View position,
-    Dismiss. Every amount goes through the TWO-STEP confirm: a tap only shows
+    it; held while blind): the position, distance, margin, free balance, the
+    same two suggested amounts as View position (priced by the engine), 🎛
+    Custom amount and Dismiss, and 📊 View position (back 9 Oct 2026: Close
+    position lives there). Every amount goes through the TWO-STEP confirm: a tap only shows
     ⚠️ CONFIRM ADD MARGIN. PerpGuard sends nothing on its own in this mode. A
     linked account's own WATCH/DANGER alerts (and their "recovered") are not
     sent any more (`manual/replaced.ts`): the crossing is said once, here.

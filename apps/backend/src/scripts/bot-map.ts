@@ -542,9 +542,9 @@ const flows = [
     { do: '(PerpGuard sends the alert at the alert distance: see `pushed: manual alert`)', send: '/start' },
     { do: 'Tap 📊 My positions', tap: { to: 'positions' } },
     { do: 'Tap the position', tap: { to: 'position', marketId: dangerAssessment().marketId } },
-    { do: 'Tap +100', tapLabel: '+100' },
+    { do: 'Tap the first amount', tapLabel: '+' },
     { do: 'Tap ✅ Confirm', tapLabel: '✅' },
-  ], ['The alert itself carries +100, +250 and 🎛 Custom amount; each leads to the same confirmation.']),
+  ], ['Two amounts, sized to the alert distance plus 2 and plus 5 points (the first capped at most of the free balance), then 🎛 Custom amount; the alert carries the same two. Each leads to the same confirmation.']),
   await flow('Turning Rescue on and off', WHO.owner, [
     { do: 'Send /start', send: '/start' },
     { do: 'Tap 🛟 Rescue', tap: { to: 'rescue' } },

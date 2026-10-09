@@ -36,7 +36,7 @@ import {
   confirmScreen,
   disconnectAskScreen,
   blindLine,
-  ADD_MARGIN_PRESETS_AUSD,
+  suggestionLines,
   outcomeScreen,
   positionScreen,
   positionsScreen,
@@ -123,6 +123,7 @@ import {
   renderAmountPrompt,
   validateCustomAmount,
 } from './custom.ts';
+import { pricedOffers } from './offers.ts';
 import { HELP_TEXT, OLD_MENU_TEXT, REFUSAL_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
 import {
@@ -1105,19 +1106,14 @@ export function createBot(deps: BotDeps): Bot {
         const probe: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, amountCNS: 0n, label: 'probe' };
         const availability = await availabilityFor(account, assessment, [probe]);
         const kind: 'act' | 'blocked' = availability?.actionable === true ? 'act' : 'blocked';
-        const unit = 10n ** BigInt(market.collateralDecimals);
         const canPrice = !isBlind(assessment.state) && blindLine(view.feedStatus(), view.positionsStatus()) === undefined;
-        // Each amount priced by the engine NOW, so its button shows the distance it buys and the confirmation's after-figures are this position's.
-        const presets = !canPrice
-          ? []
-          : ADD_MARGIN_PRESETS_AUSD.map((ausd) => {
-              const projected = view.projectAddMargin(assessment.marketId, BigInt(ausd) * unit);
-              if (!projected.ok) return { ausd, reason: projected.reason };
-              const action = customAction(projected.projection, market, assessment.positionId, alerts.bufferDecimals, assessment.liqBufferPct);
-              return { ausd, data: mint(action, kind), resultingBufferPct: action.resultingBufferPct };
-            });
+        const free = account.balance.freeBalance();
+        // SIZED TO DISTANCES (owner, 9 Oct 2026; `suggestedAmounts.ts`), each priced by the engine NOW, so its
+        // button shows the distance it buys and the confirmation's after-figures are this position's.
+        const priced = canPrice ? pricedOffers({ view, assessment, market, alertPct: settings.get(account.accountId).alertPct, free, bufferDecimals: alerts.bufferDecimals }) : undefined;
+        const amounts = (priced?.offers ?? []).map(({ amount, action }) => ({ ausd: amount.ausd, data: mint(action, kind), resultingBufferPct: action.resultingBufferPct, overFree: amount.overFree, mostOfFree: amount.mostOfFree }));
         const custom: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }), amountCNS: 0n, label: 'Custom amount' };
-        await showScreen(ctx, positionScreen({ assessment, market, free: account.balance.freeBalance(), feed: view.feedStatus(), positions: view.positionsStatus(), availability, presets, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
+        await showScreen(ctx, positionScreen({ assessment, market, free, feed: view.feedStatus(), positions: view.positionsStatus(), availability, amounts, amountLines: priced === undefined ? [] : suggestionLines(priced.suggestions, free, market.collateralDecimals), unpricedReason: priced?.unpricedReason, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
         return;
       }
       case 'rescue':

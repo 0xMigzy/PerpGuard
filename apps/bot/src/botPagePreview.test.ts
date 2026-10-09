@@ -5,6 +5,7 @@ import { withBadge } from '@perpguard/backend/alerts/plain';
 import { ALERT_EXAMPLE, ALERT_EXAMPLE_INPUTS } from '../../web/src/lib/botPreview.ts';
 import { amountButton } from './account.ts';
 import { manualAlertText } from './manualAlert.ts';
+import { suggestAmounts } from './suggestedAmounts.ts';
 import { BTC, dangerAssessment } from './testSupport.ts';
 
 /**
@@ -25,10 +26,19 @@ test('THE /bot PREVIEW IS THE REAL ALERT: its lines are what manualAlertText and
   ]);
 });
 
-test('THE /bot PREVIEW’S BUTTONS ARE THE REAL ONES: each amount says the distance it buys, as amountButton writes it', () => {
-  const amounts = ALERT_EXAMPLE_INPUTS.bought.map((b) => amountButton(b.ausd, b.resultingBufferPct, false));
-  assert.deepEqual(amounts, [...ALERT_EXAMPLE.keyboard[0]]);
+test('THE /bot PREVIEW’S BUTTONS ARE THE REAL ONES: the amounts are what suggestAmounts picks for the example, labelled by amountButton', () => {
+  const i = ALERT_EXAMPLE_INPUTS;
+  const s = suggestAmounts({
+    currentBuffer: i.liqBufferPct,
+    alertFraction: i.alertPct / 100,
+    freeFloorCNS: i.freeCNS,
+    unitCNS: 1_000_000n,
+    // A top-up moves the distance by amount ÷ notional, as the engine's projection does.
+    project: (amountCNS) => i.liqBufferPct + Number(amountCNS) / 1e6 / i.notionalAusd,
+  });
+  const rows = s.amounts.map((a) => [amountButton(a.ausd, a.resultingBuffer, a.overFree, a.mostOfFree)]);
+  assert.deepEqual(rows, [[...ALERT_EXAMPLE.keyboard[0]], [...ALERT_EXAMPLE.keyboard[1]]]);
   // The other labels are literals in the alert's keyboard; the page uses them as written there.
   const source = readFileSync(new URL('./manualAlert.ts', import.meta.url), 'utf8');
-  for (const label of [...ALERT_EXAMPLE.keyboard[1], ...ALERT_EXAMPLE.keyboard[2]]) assert.ok(source.includes(`text: '${label}'`), `the alert has no '${label}' button`);
+  for (const label of [...ALERT_EXAMPLE.keyboard[2], ...ALERT_EXAMPLE.keyboard[3]]) assert.ok(source.includes(`text: '${label}'`), `the alert has no '${label}' button`);
 });

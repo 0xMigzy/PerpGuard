@@ -41,8 +41,10 @@ insurance fund against them.
 - *Act, for a linked account.* Link your Perpl account on
   [perpguard.app/link](https://perpguard.app/link). At your alert distance
   (5% by default; 2, 3, 5, 8 or 10%, or a custom value from 0.5% to 20%) the
-  bot sends one message per position per crossing, with +100 AUSD, +250 AUSD
-  and a custom amount. A tap shows the margin, liquidation price, distance and
+  bot sends one message per position per crossing, with two amounts sized to
+  the distance they buy (your line plus 2 and plus 5 points; the first never
+  more than 90% of your free balance), a custom amount, and View position. A
+  tap shows the margin, liquidation price, distance and
   free balance before and after; nothing is sent until you confirm.
   📊 My positions lists every position closest to liquidation first, each
   amount showing the distance it buys, with 🚪 Close position behind a
