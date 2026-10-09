@@ -33,7 +33,7 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 
 **Act, for a linked account.** Link your Perpl account at [perpguard.app/link](https://perpguard.app/link). At your alert distance (5% by default, or 2, 3, 5, 8, 10%, or anything from 0.5% to 20%) the bot sends one message per position per crossing, with two suggested top-ups and a custom amount. Each amount shows the distance from liquidation it buys. Tapping one shows the margin, liquidation price, distance and free balance before and after. Nothing is sent until you confirm.
 
-📊 My positions lists every position, closest to liquidation first, with 🚪 Close position behind a confirmation showing what the close would realise.
+📊 My positions shows one button per position, closest to liquidation first. 🚪 Close position is on each position's own screen, behind a confirmation showing what the close would realise.
 
 🤖 Rescue is off until you turn it on. It adds margin by itself at your alert distance, for one position at a time, and only after you arm it with a tap in the linked chat.
 
@@ -41,7 +41,7 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 
 ## Using it
 
-Alerts need no setup: send [@PerpGuardBot](https://t.me/PerpGuardBot) any Perpl address and it starts watching.
+Alerts need no setup: send [@PerpGuardBot](https://t.me/PerpGuardBot) any Perpl mainnet address, or `/watch` and an account number, and it starts watching.
 
 To let it act for you, the five-step setup is at [perpguard.app/bot/guide](https://perpguard.app/bot/guide).
 
