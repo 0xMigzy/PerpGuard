@@ -307,11 +307,13 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   day bucket, so this is the only exact total there is. The rolling maker half
   is served under its own name, `makerFeesAusd`, and is NEVER called "fees":
   it is a third of the real figure and looks like the whole.
-- ONE LABEL PER WINDOW, EVERYWHERE (8 Oct 2026). A ROLLING figure carries the
-  picked window's words ("24h", "7 days"); a figure summed from UTC DAY
-  BUCKETS carries `wholeDaysLabel` ("yesterday + today", "last 7 whole days +
-  today"), never the rolling words: trader P&L, round trips, money in and out,
-  profitable traders, profiles, Compare, the Overview Fees tile. Traders 24H
+- ONE LABEL PER WINDOW, EVERYWHERE (9 Oct 2026). Every card's visible label
+  is the picked window's words ("24h", "30 days"), the same as its
+  neighbours. A figure summed from UTC DAY BUCKETS (trader P&L, round trips,
+  money in and out, profitable traders, profiles, Compare, the Overview Fees
+  tile) says so ON HOVER (`wholeDaysTitle`: "The last 30 whole UTC days and
+  today so far"); from 8 Oct until then the visible label read "last 30 whole
+  days + today" and Fees read differently from every card beside it. Traders 24H
   reads volume, trades and liquidations over the ROLLING 24 hours
   (`TRADER_SOURCE_24H`); its P&L stays on whole days until the attribution
   question is settled (`docs/notes/traders-one-scan-per-window-later.md`).
@@ -374,6 +376,11 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   so no reader re-scans them between passes; the first request for any other
   window pays its scan once. A page shows the age of its OLDEST answer
   (`worstOf`), never only its headline's.
+  - THE WARMED VIEWS ARE PINNED (`SwrCache.pin`, 9 Oct 2026). Idle eviction
+    drops a key unread for 30 minutes, and the warm pass is hourly, so an
+    unpinned default was re-warmed and then swept by the next request of any
+    kind: Overview 30D 1.2 s, Markets 30D 2.3 s cold, 9 of 135 requests. A
+    warm also counts as use. Never let the warm interval outrun eviction.
   - THE HOST CAPPED THIS VPS FOR CPU (8 Oct 2026): Postgres was using ~0.9 of
     a core around the clock, and Hostinger's table blamed "the Envio
     indexer" because the backend's analytics reader logs in as the indexer's
@@ -419,7 +426,10 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   a rise closes shorts, and no single move does both: every count, notional,
   share and loss beyond collateral is ONE rung (`AtRiskPair.fall` / `.rise`;
   there is no summed field to render). Until 5 Oct 2026 the tiles added the
-  two ("255 at risk at 10%" was 165 + 90). OPEN INTEREST IS ONE SIDE: the
+  two ("255 at risk at 10%" was 165 + 90). A SENTENCE THAT SUMMARISES A MOVE
+  SAYS BOTH DIRECTIONS, THE LARGER FIRST, each with its own insurance verdict
+  (`riskSentence`, Overview and Risk; 9 Oct 2026: it named the fall alone
+  while a rise closed more). OPEN INTEREST IS ONE SIDE: the
   summed notional of all positions is twice it and may only be called "Total
   position value, both sides". Insurance cover is PER MARKET against that
   market's worse direction; the 11 balances may be totalled, never pooled into

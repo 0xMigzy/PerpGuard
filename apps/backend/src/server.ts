@@ -1607,6 +1607,8 @@ if (analyticsReader !== undefined) {
   const reader = analyticsReader;
   const defaults = defaultWarmEntries(reader);
   const loaderFor = new Map(defaults.map((entry) => [entry.key, entry.load]));
+  // Warmed hourly, evicted after 30 idle minutes: pinned, or they are cold half the hour.
+  analyticsCache.pin(defaults.map((entry) => entry.key));
   let warming = false;
   const profileWarmer = new ProfileWarmer({
     sources: {

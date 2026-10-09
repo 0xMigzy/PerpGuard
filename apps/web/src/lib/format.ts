@@ -58,6 +58,18 @@ export function formatSignedExact(value: number): string {
   return value > 0 ? `+${formatAusdExact(value)}` : formatAusdExact(value);
 }
 
+/**
+ * MONEY ON A CHART AXIS, ONE FORM ON EVERY CHART (9 Oct 2026): zero is "$0",
+ * never "$0.00", and a whole figure drops its ".00" ("$500", "$1.2K"). Some
+ * charts printed "$0.00" and others "$0". `precise` keeps cents for an axis
+ * whose ticks are cents apart (a small copy account), where compact "$1K"
+ * would print the same label on every tick.
+ */
+export function formatAxisMoney(value: number, options: { readonly precise?: boolean } = {}): string {
+  if (value === 0) return '$0';
+  return (options.precise === true ? formatMoneyExact(value) : formatMoney(value)).replace(/\.00(?=[KMB]?$)/, '');
+}
+
 /** A count on a chart axis: 12K, 1.5M. Never money; it has no "$". */
 export function formatCompactCount(value: number): string {
   const abs = Math.abs(value);

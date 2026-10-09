@@ -17,23 +17,29 @@ export function periodLabel(t: Timeframe, startsAtMs: number | undefined): strin
 }
 
 /**
- * WHOLE-UTC-DAY FIGURES SAY SO (8 Oct 2026). A figure summed from day buckets
- * (a trader's P&L, round trips, money in and out; fees) covers the whole UTC
- * days from the window's start day PLUS today so far, never the rolling window
- * a bare "7 days" means on the Overview. One label for every such figure on
- * every page, so the same words always mean the same window:
- *   24H -> "yesterday + today", 7D -> "last 7 whole days + today".
- * Rolling figures keep `periodLabel` ("24h", "7 days").
+ * WHOLE-UTC-DAY FIGURES SAY SO ON HOVER (9 Oct 2026, owner). A figure summed
+ * from day buckets (a trader's P&L, round trips, money in and out; fees)
+ * covers the whole UTC days from the window's start day PLUS today so far.
+ * Its VISIBLE label is the window the reader picked, the same words as its
+ * neighbours ("30 days"); the whole-day span is on the label's hover
+ * (`wholeDaysTitle`: "The last 30 whole UTC days and today so far"). From
+ * 8 Oct until then the visible label was "last 30 whole days + today", and the
+ * Overview's Fees tile read differently from every card beside it.
  */
-const WHOLE_DAYS: Record<Exclude<Timeframe, 'all'>, { readonly label: string; readonly sentence: string; readonly title: string }> = {
-  '24h': { label: 'yesterday + today', sentence: 'since yesterday 00:00 UTC', title: 'Yesterday and today so far, in whole UTC days' },
-  '7d': { label: 'last 7 whole days + today', sentence: 'over the last 7 whole UTC days and today', title: 'The last 7 whole UTC days and today so far' },
-  '30d': { label: 'last 30 whole days + today', sentence: 'over the last 30 whole UTC days and today', title: 'The last 30 whole UTC days and today so far' },
+const WHOLE_DAYS: Record<Exclude<Timeframe, 'all'>, { readonly sentence: string; readonly title: string }> = {
+  '24h': { sentence: 'since yesterday 00:00 UTC', title: 'Yesterday and today so far, in whole UTC days' },
+  '7d': { sentence: 'over the last 7 whole UTC days and today', title: 'The last 7 whole UTC days and today so far' },
+  '30d': { sentence: 'over the last 30 whole UTC days and today', title: 'The last 30 whole UTC days and today so far' },
 };
 
-/** The tile-suffix form for a figure summed over whole UTC days. */
+/** The tile-suffix form for a figure summed over whole UTC days: the picked window, as its neighbours say it. */
 export function wholeDaysLabel(t: Timeframe, startsAtMs: number | undefined): string {
-  return t === 'all' ? periodLabel(t, startsAtMs) : WHOLE_DAYS[t].label;
+  return periodLabel(t, startsAtMs);
+}
+
+/** The hover for a whole-UTC-day label: which days it really sums. */
+export function wholeDaysTitle(t: Timeframe, startsAtMs: number | undefined): string {
+  return t === 'all' ? `Every whole UTC day ${inPeriod(t, startsAtMs)}, and today so far` : WHOLE_DAYS[t].title;
 }
 
 /** The sentence form for a figure summed over whole UTC days. */

@@ -105,3 +105,29 @@ test('entries nobody has read for a long time are evicted', async () => {
   assert.equal(h.cache.ageOf('old'), undefined);
   assert.equal(h.cache.size, 1);
 });
+
+test('REGRESSION 9 Oct: a re-warmed default read 50 minutes ago is not swept by the next unrelated request', async () => {
+  const h = harness();
+  await h.cache.warm('metrics:30d', h.load);
+  h.advance(10 * 60_000);
+  await h.cache.get('metrics:30d', 65 * 60_000, h.load);
+  h.advance(50 * 60_000);
+  await h.cache.warm('metrics:30d', h.load); // the hourly pass
+  h.advance(60_000);
+  await h.cache.get('health', 2000, async () => 'h'); // any request sweeps
+  h.advance(60_000);
+  const hit = await h.cache.get('metrics:30d', 65 * 60_000, h.load);
+  assert.equal(hit.value, 'a#2', 'served the warm answer, not a cold load');
+  assert.equal(h.loads(), 2);
+});
+
+test('a pinned key is never evicted for idleness; an unpinned one still is', async () => {
+  const h = harness();
+  h.cache.pin(['markets:30d']);
+  await h.cache.warm('markets:30d', h.load);
+  await h.cache.warm('account:42', h.load);
+  h.advance(59 * 60_000);
+  await h.cache.get('health', 2000, async () => 'h');
+  assert.notEqual(h.cache.ageOf('markets:30d'), undefined);
+  assert.equal(h.cache.ageOf('account:42'), undefined);
+});

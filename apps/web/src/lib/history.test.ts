@@ -17,14 +17,15 @@ test('a window range uses the index start when the window has none', () => {
   assert.equal(windowRange(Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 1), FEB11), 'Sep 1, 2026 – Oct 1, 2026');
 });
 
-test('WHOLE-UTC-DAY FIGURES SAY SO: one label per window, never the rolling words', async () => {
-  const { wholeDaysLabel, inWholeDays, WHOLE_DAY_PILLS, periodLabel } = await import('./history.ts');
-  assert.equal(wholeDaysLabel('24h', undefined), 'yesterday + today');
-  assert.equal(wholeDaysLabel('7d', undefined), 'last 7 whole days + today');
-  assert.equal(wholeDaysLabel('30d', undefined), 'last 30 whole days + today');
-  assert.equal(wholeDaysLabel('all', FEB11), periodLabel('all', FEB11), 'all history is the same either way');
+test('WHOLE-UTC-DAY FIGURES: the picked window on the label, the whole days on its hover', async () => {
+  const { wholeDaysLabel, wholeDaysTitle, inWholeDays, WHOLE_DAY_PILLS, periodLabel } = await import('./history.ts');
+  // 9 Oct 2026 (owner): the VISIBLE label is the picked window, the same words as its neighbours; the whole-day span is the hover.
+  for (const t of ['24h', '7d', '30d', 'all'] as const) assert.equal(wholeDaysLabel(t, FEB11), periodLabel(t, FEB11), `${t}: the same visible words as a rolling neighbour`);
+  assert.equal(wholeDaysLabel('30d', undefined), '30 days');
+  assert.equal(wholeDaysTitle('24h', undefined), 'Yesterday and today so far, in whole UTC days');
+  assert.equal(wholeDaysTitle('30d', undefined), 'The last 30 whole UTC days and today so far');
+  assert.match(wholeDaysTitle('all', FEB11), /^Every whole UTC day since Feb 11, 2026, and today so far$/);
   assert.equal(inWholeDays('24h', undefined), 'since yesterday 00:00 UTC');
   assert.equal(inWholeDays('7d', undefined), 'over the last 7 whole UTC days and today');
-  for (const t of ['24h', '7d', '30d'] as const) assert.notEqual(wholeDaysLabel(t, undefined), periodLabel(t, undefined), `${t}: a whole-day figure never carries the rolling label`);
   assert.deepEqual(Object.values(WHOLE_DAY_PILLS).map((p) => p.text), ['24H', '7D', '30D'], 'the same buttons as every other page');
 });

@@ -7,8 +7,8 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import type { AssessedPosition, Timeframe, TraderDayPoint, WalletMatch, WalletProfile } from '@perpguard/shared';
 import { ApiError, api } from '@/lib/api.ts';
 import { alignedCumulative, compareColumn, MAX_COMPARE, parseCompareIds, walletLabel, withAdded, withRemoved, type CompareColumn } from '@/lib/compare.ts';
-import { formatCount, formatDay, formatDayLong, formatDuration, formatMoney, formatPct, formatSignedMoney, shortAddress } from '@/lib/format.ts';
-import { WHOLE_DAY_PILLS, wholeDaysLabel } from '@/lib/history.ts';
+import { formatAxisMoney, formatCount, formatDay, formatDayLong, formatDuration, formatMoney, formatPct, formatSignedMoney, shortAddress } from '@/lib/format.ts';
+import { WHOLE_DAY_PILLS, wholeDaysLabel, wholeDaysTitle } from '@/lib/history.ts';
 import { marketName } from '@/lib/markets.ts';
 import { SERIES, VAR } from '@/lib/theme.ts';
 import { parseTraderQuery } from '@/lib/traders.ts';
@@ -80,7 +80,9 @@ export function CompareView() {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTimeframe();
-  const period = wholeDaysLabel(t, useHistoryStart());
+  const historyStart = useHistoryStart();
+  const period = wholeDaysLabel(t, historyStart);
+  const periodTitle = wholeDaysTitle(t, historyStart);
   const { ids, dropped } = useMemo(() => parseCompareIds(params.get('a')), [params]);
   const data = useCompareData(ids, t);
   const saved = useSavedWallets();
@@ -133,9 +135,9 @@ export function CompareView() {
                 </li>
               ))}
             </ul>
-            {ROWS(period).map((row) =>
+            {ROWS(period, periodTitle).map((row) =>
               row.group !== undefined ? (
-                <div key={row.group} className="section-label pt-4 pb-1">
+                <div key={row.group} className="section-label pt-4 pb-1" title={row.groupTitle}>
                   {row.group}
                 </div>
               ) : (
@@ -182,10 +184,10 @@ export function CompareView() {
                 </tr>
               </thead>
               <tbody>
-                {ROWS(period).map((row) =>
+                {ROWS(period, periodTitle).map((row) =>
                   row.group !== undefined ? (
                     <tr key={row.group}>
-                      <th scope="colgroup" colSpan={columns.length + 1} className="sticky left-0 bg-card pt-4 text-left">
+                      <th scope="colgroup" colSpan={columns.length + 1} className="sticky left-0 bg-card pt-4 text-left" title={row.groupTitle}>
                         {row.group}
                       </th>
                     </tr>
@@ -217,7 +219,7 @@ export function CompareView() {
 
           <section className="card px-[18px] py-4" aria-label="Cumulative net PnL">
             <h2 className="m-0 text-[15px] font-bold tracking-[-0.01em]">
-              Cumulative net PnL <span className="ml-1 text-[12.5px] font-medium text-muted">{period} · from 0 where the window opens</span>
+              Cumulative net PnL <span className="ml-1 text-[12.5px] font-medium text-muted" title={periodTitle}>{period} · from 0 where the window opens</span>
             </h2>
             <CompareChart
               columns={columns.map((c) => ({
@@ -263,6 +265,8 @@ function WalletHead({ id, colour, profile, onRemove }: { readonly id: number; re
 
 interface Row {
   readonly group?: string;
+  /** The group heading's hover: which days a window group really sums. */
+  readonly groupTitle?: string;
   readonly label: string;
   readonly title?: string;
   readonly cell?: (c: CompareColumn) => ReactNode;
@@ -274,12 +278,12 @@ const volume = (v: number) => (v === 0 ? '0' : formatMoney(v));
 const withheld = (v: number | undefined, floor: number, roundTrips: number) =>
   v === undefined ? <span className="text-muted2" title={`Withheld under ${floor} round trips; this has ${roundTrips}.`}>under {floor} trips</span> : formatPct(v);
 
-function ROWS(period: string): readonly Row[] {
+function ROWS(period: string, periodTitle: string): readonly Row[] {
   return [
     { group: 'Now', label: '' },
     { label: 'Equity', title: 'Free balance + posted margin + unrealised PnL, at the venue’s marks now', cell: (c) => (c.equityAusd === undefined ? <span className="text-muted2">not priced yet</span> : formatMoney(c.equityAusd)) },
     { label: 'Open positions', cell: (c) => formatCount(c.openPositions) },
-    { group: period, label: '' },
+    { group: period, groupTitle: periodTitle, label: '' },
     { label: 'Net PnL', title: 'Realised + funding − fees over the window', cell: (c) => signed(c.window.netPnlAusd) },
     { label: 'Volume', cell: (c) => volume(c.window.volumeAusd) },
     { label: 'Round trips', cell: (c) => formatCount(c.window.roundTrips) },
@@ -347,7 +351,7 @@ function CompareChart({ columns: all }: { readonly columns: readonly ChartColumn
           <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={64} />
+            <YAxis tickFormatter={(v: number) => formatAxisMoney(v)} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={VAR.border2} />
             <Tooltip
               content={({ active, label }) => {

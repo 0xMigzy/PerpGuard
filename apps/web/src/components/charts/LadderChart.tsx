@@ -1,5 +1,5 @@
 import type { ChartRung } from '@/lib/risk.ts';
-import { formatCount, formatMoney } from '@/lib/format.ts';
+import { formatAxisMoney, formatCount, formatMoney } from '@/lib/format.ts';
 import { SERIES, VAR } from '@/lib/theme.ts';
 
 const W = 560;
@@ -38,8 +38,8 @@ export function LadderChart({ rungs, highlightSize }: { readonly rungs: readonly
         <g key={t.f}>
           <line x1={centre - px(t.ausd)} y1={TOP} x2={centre - px(t.ausd)} y2={TOP + rungs.length * ROW_H} stroke={VAR.border} strokeWidth={1} />
           <line x1={centre + px(t.ausd)} y1={TOP} x2={centre + px(t.ausd)} y2={TOP + rungs.length * ROW_H} stroke={VAR.border} strokeWidth={1} />
-          <text x={centre - px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatMoney(t.ausd)}</text>
-          <text x={centre + px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatMoney(t.ausd)}</text>
+          <text x={centre - px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatAxisMoney(t.ausd)}</text>
+          <text x={centre + px(t.ausd)} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">{formatAxisMoney(t.ausd)}</text>
         </g>
       ))}
       <text x={centre} y={height - 8} textAnchor="middle" fill={VAR.muted2} fontSize="10.5" className="num">0</text>

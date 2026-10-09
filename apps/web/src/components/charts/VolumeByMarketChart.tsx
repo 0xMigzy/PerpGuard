@@ -2,7 +2,7 @@
 
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { StackedVolume } from '@/lib/overview.ts';
-import { formatDay, formatDayLong, formatMoney } from '@/lib/format.ts';
+import { formatAxisMoney, formatDay, formatDayLong, formatMoney } from '@/lib/format.ts';
 import { VAR, OTHER_SERIES, SERIES } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -43,7 +43,7 @@ export function VolumeByMarketChart({ stacked }: { readonly stacked: StackedVolu
           <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={52} />
+            <YAxis tickFormatter={(v: number) => formatAxisMoney(v)} tickLine={false} axisLine={false} width={52} />
             <Tooltip
               cursor={{ fill: VAR.card2 }}
               content={({ active, payload, label }) => {

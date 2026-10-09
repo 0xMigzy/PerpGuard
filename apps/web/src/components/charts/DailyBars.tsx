@@ -1,7 +1,7 @@
 'use client';
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatCompactCount, formatDay, formatDayLong, formatMoney } from '@/lib/format.ts';
+import { formatAxisMoney, formatCompactCount, formatDay, formatDayLong, formatMoney } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -24,7 +24,7 @@ export function DailyBars({
         <BarChart data={days as { dayMs: number; value: number }[]} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
           <CartesianGrid vertical={false} stroke={VAR.border} />
           <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-          <YAxis tickFormatter={(v: number) => (axis === 'money' ? formatMoney(v).replace(/\.00$/, '') : formatCompactCount(v))} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
+          <YAxis tickFormatter={(v: number) => (axis === 'money' ? formatAxisMoney(v) : formatCompactCount(v))} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
           <Tooltip
             cursor={{ fill: VAR.card2 }}
             content={({ active, payload, label: day }) => {

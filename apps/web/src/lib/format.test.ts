@@ -130,3 +130,17 @@ test('an age is never negative: a timestamp ahead of a slow visitor clock reads 
   assert.equal(formatAge(39_000), '39 s');
   assert.equal(formatAge(5 * 60_000), '5 min');
 });
+
+test('money on a chart axis: "$0" on every chart, never "$0.00"; whole figures drop ".00"', async () => {
+  const { formatAxisMoney } = await import('./format.ts');
+  assert.equal(formatAxisMoney(0), '$0');
+  assert.equal(formatAxisMoney(-0), '$0');
+  assert.equal(formatAxisMoney(0, { precise: true }), '$0');
+  assert.equal(formatAxisMoney(500), '$500');
+  assert.equal(formatAxisMoney(8.5), '$8.50');
+  assert.equal(formatAxisMoney(1_200), '$1.2K');
+  assert.equal(formatAxisMoney(-40_000), '−$40K');
+  assert.equal(formatAxisMoney(2_000_000), '$2M');
+  assert.equal(formatAxisMoney(1_002.5, { precise: true }), '$1,002.50');
+  assert.equal(formatAxisMoney(1_000, { precise: true }), '$1,000');
+});

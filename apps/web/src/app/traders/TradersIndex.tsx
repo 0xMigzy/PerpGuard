@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import type { TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatAusdExact, formatCount, formatMoney, formatPct, formatSignedExact, formatSignedMoney, shortAddress } from '@/lib/format.ts';
-import { inWholeDays, periodLabel, wholeDaysLabel } from '@/lib/history.ts';
+import { inWholeDays, periodLabel, wholeDaysLabel, wholeDaysTitle } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
 import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
@@ -76,9 +76,10 @@ export function TradersIndex() {
   const data = list.data?.data;
   const start = useHistoryStart();
   const window = data?.window ?? summary.data?.data.window;
-  // TWO WINDOWS, EACH NAMED (8 Oct 2026). P&L, round trips and money in and out are summed over WHOLE UTC
-  // DAYS and say so ("last 7 whole days + today"). At 24H, volume, trades and liquidations run over the
-  // ROLLING 24 hours, the Overview's window, and carry its label; at 7D and 30D they are whole days too.
+  // TWO WINDOWS, ONE VISIBLE LABEL (9 Oct 2026). P&L, round trips and money in and out are summed over
+  // WHOLE UTC DAYS: the label says the picked window like its neighbours, and the hover says which days.
+  // At 24H, volume, trades and liquidations run over the ROLLING 24 hours, the Overview's window; at 7D
+  // and 30D they are whole days too.
   const rolling = periodLabel(t, start);
   const windowed = wholeDaysLabel(t, start);
   const spanNote = window?.days === undefined ? '' : ` Summed over whole UTC days: ${window.label}.`;
@@ -137,7 +138,7 @@ export function TradersIndex() {
 
       <ErrorNote error={summary.error} what="The trader totals" />
       <ErrorNote error={oi.error} what="Open interest" />
-      <TraderCards summary={summary.data?.data} openInterest={oi.data?.data} period={rolling} wholeDays={windowed} />
+      <TraderCards summary={summary.data?.data} openInterest={oi.data?.data} period={rolling} wholeDays={windowed} wholeDaysTitle={wholeDaysTitle(t, start)} />
 
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-[14px] py-[10px]">

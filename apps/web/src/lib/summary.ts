@@ -3,7 +3,8 @@
  * from data each page already loads. Pure.
  *
  * The risk clause keeps the page's rules: ONE direction per figure (a fall
- * closes longs, and only longs), and insurance judged PER MARKET against that
+ * closes longs, and only longs), BOTH directions said, the larger first, and
+ * insurance judged PER MARKET against that
  * market's own losses beyond collateral, never pooled into one ratio. "Fully
  * covered" is said only when every market with such losses holds a fund that
  * covers them.
@@ -36,18 +37,34 @@ export function activitySentence(a: ActivityInputs): string {
 
 const TEN = '0.100';
 
+type Direction = 'fall' | 'rise';
+const SIDE: Readonly<Record<Direction, string>> = { fall: 'longs', rise: 'shorts' };
+
 /**
- * "A 10% fall would liquidate $334K of longs, fully covered by each market's
- * own insurance fund." Undefined while the snapshot has no 10% rung.
+ * BOTH DIRECTIONS, THE LARGER FIRST (9 Oct 2026, owner): "A 10% rise would
+ * liquidate $212.9K of shorts; none would lose more than its own collateral. A
+ * 10% fall would liquidate $196K of longs, fully covered by each market's own
+ * insurance fund." Until then it named the fall alone, which hid a larger rise.
+ * Each direction is its own sentence with its own insurance verdict: no move
+ * does both, so they are never added. Undefined while the snapshot has no 10%
+ * rung.
  */
 export function riskSentence(s: Pick<RiskSnapshot, 'atRisk' | 'markets'>): string | undefined {
-  const fall = s.atRisk[TEN]?.fall;
-  if (fall === undefined) return undefined;
-  if (fall.positions === 0) return 'A 10% fall would liquidate no longs.';
-  const head = `A 10% fall would liquidate ${formatMoney(fall.notionalAusd)} of longs`;
-  // Per market: its own losses beyond collateral at a 10% fall, against its own fund.
+  const pair = s.atRisk[TEN];
+  if (pair === undefined) return undefined;
+  // Ties read fall first, as the tiles do.
+  const order: readonly Direction[] = pair.rise.notionalAusd > pair.fall.notionalAusd ? ['rise', 'fall'] : ['fall', 'rise'];
+  return order.map((d) => directionSentence(s, d)).join(' ');
+}
+
+function directionSentence(s: Pick<RiskSnapshot, 'atRisk' | 'markets'>, d: Direction): string {
+  const total = s.atRisk[TEN]![d];
+  const side = SIDE[d];
+  if (total.positions === 0) return `A 10% ${d} would liquidate no ${side}.`;
+  const head = `A 10% ${d} would liquidate ${formatMoney(total.notionalAusd)} of ${side}`;
+  // Per market: its own losses beyond collateral at this move, against its own fund.
   const exposed = s.markets
-    .map((m: MarketExposure) => ({ m, shortfall: m.atRisk[TEN]?.fall.shortfallAusd ?? 0 }))
+    .map((m: MarketExposure) => ({ m, shortfall: m.atRisk[TEN]?.[d].shortfallAusd ?? 0 }))
     .filter((x) => x.shortfall > 0.005);
   if (exposed.length === 0) return `${head}; none would lose more than its own collateral.`;
   const unknown = exposed.filter((x) => x.m.insuranceAusd === undefined);

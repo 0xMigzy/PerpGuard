@@ -17,6 +17,7 @@ export function TraderCards({
   openInterest,
   period,
   wholeDays,
+  wholeDaysTitle,
 }: {
   readonly summary: TraderSummary | undefined;
   readonly openInterest: OpenInterestPayload | undefined;
@@ -24,6 +25,8 @@ export function TraderCards({
   readonly period: string;
   /** The whole-UTC-day label: profitable traders are summed from day buckets. */
   readonly wholeDays: string;
+  /** Its hover: which whole UTC days it sums. */
+  readonly wholeDaysTitle: string;
 }) {
   if (summary === undefined) {
     return (
@@ -48,6 +51,7 @@ export function TraderCards({
       />
       <StatTile
         label={`Profitable traders · ${wholeDays}`}
+        labelTitle={wholeDaysTitle}
         value={share === undefined ? '—' : formatCount(summary.profitableTraders)}
         exact={
           share === undefined

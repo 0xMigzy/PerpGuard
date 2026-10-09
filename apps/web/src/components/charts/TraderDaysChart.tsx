@@ -1,7 +1,7 @@
 'use client';
 
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatDay, formatDayLong, formatMoney, formatSignedMoney } from '@/lib/format.ts';
+import { formatAxisMoney, formatDay, formatDayLong, formatMoney, formatSignedMoney } from '@/lib/format.ts';
 import { VAR } from '@/lib/theme.ts';
 import { ChartTooltip } from './ChartTooltip.tsx';
 
@@ -32,7 +32,7 @@ export function TraderDaysChart({ days }: { readonly days: readonly TraderDayBar
           <ComposedChart data={days} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid vertical={false} stroke={VAR.border} />
             <XAxis dataKey="dayMs" tickFormatter={formatDay} tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickFormatter={(v: number) => formatMoney(v)} tickLine={false} axisLine={false} width={64} />
+            <YAxis tickFormatter={(v: number) => formatAxisMoney(v)} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={VAR.border2} />
             <Tooltip
               cursor={{ fill: VAR.card2 }}

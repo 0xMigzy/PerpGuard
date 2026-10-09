@@ -51,6 +51,8 @@ const DEFAULT_IDLE_EVICT_MS = 30 * 60_000;
 export class SwrCache {
   readonly #slots = new Map<string, Slot>();
   readonly #lastReadMs = new Map<string, number>();
+  /** Keys the process keeps warm itself: never evicted, whoever last read them. */
+  readonly #pinned = new Set<string>();
   readonly #now: () => number;
   readonly #onRefreshError: ((key: string, error: unknown) => void) | undefined;
   readonly #idleEvictMs: number;
@@ -91,9 +93,26 @@ export class SwrCache {
     return { value: slot.value as T, cachedAtMs: slot.cachedAtMs, ageMs, revalidating: slot.inFlight !== undefined };
   }
 
-  /** Compute `key` now, whatever its age. Used to warm the default views at boot. */
+  /**
+   * Compute `key` now, whatever its age. Used to warm the default views at boot.
+   *
+   * A WARM COUNTS AS USE for eviction. Until 9 Oct it did not: a default nobody
+   * had read for 30 minutes was re-warmed by the hourly pass and then swept by
+   * the very next request of any kind, so its next reader paid the cold scan
+   * (Overview 30D 1.2 s, Markets 30D 2.3 s) a minute after it had been computed.
+   */
   async warm<T>(key: string, load: () => Promise<T>): Promise<void> {
     await this.#load(key, load);
+    this.#lastReadMs.set(key, this.#now());
+  }
+
+  /**
+   * Keys never evicted for idleness: the views the process warms on its own
+   * timer. Their warm interval (an hour) is longer than the idle limit (30
+   * minutes), so without the pin they would be cold for half of every hour.
+   */
+  pin(keys: Iterable<string>): void {
+    for (const key of keys) this.#pinned.add(key);
   }
 
   /** Age of the cached answer, or undefined when there is none. For tests and health. */
@@ -134,7 +153,7 @@ export class SwrCache {
 
   #sweep(now: number): void {
     for (const [key, at] of this.#lastReadMs) {
-      if (now - at <= this.#idleEvictMs) continue;
+      if (now - at <= this.#idleEvictMs || this.#pinned.has(key)) continue;
       const slot = this.#slots.get(key);
       if (slot?.inFlight !== undefined) continue;
       this.#slots.delete(key);
