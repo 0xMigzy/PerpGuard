@@ -338,12 +338,23 @@ const failures =
   Object.values(totals).reduce((s, t) => s + t.missing + t.extra, 0) +
   Object.values(targetedTotals).reduce((s, t) => s + t.missing + t.extra, 0);
 
+/**
+ * The RPC's domain without its first label: "<endpoint>.monad-mainnet.quiknode.pro"
+ * -> "monad-mainnet.quiknode.pro". A paid endpoint's first label names the
+ * endpoint and its path carries the token; neither is written to a file that
+ * is committed to a public repo. Until 9 Oct 2026 the full host was.
+ */
+function rpcDomain(url: string): string {
+  const labels = new URL(url).hostname.toLowerCase().split(".");
+  return labels.length > 2 ? labels.slice(1).join(".") : labels.join(".");
+}
+
 const report = {
   _note: "Written by apps/indexer/src/scripts/verify-logs.ts. Re-run with `pnpm verify:logs`.",
   ranAt: new Date().toISOString(),
   chainId: 143,
   exchangeProxy: PROXY,
-  rpcHost: new URL(rpcUrl).host,
+  rpcDomain: rpcDomain(rpcUrl),
   indexHead: head,
   deployBlock: DEPLOY_BLOCK,
   sample: {

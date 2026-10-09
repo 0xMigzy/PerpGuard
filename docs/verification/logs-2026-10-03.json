@@ -3,7 +3,7 @@
  "ranAt": "2026-10-03T13:28:56.444Z",
  "chainId": 143,
  "exchangeProxy": "0x34B6552d57a35a1D042CcAe1951BD1C370112a6F",
- "rpcHost": "palpable-dawn-seed.monad-mainnet.quiknode.pro",
+ "rpcDomain": "monad-mainnet.quiknode.pro",
  "indexHead": 110191918,
  "deployBlock": 54773010,
  "sample": {
