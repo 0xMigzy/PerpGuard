@@ -88,7 +88,10 @@ export function createManualAlertSender(deps: ManualAlertDeps): (input: ManualAl
       input.auto.kind !== 'adding' && account !== undefined && market !== undefined && a.positionId !== undefined
         ? pricedOffers({ view: account.view, assessment: a, market, alertPct: input.alertPct, free, bufferDecimals: deps.alerts.bufferDecimals })
         : undefined;
-    const said = priced === undefined || market === undefined ? [] : suggestionLines(priced.suggestions, free, market.collateralDecimals);
+    // THE ALERT IS SHORT (owner, 9 Oct 2026): network, headline, margin and free balance, then buttons. "most of
+    // free" and ⚠️ ride on the buttons; the words for them are on the confirmation, where there is time to read.
+    // The one exception is a free balance that buys almost nothing: no button carries that, so it is said.
+    const said = priced?.suggestions.note === undefined || market === undefined ? [] : suggestionLines({ amounts: [], note: priced.suggestions.note }, free, market.collateralDecimals);
     const text = withBadge([manualAlertText(input, free, market), ...said].join('\n'), deps.network);
     const nav = (to: Parameters<typeof encodeNav>[0]): string => encodeNav(to, { fresh: true });
 

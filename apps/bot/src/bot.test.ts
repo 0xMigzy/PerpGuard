@@ -425,7 +425,7 @@ test('tapping a top-up shows a confirmation with the exact amount and liquidatio
       '',
       'Margin: <b>2,810 AUSD</b> → <b>4,710 AUSD</b>',
       'Liquidation price: 81,770.1 → 77,970.1',
-      'Distance: 2.7% → <b>7.2%</b>',
+      'Distance: 2.7% → <b>7.1%</b>',
       'Free balance: <b>10,000 AUSD</b> → <b>8,100 AUSD</b>',
       '',
       "<i>I send exactly this amount, then check the position itself — not just the exchange's reply — and tell you what happened.</i>",
@@ -1743,10 +1743,10 @@ test('ADD MARGIN: View position → the first amount → confirm with before and
   await h.bot.handleUpdate(callbackUpdate(plus100.callback_data));
   const confirm = texts(h.telegram).at(-1)!;
   assert.match(confirm, /^testnet\n⚠️ <b>Add 1,900 AUSD to BTC long\?<\/b>\n\nMargin: <b>2,810 AUSD<\/b> → <b>4,710 AUSD<\/b>\nLiquidation price: 81,770\.1 → [\d,.]+\nDistance: 2\.7% → <b>[\d.]+%<\/b>\nFree balance: <b>10,000 AUSD<\/b> → <b>8,100 AUSD<\/b>/);
-  // The button's distance and the confirmation's agree: the button rounds DOWN.
-  const onButton = Number(/→ ([\d.]+)%/.exec(plus100.text)![1]);
-  const onConfirm = Number(/Distance: 2\.7% → <b>([\d.]+)%/.exec(confirm)![1]);
-  assert.ok(onButton <= onConfirm && onButton > 2.7, `${onButton} vs ${onConfirm}`);
+  // The button's distance and the confirmation's are THE SAME FIGURE: both round DOWN (owner, 9 Oct 2026).
+  const onButton = /→ ([\d.]+%)/.exec(plus100.text)![1];
+  const onConfirm = /Distance: 2\.7% → <b>([\d.]+%)<\/b>/.exec(confirm)![1];
+  assert.equal(onConfirm, onButton);
   assert.equal(h.executor.calls.length, 0, 'NEVER on the first button press');
 
   const [send] = keyboardOf(h.telegram.last('sendMessage'));
@@ -2216,8 +2216,13 @@ test('THE ALERT, SHORT OF FREE BALANCE (owner, 9 Oct 2026): most of the free bal
   const labels = keyboardOf(msg).map((b) => b.text);
   assert.match(labels[0]!, /^\+270 → 3\.\d% · most of free$/);
   assert.equal(labels[1], '+3,100 → 10% ⚠️');
+  // THE ALERT IS SHORT (owner, 9 Oct 2026): the buttons carry "most of free" and ⚠️; the words are on the confirmation.
   const text = String(msg.payload['text']);
-  assert.match(text, /\n\+270 is most of your free balance \(<b>300 AUSD<\/b>\), leaving the rest for fees and the next alert\.\n⚠️ may be more than your free balance/);
+  assert.match(text, /^🔴 <b>BTC long is 2\.7% from liquidation<\/b>\nMargin <b>2,810 AUSD<\/b> · <b>300 AUSD<\/b> free$/);
+  await h.bot.handleUpdate(callbackUpdate(keyboardOf(msg)[0]!.callback_data));
+  assert.match(shown(h.telegram).at(-1)!, /Free balance: <b>300 AUSD<\/b> → <b>30 AUSD<\/b>\nThat is most of your free balance, leaving <b>30 AUSD<\/b> for fees and the next alert\./);
+  await h.bot.handleUpdate(callbackUpdate(keyboardOf(msg)[1]!.callback_data));
+  assert.match(shown(h.telegram).at(-1)!, /Free balance: <b>300 AUSD<\/b> → ⚠️ may not cover it\. The exchange refuses what you can’t cover\./);
   const view = keyboardOf(msg).find((b) => b.text === '📊 View position')!;
   await h.bot.handleUpdate(callbackUpdate(view.callback_data));
   assert.match(String(h.telegram.last('sendMessage').payload['text']), /🔴 <b>BTC long · 2\.7% from liquidation<\/b>/);

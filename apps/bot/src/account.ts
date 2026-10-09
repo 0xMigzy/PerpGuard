@@ -234,6 +234,9 @@ export interface ConfirmInput {
  * and free balance; the liquidation figures only when the engine projected
  * them (live feed, live position). Nothing has been sent when this shows.
  */
+/** An amount at or above this share of the free balance (8 tenths) is called "most of" it on the confirmation. */
+const MOST_OF_FREE_TENTHS = 8n;
+
 export function confirmScreen(input: ConfirmInput): Screen {
   const { action, market, assessment } = input;
   const name = assessment === undefined ? esc(action.symbol) : positionName(assessment);
@@ -251,11 +254,16 @@ export function confirmScreen(input: ConfirmInput): Screen {
           : 'Liquidation price: none left to reach',
       );
       const was = assessment?.liqBufferPct;
-      lines.push(`Distance: ${was === undefined ? '' : `${was < 0 ? 'past liquidation' : pct(was)} → `}<b>${action.resultingBufferPct < 0 ? 'still past liquidation' : pct(action.resultingBufferPct)}</b>`);
+      // ROUNDED DOWN, by the button's own formatter (owner, 9 Oct 2026): the button and the confirmation never disagree.
+      lines.push(`Distance: ${was === undefined ? '' : `${was < 0 ? 'past liquidation' : pct(was)} → `}<b>${action.resultingBufferPct < 0 ? 'still past liquidation' : boughtDistance(action.resultingBufferPct)}</b>`);
     }
     if (input.free.known) {
       const left = input.free.floorCNS - action.amountCNS;
-      lines.push(left < 0n ? `Free balance: ${held(input.free.floorCNS, d)} → may not cover it. The exchange refuses what you can’t cover.` : `Free balance: ${held(input.free.floorCNS, d)} → ${held(left, d)}`);
+      lines.push(left < 0n ? `Free balance: ${held(input.free.floorCNS, d)} → ⚠️ may not cover it. The exchange refuses what you can’t cover.` : `Free balance: ${held(input.free.floorCNS, d)} → ${held(left, d)}`);
+      // The alert's buttons carry "most of free" and ⚠️ only; the words are here, where there is time to read them (owner, 9 Oct 2026).
+      if (left >= 0n && action.amountCNS * 10n >= input.free.floorCNS * MOST_OF_FREE_TENTHS) {
+        lines.push(`That is most of your free balance, leaving ${held(left, d)} for fees and the next alert.`);
+      }
     } else {
       lines.push(`Free balance: unknown (${esc(input.free.reason)})`);
     }

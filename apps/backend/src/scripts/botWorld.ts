@@ -116,6 +116,8 @@ export function build(options: { readonly link?: boolean; readonly resolver?: bo
       preview: () => view.assessments.map((a) => ({ marketId: a.marketId, symbol: a.symbol, positionId: a.positionId ?? 1, side: a.side ?? 'long', sizeLNS: a.lotLNS ?? 0n, lotDecimals: CONFIGS.get(a.marketId)?.lotDecimals ?? 0, unrealisedPnlCNS: a.metrics.unrealisedPnlCNS })),
       closeAll: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
       closeOne: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
+      // 🚪 Close position (back 8 Oct 2026): without it the map stopped at "Closing isn't available here" and never reached the confirm.
+      closePosition: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
     },
     killSwitch: {
       stopped: (id) => automation.automationStopped(id),

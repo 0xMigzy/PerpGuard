@@ -803,10 +803,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     ROUNDED UP to two significant figures. A fixed +100 bought 0.1 points on
     a 93,754 AUSD position and read "2.4% → 2.4%".
   - THE FIRST IS ALWAYS AFFORDABLE: when its target costs more, it is MOST of
-    the free balance, 90% rounded down ("+979 → 3.4% · most of free", and a
-    line saying so), never all of it; under half a point bought, no button and
-    a sentence instead. The second keeps D + 5 with ⚠️ when over the balance.
-    Free balance unknown: both targets, nothing marked.
+    the free balance, 90% rounded down ("+979 → 3.4% · most of free"), never
+    all of it; under half a point bought, no button and a sentence instead.
+    The second keeps D + 5 with ⚠️ when over the balance. Free balance
+    unknown: both targets, nothing marked.
+  - THE ALERT IS SHORT (9 Oct 2026): network, headline, margin and free
+    balance, then buttons. The words for "most of free" and ⚠️ are on the
+    CONFIRMATION, where there is time to read them; the alert keeps only the
+    "free balance buys almost nothing" sentence, which no button carries.
+  - THE CONFIRMATION'S DISTANCE IS ROUNDED DOWN by the button's own formatter
+    (`boughtDistance`): the two never disagree.
   The bought distance is ROUNDED DOWN,
   with ONE DECIMAL BELOW 10% (a whole percent there can read below where the
   position already is: 2.7% plus a top-up is not "→ 2%"); whole percents
