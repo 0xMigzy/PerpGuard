@@ -15,7 +15,7 @@ PerpGuard watches each position and warns before liquidation. It adds margin onl
 
 For anyone trading on Perpl, and for anyone who wants to watch an account on Perpl without trading at all.
 
-![A PerpGuard alert in Telegram with two suggested top-ups](docs/images/telegram-alert.png)
+<img src="docs/images/telegram-alert.png" width="380" alt="A PerpGuard alert in Telegram"><br>
 *The alert: the position, its margin and free balance, and two top-ups, each showing the distance it buys.*
 
 ## What it does
