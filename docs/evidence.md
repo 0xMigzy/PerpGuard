@@ -938,3 +938,48 @@ monitor, the analytics reader and the indexer's `verify` script all need a REAL
 chain head, and there were two copies of the same call. One implementation means
 the three cannot disagree about the head and then disagree about whether the
 indexer is healthy.
+
+## 2026-10-10 — a partial close through the bot, live: size, realised P&L and fee read back from the exchange
+
+The first partial close through the bot's own flow against the exchange, on
+testnet account #710 (chain 10143), at 13:55 UTC. `pnpm close:part-live 1`
+runs the account's real session, executor, close service and bot, with only
+Telegram's wire replaced by a recorder, and presses 🚪 Close position →
+🎛 Custom % → `1` → ✅ Confirm. The transcript and the service's log are in
+`fixtures/close-part-live-testnet.json`.
+
+**What was sent.** One reduce-only market order for 1% of a SOL long: 100 of
+10,000 size units (0.1 of 10 SOL), position id 4518384435201, idempotency key
+`reduce:710:<request>:4518384435201`. The exchange's receipt was `confirmed`.
+
+**What came back.**
+
+| | Predicted on the confirmation | Actual, from the exchange |
+| --- | --- | --- |
+| Size | 10 → 9.9 | 10 → 9.9 (10,000 → 9,900 units) |
+| Realised P&L, before fees | −0.78 AUSD (1% of the −78 AUSD unrealised at the mark) | **−0.784 AUSD** (−784,000 micros) |
+| Fee | 345 per million of the value closed, rounded up | **0.003789 AUSD** (3,789 micros) |
+
+- The confirmation and the result both print sub-1 figures as "under 1 AUSD";
+  the exact figures above are the service's log line, `VERIFIED reduced (9900
+  lots remain; realised -784000, fee 3789)`.
+- The realised figure is not an estimate: it is (exit − entry) × size closed,
+  from the reduced position's own row on the stream (`sr: 14`, first event's
+  `xp`, `s`, `cfee`), and is quoted only because that event's size (100 units)
+  equals what the position shrank by. It implies a fill at 109.81 against an
+  entry of 117.65.
+- The fee reproduces to the micro: 0.1 SOL × 109.81 × 345 / 1,000,000 =
+  0.0037884, rounded up to 3,789 micros. This is the second live reduce whose
+  fee matches the market's `taker_fee` rounded up (the first: 288 micros on
+  30 Sep 2026, above).
+- The result reached the chat 1.0 s after ✅ Confirm.
+
+**The read-back matched.** Three seconds after the result, the script read the
+position list again, independently of what the bot had said: 9,900 units,
+9.9 SOL, the same figure as the bot's "Size: 10 → 9.9". Success was judged by
+the position before and after (`judgePartial`), not by the receipt.
+
+**Limits of this evidence.** One run, one market, a long, a 1% close that filled
+in full at once. A partial fill of the reduce, a short, and a reduce whose row
+arrives without its event (after a reconnect) are covered by tests against a
+simulated exchange, not by a live run.

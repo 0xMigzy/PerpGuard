@@ -1,0 +1,322 @@
+{
+ "_note": "Written by pnpm close:part-live (apps/backend/src/scripts/close-part-live.ts): one partial close through the real session, executor, close service and bot, Telegram replaced by a recorder. Button callback data removed.",
+ "capturedAt": "2026-10-10T13:55:57.915Z",
+ "network": "testnet",
+ "chainId": 10143,
+ "accountId": 710,
+ "percent": "1",
+ "position": {
+  "symbol": "SOL",
+  "side": "long",
+  "positionId": 4518384435201,
+  "sizeDecimals": 3
+ },
+ "serviceLog": [
+  "close-part 710:mv2giz0uyc067u98: reducing SOL long by 100 of 10000 lots (pid 4518384435201)",
+  "close-part 710:mv2giz0uyc067u98: SOL receipt confirmed",
+  "close-part 710:mv2giz0uyc067u98: SOL VERIFIED reduced (9900 lots remain; realised -784000, fee 3789)"
+ ],
+ "readBack": {
+  "afterSeconds": 3,
+  "sizeBeforeUnits": 10000,
+  "sizeAfterUnits": 9900,
+  "botSaid": "10 → 9.9",
+  "matches": true
+ },
+ "frames": [
+  {
+   "step": "View position",
+   "messages": [
+    {
+     "id": 1,
+     "from": "user",
+     "text": "/start",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 2,
+     "from": "bot",
+     "text": "Connected to account #710. Its alerts come here, with the buttons to act.",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 3,
+     "from": "bot",
+     "text": "testnet\n🟢 <b>SOL long · 9.0% from liquidation</b>\nMargin <b>235 AUSD</b> · liquidation at 100.01\nFree balance <b>9,458 AUSD</b> · unrealised −78 AUSD",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "+44 → 12% away · 9,414 free"
+       }
+      ],
+      [
+       {
+        "text": "+22 → 10% away · 9,436 free"
+       }
+      ],
+      [
+       {
+        "text": "🎛 Custom amount"
+       }
+      ],
+      [
+       {
+        "text": "🚪 Close position"
+       }
+      ],
+      [
+       {
+        "text": "← Back"
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "step": "🚪 Close position: the options",
+   "messages": [
+    {
+     "id": 1,
+     "from": "user",
+     "text": "/start",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 2,
+     "from": "bot",
+     "text": "Connected to account #710. Its alerts come here, with the buttons to act.",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 3,
+     "from": "bot",
+     "text": "testnet\n🚪 <b>CLOSE SOL long</b>\n\nSize <b>10</b> · unrealised −78 AUSD\nHow much of it do you want to close? I’ll show you the figures before anything is sent.",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "25%"
+       },
+       {
+        "text": "50%"
+       },
+       {
+        "text": "75%"
+       }
+      ],
+      [
+       {
+        "text": "Close all"
+       }
+      ],
+      [
+       {
+        "text": "🎛 Custom %"
+       }
+      ],
+      [
+       {
+        "text": "← Back"
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "step": "Custom % answered with 1: the confirmation (nothing sent yet)",
+   "messages": [
+    {
+     "id": 1,
+     "from": "user",
+     "text": "/start",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 2,
+     "from": "bot",
+     "text": "Connected to account #710. Its alerts come here, with the buttons to act.",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 3,
+     "from": "bot",
+     "text": "testnet\n🚪 <b>CLOSE SOL long</b>\n\nSize <b>10</b> · unrealised −78 AUSD\nHow much of it do you want to close? I’ll show you the figures before anything is sent.",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "25%"
+       },
+       {
+        "text": "50%"
+       },
+       {
+        "text": "75%"
+       }
+      ],
+      [
+       {
+        "text": "Close all"
+       }
+      ],
+      [
+       {
+        "text": "🎛 Custom %"
+       }
+      ],
+      [
+       {
+        "text": "← Back"
+       }
+      ]
+     ]
+    },
+    {
+     "id": 4,
+     "from": "bot",
+     "text": "What percentage of the position do you want to close? Send a number from 1 to 100, like 40.",
+     "html": false,
+     "buttons": [],
+     "forceReply": "40"
+    },
+    {
+     "id": 5,
+     "from": "user",
+     "text": "1",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 6,
+     "from": "bot",
+     "text": "testnet\n🚪 <b>Close 1% of SOL long?</b>\n\nSize: <b>10</b> → <b>9.9</b> (closing 0.1)\nEstimated realised P&L: <b>−under 1 AUSD</b> (a loss)\nEstimated fee: <b>under 1 AUSD</b>\nIt fills at whatever price it gets, so the real figures will differ.\n\nI'll read the new size from your positions afterwards, not from the exchange's receipt.",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "✅ Confirm"
+       },
+       {
+        "text": "✖ Cancel"
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "step": "✅ Confirm: the result (1.0 s)",
+   "messages": [
+    {
+     "id": 1,
+     "from": "user",
+     "text": "/start",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 2,
+     "from": "bot",
+     "text": "Connected to account #710. Its alerts come here, with the buttons to act.",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 3,
+     "from": "bot",
+     "text": "testnet\n🚪 <b>CLOSE SOL long</b>\n\nSize <b>10</b> · unrealised −78 AUSD\nHow much of it do you want to close? I’ll show you the figures before anything is sent.",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "25%"
+       },
+       {
+        "text": "50%"
+       },
+       {
+        "text": "75%"
+       }
+      ],
+      [
+       {
+        "text": "Close all"
+       }
+      ],
+      [
+       {
+        "text": "🎛 Custom %"
+       }
+      ],
+      [
+       {
+        "text": "← Back"
+       }
+      ]
+     ]
+    },
+    {
+     "id": 4,
+     "from": "bot",
+     "text": "What percentage of the position do you want to close? Send a number from 1 to 100, like 40.",
+     "html": false,
+     "buttons": [],
+     "forceReply": "40"
+    },
+    {
+     "id": 5,
+     "from": "user",
+     "text": "1",
+     "html": false,
+     "buttons": []
+    },
+    {
+     "id": 6,
+     "from": "bot",
+     "text": "testnet\n🚪 <b>Close 1% of SOL long?</b>\n\nSize: <b>10</b> → <b>9.9</b> (closing 0.1)\nEstimated realised P&L: <b>−under 1 AUSD</b> (a loss)\nEstimated fee: <b>under 1 AUSD</b>\nIt fills at whatever price it gets, so the real figures will differ.\n\nI'll read the new size from your positions afterwards, not from the exchange's receipt.",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "✅ Confirm"
+       },
+       {
+        "text": "✖ Cancel"
+       }
+      ]
+     ]
+    },
+    {
+     "id": 7,
+     "from": "bot",
+     "text": "testnet\n✅ <b>SOL long REDUCED</b>\n\nSize: <b>10</b> → <b>9.9</b> (0.1 closed)\nRealised P&L: <b>−under 1 AUSD</b> before fees · fee <b>under 1 AUSD</b>",
+     "html": true,
+     "buttons": [
+      [
+       {
+        "text": "📊 View / close position"
+       }
+      ],
+      [
+       {
+        "text": "📊 My positions"
+       },
+       {
+        "text": "🏠 Menu"
+       }
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}
