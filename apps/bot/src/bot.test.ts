@@ -351,8 +351,8 @@ test('My positions lists each position closest first as a button; its screen off
       const decoded = decodeCallback(b.callback_data);
       return decoded.ok ? [decoded.payload.kind, decoded.payload.amountCNS] : undefined;
     }),
-    // The two top-ups (to the alert line + 2 points, and half of that) and the custom marker, which carries no money.
-    [['act', 1_900_000_000n], ['act', 950_000_000n], ['custom', 0n]],
+    // The two top-ups (twice the amount that clears the alert line, then that amount) and the custom marker, which carries no money.
+    [['act', 3_800_000_000n], ['act', 1_900_000_000n], ['custom', 0n]],
   );
   assert.equal(h.executor.calls.length, 0, 'showing a screen executes nothing');
 });
@@ -404,7 +404,8 @@ async function firstButton(h: Harness): Promise<string> {
   const scenario = dangerScenario();
   h.view.assessments = [scenario.assessment];
   h.view.loop = scenario.loop;
-  const data = actionButtons(await openPosition(h))[0]?.callback_data;
+  // The SMALLER of the two top-ups (the one that reaches the clear level): the larger is listed first.
+  const data = (await openPosition(h)).payload['reply_markup'] === undefined ? undefined : keyboardOf(lastScreen(h.telegram)).find((b) => b.text.startsWith('+1,900 → '))?.callback_data;
   assert.ok(data !== undefined, 'expected a top-up button');
   return data;
 }
@@ -631,7 +632,7 @@ async function typeAmount(h: Harness, amount: string): Promise<string> {
 test('the position screen offers 🎛 Custom amount below the amounts, never instead of them', async () => {
   const h = harness();
   await customTap(h);
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text).slice(0, 3), ['+1,900 → 7.1% away · 8,100 free', '+950 → 4.9% away · 9,050 free', '🎛 Custom amount']);
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text).slice(0, 3), ['+3,800 → 11% away · 6,200 free', '+1,900 → 7.1% away · 8,100 free', '🎛 Custom amount']);
 });
 
 test('tapping Custom amount asks for a figure and states where the position stands', async () => {
@@ -1376,7 +1377,7 @@ test('RETIRED BUTTONS: every code taken off the menu fires NOTHING, from anyone'
   assert.equal(answers(h.telegram).at(-1), REFUSAL_TEXT);
 });
 
-test('VIEW POSITION: up to two top-ups that fit the free balance (the line + 2 points, and half of it), one to a row, 🎛 Custom amount, 🚪 Close position, Back; Cancel deletes the token', async () => {
+test('VIEW POSITION: up to two top-ups that fit the free balance and land clear of the alert line, one to a row, 🎛 Custom amount, 🚪 Close position, Back; Cancel deletes the token', async () => {
   const h = harness();
   const scenario = dangerScenario();
   h.view.assessments = [scenario.assessment];
@@ -1385,10 +1386,10 @@ test('VIEW POSITION: up to two top-ups that fit the free balance (the line + 2 p
   const html = String(screen.payload['text']);
   assert.match(html, /^testnet\n🔴 <b>BTC long · 2\.7% from liquidation<\/b>\nMargin <b>2,810 AUSD<\/b> · liquidation at 81,770\.1\nFree balance <b>10,000 AUSD<\/b>/);
   const labels = keyboardOf(screen).map((b) => b.text);
-  // The alert line is 5%: the first reaches 7%, the second is half of it. Each says the distance it buys (rounded down) and what it leaves free.
-  assert.deepEqual(labels, ['+1,900 → 7.1% away · 8,100 free', '+950 → 4.9% away · 9,050 free', '🎛 Custom amount', '🚪 Close position', '← Back']);
+  // The alert line is 5%, so clear of it is 7%: the smaller reaches it and the larger is twice that. Each says the distance it buys (rounded down) and what it leaves free.
+  assert.deepEqual(labels, ['+3,800 → 11% away · 6,200 free', '+1,900 → 7.1% away · 8,100 free', '🎛 Custom amount', '🚪 Close position', '← Back']);
   const rows = (screen.payload['reply_markup'] as { inline_keyboard: unknown[][] }).inline_keyboard.map((r) => r.length);
-  assert.deepEqual(rows, [1, 1, 1, 1, 1], '[+1,900] / [+950] / [Custom] / [Close] / [Back]');
+  assert.deepEqual(rows, [1, 1, 1, 1, 1], '[+3,800] / [+1,900] / [Custom] / [Close] / [Back]');
   assert.doesNotMatch(labels.join(' | '), /⚠️|most of free/);
 
   await h.bot.handleUpdate(callbackUpdate(keyboardOf(screen)[0]!.callback_data));
@@ -1773,15 +1774,15 @@ test('ADD MARGIN: View position → the first amount → confirm with before and
   assert.doesNotMatch(said, /failed|rejected|sr 32/i, 'a top-up that landed is never shown as failed');
 });
 
-test('ADD MARGIN, NEVER MORE THAN CAN BE SPENT (owner, 10 Oct 2026): no ⚠️ top-up; the first is 90% of the free balance, the second half of it; a Rescue minimum comes off first; a blind position offers no amount at all', async () => {
+test('ADD MARGIN, NEVER MORE THAN CAN BE SPENT (owner, 10 Oct 2026): no ⚠️ top-up; short of balance it is ONE top-up, 90% of what can be spent; a Rescue minimum comes off first; a blind position offers no amount at all', async () => {
   const h = harness();
   const scenario = dangerScenario();
   h.view.assessments = [scenario.assessment];
   h.view.loop = scenario.loop;
   h.balance.reading = { known: true, floorCNS: 300_000_000n };
   const pos = await openPosition(h, dangerAssessment().marketId);
-  // 7% would need 1,900, which is not there: 90% of the 300 free is 270, and half of that 135.
-  assert.deepEqual(keyboardOf(pos).map((b) => b.text).slice(0, 3), ['+270 → 3.3% away · 30 free', '+135 → 2.9% away · 165 free', '🎛 Custom amount']);
+  // 7% would need 1,900, which is not there: 90% of the 300 free is 270. Half of that would land at 2.9%, short of the 7% clear level, so it is not offered.
+  assert.deepEqual(keyboardOf(pos).map((b) => b.text).slice(0, 2), ['+270 → 3.3% away · 30 free', '🎛 Custom amount']);
   for (const b of actionButtons(pos)) {
     const decoded = decodeCallback(b.callback_data);
     assert.ok(decoded.ok && decoded.payload.amountCNS <= 300_000_000n, 'no top-up above the free balance');
@@ -1793,7 +1794,7 @@ test('ADD MARGIN, NEVER MORE THAN CAN BE SPENT (owner, 10 Oct 2026): no ⚠️ t
   held.view.assessments = [scenario.assessment];
   held.view.loop = dangerScenario().loop;
   const hp = await openPosition(held, dangerAssessment().marketId);
-  assert.deepEqual(keyboardOf(hp).map((b) => b.text).slice(0, 2), ['+900 → 4.8% away · 9,100 free', '+450 → 3.7% away · 9,550 free']);
+  assert.deepEqual(keyboardOf(hp).map((b) => b.text).slice(0, 2), ['+900 → 4.8% away · 9,100 free', '🎛 Custom amount']);
 
   // What can be spent buys almost nothing: a sentence, no top-up; Custom amount and Close position stay.
   const poor = harness();
@@ -2420,19 +2421,19 @@ test('THE ALERT CARRIES THE ACTION: distance, margin and free balance; up to two
   const msg = await sendAlert(h, { kind: 'off' });
   const text = String(msg.payload['text']);
   assert.match(text, /^🔴 <b>BTC long is 2\.7% from liquidation<\/b>\nMargin <b>2,810 AUSD<\/b> · <b>10,000 AUSD<\/b> free$/);
-  // The line is 5%: the first reaches 7%, the second is half of it. "+{amount} → {distance}% away · {free after} free".
-  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['+1,900 → 7.1% away · 8,100 free', '+950 → 4.9% away · 9,050 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
+  // The line is 5%, so clear of it is 7%: the smaller reaches it, the larger is twice that. "+{amount} → {distance}% away · {free after} free".
+  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['+3,800 → 11% away · 6,200 free', '+1,900 → 7.1% away · 8,100 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
   const rows = (msg.payload['reply_markup'] as { inline_keyboard: unknown[][] }).inline_keyboard.map((r) => r.length);
-  assert.deepEqual(rows, [1, 1, 2, 1], '[+1,900] / [+950] / [Custom][Dismiss] / [View / close position]');
+  assert.deepEqual(rows, [1, 1, 2, 1], '[+3,800] / [+1,900] / [Custom][Dismiss] / [View / close position]');
   assert.doesNotMatch(keyboardOf(msg).map((b) => b.text).join(' '), /most of free|⚠️/);
   assert.equal(h.executor.calls.length, 0);
 });
 
-test('THE ALERT NEVER OFFERS A TOP-UP THAT CANNOT BE PAID FOR (owner, 10 Oct 2026): short of balance, 90% of it and half of that; no ⚠️ button; View / close position opens the position', async () => {
+test('THE ALERT NEVER OFFERS A TOP-UP THAT CANNOT BE PAID FOR (owner, 10 Oct 2026): short of balance, ONE top-up of 90% of it; no ⚠️ button; View / close position opens the position', async () => {
   const h = harness();
   h.balance.reading = { known: true, floorCNS: 300_000_000n };
   const msg = await sendAlert(h, { kind: 'off' });
-  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['+270 → 3.3% away · 30 free', '+135 → 2.9% away · 165 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
+  assert.deepEqual(keyboardOf(msg).map((b) => b.text), ['+270 → 3.3% away · 30 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
   for (const b of actionButtons(msg)) {
     const decoded = decodeCallback(b.callback_data);
     assert.ok(decoded.ok && decoded.payload.amountCNS <= 300_000_000n);
@@ -2448,16 +2449,21 @@ test('THE ALERT NEVER OFFERS A TOP-UP THAT CANNOT BE PAID FOR (owner, 10 Oct 202
   assert.equal(h.executor.calls.length, 0);
 });
 
-test('THE ALERT: the reserved minimum comes off before anything is offered; the half top-up is hidden when it buys under 0.3 points', async () => {
-  // 10,000 free with 9,000 held back by Rescue: 1,000 to spend, 90% of it first, then half.
+test('THE ALERT: BOTH TOP-UPS LAND CLEAR OF THE LINE (owner, 10 Oct 2026); the reserved minimum comes off first; a top-up that would land short of clear is not a second button', async () => {
+  // Clear of a 5% line is 7%. The smaller button reaches it and the larger goes beyond it.
+  const plenty = harness();
+  const full = await sendAlert(plenty, { kind: 'off' });
+  const distances = keyboardOf(full).slice(0, 2).map((b) => Number(/→ ([\d.]+)% away/.exec(b.text)![1]));
+  assert.ok(distances.every((d) => d >= 7), `${distances.join(', ')} are both at or past 7%`);
+  // 10,000 free with 9,000 held back by Rescue: 1,000 to spend, so one top-up of 900. Its half would land at 3.7%.
   const held = harness();
   const a = await sendAlert(held, { kind: 'off' }, () => 9_000_000_000n);
-  assert.deepEqual(keyboardOf(a).map((b) => b.text).slice(0, 2), ['+900 → 4.8% away · 9,100 free', '+450 → 3.7% away · 9,550 free']);
-  // 240 free: 216 buys 0.51 points and is offered; its half would buy 0.26, under 0.3, so it is not.
-  const thin = harness();
-  thin.balance.reading = { known: true, floorCNS: 240_000_000n };
-  const b = await sendAlert(thin, { kind: 'off' });
-  assert.deepEqual(keyboardOf(b).map((x) => x.text), ['+216 → 3.1% away · 24 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
+  assert.deepEqual(keyboardOf(a).map((x) => x.text), ['+900 → 4.8% away · 9,100 free', '🎛 Custom amount', 'Dismiss', '📊 View / close position']);
+  // 6,000 free: both fit (3,800 is within 90% of it), and each says what it leaves of the 6,000.
+  const mid = harness();
+  mid.balance.reading = { known: true, floorCNS: 6_000_000_000n };
+  const b = await sendAlert(mid, { kind: 'off' });
+  assert.deepEqual(keyboardOf(b).map((x) => x.text).slice(0, 2), ['+3,800 → 11% away · 2,200 free', '+1,900 → 7.1% away · 4,100 free']);
 });
 
 test('THE ALERT WITH NOTHING WORTH ADDING: no top-up buttons and one sentence; 🎛 Custom amount, Dismiss and 📊 View / close position are still there', async () => {

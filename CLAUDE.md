@@ -803,13 +803,23 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     minus what is reserved (`reservedFor` in `server.ts`: a Rescue top-up in
     flight plus the largest "minimum remaining" among the account's armed
     rules). There is no ⚠️ top-up and no "most of free" label any more.
-  - THE FIRST aims at the alert distance D + 2 points (a position already at
-    or past D + 2 aims at its own distance + 2): the smallest whole AUSD the
-    engine says reaches it, ROUNDED UP to two significant figures, capped at
-    90% of spendable (a whole AUSD, rounded down). THE SECOND is HALF the
-    first, shown only if it buys at least 0.3 points. A first that buys
-    under half a point is not offered: one sentence instead, and the alert
-    still carries 🎛 Custom amount, Dismiss and 📊 View / close position.
+  - BOTH LAND CLEAR OF THE ALERT LINE (`clearLevel`). After an alert fires
+    it re-arms only at D + a quarter of D, at least half a point (`rearmAt`),
+    so a top-up that lands between the line and that level leaves the alert
+    SWITCHED OFF just above the line: the next slide is silent. The clear
+    level is the higher of D + 2 points and the re-arm level (2.5% -> 4.5%,
+    5% -> 7%, 10% -> 12.5%, 20% -> 25%); a position within two points of it,
+    or past it, aims at its own distance + 2. Until 10 Oct 2026 a 10% line
+    offered +34 -> 12% and +17 -> 10.4%.
+  - THE SMALLER is the smallest whole AUSD the engine says reaches the clear
+    level, ROUNDED UP to two significant figures; THE LARGER is TWICE it and
+    is shown first, capped at 90% of spendable (a whole AUSD, rounded down),
+    the smaller staying half of it. The smaller is HIDDEN when it would land
+    short of the clear level (the cap bit) or buys under 0.3 points. The
+    larger is still offered when the balance cannot reach the clear level:
+    it is the most that can be added. A larger that buys under half a point
+    is not offered: one sentence instead, and the alert still carries 🎛
+    Custom amount, Dismiss and 📊 View / close position.
   - 🎛 CUSTOM AMOUNT IS NOT CAPPED, IT IS WARNED: our free figure is a floor,
     so an amount above spendable gets "That's more than the X AUSD we can
     see as free — Perpl may reject it. Send anyway?" and ✅ Send anyway.

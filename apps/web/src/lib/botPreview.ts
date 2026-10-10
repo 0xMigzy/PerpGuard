@@ -28,10 +28,11 @@ export const ALERT_EXAMPLE = {
   free: '9,762 AUSD',
   /**
    * The keyboard, row by row, exactly as labelled. Up to two top-ups that fit
-   * the free balance: the first reaches the alert line (5%) plus 2 points, the
-   * second is half of it; each says the distance it buys and what it leaves free.
+   * the free balance and land clear of the alert line (5%, so 7%): the smaller
+   * reaches it, the larger is twice that; each says the distance it buys and
+   * what it leaves free.
    */
-  keyboard: [['+75 → 7.0% away · 9,687 free'], ['+37.5 → 4.8% away · 9,724 free'], ['🎛 Custom amount', 'Dismiss'], ['📊 View / close position']],
+  keyboard: [['+150 → 11% away · 9,612 free'], ['+75 → 7.0% away · 9,687 free'], ['🎛 Custom amount', 'Dismiss'], ['📊 View / close position']],
 } as const;
 
 /** What the example is built from, for the bot-side test: the inputs behind the lines above. */

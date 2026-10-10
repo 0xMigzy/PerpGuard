@@ -151,7 +151,7 @@ pnpm test        # node:test across every package and app
 pnpm typecheck
 ```
 
-1,593 tests, all passing on 10 Oct 2026. CI runs both and a clean web build on every push.
+1,596 tests, all passing on 10 Oct 2026. CI runs both and a clean web build on every push.
 
 ## After the hackathon
 

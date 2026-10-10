@@ -3,41 +3,57 @@
  *
  * A top-up moves the distance by amount ÷ the position's notional, so a fixed
  * +100 bought 0.1 points on a 93,754 AUSD position and read "2.4% → 2.4%".
- * Every suggestion is therefore sized to a DISTANCE, and since 10 Oct 2026
- * NOTHING IS SUGGESTED THAT CANNOT BE PAID FOR:
+ * Every suggestion is therefore sized to a DISTANCE, NOTHING IS SUGGESTED THAT
+ * CANNOT BE PAID FOR, and BOTH LAND CLEAR OF THE ALERT LINE:
  *
+ *   - THE CLEAR LEVEL is the higher of the alert distance D plus 2 points and
+ *     the level at which the alert RE-ARMS (`rearmAt`: D plus a quarter of it,
+ *     at least half a point). A top-up that lands between D and the re-arm
+ *     level leaves the alert switched off just above the line: the next slide
+ *     to liquidation would be silent. At D = 10% that is 12.5%, and until
+ *     10 Oct 2026 the buttons aimed at 12% and 10.4%. (A position within two
+ *     points of the clear level, or past it, aims at its own distance + 2.)
+ *   - THE SMALLER top-up is the smallest whole AUSD the ENGINE says reaches the
+ *     clear level (`project`, the same projection the confirmation shows),
+ *     rounded UP to two significant figures. THE LARGER is TWICE it, shown
+ *     first. So the smaller is half the larger, and both land clear.
  *   - SPENDABLE is the free balance floor minus what is reserved: a Rescue
  *     top-up in flight, and the largest "minimum remaining" among the
- *     account's armed Rescue rules. With nothing armed it is the free balance.
- *   - THE FIRST aims at the account's alert distance D plus 2 points (a
- *     position already at or past D + 2 aims at its own distance plus 2): the
- *     smallest whole AUSD the ENGINE says reaches it (`project`, the same
- *     projection the confirmation shows), rounded UP to two significant
- *     figures, and never more than 90% of what is spendable, rounded down to a
- *     whole AUSD, so something is left for fees and the next alert.
- *   - THE SECOND is HALF THE FIRST, to the collateral's precision, and is
- *     offered only if it moves the distance by at least 0.3 points; a smaller
- *     step is not worth a button.
- *   - If even the first buys under half a point, there are no top-ups:
- *     `note` says so in words. (The alert still offers Custom amount and
- *     View / close position.)
- *   - With the free balance unknown, the first is its target and nothing can
- *     be said about what it leaves.
+ *     account's armed Rescue rules. The larger is never more than 90% of it
+ *     (a whole AUSD, rounded down), so something is left for fees and the next
+ *     alert; when that cap bites, the smaller stays half of it.
+ *   - THE SMALLER IS HIDDEN when it would land short of the clear level (the
+ *     cap bit) or buys under 0.3 points. THE LARGER IS STILL OFFERED when the
+ *     balance cannot reach the clear level: it is the most that can be added,
+ *     and its label says where it lands. If even that buys under half a
+ *     point, there are no top-ups: `note` says so in words. (The alert still
+ *     offers Custom amount and View / close position.)
+ *   - With the free balance unknown, both are at their targets and nothing
+ *     can be said about what they leave.
  *
  * A typed Custom amount is NOT capped here: our free figure is a floor, so the
  * trader may go above it, and the confirmation warns first.
  */
+import { rearmAt } from '@perpguard/backend/events/warnings';
 
-/** Points above the base distance the first top-up aims at, as a fraction: +2 points. */
+/** Points above the alert distance the clear level is at least, as a fraction: +2 points. */
 export const TARGET_STEP = 0.02;
-/** The share of what is spendable the first top-up may use. */
+/** The share of what is spendable the larger top-up may use. */
 export const SPEND_SHARE = 0.9;
-/** A first top-up that buys less than this (half a point) is said in words, not offered. */
+/** A larger top-up that buys less than this (half a point) is said in words, not offered. */
 export const MIN_USEFUL_GAIN = 0.005;
-/** The second top-up is offered only if it buys at least this (0.3 points). */
+/** The smaller top-up is offered only if it buys at least this (0.3 points). */
 export const MIN_SECOND_GAIN = 0.003;
 /** Float noise in a projected distance, ignored when judging whether a target is reached. */
 const EPSILON = 1e-9;
+
+/**
+ * Where a top-up must land to be clear of the alert line `alertFraction`: the higher of the line
+ * + 2 points and the alert's own re-arm level. 2.5% -> 4.5%, 5% -> 7%, 10% -> 12.5%, 20% -> 25%.
+ */
+export function clearLevel(alertFraction: number): number {
+  return Math.max(alertFraction + TARGET_STEP, rearmAt(alertFraction * 100) / 100);
+}
 
 export interface SuggestInput {
   /** The position's signed distance from liquidation now, as a fraction. */
@@ -108,10 +124,13 @@ function wholeAusdToReach(input: SuggestInput, target: number): number | undefin
 }
 
 export function suggestAmounts(input: SuggestInput): Suggestions {
-  const base = input.currentBuffer >= input.alertFraction + TARGET_STEP ? input.currentBuffer : input.alertFraction;
-  const need = wholeAusdToReach(input, base + TARGET_STEP);
+  const clear = clearLevel(input.alertFraction);
+  // The clear level, or two points above where it is when that is higher (View position on a position
+  // already near or past the clear level): the smaller top-up always buys at least two points.
+  const target = Math.max(clear, input.currentBuffer + TARGET_STEP);
+  const need = wholeAusdToReach(input, target);
   if (need === undefined) return { amounts: [] };
-  const target = BigInt(ceilTwoFigures(need)) * input.unitCNS;
+  const smallerTarget = BigInt(ceilTwoFigures(need)) * input.unitCNS;
 
   const spendable = spendableCNS(input.freeFloorCNS, input.reservedCNS);
   const priced = (amountCNS: bigint): SuggestedAmount | undefined => {
@@ -119,20 +138,21 @@ export function suggestAmounts(input: SuggestInput): Suggestions {
     return after === undefined ? undefined : { amountCNS, resultingBuffer: after, freeAfterCNS: input.freeFloorCNS === undefined ? undefined : input.freeFloorCNS - amountCNS };
   };
 
-  // THE FIRST: its target, or 90% of what can be spent (a whole AUSD, rounded down) when that is less.
-  let firstCNS = target;
+  // THE LARGER: twice the amount that reaches the clear level, or 90% of what can be spent (a whole
+  // AUSD, rounded down) when that is less.
+  let largerCNS = smallerTarget * 2n;
   if (spendable !== undefined) {
     const cap = ((spendable * BigInt(Math.round(SPEND_SHARE * 100))) / 100n / input.unitCNS) * input.unitCNS;
-    if (cap < firstCNS) firstCNS = cap;
+    if (cap < largerCNS) largerCNS = cap;
   }
-  const first = firstCNS > 0n ? priced(firstCNS) : undefined;
-  if (first === undefined || first.resultingBuffer - input.currentBuffer < MIN_USEFUL_GAIN) {
+  const larger = largerCNS > 0n ? priced(largerCNS) : undefined;
+  if (larger === undefined || larger.resultingBuffer - input.currentBuffer < MIN_USEFUL_GAIN) {
     // Nothing worth a button. Said in words only when it is the balance that is short.
-    return spendable === undefined ? { amounts: [] } : { amounts: [], note: { spendableCNS: spendable, gain: first === undefined ? 0 : Math.max(0, first.resultingBuffer - input.currentBuffer) } };
+    return spendable === undefined ? { amounts: [] } : { amounts: [], note: { spendableCNS: spendable, gain: larger === undefined ? 0 : Math.max(0, larger.resultingBuffer - input.currentBuffer) } };
   }
 
-  // THE SECOND: half the first, only if it still moves the distance by 0.3 points.
-  const second = priced(firstCNS / 2n);
-  const amounts = second !== undefined && second.amountCNS > 0n && second.resultingBuffer - input.currentBuffer >= MIN_SECOND_GAIN - EPSILON ? [first, second] : [first];
-  return { amounts };
+  // THE SMALLER: half the larger, only if it still lands clear of the line and moves the distance by 0.3 points.
+  const smaller = priced(largerCNS / 2n);
+  const shown = smaller !== undefined && smaller.amountCNS > 0n && smaller.resultingBuffer >= target - EPSILON && smaller.resultingBuffer - input.currentBuffer >= MIN_SECOND_GAIN - EPSILON;
+  return { amounts: shown ? [larger, smaller] : [larger] };
 }
