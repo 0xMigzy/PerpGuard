@@ -292,6 +292,36 @@ export function parsePositionFrame(
   return { open, closedMarketIds, skipped };
 }
 
+/** `sr` on a position row or event: the position was decreased (a partial close). */
+const SR_POSITION_DECREASED = 14;
+
+/**
+ * What a REDUCE filled at, read off the reduced position's own row.
+ *
+ * MEASURED ONCE (2026-09-30, `fixtures/close-probe-testnet.json`): after a
+ * reduce of 3 units to 2, the `mt: 27` row is `st: 1, sr: 14` and its first
+ * event carries `s` = the size CLOSED (1), `xp` = the exit price and `cfee` =
+ * the closing fee in collateral micros. Everything is returned in the wire's
+ * own integers. Undefined whenever the row is not exactly that shape (a
+ * snapshot row has no events, so a reconnect erases it): the caller then says
+ * the fill was not reported, never guesses one.
+ */
+export function decreaseFillOf(entry: PositionEntry): { readonly exitPriceRaw: number; readonly closedRaw: number; readonly feeMicros: bigint | undefined } | undefined {
+  if (entry['st'] !== 1 || entry['sr'] !== SR_POSITION_DECREASED) return undefined;
+  const events = entry['e'];
+  const first: unknown = Array.isArray(events) ? events[0] : undefined;
+  if (typeof first !== 'object' || first === null) return undefined;
+  const e = first as Record<string, unknown>;
+  if (e['sr'] !== SR_POSITION_DECREASED) return undefined;
+  const xp = e['xp'];
+  const closed = e['s'];
+  if (typeof xp !== 'number' || !Number.isInteger(xp) || xp <= 0) return undefined;
+  if (typeof closed !== 'number' || !Number.isInteger(closed) || closed <= 0) return undefined;
+  const cfee = e['cfee'];
+  const feeMicros = typeof cfee === 'string' && /^\d+$/.test(cfee) ? BigInt(cfee) : undefined;
+  return { exitPriceRaw: xp, closedRaw: closed, feeMicros };
+}
+
 /** Raw scaled size, for building a close order without a float round trip. */
 export function rawSizeOf(entry: PositionEntry): number | undefined {
   const s = entry['s'];

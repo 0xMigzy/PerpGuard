@@ -61,6 +61,8 @@ import {
   type VenueMarket,
   fetchBinanceFunding,
   fetchHyperliquidFunding,
+  priceToPNS,
+  scaleOf,
 } from '@perpguard/shared';
 import {
   BOT_MENU_COMMANDS,
@@ -99,6 +101,7 @@ import { ArmSigner } from './rescue/arming.ts';
 import { replacedByManualAlert } from './manual/replaced.ts';
 import { InMemoryManualAlertState, ManualAlerts, PostgresManualAlertState, type ManualAlertStateStore } from './manual/alerts.ts';
 import { CloseEverything } from './emergency/closeAll.ts';
+import { estimatePartial } from './emergency/partial.ts';
 import { InMemoryCloseAllRunStore, PostgresCloseAllRunStore, type CloseAllRunStore } from './emergency/store.ts';
 import type { OpenPosition } from './emergency/verify.ts';
 import { toReconcilable } from './actions/positionReader.ts';
@@ -707,6 +710,32 @@ const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
   return out;
 };
 
+/**
+ * HELD BACK FROM AN ACCOUNT'S FREE BALANCE when a top-up is suggested (owner, 10 Oct 2026): any Rescue top-up
+ * in flight, plus the largest "minimum remaining" among its armed Rescue rules. Nothing armed, nothing held.
+ */
+const reservedFor = (accountId: number): bigint => {
+  const floor = rescueStore.rulesFor(accountId).filter((r) => r.enabled).reduce((max, r) => (r.minRemainingCNS > max ? r.minRemainingCNS : max), 0n);
+  return rescueEngine.reservedCNS(accountId) + floor;
+};
+
+/** 🚪 Close part of a position: what closing `closeLNS` of it is estimated to realise and cost, at the mark. */
+const estimatePartialOf = (accountId: number, marketId: number, closeLNS: bigint): { realisedCNS: bigint | undefined; feeCNS: bigint | undefined } => {
+  const position = openPositionsOf(accountId)?.find((p) => p.marketId === marketId);
+  const config = riskConfigs.get(marketId);
+  const assessed = registry.get(accountId)?.view.snapshot().find((a) => a.marketId === marketId);
+  const priced = assessed !== undefined && assessed.state !== 'FEED_DOWN' && assessed.state !== 'POSITIONS_UNTRUSTED' && assessed.markPricePNS > 0n;
+  if (position === undefined) return { realisedCNS: undefined, feeCNS: undefined };
+  return estimatePartial({
+    sizeLNS: position.sizeLNS,
+    closeLNS,
+    unrealisedPnlCNS: position.unrealisedPnlCNS,
+    markPricePNS: priced ? assessed.markPricePNS : undefined,
+    scale: config === undefined ? undefined : scaleOf(config),
+    takerFeeMicros: markets.find((m) => m.marketId === marketId)?.takerFeeMicros,
+  });
+};
+
 // AUTO TOP-UP IS ARMED ONLY BY A TAP, signed with a key derived from the
 // server's key (`rescue/arming.ts`). Without that key nothing can be armed.
 let armSigner: ArmSigner | undefined;
@@ -782,7 +811,10 @@ const bot =
           closeAll: async (accountId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeAll(accountId, requestId, by)),
           closeOne: async (accountId, marketId, requestId, by) => toEmergencyReport(await requireCloseEverything().closeOne(accountId, marketId, requestId, by)),
           closePosition: async (accountId, marketId, requestId, by) => toEmergencyReport(await requireCloseEverything().closePosition(accountId, marketId, requestId, by)),
+          estimatePartial: (accountId, marketId, closeLNS) => estimatePartialOf(accountId, marketId, closeLNS),
+          reducePosition: (accountId, marketId, closeLNS, expected, requestId, by) => requireCloseEverything().reducePosition(accountId, marketId, closeLNS, expected, requestId, by),
         },
+        reserved: (accountId) => reservedFor(accountId),
         killSwitch: {
           stopped: (accountId) => automation.automationStopped(accountId),
           changedAtMs: (accountId) => killSwitch?.changedAtMs(accountId),
@@ -881,7 +913,7 @@ if (alertDb !== undefined) {
 const sendManualAlert =
   bot === undefined
     ? undefined
-    : createManualAlertSender({ api: bot.api, store: pendingActions, links, sessions: registry, configs: riskConfigs, alerts: DEFAULT_ALERT_CONFIG, network: network.name });
+    : createManualAlertSender({ api: bot.api, store: pendingActions, links, sessions: registry, configs: riskConfigs, alerts: DEFAULT_ALERT_CONFIG, network: network.name, reserved: (accountId) => reservedFor(accountId) });
 const manualAlerts = new ManualAlerts({
   accounts: () =>
     registry.list().map((session) => ({
@@ -928,6 +960,18 @@ closeEverything = new CloseEverything({
       openPositions: () => openPositionsOf(accountId),
       execute: (command) => session.executor.execute(command),
       exitPrice: (p) => session.venue.closedPositionExitPrice(p.marketId, p.positionId),
+      // The reduced position's own row: where the reduce filled, with the entry price to turn it into a realised figure.
+      reduceFill: (p) => {
+        const reported = session.venue.lastDecreaseFill(p.positionId);
+        const config = riskConfigs.get(p.marketId);
+        const held = session.positionSource.snapshot().find((x) => x.positionId === p.positionId);
+        if (reported === undefined || config === undefined || held === undefined) return undefined;
+        return {
+          fill: { exitPricePNS: BigInt(reported.exitPriceRaw), closedLNS: BigInt(reported.closedRaw), feeCNS: reported.feeMicros },
+          entryPricePNS: priceToPNS(held.entryPrice, config),
+          scale: scaleOf(config),
+        };
+      },
     };
   },
   store: closeAllRuns,

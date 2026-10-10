@@ -110,31 +110,38 @@ export function boughtDistance(buffer: number | undefined): string | undefined {
   return p >= 10 ? `${Math.floor(p)}%` : `${(Math.floor(p * 10 + 1e-9) / 10).toFixed(1)}%`;
 }
 
-/**
- * `+1,900 → 7.1%`, `+3,100 → 10% ⚠️` when it may be more than the free balance,
- * `+979 → 3.4% · most of free` when it is capped at most of the free balance.
- */
-export function amountButton(ausd: number, resultingBufferPct: number | undefined, overFree: boolean, mostOfFree = false): string {
-  const to = boughtDistance(resultingBufferPct);
-  return `+${ausd.toLocaleString('en-US')}${to === undefined ? '' : ` → ${to}`}${overFree ? ' ⚠️' : ''}${mostOfFree ? ' · most of free' : ''}`;
+/** An amount as it is said on a button: grouped, with no trailing zeros ("979", "489.5", "1,900"). */
+function plainAmount(amountCNS: bigint, decimals: number): string {
+  const unit = 10n ** BigInt(decimals);
+  const frac = (amountCNS % unit).toString().padStart(decimals, '0').replace(/0+$/, '');
+  return `${(amountCNS / unit).toLocaleString('en-US')}${frac === '' ? '' : `.${frac}`}`;
 }
 
 /**
- * The words beside suggested amounts (`suggestedAmounts.ts`), shared by the
- * alert and View position: which amount is most of the free balance, that the
- * free balance buys almost nothing when it does, and what ⚠️ means.
+ * A TOP-UP'S BUTTON (owner, 10 Oct 2026): `+979 → 2.9% away · 109 free`. The
+ * amount, the distance from liquidation it buys (rounded DOWN), and the free
+ * balance it leaves (rounded DOWN to a whole AUSD: money someone holds). No
+ * "· free" when the free balance is unknown; "still past liquidation" when
+ * even this does not bring it back.
  */
-export function suggestionLines(s: Suggestions, free: FreeBalanceReading, decimals: number): string[] {
-  const lines: string[] = [];
-  const freeText = free.known ? held(free.floorCNS, decimals) : undefined;
-  const most = s.amounts.find((a) => a.mostOfFree);
-  if (most !== undefined && freeText !== undefined) lines.push(`+${most.ausd.toLocaleString('en-US')} is most of your free balance (${freeText}), leaving the rest for fees and the next alert.`);
-  if (s.note !== undefined && freeText !== undefined) {
-    const points = s.note.gain * 100;
-    lines.push(`Your free balance, ${freeText}, would move it ${points < 0.1 ? 'less than 0.1 points' : `only ${(Math.floor(points * 10) / 10).toFixed(1)} points`}, so I'm not offering it as a button.`);
-  }
-  if (s.amounts.some((a) => a.overFree)) lines.push('⚠️ may be more than your free balance. The exchange refuses what you can’t cover.');
-  return lines;
+export function amountButton(amountCNS: bigint, decimals: number, resultingBufferPct: number | undefined, freeAfterCNS: bigint | undefined): string {
+  const to = boughtDistance(resultingBufferPct);
+  const distance = to === undefined ? '' : to === 'still past' ? ' → still past liquidation' : ` → ${to} away`;
+  const unit = 10n ** BigInt(decimals);
+  const free = freeAfterCNS === undefined || freeAfterCNS < 0n ? '' : ` · ${freeAfterCNS > 0n && freeAfterCNS < unit ? 'under 1' : (freeAfterCNS / unit).toLocaleString('en-US')} free`;
+  return `+${plainAmount(amountCNS, decimals)}${distance}${free}`;
+}
+
+/**
+ * The one sentence beside the top-ups (`suggestedAmounts.ts`), shared by the
+ * alert and View position: when what can be spent buys almost nothing, no
+ * top-up is offered and this says why.
+ */
+export function suggestionLines(s: Suggestions, decimals: number): string[] {
+  if (s.note === undefined) return [];
+  if (s.note.spendableCNS <= 0n) return ['There is nothing free to add right now, so I\u2019m not offering a top-up.'];
+  const points = s.note.gain * 100;
+  return [`The ${held(s.note.spendableCNS, decimals)} you can spend would move it ${points < 0.1 ? 'less than 0.1 points' : `only ${(Math.floor(points * 10) / 10).toFixed(1)} points`}, so I\u2019m not offering a top-up.`];
 }
 
 /** Closest to its closing price first; blind ones first of all. */
@@ -153,7 +160,7 @@ export interface PositionInput {
   /** Asked of the ACTING venue. Undefined means it could not be asked. */
   readonly availability: ActionAvailability | undefined;
   /** The suggested amounts (`suggestedAmounts.ts`), each with its action button's data and the distance it buys. */
-  readonly amounts: ReadonlyArray<{ readonly ausd: number; readonly data: string; readonly resultingBufferPct: number | undefined; readonly overFree: boolean; readonly mostOfFree: boolean }>;
+  readonly amounts: ReadonlyArray<{ readonly amountCNS: bigint; readonly data: string; readonly resultingBufferPct: number | undefined; readonly freeAfterCNS: bigint | undefined }>;
   /** The words beside them (`suggestionLines`). */
   readonly amountLines: readonly string[];
   /** Why no amount could be priced, when none could. */
@@ -190,7 +197,7 @@ export function positionScreen(input: PositionInput): Screen {
 
   // One amount to a row (a "most of free" label is long), then 🎛 Custom amount, 🚪 Close position, ← Back.
   // Offered, not hidden: the balance read is a floor, and refusing a real rescue on our own conservative number costs a position.
-  const buttons: Button[][] = input.amounts.map((p) => [{ text: amountButton(p.ausd, p.resultingBufferPct, p.overFree, p.mostOfFree), data: p.data }]);
+  const buttons: Button[][] = input.amounts.map((p) => [{ text: amountButton(p.amountCNS, d, p.resultingBufferPct, p.freeAfterCNS), data: p.data }]);
   buttons.push([{ text: '🎛 Custom amount', data: input.customData }]);
   buttons.push([{ text: '🚪 Close position', route: { to: 'close-pos', marketId: a.marketId } }]);
   buttons.push([back]);
@@ -227,6 +234,8 @@ export interface ConfirmInput {
   readonly cancelData: string;
   /** Things to read before confirming; never refusals. */
   readonly notes?: readonly string[];
+  /** Held back from the free balance: Rescue in flight and the largest armed "minimum remaining". */
+  readonly reservedCNS?: bigint | undefined;
 }
 
 /**
@@ -242,6 +251,7 @@ export function confirmScreen(input: ConfirmInput): Screen {
   const name = assessment === undefined ? esc(action.symbol) : positionName(assessment);
   const d = market?.collateralDecimals;
   const lines: string[] = [];
+  let overSpendable = false;
   if (action.type === 'add-margin') {
     const amount = market === undefined ? `${action.amountCNS} micros of AUSD` : `${wholeOf(action.amountCNS, market)} AUSD`;
     lines.push(`⚠️ <b>Add ${amount} to ${name}?</b>`, '');
@@ -259,9 +269,16 @@ export function confirmScreen(input: ConfirmInput): Screen {
     }
     if (input.free.known) {
       const left = input.free.floorCNS - action.amountCNS;
-      lines.push(left < 0n ? `Free balance: ${held(input.free.floorCNS, d)} → ⚠️ may not cover it. The exchange refuses what you can’t cover.` : `Free balance: ${held(input.free.floorCNS, d)} → ${held(left, d)}`);
-      // The alert's buttons carry "most of free" and ⚠️ only; the words are here, where there is time to read them (owner, 9 Oct 2026).
-      if (left >= 0n && action.amountCNS * 10n >= input.free.floorCNS * MOST_OF_FREE_TENTHS) {
+      // MORE THAN WE CAN SEE AS FREE (owner, 10 Oct 2026): only a typed Custom amount gets here, since no top-up
+      // button is above it. Warned, never refused: our figure is a floor, and the trader may know better.
+      const spendable = input.free.floorCNS - (input.reservedCNS ?? 0n);
+      overSpendable = action.amountCNS > spendable;
+      lines.push(
+        overSpendable
+          ? `⚠️ That's more than the ${held(spendable > 0n ? spendable : 0n, d)} we can see as free — Perpl may reject it. Send anyway?`
+          : `Free balance: ${held(input.free.floorCNS, d)} → ${held(left, d)}`,
+      );
+      if (!overSpendable && action.amountCNS * 10n >= input.free.floorCNS * MOST_OF_FREE_TENTHS) {
         lines.push(`That is most of your free balance, leaving ${held(left, d)} for fees and the next alert.`);
       }
     } else {
@@ -272,11 +289,12 @@ export function confirmScreen(input: ConfirmInput): Screen {
     lines.push(`<b>${esc(action.label)} · ${name}?</b>`);
   }
   if (action.positionId === undefined) lines.push("I don't have this position's id from the exchange, so I can't send anything to it.");
-  for (const note of input.notes ?? []) lines.push(esc(note));
+  // The custom flow's own balance note is the same warning in older words: the line above says it once, in the owner's.
+  for (const note of input.notes ?? []) if (!(note.startsWith('This may be more than your free balance') && input.free.known)) lines.push(esc(note));
   lines.push('', 'Nothing has been sent yet.');
   return {
     html: lines.join('\n'),
-    buttons: [[{ text: '✅ Confirm', data: input.confirmData }, { text: 'Cancel', data: input.cancelData }]],
+    buttons: [[{ text: overSpendable ? '✅ Send anyway' : '✅ Confirm', data: input.confirmData }, { text: 'Cancel', data: input.cancelData }]],
   };
 }
 

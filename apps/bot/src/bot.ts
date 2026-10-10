@@ -70,8 +70,14 @@ import { parseCustomLevels } from '@perpguard/backend/events/warnings';
 import { PendingQuestionStore } from './questions.ts';
 import { killConfirmScreen, killResultScreen, killResumeAskScreen, killResumedScreen, type KillSwitchControl } from './killSwitch.ts';
 import {
+  CLOSE_PERCENTS,
   STOP_ALL_CONFIRM_MS,
+  closeOptionsScreen,
+  closePercentRefusal,
   closePositionConfirmScreen,
+  parseClosePercent,
+  partialCloseConfirmScreen,
+  partialCloseResultScreen,
   closePositionExpiredScreen,
   closePositionResultScreen,
   closeAllResultScreen,
@@ -123,6 +129,7 @@ import {
   renderAmountPrompt,
   validateCustomAmount,
 } from './custom.ts';
+import { partialLots } from '@perpguard/backend/emergency/partial';
 import { pricedOffers } from './offers.ts';
 import { HELP_TEXT, OLD_MENU_TEXT, REFUSAL_TEXT } from './help.ts';
 import type { LinkStore } from './links.ts';
@@ -232,6 +239,8 @@ export interface BotDeps {
   readonly killSwitch?: KillSwitchControl;
   /** 🚪 Close everything, on the 🆘 Emergency screen. Absent: the screen offers the stop only. */
   readonly emergency?: EmergencyControl;
+  /** Held back from an account's free balance: Rescue in flight and the largest armed "minimum remaining". Absent: nothing. */
+  readonly reserved?: (accountId: number) => bigint;
   readonly now?: () => number;
   /**
    * Supplied to skip grammY's `getMe` call.
@@ -327,6 +336,25 @@ export function createBot(deps: BotDeps): Bot {
   const retryRequests = new Map<string, string>();
   /** 🚪 Close position: the request each confirmation stands for, by chat, person and market; minted when shown, run at most once. */
   const closePosRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
+  /**
+   * 🚪 Close part of a position: what each confirmation stands for (the request, the exact size units and the
+   * position it was shown for), by chat, person and market; minted when shown, run at most once.
+   */
+  const closePartRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number; readonly closeLNS: bigint; readonly positionId: number; readonly sizeLNS: bigint }>();
+  /**
+   * The partial close's confirmation for `pct` of the position on `marketId`, with its request MINTED NOW; or why
+   * that percentage cannot be a partial close of it. Shared by the three buttons and the typed percentage.
+   */
+  function partialCloseConfirm(accountId: number, who: string, marketId: number, pct: number): { readonly screen: Screen } | { readonly refusal: string } | { readonly whole: true } | { readonly unseen: true } {
+    const emergency = deps.emergency;
+    const position = emergency?.preview(accountId)?.find((x) => x.marketId === marketId);
+    if (emergency === undefined || position === undefined) return { unseen: true };
+    const size = partialLots(position.sizeLNS, pct);
+    if (!size.ok) return size.why === 'whole' ? { whole: true } : { refusal: closePercentRefusal(position, pct, size.why) };
+    closePartRequests.set(`${who}:${marketId}`, { requestId: newRequestId(), shownAtMs: now(), closeLNS: size.closeLNS, positionId: position.positionId, sizeLNS: position.sizeLNS });
+    const autoOn = (deps.rescue?.rules(accountId) ?? []).some((r) => r.marketId === marketId && r.enabled);
+    return { screen: partialCloseConfirmScreen({ position, pct, closeLNS: size.closeLNS, remainLNS: size.remainLNS, estimate: emergency.estimatePartial?.(accountId, marketId, size.closeLNS), autoOn }) };
+  }
   /** 🆘 Stop everything: the request each chat's cost screen confirms, minted when it was shown, run at most once. */
   const stopAllRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
@@ -750,6 +778,46 @@ export function createBot(deps: BotDeps): Bot {
     if (commandOf(text) !== undefined) return;
 
     const question = questions.peek(chatId, telegramUserId);
+    if (question?.kind === 'close-percent') {
+      const verdict = authorise(deps.links, telegramUserId, chatId);
+      if (!verdict.ok) {
+        questions.close(chatId, telegramUserId);
+        await ctx.reply(verdict.text);
+        return;
+      }
+      const again = { reply_markup: { force_reply: true as const, input_field_placeholder: '40' } };
+      const parsed = parseClosePercent(text);
+      if ('error' in parsed) {
+        await ctx.reply(parsed.error, again);
+        return;
+      }
+      const who = `${chatId}:${telegramUserId}`;
+      const built = partialCloseConfirm(verdict.link.accountId, who, question.marketId, parsed.pct);
+      if ('refusal' in built) {
+        // Rejected, with what would work: the question stays open for another figure.
+        await ctx.reply(built.refusal, { ...again, parse_mode: 'HTML' });
+        return;
+      }
+      questions.close(chatId, telegramUserId);
+      if ('screen' in built) {
+        await sendScreen(ctx, badged(deps, built.screen));
+        return;
+      }
+      // 100 is the whole position, which keeps its own confirmation; a position that cannot be seen is said so.
+      const emergency = deps.emergency;
+      const position = emergency?.preview(verdict.link.accountId)?.find((x) => x.marketId === question.marketId);
+      if ('whole' in built && emergency?.closePosition !== undefined && position !== undefined) {
+        const assessment = deps.sessions.forAccount(verdict.link.accountId)?.view.snapshot().find((x) => x.marketId === question.marketId);
+        const market = deps.configs.get(question.marketId);
+        const markText = assessment === undefined || market === undefined || assessment.markPricePNS <= 0n ? undefined : formatPricePNS(assessment.markPricePNS, market);
+        const autoOn = (deps.rescue?.rules(verdict.link.accountId) ?? []).some((r) => r.marketId === question.marketId && r.enabled);
+        closePosRequests.set(`${who}:${question.marketId}`, { requestId: newRequestId(), shownAtMs: now() });
+        await sendScreen(ctx, badged(deps, closePositionConfirmScreen({ position, markText, autoOn, marketId: question.marketId })));
+        return;
+      }
+      await sendScreen(ctx, badged(deps, closeOptionsScreen({ position: undefined, marketId: question.marketId, percents: [] })));
+      return;
+    }
     if (question?.kind === 'alert-distance') {
       const verdict = authorise(deps.links, telegramUserId, chatId);
       if (!verdict.ok) {
@@ -1059,7 +1127,13 @@ export function createBot(deps: BotDeps): Bot {
       case 'close-retry':
       case 'close-retry-go':
       case 'close-pos':
+      case 'close-pos-all':
       case 'close-pos-go':
+      case 'close-pos-25':
+      case 'close-pos-50':
+      case 'close-pos-75':
+      case 'close-pos-pct':
+      case 'close-part-go':
         await killNav(ctx, route);
         return;
       default:
@@ -1110,10 +1184,10 @@ export function createBot(deps: BotDeps): Bot {
         const free = account.balance.freeBalance();
         // SIZED TO DISTANCES (owner, 9 Oct 2026; `suggestedAmounts.ts`), each priced by the engine NOW, so its
         // button shows the distance it buys and the confirmation's after-figures are this position's.
-        const priced = canPrice ? pricedOffers({ view, assessment, market, alertPct: settings.get(account.accountId).alertPct, free, bufferDecimals: alerts.bufferDecimals }) : undefined;
-        const amounts = (priced?.offers ?? []).map(({ amount, action }) => ({ ausd: amount.ausd, data: mint(action, kind), resultingBufferPct: action.resultingBufferPct, overFree: amount.overFree, mostOfFree: amount.mostOfFree }));
+        const priced = canPrice ? pricedOffers({ view, assessment, market, alertPct: settings.get(account.accountId).alertPct, free, reservedCNS: deps.reserved?.(account.accountId), bufferDecimals: alerts.bufferDecimals }) : undefined;
+        const amounts = (priced?.offers ?? []).map(({ amount, action }) => ({ amountCNS: amount.amountCNS, data: mint(action, kind), resultingBufferPct: action.resultingBufferPct, freeAfterCNS: amount.freeAfterCNS }));
         const custom: AlertAction = { type: 'add-margin', intent: 'custom', marketId: assessment.marketId, symbol: assessment.symbol, positionId: assessment.positionId, ...(assessment.accountId === undefined ? {} : { accountId: assessment.accountId }), amountCNS: 0n, label: 'Custom amount' };
-        await showScreen(ctx, positionScreen({ assessment, market, free, feed: view.feedStatus(), positions: view.positionsStatus(), availability, amounts, amountLines: priced === undefined ? [] : suggestionLines(priced.suggestions, free, market.collateralDecimals), unpricedReason: priced?.unpricedReason, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
+        await showScreen(ctx, positionScreen({ assessment, market, free, feed: view.feedStatus(), positions: view.positionsStatus(), availability, amounts, amountLines: priced === undefined ? [] : suggestionLines(priced.suggestions, market.collateralDecimals), unpricedReason: priced?.unpricedReason, customData: mint(custom, kind === 'act' ? 'custom' : 'blocked') }));
         return;
       }
       case 'rescue':
@@ -1240,7 +1314,55 @@ export function createBot(deps: BotDeps): Bot {
         return;
       }
       case 'close-pos': {
-        // 🚪 CLOSE POSITION: the cost first, never a send on this tap. The request is minted NOW.
+        // 🚪 CLOSE POSITION: how much. Nothing is minted or sent here; each choice leads to its own confirmation.
+        const emergency = deps.emergency;
+        if (emergency?.closePosition === undefined) return answer(ctx, "Closing isn't available here.");
+        const position = emergency.preview(accountId)?.find((x) => x.marketId === route.marketId);
+        const canPart = emergency.reducePosition !== undefined;
+        const percents = position === undefined || !canPart ? [] : CLOSE_PERCENTS.filter((pct) => partialLots(position.sizeLNS, pct).ok);
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, closeOptionsScreen({ position, marketId: route.marketId, percents }));
+        return;
+      }
+      case 'close-pos-25':
+      case 'close-pos-50':
+      case 'close-pos-75': {
+        if (deps.emergency?.reducePosition === undefined) return answer(ctx, "Closing part of a position isn't available here.");
+        const pct = route.to === 'close-pos-25' ? 25 : route.to === 'close-pos-50' ? 50 : 75;
+        const built = partialCloseConfirm(accountId, who, route.marketId, pct);
+        if ('refusal' in built) return answer(ctx, built.refusal.replace(/<[^>]+>/g, ''));
+        await ctx.answerCallbackQuery();
+        if ('screen' in built) await showScreen(ctx, built.screen);
+        else await showScreen(ctx, closeOptionsScreen({ position: undefined, marketId: route.marketId, percents: [] }));
+        return;
+      }
+      case 'close-pos-pct': {
+        if (deps.emergency?.reducePosition === undefined) return answer(ctx, "Closing part of a position isn't available here.");
+        await ctx.answerCallbackQuery();
+        questions.ask(chatId, telegramUserId, { kind: 'close-percent', marketId: route.marketId });
+        await ctx.reply('What percentage of the position do you want to close? Send a number from 1 to 100, like 40.', { reply_markup: { force_reply: true, input_field_placeholder: '40' } });
+        return;
+      }
+      case 'close-part-go': {
+        const emergency = deps.emergency;
+        const key = `${who}:${route.marketId}`;
+        const pending = closePartRequests.get(key);
+        if (emergency?.reducePosition === undefined || pending === undefined) return answer(ctx, 'That close was already sent, or has expired. Nothing new was sent.');
+        // Taken first: a second tap finds nothing and sends nothing. NEVER RE-SENT.
+        closePartRequests.delete(key);
+        if (now() - pending.shownAtMs > STOP_ALL_CONFIRM_MS) {
+          await ctx.answerCallbackQuery();
+          await showScreen(ctx, closePositionExpiredScreen(route.marketId));
+          return;
+        }
+        await ctx.answerCallbackQuery({ text: 'Closing…' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+        const report = await emergency.reducePosition(accountId, route.marketId, pending.closeLNS, { positionId: pending.positionId, sizeLNS: pending.sizeLNS }, pending.requestId, by);
+        await sendScreen(ctx, partialCloseResultScreen(report, route.marketId));
+        return;
+      }
+      case 'close-pos-all': {
+        // 🚪 CLOSE ALL OF IT: the cost first, never a send on this tap. The request is minted NOW.
         const emergency = deps.emergency;
         if (emergency?.closePosition === undefined) return answer(ctx, "Closing isn't available here.");
         const position = emergency.preview(accountId)?.find((x) => x.marketId === route.marketId);
@@ -1643,6 +1765,7 @@ function confirmFor(deps: BotDeps, account: AccountView, pending: PendingAction,
     confirmData: data('confirm'),
     cancelData: data('cancel'),
     notes,
+    reservedCNS: deps.reserved?.(account.accountId),
   }));
 }
 

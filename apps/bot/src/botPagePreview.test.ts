@@ -36,7 +36,7 @@ test('THE /bot PREVIEW’S BUTTONS ARE THE REAL ONES: the amounts are what sugge
     // A top-up moves the distance by amount ÷ notional, as the engine's projection does.
     project: (amountCNS) => i.liqBufferPct + Number(amountCNS) / 1e6 / i.notionalAusd,
   });
-  const rows = s.amounts.map((a) => [amountButton(a.ausd, a.resultingBuffer, a.overFree, a.mostOfFree)]);
+  const rows = s.amounts.map((a) => [amountButton(a.amountCNS, 6, a.resultingBuffer, a.freeAfterCNS)]);
   assert.deepEqual(rows, [[...ALERT_EXAMPLE.keyboard[0]], [...ALERT_EXAMPLE.keyboard[1]]]);
   // The other labels are literals in the alert's keyboard; the page uses them as written there.
   const source = readFileSync(new URL('./manualAlert.ts', import.meta.url), 'utf8');

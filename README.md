@@ -31,9 +31,9 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 
 **Watch, for anyone.** Send it any mainnet address or account number. It re-reads the account every 30 seconds and warns at the distances you choose (Standard: 10% and 5% from liquidation). It also reports liquidations and large trades above thresholds you set. Watched accounts get words only. There is nothing to press.
 
-**Act, for a linked account.** Link your Perpl account at [perpguard.app/link](https://perpguard.app/link). At your alert distance (5% by default, or 2, 3, 5, 8, 10%, or anything from 0.5% to 20%) the bot sends one message per position per crossing, with two suggested top-ups and a custom amount. Each amount shows the distance from liquidation it buys. Tapping one shows the margin, liquidation price, distance and free balance before and after. Nothing is sent until you confirm.
+**Act, for a linked account.** Link your Perpl account at [perpguard.app/link](https://perpguard.app/link). At your alert distance (5% by default, or 2, 3, 5, 8, 10%, or anything from 0.5% to 20%) the bot sends one message per position per crossing, with up to two top-ups that fit the free balance and a custom amount. Each amount shows the distance from liquidation it buys. Tapping one shows the margin, liquidation price, distance and free balance before and after. Nothing is sent until you confirm.
 
-📊 My positions shows one button per position, closest to liquidation first. 🚪 Close position is on each position's own screen, behind a confirmation showing what the close would realise.
+📊 My positions shows one button per position, closest to liquidation first. 🚪 Close position is on each position's own screen: it offers 25%, 50%, 75%, a custom percentage or closing everything, each behind a confirmation showing what the close would realise.
 
 🤖 Rescue is off until you turn it on. It adds margin by itself at your alert distance, for one position at a time, and only after you arm it with a tap in the linked chat.
 
@@ -151,7 +151,7 @@ pnpm test        # node:test across every package and app
 pnpm typecheck
 ```
 
-1,563 tests, all passing on 9 Oct 2026. CI runs both and a clean web build on every push.
+1,593 tests, all passing on 10 Oct 2026. CI runs both and a clean web build on every push.
 
 ## After the hackathon
 

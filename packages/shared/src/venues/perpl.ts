@@ -30,8 +30,10 @@ import {
   type OrderUpdateEntry,
 } from './perpl-orders.ts';
 import {
+  decreaseFillOf,
   exitPriceOf,
   parsePositionFrame,
+  positionIdOf,
   type PerplPosition,
   type PositionEntry,
 } from './perpl-positions.ts';
@@ -419,6 +421,18 @@ export class PerplVenue implements Venue {
     const raw = this.#cached?.context.markets.find((m) => m.id === marketId);
     if (row === undefined || raw === undefined) return undefined;
     return exitPriceOf(row, toVenueMarket(raw, this.network.name));
+  }
+
+  /**
+   * What the last REDUCE of an open position filled at, from that position's
+   * own row on the stream, in the wire's integers (price and size in the
+   * market's scaling, fee in collateral micros). Undefined when the row does
+   * not carry it. For saying what a partial close realised; whether the
+   * position shrank is the position list's question, never this one's.
+   */
+  lastDecreaseFill(positionId: number): { readonly exitPriceRaw: number; readonly closedRaw: number; readonly feeMicros: bigint | undefined } | undefined {
+    const row = this.#socket?.positions.find((entry) => positionIdOf(entry) === positionId);
+    return row === undefined ? undefined : decreaseFillOf(row);
   }
 
   /** Close both sockets, if they were opened. */

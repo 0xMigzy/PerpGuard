@@ -176,7 +176,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · position</figcaption>
       <div class="chat"><div class="bubble">testnet<br>🔴 <b>BTC long · 2.7% from liquidation</b><br>Margin <b>2,810 AUSD</b> · liquidation at 81,770.1<br>Free balance <b>10,000 AUSD</b> · unrealised −12 AUSD</div>
-      <div class="row"><span class="btn">+1,900 → 7.1%</span></div><div class="row"><span class="btn">+3,100 → 10%</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">🚪 Close position</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="row"><span class="btn">+1,900 → 7.1% away · 8,100 free</span></div><div class="row"><span class="btn">+950 → 4.9% away · 9,050 free</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">🚪 Close position</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -223,8 +223,8 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · close-pos</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close BTC long?</b><br><br>Size <b>0.5</b> · price now 84,007.3<br>You realise <b>−12 AUSD</b> (a loss) at today’s price.<br>It closes at whatever price it gets, so the real figure will differ.<br><br>I'll read the result from your positions afterwards, not from the exchange's receipt.</div>
-      <div class="row"><span class="btn">🚪 Yes, close BTC long</span></div><div class="row"><span class="btn">Cancel</span></div>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>CLOSE BTC long</b><br><br>Size <b>0.5</b> · unrealised −12 AUSD<br>How much of it do you want to close? I’ll show you the figures before anything is sent.</div>
+      <div class="row"><span class="btn">25%</span><span class="btn">50%</span><span class="btn">75%</span></div><div class="row"><span class="btn">Close all</span></div><div class="row"><span class="btn">🎛 Custom %</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -241,50 +241,86 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-on-next</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · alert-custom</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-pos-25</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close 25% of BTC long?</b><br><br>Size: <b>0.5</b> → <b>0.375</b> (closing 0.125)<br>Estimated realised P&L: <b>−3 AUSD</b> (a loss)<br>Estimated fee: <b>4 AUSD</b><br>It fills at whatever price it gets, so the real figures will differ.<br><br>🤖 Auto top-up stays on for this position.<br><br>I'll read the new size from your positions afterwards, not from the exchange's receipt.</div>
+      <div class="row"><span class="btn">✅ Confirm</span><span class="btn">✖ Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-pos-50</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close 50% of BTC long?</b><br><br>Size: <b>0.5</b> → <b>0.25</b> (closing 0.25)<br>Estimated realised P&L: <b>−6 AUSD</b> (a loss)<br>Estimated fee: <b>8 AUSD</b><br>It fills at whatever price it gets, so the real figures will differ.<br><br>🤖 Auto top-up stays on for this position.<br><br>I'll read the new size from your positions afterwards, not from the exchange's receipt.</div>
+      <div class="row"><span class="btn">✅ Confirm</span><span class="btn">✖ Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-pos-75</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close 75% of BTC long?</b><br><br>Size: <b>0.5</b> → <b>0.125</b> (closing 0.375)<br>Estimated realised P&L: <b>−9 AUSD</b> (a loss)<br>Estimated fee: <b>11 AUSD</b><br>It fills at whatever price it gets, so the real figures will differ.<br><br>🤖 Auto top-up stays on for this position.<br><br>I'll read the new size from your positions afterwards, not from the exchange's receipt.</div>
+      <div class="row"><span class="btn">✅ Confirm</span><span class="btn">✖ Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-pos-all</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close BTC long?</b><br><br>Size <b>0.5</b> · price now 84,007.3<br>You realise <b>−12 AUSD</b> (a loss) at today’s price.<br>It closes at whatever price it gets, so the real figure will differ.<br><br>🤖 Auto top-up is on for this position. I’ll turn it off first, so nothing is added while it closes.<br><br>I'll read the result from your positions afterwards, not from the exchange's receipt.</div>
+      <div class="row"><span class="btn">🚪 Yes, close BTC long</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-pos-pct</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>Close BTC long?</b><br><br>Size <b>0.5</b> · price now 84,007.3<br>You realise <b>−12 AUSD</b> (a loss) at today’s price.<br>It closes at whatever price it gets, so the real figure will differ.<br><br>🤖 Auto top-up is on for this position. I’ll turn it off first, so nothing is added while it closes.<br><br>I'll read the result from your positions afterwards, not from the exchange's receipt.</div>
+      <div class="row"><span class="btn">🚪 Yes, close BTC long</span></div><div class="row"><span class="btn">Cancel</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · rescue-amt-custom</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:34.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · close-part-go</figcaption>
+      <div class="chat"><div class="bubble">testnet<br>🚪 <b>CLOSE POSITION</b><br><br>That position is no longer open, so nothing was sent.</div>
+      <div class="row"><span class="btn">📊 My positions</span><span class="btn">🏠 Menu</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · close-pos-go</figcaption>
       <div class="chat"><div class="bubble">testnet<br>🚪 <b>CLOSE POSITION</b><br><br>That position is no longer open, so nothing was sent.</div>
       <div class="row"><span class="btn">📊 My positions</span><span class="btn">🏠 Menu</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
-      <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
-      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
-      <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
-      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
-      <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
-      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
-      <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
-      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
-      </div>
-    </figure>
-    <figure class="phone">
-      <figcaption>Owner · rescue-amt-custom</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 9 Oct, 13:05.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
-      <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure></div>
 </div></body></html>

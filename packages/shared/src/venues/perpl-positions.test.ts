@@ -301,3 +301,16 @@ test('the decoded position feeds the risk engine unchanged', () => {
   assert.equal(risk.fundingCNS, 0n);
   assert.equal(risk.side, 'long');
 });
+
+test('A REDUCE’S FILL, off the recorded testnet reduce (3 units to 2): size closed, exit price and closing fee from the row’s own event', async () => {
+  const { decreaseFillOf } = await import('./perpl-positions.ts');
+  const probe = JSON.parse(readFileSync(new URL('../../../../fixtures/close-probe-testnet.json', import.meta.url), 'utf8')) as { frames: Array<{ d?: Array<Record<string, unknown>> }> };
+  const rows = probe.frames.flatMap((f) => f.d ?? []);
+  const reduced = rows.find((r) => r['sr'] === 14 && r['st'] === 1)!;
+  assert.deepEqual(decreaseFillOf(reduced), { exitPriceRaw: 831977, closedRaw: 1, feeMicros: 288n });
+  // An open row that was not a decrease, and a closed row, carry no reduce fill.
+  for (const other of rows.filter((r) => r !== reduced)) assert.equal(decreaseFillOf(other), undefined);
+  // A snapshot of the same position has no events: nothing is guessed.
+  assert.equal(decreaseFillOf({ ...reduced, e: [] }), undefined);
+  assert.equal(decreaseFillOf({ ...reduced, e: undefined }), undefined);
+});

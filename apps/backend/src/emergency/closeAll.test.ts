@@ -24,7 +24,7 @@ class Exchange implements CloseAllAccount {
     this.events.push(`close ${c.symbol} ${c.idempotencyKey}`);
     await new Promise((r) => setTimeout(r, 2));
     const p = this.list?.find((x) => x.positionId === c.positionId);
-    const filled = this.fill.get(c.positionId!) ?? p?.sizeLNS ?? 0n;
+    const filled = this.fill.get(c.positionId!) ?? (c.kind === 'reduce-position' ? c.sizeLNS : p?.sizeLNS) ?? 0n;
     if (p !== undefined && this.list !== undefined) {
       const left = p.sizeLNS - filled;
       this.list = left <= 0n ? this.list.filter((x) => x !== p) : this.list.map((x) => (x === p ? { ...x, sizeLNS: left } : x));
@@ -38,6 +38,11 @@ class Exchange implements CloseAllAccount {
   }
   exitPrice(): number | undefined {
     return 85_102;
+  }
+  /** What the reduced position's row reports as the fill; a test sets it, or leaves it unreported. */
+  reported: { closedLNS: bigint; exitPricePNS: bigint; feeCNS: bigint | undefined } | undefined;
+  reduceFill(): { fill: { exitPricePNS: bigint; closedLNS: bigint; feeCNS: bigint | undefined }; entryPricePNS: bigint; scale: { priceDecimals: number; lotDecimals: number; collateralDecimals: number } } | undefined {
+    return this.reported === undefined ? undefined : { fill: this.reported, entryPricePNS: 840_000n, scale: { priceDecimals: 1, lotDecimals: 3, collateralDecimals: 6 } };
   }
 }
 
@@ -196,4 +201,91 @@ test('🚪 CLOSE POSITION judges by the LIST, never the receipt: an "applied" re
   const report = await service.closePosition(710, 16, 'req-3', 'tg:1');
   assert.equal(report.kind === 'ran' && report.verified.results[0]!.kind, 'still-open');
   assert.match(report.kind === 'ran' && report.verified.results[0]!.kind === 'still-open' ? report.verified.results[0]!.why : '', /reported a fill, but the position is still there/);
+});
+
+// ── 🚪 close part of a position (owner, 10 Oct 2026) ────────────────────────
+
+const HALF = { positionId: 1, sizeLNS: 2_000n };
+
+test('CLOSE PART: one reduce for exactly the size asked, with its own key; automation is NOT stopped; the new size is read back from the position', async () => {
+  const r = rig([BTC(), ETH()]);
+  r.ex.reported = { closedLNS: 1_000n, exitPricePNS: 830_000n, feeCNS: 286_350n };
+  const report = await r.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1');
+  assert.deepEqual(r.ex.events, ['close BTC reduce:710:p1:1'], 'no STOP, one order');
+  assert.ok(report.kind === 'ran');
+  assert.deepEqual(report.result, { kind: 'reduced', beforeLNS: 2_000n, afterLNS: 1_000n, closedLNS: 1_000n, asAsked: true });
+  // Long from 84,000.0 out at 83,000.0 on 1.000: −1,000 AUSD, from the exchange's own fill.
+  assert.equal(report.realisedCNS, -1_000_000_000n);
+  assert.equal(report.feeCNS, 286_350n);
+  assert.equal(r.ex.list!.find((x) => x.positionId === 2)!.sizeLNS, 310n, 'the other position is untouched');
+  assert.equal(r.store.runs.length, 1, 'recorded');
+});
+
+test('CLOSE PART IS JUDGED BY THE POSITION, NOT THE RECEIPT: a "confirmed" receipt with an unchanged position is not a success', async () => {
+  const r = rig([BTC()]);
+  r.ex.fill.set(1, 0n);
+  const report = await r.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1');
+  assert.ok(report.kind === 'ran');
+  assert.equal(report.result.kind, 'unchanged');
+  assert.equal(report.realisedCNS, undefined);
+});
+
+test('CLOSE PART: a different amount landed than was asked: said as it is, and the fill is only quoted when it matches what the position shows', async () => {
+  const r = rig([BTC()]);
+  r.ex.fill.set(1, 400n);
+  r.ex.reported = { closedLNS: 1_000n, exitPricePNS: 830_000n, feeCNS: 1n };
+  const report = await r.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1');
+  assert.ok(report.kind === 'ran');
+  assert.deepEqual(report.result, { kind: 'reduced', beforeLNS: 2_000n, afterLNS: 1_600n, closedLNS: 400n, asAsked: false });
+  assert.equal(report.realisedCNS, undefined, 'a fill of another size is not this reduce’s fill');
+});
+
+test('CLOSE PART: no fill reported (a reconnect erased the row’s event): the new size is still reported, the realised figure is not invented', async () => {
+  const r = rig([BTC()]);
+  const report = await r.service.reducePosition(710, 16, 500n, HALF, 'p1', 'tg:1');
+  assert.ok(report.kind === 'ran' && report.result.kind === 'reduced');
+  assert.equal(report.result.afterLNS, 1_500n);
+  assert.equal(report.realisedCNS, undefined);
+});
+
+test('CLOSE PART RUNS ONCE: the same request again sends nothing and replays the result; a run in flight blocks another', async () => {
+  const r = rig([BTC()]);
+  const [first, second] = await Promise.all([r.service.reducePosition(710, 16, 500n, HALF, 'p1', 'tg:1'), r.service.reducePosition(710, 16, 500n, HALF, 'p2', 'tg:1')]);
+  assert.equal(first.kind, 'ran');
+  assert.equal(second.kind, 'already-running');
+  const again = await r.service.reducePosition(710, 16, 500n, HALF, 'p1', 'tg:1');
+  assert.ok(again.kind === 'ran' && again.replayed);
+  assert.equal(r.ex.events.length, 1, 'one order in all');
+});
+
+test('CLOSE PART SENDS NOTHING when the position changed since the confirmation, is gone, cannot be seen, or the size is not a partial close', async () => {
+  const changed = rig([pos('BTC', 16, 1, 1_500n)]);
+  assert.deepEqual(await changed.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1'), { kind: 'nothing-sent', why: 'changed' });
+  const reopened = rig([pos('BTC', 16, 9, 2_000n)]);
+  assert.deepEqual(await reopened.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1'), { kind: 'nothing-sent', why: 'changed' });
+  const flat = rig([ETH()]);
+  assert.deepEqual(await flat.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1'), { kind: 'nothing-sent', why: 'already-flat' });
+  const blind = rig([BTC()]);
+  blind.ex.list = undefined;
+  assert.deepEqual(await blind.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1'), { kind: 'nothing-sent', why: 'cannot-see' });
+  for (const size of [0n, 2_000n, 2_500n]) {
+    const r = rig([BTC()]);
+    assert.deepEqual(await r.service.reducePosition(710, 16, size, HALF, 'p1', 'tg:1'), { kind: 'nothing-sent', why: 'too-small' });
+    assert.equal(r.ex.events.length, 0);
+  }
+  for (const r of [changed, reopened, flat, blind]) assert.equal(r.ex.events.length, 0, 'nothing sent');
+});
+
+test('CLOSE PART: a refusal never went out, so it is reported unchanged at once; the position going entirely is said as gone, never as a partial close', async () => {
+  const refused = rig([BTC()]);
+  refused.ex.receipt.set(1, 'refused');
+  refused.ex.fill.set(1, 0n);
+  const a = await refused.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1');
+  assert.ok(a.kind === 'ran' && a.result.kind === 'unchanged');
+  assert.match((a.result as { why: string }).why, /did not go out/);
+  const gone = rig([BTC()]);
+  gone.ex.fill.set(1, 2_000n);
+  const b = await gone.service.reducePosition(710, 16, 1_000n, HALF, 'p1', 'tg:1');
+  assert.ok(b.kind === 'ran');
+  assert.deepEqual(b.result, { kind: 'gone', beforeLNS: 2_000n });
 });

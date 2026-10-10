@@ -170,7 +170,7 @@ const GROUP_OF: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(home|\/start|\/help|chatter|dismiss)$/, '1. Start, home and help'],
   [/^(account|connect|connect-go|connect-key|disconnect-ask|disconnect|\/link)$/, '2. Linking and the Trading account'],
   [/^(watch-menu|watch-ask|watch-ask answer|watch-id|watchlist|wallets|wallet|star|unstar|unwatch|liq|liq-set|big|big-set|warn-levels|warn-preset|warn-custom|alert-settings|wallet-alerts|\/watch.*|pasted .*|bare number)$/, '3. Watch & Alerts (watch tier)'],
-  [/^(positions|position|action:.*|typed amount.*)$/, '4. My positions and adding margin'],
+  [/^(positions|position|action:.*|typed amount.*|close-pos.*|close-part.*|typed close percent.*)$/, '4. My positions and adding margin'],
   [/^(rescue.*)$/, '5. Rescue'],
   [/^(settings|warn-ask|warn-set|alert-custom|typed alert distance.*)$/, '6. Settings'],
   [/^(kill.*|stop-all.*|close-.*)$/, '7. Kill switch'],
@@ -603,7 +603,10 @@ const allRoutes = [...codeTable.matchAll(/^\s+'?([a-z0-9-]+)'?: '[a-z0-9]+',$/gm
 const botSource = readFileSync(join(ROOT, 'apps/bot/src/bot.ts'), 'utf8');
 const commands = [...botSource.matchAll(/bot\.command\('([a-z]+)'/g)].map((m) => `/${m[1]}`);
 const questionKinds = [...readFileSync(join(ROOT, 'apps/bot/src/questions.ts'), 'utf8').matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1]!);
-const coveredQuestions = new Set(['watch-target', 'warning-levels', 'alert-distance', 'rescue-amount']);
+await typed(WHO.owner, 'typed close percent', 'linked testnet', '40', [encodeNav({ to: 'close-pos', marketId: M }), encodeNav({ to: 'close-pos-pct', marketId: M })], 'answer the Custom % question with 40');
+await typed(WHO.owner, 'typed close percent (refused)', 'linked testnet', '150', [encodeNav({ to: 'close-pos', marketId: M }), encodeNav({ to: 'close-pos-pct', marketId: M })], 'answer it with 150 (out of range)');
+await typed(WHO.owner, 'typed close percent (all of it)', 'linked testnet', '100', [encodeNav({ to: 'close-pos', marketId: M }), encodeNav({ to: 'close-pos-pct', marketId: M })], 'answer it with 100 (the whole position)');
+const coveredQuestions = new Set(['watch-target', 'warning-levels', 'alert-distance', 'rescue-amount', 'close-percent']);
 const flowRoutes = new Set(['rescue-amt', 'rescue-limits', 'rescue-lim', 'rescue-on', 'rescue-stop', 'kill-stop', 'kill-resume', 'kill-resume-ask', 'kill-confirm', 'stop-all', 'stop-all-go']);
 const gaps: string[] = [];
 /**

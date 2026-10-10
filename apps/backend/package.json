@@ -20,7 +20,8 @@
     "./events/preferences": "./src/events/preferences.ts",
     "./events/warnings": "./src/events/warnings.ts",
     "./manual/distance": "./src/manual/distance.ts",
-    "./copy/replay": "./src/copy/replay.ts"
+    "./copy/replay": "./src/copy/replay.ts",
+    "./emergency/partial": "./src/emergency/partial.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

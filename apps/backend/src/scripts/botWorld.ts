@@ -118,6 +118,13 @@ export function build(options: { readonly link?: boolean; readonly resolver?: bo
       closeOne: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
       // 🚪 Close position (back 8 Oct 2026): without it the map stopped at "Closing isn't available here" and never reached the confirm.
       closePosition: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
+      // 🚪 Close part (10 Oct 2026): estimated from the sample position, so the map and the screens show the confirmation.
+      estimatePartial: (_accountId: number, marketId: number, closeLNS: bigint) => {
+        const a = view.assessments.find((x) => x.marketId === marketId);
+        const size = a?.lotLNS ?? 0n;
+        return { realisedCNS: a === undefined || size <= 0n ? undefined : (a.metrics.unrealisedPnlCNS * closeLNS) / size, feeCNS: a === undefined ? undefined : (a.metrics.notionalCNS * closeLNS * 345n) / (size <= 0n ? 1n : size) / 1_000_000n };
+      },
+      reducePosition: async () => ({ kind: 'nothing-sent' as const, why: 'already-flat' as const }),
     },
     killSwitch: {
       stopped: (id) => automation.automationStopped(id),

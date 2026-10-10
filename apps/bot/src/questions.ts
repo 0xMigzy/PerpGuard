@@ -21,7 +21,9 @@ export type Question =
   /** 🛟 A custom rescue amount, in AUSD. */
   | { readonly kind: 'rescue-amount' }
   /** 🔔 A custom alert distance, in percent. */
-  | { readonly kind: 'alert-distance' };
+  | { readonly kind: 'alert-distance' }
+  /** 🚪 A custom share of one position to close, in percent (1 to 100). */
+  | { readonly kind: 'close-percent'; readonly marketId: number };
 
 interface Parked {
   readonly question: Question;

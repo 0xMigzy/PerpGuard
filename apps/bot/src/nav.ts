@@ -83,9 +83,20 @@ export type Route =
   | { readonly to: 'stop-all-go' }
   | { readonly to: 'close-retry'; readonly marketId: number }
   | { readonly to: 'close-retry-go'; readonly marketId: number }
-  /** 🚪 Close position, from View position: the cost, then a tap. Its request id is minted when the cost is shown. */
+  /**
+   * 🚪 Close position (owner, 10 Oct 2026): `close-pos` is the OPTIONS (25%, 50%, 75%, Close all,
+   * Custom %). `close-pos-all` is the full close's cost screen and `close-pos-go` its tap; the
+   * three percentages and `close-pos-pct` (typed) lead to the partial close's confirmation, and
+   * `close-part-go` runs it. Every request id is minted when its confirmation is shown.
+   */
   | { readonly to: 'close-pos'; readonly marketId: number }
+  | { readonly to: 'close-pos-all'; readonly marketId: number }
   | { readonly to: 'close-pos-go'; readonly marketId: number }
+  | { readonly to: 'close-pos-25'; readonly marketId: number }
+  | { readonly to: 'close-pos-50'; readonly marketId: number }
+  | { readonly to: 'close-pos-75'; readonly marketId: number }
+  | { readonly to: 'close-pos-pct'; readonly marketId: number }
+  | { readonly to: 'close-part-go'; readonly marketId: number }
   | { readonly to: 'settings' }
   | { readonly to: 'warn-ask' }
   | { readonly to: 'warn-set'; readonly level: number }
@@ -163,7 +174,13 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'close-retry': 'xr',
   'close-retry-go': 'xg',
   'close-pos': 'pc',
+  'close-pos-all': 'pca',
   'close-pos-go': 'pcg',
+  'close-pos-25': 'pq1',
+  'close-pos-50': 'pq2',
+  'close-pos-75': 'pq3',
+  'close-pos-pct': 'pcp',
+  'close-part-go': 'pcr',
   settings: 's',
   'warn-ask': 'sw',
   'warn-set': 'sv',
@@ -195,7 +212,13 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'close-retry': 'marketId',
   'close-retry-go': 'marketId',
   'close-pos': 'marketId',
+  'close-pos-all': 'marketId',
   'close-pos-go': 'marketId',
+  'close-pos-25': 'marketId',
+  'close-pos-50': 'marketId',
+  'close-pos-75': 'marketId',
+  'close-pos-pct': 'marketId',
+  'close-part-go': 'marketId',
 };
 
 /**

@@ -29,6 +29,8 @@ export function pricedOffers(o: {
   /** The account's alert distance, percent. */
   readonly alertPct: number;
   readonly free: FreeBalanceReading;
+  /** Held back from the free balance: Rescue in flight and the largest armed "minimum remaining". */
+  readonly reservedCNS?: bigint | undefined;
   readonly bufferDecimals: number;
 }): PricedOffers {
   const { assessment: a, market } = o;
@@ -42,6 +44,7 @@ export function pricedOffers(o: {
     currentBuffer: current,
     alertFraction: o.alertPct / 100,
     freeFloorCNS: o.free.known ? o.free.floorCNS : undefined,
+    ...(o.reservedCNS === undefined ? {} : { reservedCNS: o.reservedCNS }),
     unitCNS: unit,
     project: (amountCNS) => {
       const p = o.view.projectAddMargin(a.marketId, amountCNS);
@@ -50,7 +53,7 @@ export function pricedOffers(o: {
   });
   const offers: Array<{ amount: SuggestedAmount; action: AlertAction }> = [];
   for (const amount of suggestions.amounts) {
-    const projected = o.view.projectAddMargin(a.marketId, BigInt(amount.ausd) * unit);
+    const projected = o.view.projectAddMargin(a.marketId, amount.amountCNS);
     if (!projected.ok) continue;
     offers.push({ amount, action: customAction(projected.projection, market, a.positionId, o.bufferDecimals, a.liqBufferPct) });
   }

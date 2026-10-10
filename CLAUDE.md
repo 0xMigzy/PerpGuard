@@ -792,43 +792,69 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
 - 📊 MY POSITIONS IS BUTTONS ONLY (owner, 8 Oct 2026): one per position,
   closest to liquidation first, "🔴 BTC long · 2.7%" (🔴 danger or past it,
   🟡 watch, 🟢 ok, ⚪ can't see). 📊 VIEW POSITION: the distance, margin and
-  liquidation price, free balance, and TWO AMOUNTS SIZED TO DISTANCES (owner,
-  9 Oct 2026; `apps/bot/src/suggestedAmounts.ts`, shared with the alert),
-  each showing THE DISTANCE IT BUYS ("+1,900 → 7.1%"), priced by the engine
-  when the screen is built, then 🎛 Custom amount, 🚪 Close position and ←
-  Back, one to a row.
-  - THE RULE: targets are the alert distance D + 2 and D + 5 points (a
-    position already at or past D + 2 aims at its own distance + 2 and + 5);
-    each amount is the smallest whole AUSD the engine says reaches it,
-    ROUNDED UP to two significant figures. A fixed +100 bought 0.1 points on
-    a 93,754 AUSD position and read "2.4% → 2.4%".
-  - THE FIRST IS ALWAYS AFFORDABLE: when its target costs more, it is MOST of
-    the free balance, 90% rounded down ("+979 → 3.4% · most of free"), never
-    all of it; under half a point bought, no button and a sentence instead.
-    The second keeps D + 5 with ⚠️ when over the balance. Free balance
-    unknown: both targets, nothing marked.
+  liquidation price, free balance, and UP TO TWO TOP-UPS THAT FIT THE FREE
+  BALANCE (owner, 10 Oct 2026; `apps/bot/src/suggestedAmounts.ts`, shared
+  with the alert), labelled "+979 → 2.9% away · 109 free" (the amount, the
+  distance it buys, the free balance it leaves), priced by the engine when
+  the screen is built, then 🎛 Custom amount, 🚪 Close position and ← Back,
+  one to a row.
+  - NOTHING IS OFFERED THAT CANNOT BE PAID FOR. SPENDABLE = the free floor
+    minus what is reserved (`reservedFor` in `server.ts`: a Rescue top-up in
+    flight plus the largest "minimum remaining" among the account's armed
+    rules). There is no ⚠️ top-up and no "most of free" label any more.
+  - THE FIRST aims at the alert distance D + 2 points (a position already at
+    or past D + 2 aims at its own distance + 2): the smallest whole AUSD the
+    engine says reaches it, ROUNDED UP to two significant figures, capped at
+    90% of spendable (a whole AUSD, rounded down). THE SECOND is HALF the
+    first, shown only if it buys at least 0.3 points. A first that buys
+    under half a point is not offered: one sentence instead, and the alert
+    still carries 🎛 Custom amount, Dismiss and 📊 View / close position.
+  - 🎛 CUSTOM AMOUNT IS NOT CAPPED, IT IS WARNED: our free figure is a floor,
+    so an amount above spendable gets "That's more than the X AUSD we can
+    see as free — Perpl may reject it. Send anyway?" and ✅ Send anyway.
   - THE ALERT IS SHORT (9 Oct 2026): network, headline, margin and free
-    balance, then buttons. The words for "most of free" and ⚠️ are on the
-    CONFIRMATION, where there is time to read them; the alert keeps only the
-    "free balance buys almost nothing" sentence, which no button carries.
+    balance, then buttons. Its last button is 📊 View / close position.
   - THE CONFIRMATION'S DISTANCE IS ROUNDED DOWN by the button's own formatter
     (`boughtDistance`): the two never disagree.
   The bought distance is ROUNDED DOWN,
   with ONE DECIMAL BELOW 10% (a whole percent there can read below where the
   position already is: 2.7% plus a top-up is not "→ 2%"); whole percents
-  from 10%. An amount above the free floor is offered with ⚠️, not hidden. No
-  amount on a position it cannot see. The balance line carries the position's
+  from 10%. No amount on a position it cannot see. The balance line carries the position's
   unrealised P&L.
-- 🚪 CLOSE POSITION IS BACK on View position, under the amounts (owner, 8 Oct
-  2026), on the KILL SWITCH'S RULES (`CloseEverything.closePosition`, bot
-  `emergency.ts`): a confirmation first (size, price now, what it realises,
-  a loss rounded away from zero), its request id minted when shown, good for
-  two minutes, run ONCE (`close:<acct>:<request>:<pid>`), never re-sent; the
-  outcome READ FROM THE POSITION LIST, "CLOSED" only when the list no longer
-  has it; a partial close says what remains, with a retry that is a new
-  confirmation. Before closing it turns off Auto for THAT position only, never
-  the account's automation, and the confirmation says so. Reduce is not
-  offered.
+- 🚪 CLOSE POSITION, on View position under the amounts, OPENS THE OPTIONS
+  (owner, 10 Oct 2026): [25%] [50%] [75%], [Close all], [🎛 Custom %] (1 to
+  100, typed), [← Back]. Nothing is sent from the options.
+  - CLOSE ALL keeps the 8 Oct confirmation and the KILL SWITCH'S RULES
+    (`CloseEverything.closePosition`, bot `emergency.ts`): size, price now,
+    what it realises (a loss rounded away from zero), its request id minted
+    when shown, good for two minutes, run ONCE
+    (`close:<acct>:<request>:<pid>`), never re-sent; the outcome READ FROM THE
+    POSITION LIST, "CLOSED" only when the list no longer has it. It turns off
+    Auto for THAT position first and says so.
+  - A PARTIAL CLOSE is ONE reduce-only market order
+    (`CloseEverything.reducePosition`, key `reduce:<acct>:<request>:<pid>`),
+    sized by `emergency/partial.ts` (pure): the percentage in WHOLE SIZE
+    UNITS, ROUNDED DOWN. Perpl's minimum order is one size unit (docs,
+    exchange/minimum-orders; the minimum order VALUE is 0 on both networks),
+    so an option that rounds below one unit, or would leave less than one
+    open, is HIDDEN, and a typed percentage that does is refused with what
+    would work; 100 is Close all.
+  - ITS CONFIRMATION shows size before → after, the estimated realised P&L
+    (the closed share of the unrealised, at the mark), the estimated fee
+    (the market's `taker_fee` per million on the value closed, rounded up;
+    345 per million reproduces the recorded 288 micros), ✅ Confirm and
+    ✖ Cancel. NO LIQUIDATION DISTANCE: a partial close releases margin in
+    proportion and leaves the liquidation price where it was. Minted when
+    shown, two minutes, once; nothing sent if the position changed since.
+  - AUTO IS LEFT ON for a partial close, and the confirmation says so.
+  - THE RESULT IS READ FROM THE POSITION BEFORE AND AFTER (`judgePartial`):
+    reduced (the ACTUAL new size, and "not what I sent" if it differs),
+    unchanged (never "reduced", whatever the receipt said), gone, or not
+    seen. REALISED P&L IS THE EXCHANGE'S OWN FILL: (exit − entry) × size
+    closed, read off the reduced row's first event (`sr: 14`, `xp`, `s`,
+    `cfee`; `decreaseFillOf`, measured once on 30 Sep 2026) and quoted only
+    when that event's size equals what the position shrank by; otherwise it
+    says the fill was not reported, never an estimate dressed as a result.
 - 🔐 TRADING ACCOUNT (owner, 8 Oct 2026): not connected, what connecting does
   and 🔗 Connect wallet / 🔑 Enter API key, both through the one-time code and
   the HTTPS page (🔑 opens it with `via=key`: the key form, focused).
@@ -915,9 +941,9 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     (re-armed after recovering a quarter of the distance, at least half a
     point; remembered in `manual_alert_state`, so a restart does not repeat
     it; held while blind): the position, distance, margin, free balance, the
-    same two suggested amounts as View position (priced by the engine), 🎛
-    Custom amount and Dismiss, and 📊 View position (back 9 Oct 2026: Close
-    position lives there). Every amount goes through the TWO-STEP confirm: a tap only shows
+    same top-ups as View position (priced by the engine), 🎛 Custom amount
+    and Dismiss, and 📊 View / close position (closing lives on the
+    position's screen). Every amount goes through the TWO-STEP confirm: a tap only shows
     ⚠️ CONFIRM ADD MARGIN. PerpGuard sends nothing on its own in this mode. A
     linked account's own WATCH/DANGER alerts (and their "recovered") are not
     sent any more (`manual/replaced.ts`): the crossing is said once, here.

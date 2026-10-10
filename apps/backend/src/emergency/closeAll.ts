@@ -18,6 +18,8 @@
  */
 import type { ActionCommand, ActionOutcome } from '../actions/types.ts';
 import type { KillSwitch, StopReport } from '../rescue/killSwitch.ts';
+import type { MarketScale } from '@perpguard/shared';
+import { judgePartial, realisedFromFill, type DecreaseFill, type PartialResult } from './partial.ts';
 import { verifyCloses, type OpenPosition, type Verified } from './verify.ts';
 import type { CloseAllRunStore } from './store.ts';
 
@@ -28,7 +30,32 @@ export interface CloseAllAccount {
   execute(command: ActionCommand): Promise<ActionOutcome>;
   /** What a just-closed position filled at, from its closing row. Informative only. */
   exitPrice(position: OpenPosition): number | undefined;
+  /**
+   * What a just-REDUCED position's own row says the reduce filled at, with the entry price and
+   * scaling to turn it into a realised figure. Undefined when the row does not carry it.
+   */
+  reduceFill?(position: OpenPosition): { readonly fill: DecreaseFill; readonly entryPricePNS: bigint; readonly scale: MarketScale } | undefined;
 }
+
+/**
+ * 🚪 CLOSE PART OF A POSITION (owner, 10 Oct 2026). `result` is read from the position before and
+ * after; `realisedCNS` and `feeCNS` are the exchange's own fill, present only when the reduced
+ * position's row reported a fill of exactly the size the position shrank by.
+ */
+export type ReduceReport =
+  | { readonly kind: 'nothing-sent'; readonly why: 'already-flat' | 'cannot-see' | 'no-session' | 'changed' | 'too-small' }
+  | { readonly kind: 'already-running' }
+  | {
+      readonly kind: 'ran';
+      readonly position: OpenPosition;
+      readonly requestedLNS: bigint;
+      readonly result: PartialResult;
+      /** (exit − entry) × size closed, before the fee. */
+      readonly realisedCNS: bigint | undefined;
+      readonly feeCNS: bigint | undefined;
+      readonly exitPricePNS: bigint | undefined;
+      readonly replayed: boolean;
+    };
 
 export type CloseAllReport =
   /** Nothing was sent: why, and that PerpGuard is stopped. */
@@ -64,6 +91,7 @@ export class CloseEverything {
   readonly #inFlight = new Set<number>();
   /** Finished runs by `account:request`, so a repeated request answers without sending. */
   readonly #done = new Map<string, CloseAllReport>();
+  readonly #reduced = new Map<string, ReduceReport>();
 
   constructor(options: CloseEverythingOptions) {
     this.#o = options;
@@ -96,6 +124,118 @@ export class CloseEverything {
    */
   async closePosition(accountId: number, marketId: number, requestId: string, by: string): Promise<CloseAllReport> {
     return this.#run(accountId, requestId, by, { kind: 'position', marketId });
+  }
+
+  /**
+   * 🚪 CLOSE PART OF A POSITION: one reduce-only market order for `closeLNS` size units, on the
+   * full close's rules. ONCE per request id, one run in flight per account (shared with the
+   * closes), NEVER RE-SENT, and judged by the position before and after. Automation is NOT
+   * touched: the position stays open, so its Auto top-up stays as it is.
+   *
+   * `expected` is the position the confirmation showed. If it has since changed size or been
+   * replaced, nothing is sent: the percentage was of a position that no longer exists.
+   */
+  async reducePosition(accountId: number, marketId: number, closeLNS: bigint, expected: { readonly positionId: number; readonly sizeLNS: bigint }, requestId: string, by: string): Promise<ReduceReport> {
+    const key = `${accountId}:${requestId}`;
+    const earlier = this.#reduced.get(key);
+    if (earlier !== undefined) {
+      this.#o.log(`close-part ${key}: asked again; already ran, nothing sent`);
+      return earlier.kind === 'ran' ? { ...earlier, replayed: true } : earlier;
+    }
+    if (this.#inFlight.has(accountId)) {
+      this.#o.log(`close-part ${key}: another run is in flight on account ${accountId}; nothing sent`);
+      return { kind: 'already-running' };
+    }
+    this.#inFlight.add(accountId);
+    try {
+      const report = await this.#reduceOnce(accountId, marketId, closeLNS, expected, requestId, by);
+      this.#reduced.set(key, report);
+      return report;
+    } finally {
+      this.#inFlight.delete(accountId);
+    }
+  }
+
+  async #reduceOnce(accountId: number, marketId: number, closeLNS: bigint, expected: { readonly positionId: number; readonly sizeLNS: bigint }, requestId: string, by: string): Promise<ReduceReport> {
+    const { log } = this.#o;
+    const tag = `close-part ${accountId}:${requestId}`;
+    const account = this.#o.account(accountId);
+    if (account === undefined) {
+      log(`${tag}: no session for the account; nothing sent`);
+      return { kind: 'nothing-sent', why: 'no-session' };
+    }
+    const all = account.openPositions();
+    if (all === undefined) {
+      log(`${tag}: the position list is not loaded; nothing sent`);
+      return { kind: 'nothing-sent', why: 'cannot-see' };
+    }
+    const p = all.find((x) => x.marketId === marketId);
+    if (p === undefined) {
+      log(`${tag}: no open position on market ${marketId}; nothing sent`);
+      return { kind: 'nothing-sent', why: 'already-flat' };
+    }
+    if (p.positionId !== expected.positionId || p.sizeLNS !== expected.sizeLNS) {
+      log(`${tag}: ${p.symbol} is now pid ${p.positionId} at ${p.sizeLNS} lots, not pid ${expected.positionId} at ${expected.sizeLNS} as confirmed; nothing sent`);
+      return { kind: 'nothing-sent', why: 'changed' };
+    }
+    // One size unit is the exchange's minimum order, and a reduce must leave something open.
+    if (closeLNS < 1n || closeLNS >= p.sizeLNS) {
+      log(`${tag}: ${closeLNS} of ${p.sizeLNS} lots is not a partial close; nothing sent`);
+      return { kind: 'nothing-sent', why: 'too-small' };
+    }
+
+    log(`${tag}: reducing ${p.symbol} ${p.side} by ${closeLNS} of ${p.sizeLNS} lots (pid ${p.positionId})`);
+    let outcome: ActionOutcome | undefined;
+    try {
+      outcome = await account.execute({
+        kind: 'reduce-position',
+        idempotencyKey: `reduce:${accountId}:${requestId}:${p.positionId}`,
+        userId: by,
+        accountId,
+        marketId: p.marketId,
+        symbol: p.symbol,
+        positionId: p.positionId,
+        sizeLNS: closeLNS,
+      });
+    } catch (error) {
+      log(`${tag}: ${p.symbol} reduce threw: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const receipt = outcome === undefined ? undefined : outcome.kind === 'refused' ? `refused: ${outcome.code}` : `${outcome.reported.status}${outcome.reported.reason === undefined ? '' : ` (${outcome.reported.reason})`}`;
+    log(`${tag}: ${p.symbol} receipt ${receipt ?? 'none'}`);
+
+    // THE POSITION DECIDES. A refusal never went out, so there is nothing to wait for.
+    const sent = outcome !== undefined && outcome.kind !== 'refused';
+    const after = sent ? await this.#settle(account, [p]) : account.openPositions();
+    const now = after?.find((x) => x.positionId === p.positionId);
+    const result = judgePartial({ beforeLNS: p.sizeLNS, requestedLNS: closeLNS, after: after === undefined ? undefined : now === undefined ? null : now.sizeLNS, receipt: sent ? receipt : undefined });
+    let realisedCNS: bigint | undefined;
+    let feeCNS: bigint | undefined;
+    let exitPricePNS: bigint | undefined;
+    if (result.kind === 'reduced' && now !== undefined) {
+      const reported = account.reduceFill?.(now);
+      // Only a fill of exactly the size the position shrank by is this reduce's fill.
+      if (reported !== undefined && reported.fill.closedLNS === result.closedLNS) {
+        realisedCNS = realisedFromFill({ side: p.side, entryPricePNS: reported.entryPricePNS, fill: reported.fill, scale: reported.scale });
+        feeCNS = reported.fill.feeCNS;
+        exitPricePNS = reported.fill.exitPricePNS;
+      }
+    }
+    log(`${tag}: ${p.symbol} VERIFIED ${result.kind}${result.kind === 'reduced' ? ` (${result.afterLNS} lots remain${result.asAsked ? '' : `, ${result.closedLNS} closed where ${closeLNS} was asked`}${realisedCNS === undefined ? '; fill not reported' : `; realised ${realisedCNS}, fee ${feeCNS ?? 'unknown'}`})` : 'why' in result ? `: ${result.why}` : ''}`);
+    try {
+      await this.#o.store.record({
+        accountId,
+        requestId,
+        by,
+        startedAtMs: this.#now(),
+        finishedAtMs: this.#now(),
+        requested: [{ symbol: p.symbol, marketId: p.marketId, positionId: p.positionId, side: p.side, sizeLNS: String(closeLNS) }],
+        receipts: [{ positionId: p.positionId, outcome: outcome?.kind ?? 'none', receipt, venueRef: outcome !== undefined && outcome.kind !== 'refused' ? outcome.reported.venueRef : undefined }],
+        verified: [{ positionId: p.positionId, symbol: p.symbol, kind: `reduce-${result.kind}`, ...(result.kind === 'reduced' ? { remainingLNS: String(result.afterLNS) } : {}), ...('why' in result ? { why: result.why } : {}) }],
+      });
+    } catch (error) {
+      log(`${tag}: the run could not be recorded (${error instanceof Error ? error.message : String(error)}); the log lines above are the record`);
+    }
+    return { kind: 'ran', position: p, requestedLNS: closeLNS, result, realisedCNS, feeCNS, exitPricePNS, replayed: false };
   }
 
   async #run(accountId: number, requestId: string, by: string, scope: Scope): Promise<CloseAllReport> {
