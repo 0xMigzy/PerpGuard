@@ -357,7 +357,7 @@ export function closePercentRefusal(position: EmergencyPosition, pct: number, wh
  * the same size.
  */
 export function partialCloseResultScreen(report: PartialReport, marketId: number): Screen {
-  const view: Button = { text: '📊 View position', route: { to: 'position', marketId } };
+  const view: Button = { text: '📊 View / close position', route: { to: 'position', marketId } };
   const again: Button = { text: '🚪 Close position', route: { to: 'close-pos', marketId } };
   const head = '🚪 <b>CLOSE POSITION</b>';
   if (report.kind === 'already-running') {

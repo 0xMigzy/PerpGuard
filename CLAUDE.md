@@ -707,8 +707,9 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   account in four lines (🔗 testnet #24, Execution, Automation, Alerts) and six
   buttons: 👁 Watch & Alerts | 📊 My positions, 🛟 Rescue | 🔐 Trading account,
   🆘 Kill switch | ⚙️ Settings. AN UNBUILT FEATURE HAS NO BUTTON; a test walks
-  every screen and fails on any label for one. LABELS: sentence case; 📊 View
-  position for one, 📊 My positions for the list; 🗑 Stop watching; 🎛 Custom
+  every screen and fails on any label for one. LABELS: sentence case; 📊 View /
+  close position for one (10 Oct 2026: the same words on the alert, Rescue's
+  messages and the partial-close result), 📊 My positions for the list; 🗑 Stop watching; 🎛 Custom
   amount, always with the icon; 🏠 Menu is the only word for home.
 - RETIRED BUTTON CODES ARE NEVER REUSED (`RETIRED_CODES` in
   `apps/bot/src/nav.ts`, checked by `nav.test.ts`): an old button in a chat
@@ -812,6 +813,8 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   - 🎛 CUSTOM AMOUNT IS NOT CAPPED, IT IS WARNED: our free figure is a floor,
     so an amount above spendable gets "That's more than the X AUSD we can
     see as free — Perpl may reject it. Send anyway?" and ✅ Send anyway.
+    The confirmation no longer says "most of your free balance": the
+    button already shows the free balance it leaves.
   - THE ALERT IS SHORT (9 Oct 2026): network, headline, margin and free
     balance, then buttons. Its last button is 📊 View / close position.
   - THE CONFIRMATION'S DISTANCE IS ROUNDED DOWN by the button's own formatter

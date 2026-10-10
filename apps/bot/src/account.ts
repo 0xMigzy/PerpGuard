@@ -243,9 +243,6 @@ export interface ConfirmInput {
  * and free balance; the liquidation figures only when the engine projected
  * them (live feed, live position). Nothing has been sent when this shows.
  */
-/** An amount at or above this share of the free balance (8 tenths) is called "most of" it on the confirmation. */
-const MOST_OF_FREE_TENTHS = 8n;
-
 export function confirmScreen(input: ConfirmInput): Screen {
   const { action, market, assessment } = input;
   const name = assessment === undefined ? esc(action.symbol) : positionName(assessment);
@@ -278,9 +275,6 @@ export function confirmScreen(input: ConfirmInput): Screen {
           ? `⚠️ That's more than the ${held(spendable > 0n ? spendable : 0n, d)} we can see as free — Perpl may reject it. Send anyway?`
           : `Free balance: ${held(input.free.floorCNS, d)} → ${held(left, d)}`,
       );
-      if (!overSpendable && action.amountCNS * 10n >= input.free.floorCNS * MOST_OF_FREE_TENTHS) {
-        lines.push(`That is most of your free balance, leaving ${held(left, d)} for fees and the next alert.`);
-      }
     } else {
       lines.push(`Free balance: unknown (${esc(input.free.reason)})`);
     }

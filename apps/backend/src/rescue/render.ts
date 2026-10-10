@@ -84,7 +84,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           '<b>Do not add it again by hand.</b>',
         );
       }
-      return { html: lines.join('\n'), buttons: [{ text: '📊 View position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }] };
+      return { html: lines.join('\n'), buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }] };
     }
     case 'not-applied':
       return {
@@ -95,7 +95,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           'Nothing was added, so nothing can have been added twice.',
           `Rescue tries again after the ${minutes(n.cooldownMs)} cooldown if the position is still at its trigger.`,
         ].join('\n'),
-        buttons: [{ text: '📊 View position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }],
+        buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }],
       };
     case 'paused':
       return {
@@ -108,7 +108,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           '',
           `<i>${esc(n.detail)}</i>`,
         ].join('\n'),
-        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
     case 'paused-refused':
       return {
@@ -120,7 +120,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           '',
           `<i>${esc(n.detail)}</i>`,
         ].join('\n'),
-        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
     case 'exhausted': {
       // THE HANDOVER, in the owner's words (8 Oct 2026): not a failure, the limits did their job.
@@ -133,7 +133,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           'PerpGuard has stopped adding margin.',
           'You can add more yourself, or close it.',
         ].join('\n'),
-        buttons: [{ text: '📊 View position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
+        buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '🛟 Rescue', route: 'rescue' }],
       };
     }
     case 'held':
@@ -145,7 +145,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           `Nothing was sent: ${esc(n.detail)}.`,
           HOLD_NEXT[n.reason](n.rule, heldMoney),
         ].join('\n'),
-        buttons: [{ text: '📊 View position', route: 'position' }],
+        buttons: [{ text: '📊 View / close position', route: 'position' }],
       };
     case 'ended':
       return {
