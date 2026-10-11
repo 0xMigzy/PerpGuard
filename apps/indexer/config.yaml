@@ -99,9 +99,12 @@ chains:
     # can be written here.) The things that do vary per deployment -- address,
     # start block, endpoints -- are env vars below.
   - id: 143
-    # Config value, deliberately not the exchange's first block (54,773,010).
-    # 100,000,000 is ~30 days of Monad at ~0.30s per block. Widen it to backfill
-    # further; the handlers bootstrap any market they have not seen listed.
+    # PRODUCTION STARTS AT 54,773,010, the Exchange proxy's deployment block
+    # (11 Feb 2026): the full-history index behind perpguard.app is run with
+    # ENVIO_PERPGUARD_START_BLOCK=54773010, set in deploy/systemd/backfill.env.
+    # The 100,000,000 default below is for quick local runs (about 30 days of
+    # Monad at ~0.30 s per block when it was chosen); the handlers bootstrap
+    # any market they have not seen listed.
     start_block: ${ENVIO_PERPGUARD_START_BLOCK:-100000000}
     hypersync_config:
       url: ${ENVIO_PERPL_HYPERSYNC_URL:-https://143.hypersync.xyz}

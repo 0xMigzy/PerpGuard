@@ -952,6 +952,24 @@ Telegram's wire replaced by a recorder, and presses 🚪 Close position →
 10,000 size units (0.1 of 10 SOL), position id 4518384435201, idempotency key
 `reduce:710:<request>:4518384435201`. The exchange's receipt was `confirmed`.
 
+**On chain.** Transaction
+[`0x1338ea5df79e60391587ab5ead118b3d60fb7af6df183b26f1ba15df71dbb3a5`](https://testnet.monadscan.com/tx/0x1338ea5df79e60391587ab5ead118b3d60fb7af6df183b26f1ba15df71dbb3a5),
+Monad testnet block 69,842,631, 13:55:54 UTC, status success, to the Exchange
+proxy `0x1964C32f0bE608E7D29302AFF5E61268E72080cc`. Its `PositionDecreased`
+event (found by searching that event for account 710 around the time, then
+confirmed by receipt) reads: market 48, account 710, long, lots 10,000 → 9,900,
+`deltaPnlCNS` −784,000, deposit 235,300,000 → 232,947,000, `fundingCNS`
+−15,429. The event and the bot agree on the size and the realised figure, and
+the event adds two things the bot's message does not say:
+
+- **Margin was released in proportion.** The deposit fell from 235.300000 to
+  232.947000 AUSD, which is 1% of it for 1% of the size. That is the measured
+  basis for showing no liquidation distance on a partial close: size and
+  margin scale together, so the liquidation price does not move.
+- **Funding settled alongside.** The same event carries −0.015429 AUSD of
+  funding. The bot's "Realised P&L … before fees" is the price move only
+  (−0.784); it includes neither the 0.003789 fee nor this funding.
+
 **What came back.**
 
 | | Predicted on the confirmation | Actual, from the exchange |

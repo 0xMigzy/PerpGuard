@@ -318,5 +318,23 @@
     }
    ]
   }
- ]
+ ],
+ "transaction": {
+  "hash": "0x1338ea5df79e60391587ab5ead118b3d60fb7af6df183b26f1ba15df71dbb3a5",
+  "block": 69842631,
+  "timeUtc": "2026-10-10T13:55:54Z",
+  "status": "success",
+  "explorer": "https://testnet.monadscan.com/tx/0x1338ea5df79e60391587ab5ead118b3d60fb7af6df183b26f1ba15df71dbb3a5",
+  "positionDecreased": {
+   "perpId": "48",
+   "accountId": "710",
+   "positionType": 0,
+   "startDepositCNS": "235300000",
+   "endDepositCNS": "232947000",
+   "startLotLNS": "10000",
+   "endLotLNS": "9900",
+   "deltaPnlCNS": "-784000",
+   "fundingCNS": "-15429"
+  }
+ }
 }
