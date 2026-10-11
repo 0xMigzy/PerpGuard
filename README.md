@@ -102,21 +102,29 @@ The key's secret never reaches the browser, and nobody copies a key by hand. A h
 ## How it works
 
 ```text
- Monad mainnet (143)      Perpl API, mainnet      Perpl API, testnet (10143)
- Perpl Exchange proxy     marks, market context   positions, balances, outcomes
-        │                         │                    │              ▲
-        │ HyperSync               │ reads              │ reads        │ writes: add margin, close
-        ▼                         ▼                    ▼              │ (Ed25519-signed, forwarded)
- apps/indexer             apps/backend ───────────────────────────────┘
- Envio HyperIndex         Fastify API, risk loops, alerts,
-        │                 Rescue, kill switch ─────────▶ Telegram (grammY bot, in-process)
-        ▼                         │
- Postgres ◀───────────────────────┤ reads the index, keeps PerpGuard's own tables
- index + PerpGuard's tables       │
-                                  │ /api/analytics/* (read-only)
-                                  ▼
-                          apps/web (Next.js) ──▶ perpguard.app
+ Monad mainnet (chain 143) · Perpl Exchange proxy
+        │                                   │
+        │ the whole event history           │ live contract reads, raw logs
+        ▼                                   ▼
+ Envio HyperSync                      Monad RPC provider
+ 143.hypersync.xyz                    monad-mainnet.quiknode.pro
+        │ no RPC in the path                │
+        ▼                                   │
+ apps/indexer                               │
+ Envio HyperIndex                           │
+        │                                   │
+        ▼                                   ▼
+ Postgres ◀─────────────────────────  apps/backend  ◀──────▶ Perpl API (REST + WebSocket)
+ index + PerpGuard's                  Fastify API, risk          reads: mainnet marks and context,
+ own tables                           loops, alerts, Rescue,            testnet positions and balances
+                                      kill switch                writes: add margin, close
+                                        │         │                     (testnet, Ed25519-signed)
+                       /api/analytics/* │         └──▶ Telegram (grammY bot, in-process)
+                            (read-only) ▼
+                              apps/web (Next.js) ──▶ perpguard.app
 ```
+
+Envio supplies the entire event history, synced over HyperSync with no RPC in the path. A Monad RPC provider answers a small set of live contract reads the history cannot contain, and is also used to verify Envio's output independently by comparing indexed rows against raw logs from a different provider.
 
 TypeScript throughout, in a pnpm workspace. Node 22, PostgreSQL 16, Envio HyperIndex 3.12.1, Fastify 5.12, grammY 1.46, Next.js 15.5 with React 19.3, Tailwind CSS 4.3, Recharts 3.10, viem 2.56, Dynamic SDK 5.9, TypeScript 5.9.
 
