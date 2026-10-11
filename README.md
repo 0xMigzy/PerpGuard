@@ -180,8 +180,7 @@ Built on Envio HyperIndex, Fastify, grammY, Next.js, React, Tailwind CSS, Rechar
 Files in this repository that others wrote:
 
 - **The Perpl Exchange ABI** (`apps/indexer/abis/Exchange.json` and `ExchangeErrors.json`) is from Perpl's [dex-sdk](https://github.com/PerplFoundation/dex-sdk), as published in the `perpl-sdk` 0.2.9 crate. MIT, © 2025 Perpl Foundation; the licence text is beside the files. No other code or types are taken from Perpl's SDK: the API client was written from [Perpl's documentation](https://docs.perpl.xyz) and from frames read off the wire.
-- **Token icons** (`apps/web/public/tokens/`) are from Cryptocurrency Icons (CC0), Trust Wallet assets (MIT), the projects' own brand pages (Solana, Aave, Lighter) and, for VVV, the token's mark as CoinGecko serves it. Each file's source and terms are in `apps/web/public/tokens/SOURCES.md`.
-- **Envio's indexer skill documents** (`.claude/skills/`, 17 files) are Envio's guidance for writing HyperIndex indexers.
+- **Token icons** (`apps/web/public/tokens/`) are from two CC0 and MIT icon sets (Cryptocurrency Icons, Trust Wallet assets) and official brand marks used unmodified to identify a token: the projects' own brand pages (Solana, Aave, Lighter) and, for VVV, the token's mark as CoinGecko serves it. Each file's source and terms are in `apps/web/public/tokens/SOURCES.md`.
 
 An AI coding assistant helped write the code, tests and documentation. The research, design, data validation and review are mine.
 

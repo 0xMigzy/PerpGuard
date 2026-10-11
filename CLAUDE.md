@@ -477,15 +477,18 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   Perpl, ~11 points) is stated ABOVE the table and a toggle strips it. Each
   column says which "current" it is. Spread = Perpl minus the furthest venue.
   See `docs/notes/perpl-funding-interval-2026-10-05.md`.
-- TOKEN ICONS ARE VENDORED, LICENSED AND IDENTIFIED. `apps/web/public/tokens/`
-  holds the project's OWN mark from its brand page where it publishes one
-  (Solana, Aave, Lighter), otherwise Cryptocurrency Icons (CC0) or Trust Wallet
-  assets (MIT), pinned. Each is checked against the actual project, not the
-  ticker (LIT is Lighter by price, not Litentry); `SOURCES.md` there records
-  source, terms and how identity was checked, and a test keeps every mapped
-  file in it. Never a logo from an exchange site. A market with no licensed
-  source gets the initials circle. Icons are decorative: `aria-hidden`, the
-  name is the text beside them.
+- TOKEN ICONS ARE VENDORED, SOURCED AND IDENTIFIED (rule restated by the
+  owner, 11 Oct 2026). `apps/web/public/tokens/` holds CC0 and MIT icon sets
+  (Cryptocurrency Icons, Trust Wallet assets, pinned) and OFFICIAL BRAND
+  MARKS USED UNMODIFIED TO IDENTIFY A TOKEN: the project's own mark from its
+  brand page or kit (Solana, Aave, Lighter) or, where it publishes none
+  there, its token image as CoinGecko serves it (VVV). The brand marks are
+  trademarks, not openly licensed, and `SOURCES.md` says so per file. A
+  market with neither gets the initials circle. Each icon is checked against
+  the actual project, not the ticker (LIT is Lighter by price, not
+  Litentry); `SOURCES.md` records source, terms and how identity was
+  checked, and a test keeps every mapped file in it. Icons are decorative:
+  `aria-hidden`, the name is the text beside them.
 - OPEN INTEREST HISTORY IS A LEVEL, because the index starts at the deployment
   block: a market's cumulative lot delta at a day's close IS its OI then
   (measured equal to the venue on every market, 6 Oct 2026). Lots × that day's

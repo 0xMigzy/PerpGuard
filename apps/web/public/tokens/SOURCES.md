@@ -1,21 +1,25 @@
-# Token icons: sources and licences
+# Token icons: sources and terms
 
-Vendored, not fetched at runtime. Each file comes from one of these places:
+Vendored, not fetched at runtime. THE RULE (11 Oct 2026): we use
 
-1. **The project's own brand page**, where it publishes its marks and says how
-   they may be used. Preferred: it is the project's current mark, under its
-   own terms.
-2. **A permissively licensed icon set** at a pinned version (Cryptocurrency
-   Icons, CC0; Trust Wallet assets, MIT), where the set's own metadata (name,
-   symbol, website) names the project.
-3. **CoinGecko's API**, by the owner's decision, for a token whose own mark
-   the sources above do not carry (VVV): the coin's `image.large`, the
-   project's own token image as CoinGecko serves it.
+1. **CC0 and MIT icon sets** at a pinned version (Cryptocurrency Icons, CC0;
+   Trust Wallet assets, MIT), where the set's own metadata (name, symbol,
+   website) names the project; and
+2. **official brand marks, used unmodified to identify a token**: the
+   project's own mark from its brand page or brand kit (Solana, Aave, Lighter)
+   or, where the project publishes none there, its token image as CoinGecko's
+   API serves it (VVV). These are the projects' trademarks, not openly
+   licensed: each row states the terms the project gives, or that it gives
+   none.
 
-Never a logo from an exchange site. Every file was checked against the actual
-project, not the ticker: the identity column says how. Icons are decorative
-(`aria-hidden`) and used only to identify the token beside its name, as
-provided, never altered beyond what the row says.
+A market for which neither exists is drawn as the **initials circle**.
+
+"Unmodified" means the mark itself is never redrawn, recoloured or combined
+with anything. The one placement change is stated in its row: Solana's mark is
+not square, so it is scaled uniformly and centred on a disc. Every file was
+checked against the actual project, not the ticker: the identity column says
+how. Icons are decorative (`aria-hidden`) and used only to identify the token
+beside its name.
 
 | File | Asset | Source | Licence / terms | Identity checked by |
 |---|---|---|---|---|

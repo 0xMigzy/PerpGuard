@@ -1,6 +1,7 @@
 /**
- * Token icons, vendored under public/tokens. Sources, licences and the reason
- * any market is on the fallback: public/tokens/SOURCES.md.
+ * Token icons, vendored under public/tokens: CC0 and MIT icon sets, and official
+ * brand marks used unmodified to identify a token. Each file's source and terms,
+ * and the reason any market is on the fallback: public/tokens/SOURCES.md.
  *
  * Keyed by the market's TICKER (the context's for a live market, the chain's for
  * one not yet trading). A ticker missing here is drawn as the fallback circle.
