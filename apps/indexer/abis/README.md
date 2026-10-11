@@ -12,7 +12,8 @@ They come from the official Rust SDK crate instead:
 
 | | |
 | - | - |
-| Source | `perpl-sdk` 0.2.9 on crates.io, `abi/dex/Exchange.json` + `abi/dex/Errors.abi.json` |
+| Source | `perpl-sdk` 0.2.9 on crates.io (Perpl's dex-sdk, https://github.com/PerplFoundation/dex-sdk), `abi/dex/Exchange.json` + `abi/dex/Errors.abi.json` |
+| Licence | MIT, © 2025 Perpl Foundation; the text is in `LICENSE-perpl-dex-sdk-MIT.txt` beside these files |
 | Artifact revision | `rc_v1.1.7-203-g0e5902dd` (the crate's `abi/dex/REVISION`) |
 | Fetched | 2026-09-26 |
 
