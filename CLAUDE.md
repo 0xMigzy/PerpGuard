@@ -600,16 +600,6 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   `/var/log/perpguard/backend.log`. A query string survives only on
   `/api/analytics/*`; never a body, a header or a /link code. Logs rotate
   daily, 14 kept (`deploy/logrotate/perpguard` -> `/etc/logrotate.d/`).
-- THE LOADING MARK IS ONE OVERLAY, IN ONE PLACE, AFTER 300 MS (owner, 11 Oct
-  2026; `.loading-mark` in `apps/web/src/app/globals.css`, the span in the
-  root layout). The PerpGuard mark, 22 x 24 px, centred in the gap under the
-  header (main's 26px top padding), absolutely positioned so nothing moves.
-  CSS only: shown while `main` holds a `.skeleton`, gone when the last one is
-  replaced, and hidden beside an error note (`role="alert"`: a failed request
-  leaves its placeholder). Invisible for the first 300 ms, so a fast load
-  never shows it; then it pulses 0.25 to 0.6 over 1.6 s, static at 40% under
-  reduced motion. The delay is on the INDICATOR, never on the content. Never
-  put it over a placeholder, and never a splash.
 - EMPTY STATES ARE DESIGNED. The likeliest first visit is someone with no
   account and no positions; every table and panel has a sentence for that.
 

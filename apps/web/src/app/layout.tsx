@@ -60,12 +60,7 @@ export default function RootLayout({ children }: { readonly children: ReactNode 
     <html lang="en" className={inter.variable}>
       <body>
         <Header />
-        <main className="wrap relative pt-[26px] pb-[60px]">
-          {/* The loading mark: one element for every page, in the gap under the header. CSS alone decides when it
-              shows (globals.css): while a placeholder is on the page, after 300 ms, and never beside an error. */}
-          <span aria-hidden="true" className="loading-mark" />
-          {children}
-        </main>
+        <main className="wrap pt-[26px] pb-[60px]">{children}</main>
         <Footer />
       </body>
     </html>
