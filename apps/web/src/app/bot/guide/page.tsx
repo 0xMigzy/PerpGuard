@@ -131,7 +131,7 @@ export default async function GuidePage() {
         <Table
           head={['Thing', 'Where']}
           rows={[
-            ['A browser wallet', 'Rabby, MetaMask or Phantom. Use a wallet kept for testing, not your main one.'],
+            ['A browser wallet', 'MetaMask or Rabby. Use a wallet kept for testing, not your main one.'],
             ['Perpl testnet', ext('https://testnet.perpl.xyz', 'testnet.perpl.xyz')],
             ['Perpl API keys', ext('https://testnet.perpl.xyz/apikeys', 'testnet.perpl.xyz/apikeys')],
             [
