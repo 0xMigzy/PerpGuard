@@ -15,7 +15,8 @@
  *
  * THE OUTPUT NEVER GOES IN THE REPO: the default path is outside the tree.
  */
-import { ApiSecret, type AccountLookup } from '@perpguard/shared';
+import { ApiSecret, explorerTxUrl, type AccountLookup } from '@perpguard/shared';
+import { actionTxLine } from '../alerts/provenance.ts';
 import { InMemoryIdentityStore, InMemoryLinkStore } from '@perpguard/bot';
 import { LinkCodeStore } from '../server/protect/session.ts';
 import { KeyVault } from '../server/link/crypto.ts';
@@ -416,21 +417,22 @@ const pushedTargets = new Set<string>();
   }
 }
 {
-  const ctx = { webUrl: 'https://perpguard.app', watchEveryMs: 30_000 };
+  // As the mainnet bot sends them: the wallet's page on its own site, the transaction on the mainnet explorer.
+  const ctx = { webUrl: 'https://perpguard.app', watchEveryMs: 30_000, explorerTxUrl: explorerTxUrl('mainnet'), address: '0xa217c0ffee00000000000000000000000000' + '6205' };
   const fresh = { indexerBlock: 111_124_139, blocksBehind: 140 };
-  const liq = { id: 'tx-1', atMs: Date.parse('2026-10-07T12:00:00Z'), txHash: '0xabc123abc123', market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, accountId: 4532, side: 'long' as const, kind: 'liquidation' as never, isFull: true, sizeLots: 0.5, markPrice: 120_150.5, execPrice: 120_100.2, notionalAusd: 60_050, marginLostAusd: 4_210, badDebtAusd: 0, freeBalanceBeforeAusd: 12_500, marginToSurviveAusd: 900, verdict: 'rescuable' as never, blockNumber: 111_124_100, logIndex: 3, entryPrice: 128_000, realizedPnlAusd: -3_950, fundingAusd: -12 };
+  const liq = { id: 'tx-1', atMs: Date.parse('2026-10-07T12:00:00Z'), txHash: `0x${'ab12'.repeat(16)}`, market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, accountId: 4532, side: 'long' as const, kind: 'liquidation' as never, isFull: true, sizeLots: 0.5, markPrice: 120_150.5, execPrice: 120_100.2, notionalAusd: 60_050, marginLostAusd: 4_210, badDebtAusd: 0, freeBalanceBeforeAusd: 12_500, marginToSurviveAusd: 900, verdict: 'rescuable' as never, blockNumber: 111_124_100, logIndex: 3, entryPrice: 128_000, realizedPnlAusd: -3_950, fundingAusd: -12 };
   const kb = (links: ReadonlyArray<{ text: string; url: string }>): Keyboard => ({ inline_keyboard: links.length === 0 ? [] : [links.map((l) => ({ text: l.text, url: l.url }))] });
   for (const why of ['watching', 'feed'] as const) {
     const r = renderLiquidation({ kind: 'liquidation', id: 'e1', liquidation: liq, freshness: fresh } as never, why, ctx);
     pushed(`liquidation (${why === 'watching' ? 'a watched wallet' : 'the feed'})`, why === 'watching' ? 'watch-only' : 'everyone', r.html, kb(r.links), why === 'watching' ? 'a watched wallet is liquidated, any size' : 'any liquidation at or above the chat\'s threshold');
   }
-  const order = { id: 'o1', txHash: '0xdef456def456', blockNumber: 111_124_120, atMs: Date.parse('2026-10-07T12:00:00Z'), market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, accountId: 4532, sizeLots: 0.4, notionalAusd: 48_060, averagePrice: 120_150.5, fills: 3 };
+  const order = { id: 'o1', txHash: `0x${'de45'.repeat(16)}`, blockNumber: 111_124_120, atMs: Date.parse('2026-10-07T12:00:00Z'), market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, accountId: 4532, sizeLots: 0.4, notionalAusd: 48_060, averagePrice: 120_150.5, fills: 3 };
   for (const direction of [{ action: 'open' as const, side: 'long' as const }, undefined]) {
     const r = renderLargeTrade({ kind: 'large-trade', id: 'e2', order, direction, freshness: fresh } as never, ctx);
     pushed(`large trade (${direction === undefined ? 'direction not known' : 'direction known'})`, 'everyone', r.html, kb(r.links), 'any taker order at or above the chat\'s threshold');
   }
   for (const kind of ['position-opened', 'position-increased', 'position-reduced', 'position-closed'] as const) {
-    const r = renderPositionChange({ kind, id: 'e3', accountId: 4532, market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, side: 'long', sizeBefore: kind === 'position-opened' ? 0 : 0.5, sizeAfter: kind === 'position-closed' ? 0 : 0.8, entryPrice: 120_000, marginAusd: 9_600, leverage: 10, openedAtMs: Date.parse('2026-10-07T11:00:00Z'), seenAtMs: Date.parse('2026-10-07T12:00:00Z'), freshness: fresh } as never, ctx);
+    const r = renderPositionChange({ kind, id: 'e3', accountId: 4532, market: { marketId: 1, symbol: 'BTC', indexerName: 'BTC' }, side: 'long', sizeBefore: kind === 'position-opened' ? 0 : 0.5, sizeAfter: kind === 'position-closed' ? 0 : 0.8, entryPrice: 120_000, marginAusd: 9_600, leverage: 10, openedAtMs: Date.parse('2026-10-07T11:00:00Z'), seenAtMs: Date.parse('2026-10-07T12:00:00Z'), ...(kind === 'position-opened' ? { txHash: `0x${'0be1'.repeat(16)}` } : kind === 'position-closed' ? { txHash: `0x${'c105'.repeat(16)}`, closedAtMs: Date.parse('2026-10-07T11:58:00Z') } : {}), freshness: fresh } as never, ctx);
     pushed(`watched wallet: ${kind.replace('position-', '')}`, 'watch-only', r.html, kb(r.links), 'a watched wallet\'s position changes (checked every 30 s)');
   }
   const r = renderWarning({ ...dangerAssessment(), accountId: 4532, watch: { accountId: 4532, label: '#4532', indexerBlock: 111_124_139, blocksBehind: 140, indexerState: 'synced', freeBalanceCNS: 12_500_000_000n } } as never, 5, [10, 5], CONFIGS.get(dangerAssessment().marketId), ctx);
@@ -440,7 +442,7 @@ const pushedTargets = new Set<string>();
   const rule = { id: 3, accountId: 710, marketId: 16, symbol: 'BTC', positionId: 1, triggerPct: 0.05, amountCNS: 100_000_000n, maxRescues: 2, maxTotalCNS: 200_000_000n, minRemainingCNS: 500_000_000n, cooldownMs: 900_000, rescueCount: 1, totalRescuedCNS: 100_000_000n, enabled: true, pausedReason: undefined, lastAttemptAtMs: 0, lastNotice: undefined, createdAtMs: 0, armedBy: 7, armedChat: 7, armedAtMs: 0, armProof: 'x' } as RescueRule;
   const a = dangerAssessment();
   const notices: RescueNotice[] = [
-    { kind: 'rescued', rule, triggerDistancePct: 0.049, appliedCNS: 100_000_000n, marginBeforeCNS: 2_810_000_000n, marginAfterCNS: 2_910_000_000n, distanceAfterPct: 0.061, receiptDisagreed: true },
+    { kind: 'rescued', rule, triggerDistancePct: 0.049, appliedCNS: 100_000_000n, marginBeforeCNS: 2_810_000_000n, marginAfterCNS: 2_910_000_000n, distanceAfterPct: 0.061, receiptDisagreed: true, txHash: `0x${'c0de'.repeat(16)}` },
     { kind: 'not-applied', rule, amountCNS: 100_000_000n, cooldownMs: 900_000 },
     { kind: 'paused', rule, amountCNS: 100_000_000n, detail: 'the position could not be read after the send' },
     { kind: 'paused-refused', rule, detail: 'the market is closed on testnet' },
@@ -452,7 +454,10 @@ const pushedTargets = new Set<string>();
     { kind: 'ended', rule, detail: 'testnet no longer lists BTC', cause: 'market' },
   ];
   for (const n of notices) {
-    const r = renderRescue(n, 6);
+    const raw = renderRescue(n, 6);
+    // As the server sends it: ending in the top-up's transaction when the exchange's reply named one.
+    const txLine = 'txHash' in n ? actionTxLine(explorerTxUrl('testnet'), [{ txHash: n.txHash }]) : undefined;
+    const r = { ...raw, html: `${raw.html}${txLine === undefined ? '' : `\n${txLine}`}` };
     pushed(`Auto top-up: ${n.kind}${n.kind === 'ended' ? ` (${n.cause})` : n.kind === 'held' ? ` (${n.reason})` : ''}`, 'linked testnet', r.html, { inline_keyboard: [r.buttons.map((b) => ({ text: b.text, callback_data: encodeNav(b.route === 'rescue' ? { to: 'rescue' } : b.route === 'position' ? { to: 'position', marketId: 16 } : { to: 'rescue-stop', marketId: 16 }) }))] }, 'Auto top-up acts, or holds, on an armed position');
   }
 }

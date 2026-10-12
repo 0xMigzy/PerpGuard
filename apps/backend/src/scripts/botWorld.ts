@@ -64,7 +64,7 @@ export interface Shot {
 /** A top-up that lands the way `t: 6` really does: applied, with the venue reporting it rejected. */
 function appliedExecutor(): FakeExecutor {
   const executor = new FakeExecutor();
-  executor.outcome = { kind: 'applied', detail: 'The margin is in: I checked the position itself.', venueRejected: true } as never;
+  executor.outcome = { kind: 'applied', detail: 'The margin is in: I checked the position itself.', venueRejected: true, txHash: `0x${'50c9'.repeat(16)}` } as never;
   return executor;
 }
 
@@ -90,6 +90,8 @@ export function build(options: { readonly link?: boolean; readonly resolver?: bo
     sessions: new StaticSessionRouter([{ accountId: 710, view, executor: appliedExecutor(), balance: new FakeBalance(), status: () => ({ trading: { state: 'signed-in', forwardingAllowed: true } }) }]),
     ownerAccountId: 710,
     tradingNetwork: 'testnet',
+    // An action result's "tx ↗": the explorer of the network this (testnet) bot trades on.
+    explorerTxUrl: 'https://testnet.monadvision.com/tx/',
     ...(options.link === true
       ? {
           link: {
