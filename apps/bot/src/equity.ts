@@ -8,9 +8,8 @@
  * each rounded to the cent first and equity is their sum, so the arithmetic
  * printed in the message adds up exactly, as it does on the page.
  *
- * PUBLIC, like /watch: it reads the MAINNET index and the venue's marks and
- * touches no account; the freshness sentence says it is read-only, and there
- * is no "Watching only" line because nothing is being watched. Equity is WITHHELD while any open position has no mark:
+ * PUBLIC, like /watch: it reads the mainnet index and the venue's marks and
+ * touches no account. There is no "Watching only" line: nothing is being watched. Equity is WITHHELD while any open position has no mark:
  * a partial sum is not equity.
  */
 import type { AccountSummary } from '@perpguard/shared';
@@ -21,9 +20,9 @@ export type EquityReading =
   | { readonly kind: 'unknown-account'; readonly accountId: number };
 
 export const EQUITY_USAGE = 'Send /equity followed by a 0x address or an account id, for example /equity 5213.';
-export const EQUITY_UNAVAILABLE = 'Equity is not available right now: I could not read the MAINNET index or the prices. Nothing was changed; try again in a minute.';
+export const EQUITY_UNAVAILABLE = 'Equity is not available right now: I could not read the mainnet index or the prices. Nothing was changed; try again in a minute.';
 
-export const unknownAccountText = (accountId: number): string => `There is no Perpl account #${accountId} in the MAINNET index.`;
+export const unknownAccountText = (accountId: number): string => `There is no Perpl account #${accountId} in the mainnet index.`;
 
 const cents = (ausd: number): string => Math.abs(ausd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** A signed amount with a true minus sign; zero carries none. */
@@ -38,10 +37,9 @@ function ageWords(ms: number): string {
 }
 
 /**
- * The reply, as HTML. `freshness` is the watch tier's own sentence about the
- * index (`describeWatchFreshness`); `nowMs` dates the marks.
+ * The reply, as HTML. `nowMs` dates the marks, which is the reply's one freshness note.
  */
-export function equityHtml(reading: Extract<EquityReading, { kind: 'ok' }>, o: { readonly nowMs: number; readonly freshness: string }): string {
+export function equityHtml(reading: Extract<EquityReading, { kind: 'ok' }>, o: { readonly nowMs: number }): string {
   const s = reading.summary;
   const positions = `${s.positions} open position${s.positions === 1 ? '' : 's'}`;
   const lines: string[] = [];
@@ -56,6 +54,7 @@ export function equityHtml(reading: Extract<EquityReading, { kind: 'ok' }>, o: {
     lines.push(`Free + margin + unrealised = <b>${plain(s.equityAusd)} AUSD</b>`);
   }
   const marks = s.positions === 0 ? 'No open positions.' : reading.marksAsOfMs === undefined ? `${positions}.` : `${positions}, priced with marks up to ${ageWords(o.nowMs - reading.marksAsOfMs)} old.`;
-  lines.push('', `${marks} ${o.freshness}`);
+  // THE ONLY FRESHNESS NOTE (owner, 12 Oct 2026): how old the marks are. The sentence about the index and the venue is gone.
+  lines.push('', marks);
   return lines.join('\n');
 }

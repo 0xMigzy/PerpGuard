@@ -144,7 +144,6 @@ import {
   labelFor,
   parseWatchArgument,
   parseWatchTarget,
-  describeWatchFreshness,
   type WatchResolver,
   type WatchStore,
   type WatchTarget,
@@ -368,7 +367,7 @@ export function createBot(deps: BotDeps): Bot {
   /** 🆘 Stop everything: the request each chat's cost screen confirms, minted when it was shown, run at most once. */
   const stopAllRequests = new Map<string, { readonly requestId: string; readonly shownAtMs: number }>();
   const settings = deps.settings ?? new InMemoryAccountSettingsStore();
-  const watchUnavailable = 'Watching is not available on this deployment: no MAINNET index is wired to this bot.';
+  const watchUnavailable = 'Watching is not available on this deployment: no mainnet index is wired to this bot.';
   /** Taps whose screen opens as a new message, leaving the tapped one as it is. */
   const freshTaps = new WeakSet<Context>();
   /** When each chat was last pointed at the menu for chatter it sent. */
@@ -386,7 +385,7 @@ export function createBot(deps: BotDeps): Bot {
     if (link === undefined) return { refusal: REFUSAL_TEXT };
     // ONE NETWORK PER TRADING ACCOUNT: a link made on another network names another account here, or none.
     if (link.network !== undefined && deps.tradingNetwork !== undefined && link.network !== deps.tradingNetwork) {
-      return { refusal: `Your account #${link.accountId} was connected on ${networkName(link.network)}, but PerpGuard trades on ${networkName(deps.tradingNetwork)} here, so nothing can act on it. Send /link to connect a ${deps.tradingNetwork} account.` };
+      return { refusal: `Your account #${link.accountId} was connected on ${link.network}, but PerpGuard trades on ${deps.tradingNetwork} here, so nothing can act on it. Send /link to connect a ${deps.tradingNetwork} account.` };
     }
     const relink = deps.link?.needsRelink?.(link.userId);
     if (relink !== undefined) {
@@ -687,7 +686,7 @@ export function createBot(deps: BotDeps): Bot {
       return { ok: false, text: EQUITY_UNAVAILABLE };
     }
     if (reading.kind === 'unknown-account') return { ok: false, text: unknownAccountText(reading.accountId) };
-    return { ok: true, html: equityHtml(reading, { nowMs: now(), freshness: describeWatchFreshness(watch.indexerHealth?.()) }) };
+    return { ok: true, html: equityHtml(reading, { nowMs: now() }) };
   }
 
   /** An address or id someone typed: resolved like /watch, answered as a new message. True when figures were shown. */
@@ -2077,7 +2076,7 @@ function unavailableText(availability: ActionAvailability | undefined): string {
     return 'I could not check whether this market can be acted on, so I will not act on it.';
   }
   if (availability.actionable) return '';
-  return `Not actionable on ${networkName(availability.network)}: ${availability.reason}`;
+  return `Not actionable on ${availability.network}: ${availability.reason}`;
 }
 
 /**

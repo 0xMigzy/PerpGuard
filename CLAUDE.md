@@ -729,12 +729,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
   persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
   does not unsubscribe anyone.
-- THE NETWORK'S NAME IS UPPERCASE EVERYWHERE IN THE BOT, AND THE BANNER IS
-  THE BARE NAME (owner, 12 Oct 2026; `networkName`, `actingBadge`, `withBadge`
-  in `apps/backend/src/alerts/plain.ts`). One treatment of the word: the
-  banner, a heading ("📊 MY POSITIONS · TESTNET #24", "🔗 MAINNET #4855"), a
-  sentence ("the MAINNET index", "connected on MAINNET, but PerpGuard trades
-  on TESTNET here"). The website keeps its own prose ("Monad mainnet").
+- THE NETWORK'S NAME IS UPPERCASE IN THE BOT'S CHROME ONLY, AND THE BANNER
+  IS THE BARE NAME (owner, 12 Oct 2026; `networkName`, `actingBadge`,
+  `withBadge` in `apps/backend/src/alerts/plain.ts`). CHROME is the banner and
+  the headings and tag lines that name an account's network: "📊 MY POSITIONS
+  · TESTNET #24", "⚙️ SETTINGS · TESTNET #24", "🔗 TESTNET #24", "👁 MAINNET
+  #4855". PROSE STAYS LOWERCASE, like the website: "Not actionable on
+  testnet: …", "This bot acts on testnet. Mainnet is @PerpGuardBot.",
+  "connected on mainnet, but PerpGuard trades on testnet here", "Connected
+  testnet #24.", "the mainnet index". (For a few hours on 12 Oct prose was
+  uppercase too; the owner took it back.)
   - THE BANNER is `<b>MAINNET</b>` or `<b>TESTNET</b>` on the first line of
     every ACTION screen and message: bold, NO SYMBOL, NOTHING AFTER IT (it
     was lowercase "testnet" and "⚠️ MAINNET · real funds"). Never added by
@@ -859,7 +863,12 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     own pricing (`assessOnAnalyticsVenue`). TO THE CENT, unlike the plain
     voice's whole AUSD, so the printed sum adds up as it does on the page.
     Equity is withheld while any open position has no mark. It reads and
-    subscribes to nothing; no buttons, and no "Watching only" line.
+    subscribes to nothing; no buttons, and no "Watching only" line. ITS ONE
+    FRESHNESS NOTE IS THE AGE OF THE MARKS ("priced with marks up to 22 s
+    old"), the reply's last line. The sentence "Positions come from the
+    mainnet index…; marks come from the venue. Not live, and read-only from
+    this chat." was DELETED everywhere (owner, 12 Oct 2026), with the
+    function that wrote it (`describeWatchFreshness`). Do not bring it back.
   - 💰 EQUITY IS ALSO A BUTTON on 👁 Watch & Alerts (owner, 12 Oct 2026), on
     its own row under the six, which did not move. ONE wallet watched: its
     equity at once. SEVERAL: a button per watched wallet (`equityPickScreen`).

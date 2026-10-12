@@ -50,7 +50,7 @@ export function winRatePhrase(row: Pick<TraderRow, 'winRate' | 'wins' | 'roundTr
 /** "Read off the mainnet index, 140 blocks behind the chain." */
 export function indexLimitsLine(health: IndexerHealth | undefined): string {
   const behind = health?.blocksBehind === undefined ? '' : `, ${grouped(health.blocksBehind)} block${health.blocksBehind === 1 ? '' : 's'} behind the chain`;
-  return `<i>Read off the MAINNET index${behind}. Watched wallets are re-read every ${WATCH_EVERY_SECONDS} seconds.</i>`;
+  return `<i>Read off the mainnet index${behind}. Watched wallets are re-read every ${WATCH_EVERY_SECONDS} seconds.</i>`;
 }
 
 // ── the menu ────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export function walletAddedScreen(input: { readonly accountId: number; readonly 
     '• getting close to liquidation, at your warning levels',
     '• liquidation',
     '',
-    `<i>From the MAINNET index, re-read every ${WATCH_EVERY_SECONDS} seconds: a change can arrive a minute or so after it happened.</i>`,
+    `<i>From the mainnet index, re-read every ${WATCH_EVERY_SECONDS} seconds: a change can arrive a minute or so after it happened.</i>`,
     NO_BUTTONS,
   );
   return {

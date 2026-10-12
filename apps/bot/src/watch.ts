@@ -249,27 +249,13 @@ export function labelFor(target: WatchTarget, resolved: ResolvedWatchTarget): st
 
 // ── words ───────────────────────────────────────────────────────────────────
 
-/** How current the watched data is, for `/watching` and the subscribe reply. */
-export function describeWatchFreshness(health: IndexerHealth | undefined): string {
-  if (health === undefined) return 'Positions come from the MAINNET index; I could not read how far behind it is right now.';
-  const behind = health.blocksBehind;
-  const block = health.latestProcessedBlock;
-  const base =
-    block !== undefined && block > 0
-      ? `Positions come from the MAINNET index at block ${block.toLocaleString('en-US')}` +
-        (behind === undefined ? '' : `, ${behind.toLocaleString('en-US')} block${behind === 1 ? '' : 's'} behind the chain`)
-      : 'Positions come from the MAINNET index';
-  const state = health.state === 'synced' ? '' : ` (indexer ${health.state})`;
-  return `${base}${state}; marks come from the venue. Not live, and read-only from this chat.`;
-}
-
 export function renderWatching(subs: readonly WatchSubscription[], health: IndexerHealth | undefined, maxPerChat: number): string {
   if (subs.length === 0) {
     return 'This chat watches nothing yet. /watch <0x address or account id> to follow one — no wallet or link needed.';
   }
   const lines = [`Watching ${subs.length} of ${maxPerChat}:`];
   for (const sub of subs) lines.push(`  ${sub.label} — account ${sub.accountId}`);
-  lines.push('', describeWatchFreshness(health), '/unwatch <address or id> to stop.');
+  lines.push('', '/unwatch <address or id> to stop.');
   return lines.join('\n');
 }
 
@@ -278,7 +264,6 @@ export function renderWatched(sub: WatchSubscription, resolved: ResolvedWatchTar
   return [
     `${already ? 'Already watching' : 'Watching'} ${sub.label} — account ${resolved.accountId}, ${how}.`,
     `I will warn this chat when a position on it enters WATCH, DANGER or passes its liquidation price, and say when it recovers.`,
-    describeWatchFreshness(health),
   ].join('\n');
 }
 

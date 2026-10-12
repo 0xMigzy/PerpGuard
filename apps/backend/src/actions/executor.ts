@@ -274,7 +274,7 @@ export class ActionsExecutor {
       return this.#refuse(
         command,
         'not-actionable',
-        `not actionable on ${this.#venue.network.name.toUpperCase()}: ${availabilityReason}`,
+        `not actionable on ${this.#venue.network.name}: ${availabilityReason}`,
       );
     }
 

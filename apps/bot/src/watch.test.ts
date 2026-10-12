@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FRESH_SUBSCRIPTION_MS, InMemoryWatchStore, RateLimiter, describeWatchFreshness, labelFor, parseWatchTarget, renderWatching, watchRecipients } from './watch.ts';
+import { FRESH_SUBSCRIPTION_MS, InMemoryWatchStore, RateLimiter, labelFor, parseWatchTarget, renderWatching, watchRecipients } from './watch.ts';
 import type { RiskChange } from '@perpguard/backend/risk';
 
 const sub = (chatId: number, accountId: number, addedAtMs = 1_000) => ({ chatId, accountId, label: `#${accountId}`, addedAtMs });
@@ -75,16 +75,15 @@ test('labels show the address the watcher typed, or the id with the owner when k
   assert.equal(labelFor({ kind: 'account', accountId: 5293 }, { accountId: 5293, address: undefined, resolvedBy: 'index' }), '#5293');
 });
 
-test('/watching says what is followed and how current the index is, never implying live data', () => {
+test('/watching says what is followed', () => {
   const store = new InMemoryWatchStore({ maxPerChat: 5 });
   store.add({ chatId: 1, accountId: 5293, label: '0xb785…1765', addedAtMs: 1 });
   const text = renderWatching(store.byChat(1), { state: 'lagging', blocksBehind: 120, latestProcessedBlock: 109_000_000, serveAsCurrent: false } as never, 5);
   assert.match(text, /Watching 1 of 5/);
   assert.match(text, /0xb785…1765 — account 5293/);
-  assert.match(text, /block 109,000,000, 120 blocks behind the chain \(indexer lagging\)/);
-  assert.match(text, /Not live, and read-only from this chat/);
+  // The sentence about the index and the venue was deleted everywhere (owner, 12 Oct 2026).
+  assert.doesNotMatch(text, /Positions come from|marks come from the venue/);
   assert.match(renderWatching([], undefined, 5), /watches nothing yet/);
-  assert.match(describeWatchFreshness(undefined), /could not read how far behind/);
 });
 
 test('a fresh subscription is spared first-sight alerts its screen just showed; real changes and older subscriptions are not', () => {

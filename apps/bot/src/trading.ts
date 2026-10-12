@@ -13,7 +13,6 @@
  * than none. It arrives with the persisted proof (Phase 10–11).
  */
 import type { NetworkName } from '@perpguard/shared';
-import { networkName } from '@perpguard/backend/alerts/plain';
 
 /** What the bot is told about a linked account's session. A subset of the backend's link status. */
 export interface ExecutionFacts {
@@ -39,8 +38,7 @@ export interface ExecutionState {
 
 export function executionState(facts: ExecutionFacts | undefined): ExecutionState {
   if (facts?.otherNetwork !== undefined) {
-    const linkedOn = networkName(facts.otherNetwork.linkedOn);
-    const tradingOn = networkName(facts.otherNetwork.tradingOn);
+    const { linkedOn, tradingOn } = facts.otherNetwork;
     return { dot: '🔴', label: `Linked on ${linkedOn}, not ${tradingOn}`, next: `This deployment trades on ${tradingOn}. Connect a ${tradingOn} account with /link.` };
   }
   if (facts?.needsRelink !== undefined) return { dot: '🔴', label: 'Key can no longer be used (rotated)', next: 'PerpGuard cannot open your saved API key any more. Paste it again on the connect page.' };

@@ -36,7 +36,6 @@ import type { LinkCodeStore } from '../protect/session.ts';
 import { KeyRotatedError, type KeyVault, type SealedCredentials } from './crypto.ts';
 import type { KeyStore } from './stores.ts';
 import { InMemoryWalletProofStore, type WalletProofRecord, type WalletProofStore } from './proofs.ts';
-import { networkName } from '../../alerts/plain.ts';
 
 export interface Probe {
   readonly accountId: number | undefined;
@@ -246,7 +245,7 @@ export class LinkService {
           return { kind: 'refused', reason: bound.reason };
         }
         this.#deps.logger.info(`link: ${identity.userId} proved account ${accountId} by wallet; session already running`);
-        await this.#notify(identity.chatId, `Connected ${networkName(this.#deps.network)} #${accountId}. Alerts here now come with buttons to add margin.`);
+        await this.#notify(identity.chatId, `Connected ${this.#deps.network ?? 'testnet'} #${accountId}. Alerts here now come with buttons to add margin.`);
         return { kind: 'linked', accountId };
       }
       // EVERY OUTCOME IS LOGGED. This one was silent until 6 Oct 2026, so a phone
@@ -351,7 +350,7 @@ export class LinkService {
     this.#deps.logger.info(`link: ${identity.userId} linked account ${accountId} by API key (forwarding ${probe.forwardingAllowed ?? 'unknown'})`);
     await this.#notify(
       identity.chatId,
-      `Connected ${networkName(this.#deps.network)} #${accountId}. Alerts here now come with buttons to add margin.` +
+      `Connected ${this.#deps.network ?? 'testnet'} #${accountId}. Alerts here now come with buttons to add margin.` +
         (probe.forwardingAllowed === false ? " One thing first: this account doesn't allow trading by API key yet, so the buttons won't send. Turn on order forwarding in Perpl with the wallet that owns it." : ''),
     );
     return { kind: 'linked', accountId, forwardingAllowed: probe.forwardingAllowed };

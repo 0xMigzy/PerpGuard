@@ -139,7 +139,7 @@ export function sizePhrase(units: number | undefined, symbol: string): string | 
  * from it must never pass for a live one.
  */
 export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 'priceIsOld' | 'priceAgeMs'>): string {
-  const block = scope.indexerBlock === undefined ? 'the MAINNET index' : `block ${scope.indexerBlock.toLocaleString('en-US')}`;
+  const block = scope.indexerBlock === undefined ? 'the mainnet index' : `block ${scope.indexerBlock.toLocaleString('en-US')}`;
   const behind =
     scope.blocksBehind === undefined ? '' : `, ${scope.blocksBehind.toLocaleString('en-US')} block${scope.blocksBehind === 1 ? '' : 's'} behind the chain`;
   const state = scope.indexerState === 'synced' ? '' : ` (indexer ${esc(scope.indexerState)})`;

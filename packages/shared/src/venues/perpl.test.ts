@@ -255,7 +255,7 @@ describe('PerplVenue.getActionAvailability', () => {
       assert.ok(!availability.actionable);
       assert.equal(availability.code, 'not-listed-on-acting-network');
       assert.match(availability.reason, new RegExp(symbol));
-      assert.match(availability.reason, /TESTNET/);
+      assert.match(availability.reason, /testnet/);
       assert.match(availability.reason, /Monitoring and alerts continue/);
     }
   });

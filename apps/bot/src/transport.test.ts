@@ -147,7 +147,7 @@ test('an unavailable market still gets its alert, with disabled buttons and the 
 
   assert.match(text, /Buffer 2\.7% — liquidation 81,770\.1/);
   assert.match(text, /Add 562 → buffer 4\.0%/);
-  assert.match(text, /Actions are unavailable on TESTNET: BTC is not listed on testnet/);
+  assert.match(text, /Actions are unavailable on testnet: BTC is not listed on testnet/);
 
   // The options stay visible as buttons, but tapping one cannot execute. That
   // includes the custom one: an unavailable market keeps every control it had,

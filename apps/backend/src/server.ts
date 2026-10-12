@@ -402,7 +402,7 @@ let watchResolverImpl: WatchResolver | undefined;
 const watchResolver: WatchResolver = {
   resolve: (target: WatchTarget) =>
     watchResolverImpl === undefined
-      ? Promise.resolve({ error: 'this deployment has no MAINNET index wired, so there is nothing to watch with' })
+      ? Promise.resolve({ error: 'this deployment has no mainnet index wired, so there is nothing to watch with' })
       : watchResolverImpl.resolve(target),
 };
 let watchLoop: WatchLoop | undefined;

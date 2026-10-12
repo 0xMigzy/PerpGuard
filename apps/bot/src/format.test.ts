@@ -37,7 +37,7 @@ test('an unactionable market gets disabled buttons and a reason', () => {
   assert.deepEqual(kinds(closed), ['blocked', 'blocked']);
   assert.equal(
     availabilityNote(closed, actions.length),
-    'Actions are unavailable on TESTNET: the venue has BTC closed',
+    'Actions are unavailable on testnet: the venue has BTC closed',
   );
 });
 

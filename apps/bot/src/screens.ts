@@ -287,7 +287,7 @@ export interface PeerBot {
 const title = (network: NetworkName): string => (network === 'mainnet' ? 'Mainnet' : 'Testnet');
 /** "This bot acts on testnet. Mainnet is @PerpGuardBot." */
 export function peerLine(own: NetworkName | undefined, peer: PeerBot): string {
-  return `${own === undefined ? '' : `This bot acts on ${networkName(own)}. `}${networkName(peer.network)} is @${peer.username}.`;
+  return `${own === undefined ? '' : `This bot acts on ${own}. `}${title(peer.network)} is @${peer.username}.`;
 }
 /** A link button to the other bot. A URL: it opens Telegram and calls nothing back. */
 export const peerRow = (peer: PeerBot | undefined): Button[][] =>
@@ -322,7 +322,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
       html: [
         '🔐 <b>TRADING ACCOUNT</b>',
         '',
-        `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${networkName(input.network)} #${p.accountId}.`,
+        `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${input.network ?? 'testnet'} #${p.accountId}.`,
         'To add margin for you I also need an API key for it. Enter it on the page, never here.',
         ...(input.peer === undefined ? [] : ['', `<i>${peerLine(input.network, input.peer)}</i>`]),
       ].join('\n'),

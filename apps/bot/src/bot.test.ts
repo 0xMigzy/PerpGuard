@@ -568,7 +568,7 @@ test('a disabled button reports the venue’s reason and executes nothing', asyn
   await h.bot.handleUpdate(callbackUpdate(data));
 
   assert.equal(h.executor.calls.length, 0);
-  assert.match(answers(h.telegram).at(-1)!, /Not actionable on TESTNET: the venue has BTC closed/);
+  assert.match(answers(h.telegram).at(-1)!, /Not actionable on testnet: the venue has BTC closed/);
 });
 
 test('a market that closed between the alert and the tap is refused at tap time', async () => {
@@ -586,7 +586,7 @@ test('a market that closed between the alert and the tap is refused at tap time'
   await h.bot.handleUpdate(callbackUpdate(data));
 
   assert.equal(h.executor.calls.length, 0);
-  assert.match(answers(h.telegram).at(-1)!, /Not actionable on TESTNET/);
+  assert.match(answers(h.telegram).at(-1)!, /Not actionable on testnet/);
   assert.equal(texts(h.telegram).length, 0, 'no confirmation screen for an unavailable market');
 });
 
@@ -894,7 +894,7 @@ test('a disabled Custom amount button reports the reason and opens no prompt', a
 
   await h.bot.handleUpdate(callbackUpdate(data));
 
-  assert.match(answers(h.telegram).at(-1)!, /Not actionable on TESTNET: the venue has BTC closed/);
+  assert.match(answers(h.telegram).at(-1)!, /Not actionable on testnet: the venue has BTC closed/);
   assert.equal(h.amounts.get(OWNER_ID), undefined, 'no prompt for a market we cannot act on');
   assert.equal(texts(h.telegram).length, 0);
 });
@@ -913,7 +913,7 @@ test('a market that closes between the prompt and the reply ends the flow, with 
 
   await h.bot.handleUpdate(messageUpdate('1000'));
 
-  assert.match(texts(h.telegram).at(-1)!, /Not actionable on TESTNET/);
+  assert.match(texts(h.telegram).at(-1)!, /Not actionable on testnet/);
   assert.doesNotMatch(texts(h.telegram).at(-1)!, /Confirm/);
   assert.equal(h.amounts.get(OWNER_ID), undefined);
   assert.equal(h.executor.calls.length, 0);
@@ -1096,7 +1096,7 @@ test('a stranger can /watch a checksummed address: it resolves, is stored, and t
   assert.deepEqual(h.resolver.asked, [{ kind: 'address', address: OWNER_ADDRESS.toLowerCase() }], 'lowercased before lookup');
   const reply = texts(h.telegram).at(-1)!;
   assert.match(reply, /^✅ <b>WALLET ADDED<\/b> · #5293 \(found through the Exchange contract\)/);
-  assert.match(reply, /From the MAINNET index, re-read every 30 seconds/);
+  assert.match(reply, /From the mainnet index, re-read every 30 seconds/);
   assert.match(reply, /Watching only — nothing here to press\./);
   assert.deepEqual(h.watchStore.watchersOf(5293).map((s) => s.chatId), [STRANGER_CHAT]);
   assert.equal(h.telegram.last('sendMessage').payload['parse_mode'], 'HTML');
@@ -1159,7 +1159,7 @@ test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, 
   await tap({ to: 'watch-menu' });
   const menu = h.telegram.last('editMessageText');
   assert.match(String(menu.payload['text']), /^👁 <b>WATCH & ALERTS<\/b>\nRead-only\. No wallet, no key\./);
-  assert.match(String(menu.payload['text']), /Read off the MAINNET index, 7 blocks behind the chain\. Watched wallets are re-read every 30 seconds\./, 'the menu states its own latency');
+  assert.match(String(menu.payload['text']), /Read off the mainnet index, 7 blocks behind the chain\. Watched wallets are re-read every 30 seconds\./, 'the menu states its own latency');
   assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch wallet', '⭐ Watchlist', '💥 Liquidations', '🐋 Large trades', '⚠️ Warning levels', '⚙️ Alert settings', '💰 Equity', '← Back']);
 
   await tap({ to: 'watch-ask' });
@@ -1677,10 +1677,10 @@ test('PHASE 13: a link made on another network is refused BY NAME, and the Tradi
   const links = newLinks([{ ...OWNER_LINK, network: 'mainnet' }]);
   const h = harness({ links });
   await tapNav(h, { to: 'positions' });
-  assert.match(answers(h.telegram).at(-1)!, /^Your account #710 was connected on MAINNET, but PerpGuard trades on TESTNET here/);
+  assert.match(answers(h.telegram).at(-1)!, /^Your account #710 was connected on mainnet, but PerpGuard trades on testnet here/);
   await tapNav(h, { to: 'account' });
   const screen = lastScreen(h.telegram);
-  assert.match(String(screen.payload['text']), /Execution: 🔴 Linked on MAINNET, not TESTNET/);
+  assert.match(String(screen.payload['text']), /Execution: 🔴 Linked on mainnet, not testnet/);
   assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter a new API key', '🔌 Disconnect #710', '📖 Setup guide', '← Back']);
 });
 
@@ -1689,7 +1689,7 @@ test('PHASE 13: a wallet that proved an account but sent no key is told what is 
   const h = harness({ link: { ...fake.service, walletProof: () => ({ address: '0x169e49ece0d4f19b92de549482d1562ddd235251', accountId: 900 }) } });
   await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   const screen = lastScreen(h.telegram);
-  assert.match(String(screen.payload['text']), /Your wallet <code>0x169e…5251<\/code> owns TESTNET #900\.\nTo add margin for you I also need an API key for it\. Enter it on the page, never here\./);
+  assert.match(String(screen.payload['text']), /Your wallet <code>0x169e…5251<\/code> owns testnet #900\.\nTo add margin for you I also need an API key for it\. Enter it on the page, never here\./);
   assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['🔑 Enter API key', '🔌 Disconnect #900', '📖 Setup guide', '← Back']);
 });
 
@@ -2562,7 +2562,7 @@ test('/equity, A VALID ACCOUNT, from a chat with nothing linked: free + margin +
   const reply = texts(h.telegram).at(-1)!;
   assert.match(reply, /^💰 <b>#5213 · equity 15,346\.00 AUSD<\/b>/);
   assert.match(reply, /Free balance: <b>4,180\.00 AUSD<\/b>\nMargin in use: <b>12,450\.00 AUSD<\/b>\nUnrealised P&amp;L: <b>−1,284\.00 AUSD<\/b>\nFree \+ margin \+ unrealised = <b>15,346\.00 AUSD<\/b>/);
-  assert.match(reply, /2 open positions, priced with marks up to 12 s old\. Positions come from the MAINNET index/);
+  assert.ok(reply.endsWith('2 open positions, priced with marks up to 12 s old.'), 'the one freshness note, and the last line');
   assert.equal(h.telegram.last('sendMessage').payload['parse_mode'], 'HTML');
   assert.equal(h.telegram.last('sendMessage').payload['reply_markup'], undefined, 'it reads; there is nothing to press');
   assert.deepEqual(h.watchStore.watchersOf(5213), [], 'asking for equity watches nothing');
@@ -2580,7 +2580,7 @@ test('/equity, AN UNKNOWN ACCOUNT: an address nothing owns, and an id the index 
   // The resolver knows the id (the chain does), the index has no profile for it.
   h.resolver.answers.set('999999', { accountId: 999_999, address: undefined, resolvedBy: 'chain' });
   await h.bot.handleUpdate(stranger('/equity 999999'));
-  assert.equal(texts(h.telegram).at(-1), 'There is no Perpl account #999999 in the MAINNET index.');
+  assert.equal(texts(h.telegram).at(-1), 'There is no Perpl account #999999 in the mainnet index.');
   for (const t of texts(h.telegram)) assert.doesNotMatch(t, /AUSD/);
 });
 
@@ -2681,14 +2681,14 @@ test('TWO BOTS: the Trading account screen and /help say which network this bot 
   const h = harness({ peerBot: { network: 'mainnet', username: 'PerpGuardBot' } });
   await tapNav(h, { to: 'account' }, AT_STRANGER);
   const screen = lastScreen(h.telegram);
-  assert.match(String(screen.payload['text']), /<i>This bot acts on TESTNET. MAINNET is @PerpGuardBot\.<\/i>$/);
+  assert.match(String(screen.payload['text']), /<i>This bot acts on testnet. Mainnet is @PerpGuardBot\.<\/i>$/);
   const rows = (screen.payload['reply_markup'] as InlineKeyboard).inline_keyboard;
   const peer = rows.flat().find((b) => b.text === '🟢 Mainnet bot') as { url?: string; callback_data?: string } | undefined;
   assert.equal(peer?.url, 'https://t.me/PerpGuardBot', 'a link: it opens Telegram and calls nothing back');
   assert.equal(peer?.callback_data, undefined);
   await h.bot.handleUpdate(stranger('/help'));
   const help = h.telegram.last('sendMessage');
-  assert.ok(String(help.payload['text']).endsWith('This bot acts on TESTNET. MAINNET is @PerpGuardBot.'));
+  assert.ok(String(help.payload['text']).endsWith('This bot acts on testnet. Mainnet is @PerpGuardBot.'));
   assert.deepEqual((help.payload['reply_markup'] as InlineKeyboard).inline_keyboard.flat().map((b) => b.text), ['📖 Setup guide', '🟢 Mainnet bot']);
 
   const alone = harness();
