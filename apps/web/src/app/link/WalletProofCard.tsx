@@ -23,11 +23,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
 import { isEthereumWallet } from '@dynamic-labs/ethereum';
 import { describeError, link, ApiError, type LinkMe, type WalletKeyResult, type WalletKeyTypedData, type WalletProof } from '@/lib/api.ts';
+import { PEER, TRADING } from '@/lib/tradingNetwork.ts';
 import { DYNAMIC_ENVIRONMENT_ID } from './dynamicEnv.ts';
+import { domainChainId, ensureChain, isChainRefusal, isDeclined, wrongChainText } from './ensureChain.ts';
 
 const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;
 
-type Step = 'idle' | 'signing' | 'checking' | 'declined';
+type Step = 'idle' | 'signing' | 'checking' | 'declined' | 'wrong-chain';
+
+/** The networks this page can name: this deployment's and the other one's. */
+const KNOWN_CHAINS = [TRADING, PEER];
 
 interface Props {
   /** The wallet whose ownership is on record (lowercase), if any. Only that wallet is shown green. */
@@ -60,6 +65,8 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
   const { primaryWallet, sdkHasLoaded, setShowAuthFlow, handleLogOut } = useDynamicContext();
   const address = primaryWallet?.address;
   const [step, setStep] = useState<Step>('idle');
+  /** The sentence for a wallet on the wrong network, shown while `step` is 'wrong-chain'. */
+  const [wrongChain, setWrongChain] = useState('');
   /** Dynamic never loaded (its origin list, a blocked request): say so rather than leave an empty box. */
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
@@ -75,6 +82,13 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
   const prove = useCallback(async () => {
     if (primaryWallet === null || address === undefined) return;
     setStep('signing');
+    /** The chain the request names, and where the wallet was last seen when that is somewhere else. */
+    let wanted = KNOWN_CHAINS[0]!;
+    let elsewhere: number | undefined;
+    const sayWrongChain = (current: number | undefined) => {
+      setWrongChain(wrongChainText(current, wanted, KNOWN_CHAINS));
+      setStep('wrong-chain');
+    };
     try {
       if (mode === 'key') {
         // 🔗 ONE SIGNATURE: Perpl's typed data, signed by this wallet; the server does the rest.
@@ -90,6 +104,15 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
           setStep('idle');
           onProblem('This wallet can’t sign the request. Connect an Ethereum wallet, or paste an API key you already have.');
           return;
+        }
+        // THE CHAIN FIRST (`ensureChain`): a wallet on the other Monad network is asked to switch before it is asked to sign.
+        const wantedId = domainChainId(typedData.domain) ?? TRADING.chainId;
+        wanted = KNOWN_CHAINS.find((k) => k.chainId === wantedId) ?? { ...TRADING, chainId: wantedId };
+        const chain = await ensureChain(primaryWallet, wantedId);
+        if (chain.state === 'elsewhere') {
+          // Said no to the switch: stop here, in words. Could not switch: the signature is still asked for.
+          if (chain.declined) return sayWrongChain(chain.current);
+          elsewhere = chain.current;
         }
         const client = await primaryWallet.getWalletClient();
         // Perpl's typed data is shaped at run time; viem's generics cannot check it, so it is passed as given.
@@ -113,10 +136,12 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
       setStep('idle');
     } catch (error) {
       // A wallet that declined to sign is not a problem with the page: say so, and offer again.
-      if (error instanceof Error && /reject|denied|cancel|declin/i.test(error.message)) {
+      if (isDeclined(error)) {
         setStep('declined');
         return;
       }
+      // The wallet refused the request for its chain: the sentence, never the wallet's own error.
+      if (mode === 'key' && !(error instanceof ApiError) && (elsewhere !== undefined || isChainRefusal(error))) return sayWrongChain(elsewhere);
       setStep('idle');
       onProblem(error instanceof ApiError && mode === 'key' ? error.message : describeError(error));
     }
@@ -178,6 +203,10 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
           <>
             <b>The signature was declined.</b> <span className="text-muted">{mode === 'key' ? 'Nothing was created and nothing was linked.' : 'Nothing was linked. Sign to prove this wallet is yours.'}</span>
           </>
+        ) : step === 'wrong-chain' ? (
+          <>
+            <b>{wrongChain}</b> <span className="text-muted">Nothing was created and nothing was linked.</span>
+          </>
         ) : (
           <>
             {mode === 'key' ? (
@@ -194,7 +223,7 @@ function DynamicWalletProof({ verifiedAddress, onProof, onProblem, mode = 'sign-
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" className="btn primary" disabled={step === 'signing' || step === 'checking'} onClick={() => void prove()}>
-          {step === 'signing' ? 'Waiting for your wallet…' : step === 'checking' ? (mode === 'key' ? 'Creating your key…' : 'Checking…') : mode === 'key' ? 'Approve the signature' : 'Sign to prove ownership'}
+          {step === 'signing' ? 'Waiting for your wallet…' : step === 'checking' ? (mode === 'key' ? 'Creating your key…' : 'Checking…') : step === 'wrong-chain' ? 'Try again' : mode === 'key' ? 'Approve the signature' : 'Sign to prove ownership'}
         </button>
         {forget}
       </div>

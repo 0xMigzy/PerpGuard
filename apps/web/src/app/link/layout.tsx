@@ -22,8 +22,9 @@ type GenericNetwork = Parameters<typeof mergeNetworks>[0][number];
 /**
  * Monad, declared to Dynamic so a Monad wallet is not told to switch chains
  * before signing (measured 30 Sep 2026: without it a wallet on chain 10143
- * was sent to an "Update Network" step). The message names its own chain, so
- * no switch is ever needed to sign it.
+ * was sent to an "Update Network" step). A sign-in MESSAGE names its own
+ * chain and needs no switch; Perpl's TYPED DATA does, and a wallet on the
+ * other Monad network is asked to switch first (`ensureChain.ts`).
  */
 const MONAD_NETWORKS: readonly GenericNetwork[] = [
   {

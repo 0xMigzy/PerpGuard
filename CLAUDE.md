@@ -1378,6 +1378,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   used `?code=` is removed from the address once it opens the session, and a
   refused code falls back to the session the browser holds, so returning
   from the wallet app never shows "This link has ended".
+- A WALLET ON THE WRONG MONAD NETWORK IS SWITCHED, OR TOLD IN WORDS (owner,
+  12 Oct 2026; `apps/web/src/app/link/ensureChain.ts`). Before Perpl's typed
+  data is signed the page asks the wallet which chain it is on and, when it
+  is not the one the request names, asks it to switch through Dynamic. A
+  declined switch, or a signature the wallet refuses for its chain, shows
+  "Your wallet is on Monad testnet. Switch it to Monad mainnet to continue."
+  (names from `tradingNetwork.ts`; any other chain by its number) with Try
+  again, never the wallet's own error. NEVER WORSE THAN NOT ASKING: a wallet
+  that cannot say where it is, or cannot switch, is still asked to sign.
+  Unit-tested; the real wallet prompts can only be seen on the live sites.
 - A WALLET WHOSE ACCOUNT IS ON THE OTHER NETWORK IS TOLD SO BY NAME
   (`lookupElsewhere`, the analytics network): "This wallet owns Perpl account
   #4855 on mainnet. PerpGuard acts on testnet only for now". Nothing is ever
