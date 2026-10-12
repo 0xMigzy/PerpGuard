@@ -288,3 +288,32 @@ test('several blind inputs at once are all named, not just the first', () => {
   assert.ok(report.reasons.some((r) => r.startsWith('positions: ')));
   assert.ok(report.reasons.some((r) => r.startsWith('trading: ')));
 });
+
+test("NO ENVIRONMENT ACCOUNT IS NOT DEGRADED: with none configured, the primary positions and risk are not-configured and the verdict is OK; a configured one that is not running still degrades", () => {
+  const none = buildHealth({
+    ...healthy,
+    trading: { state: 'not-configured', attempt: 0 },
+    positions: { state: 'awaiting-snapshot', reason: 'no environment account session is configured', lastUpdateMs: undefined, ageMs: undefined },
+    assessing: false,
+    assessments: [],
+  });
+  assert.equal(none.status, 'OK');
+  assert.deepEqual(none.reasons, []);
+  assert.equal(none.components.positions.state, 'not-configured');
+  assert.equal(none.components.risk.state, 'not-configured');
+  assert.match(String(none.components.risk.detail), /no environment account is configured/);
+  // A linked account that is blind still degrades the whole report, through `sessions`.
+  const blindLinked = buildHealth({
+    ...healthy,
+    trading: { state: 'not-configured', attempt: 0 },
+    positions: { state: 'awaiting-snapshot', lastUpdateMs: undefined, ageMs: undefined },
+    assessing: false,
+    assessments: [],
+    sessions: [{ accountId: 4855, trading: { state: 'signed-in', attempt: 1, forwardingAllowed: true }, positions: { state: 'awaiting-snapshot', lastUpdateMs: undefined, ageMs: undefined }, assessing: false, tracked: 0 }],
+  });
+  assert.equal(blindLinked.status, 'DEGRADED');
+  // An environment account that IS configured and has not been seen yet is still degraded, as before.
+  const waiting = buildHealth({ ...healthy, trading: { state: 'connecting', attempt: 1 }, positions: { state: 'awaiting-snapshot', lastUpdateMs: undefined, ageMs: undefined }, assessing: false, assessments: [] });
+  assert.equal(waiting.status, 'DEGRADED');
+  assert.equal(waiting.components.risk.state, 'degraded');
+});

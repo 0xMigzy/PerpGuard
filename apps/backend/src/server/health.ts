@@ -348,7 +348,23 @@ function riskComponent(input: HealthInput): ComponentReport {
  * majority: one blind input is enough, because one blind input is enough to
  * miss a liquidation.
  */
+/**
+ * NO ENVIRONMENT ACCOUNT IS A CONFIGURATION, NOT A FAULT (owner, 12 Oct 2026).
+ * The mainnet deployment runs with none: every account there is linked by its
+ * owner. Until then the primary position set and risk loop were reported as
+ * degraded ("still waiting for the first position snapshot") for an account
+ * that does not exist, and /health answered 503 for a healthy process. Only
+ * when NO environment account is configured at all: one that is configured
+ * and not running, not signed in or blind is still degraded, and every
+ * LINKED account still reports its own state under `sessions`.
+ */
+const NO_ENV_ACCOUNT: ComponentReport = {
+  state: 'not-configured',
+  detail: 'no environment account is configured for this deployment, so there is no primary position set to assess; each linked account is reported under sessions',
+};
+
 export function buildHealth(input: HealthInput): HealthReport {
+  const noEnvAccount = input.trading.state === 'not-configured';
   const components = {
     process: {
       state: 'ok' as const,
@@ -356,11 +372,11 @@ export function buildHealth(input: HealthInput): HealthReport {
       node: process.version,
     },
     feed: feedComponent(input.feed),
-    positions: positionsComponent(input.positions),
+    positions: noEnvAccount ? NO_ENV_ACCOUNT : positionsComponent(input.positions),
     trading: tradingComponent(input.trading),
     alerts: alertsComponent(input.alerts),
     indexer: indexerComponent(input.indexer),
-    risk: riskComponent(input),
+    risk: noEnvAccount ? NO_ENV_ACCOUNT : riskComponent(input),
     ...(input.sessions === undefined ? {} : { sessions: sessionsComponent(input.sessions) }),
   };
 
