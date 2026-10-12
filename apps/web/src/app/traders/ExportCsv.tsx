@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { Timeframe, TraderRanking, TraderRow } from '@perpguard/shared';
 import { api } from '@/lib/api.ts';
 import { formatCount } from '@/lib/format.ts';
-import { flowsCsv, tradersCsv, type FlowSort } from '@/lib/traders.ts';
+import { flowsCsv, tradersCsv, type FlowSort, type TableSort } from '@/lib/traders.ts';
 
 /** The backend's own page cap for the traders list. */
 const EXPORT_PAGE = 200;
@@ -26,7 +26,7 @@ export function ExportCsv({
   readonly rankingLabel: string;
   readonly query: string | undefined;
   /** The reader's order, for the one ranking that takes one (Flows). */
-  readonly sort?: FlowSort | undefined;
+  readonly sort?: FlowSort | TableSort | undefined;
 }) {
   const [state, setState] = useState<{ readonly kind: 'idle' } | { readonly kind: 'busy'; readonly got: number; readonly total: number | undefined } | { readonly kind: 'failed' }>({ kind: 'idle' });
 

@@ -175,3 +175,32 @@ test('account summary: one unpriced position means no equity, never a partial su
   assert.equal(none.equityAusd, 7.5, 'no positions: equity is the free balance');
   assert.equal(none.sinceFirstDepositAusd, -2.5);
 });
+
+test('HEADER SORTS: a new column starts descending, the active one flips, and a click on a board\'s own preset column turns it ascending', async () => {
+  const { nextTableSort, presetSort } = await import('./traders.ts');
+  assert.deepEqual(presetSort('pnl'), { key: 'netPnl', direction: 'desc' });
+  assert.deepEqual(presetSort('losses'), { key: 'netPnl', direction: 'asc' });
+  assert.deepEqual(presetSort('volume'), { key: 'volume', direction: 'desc' });
+  assert.deepEqual(presetSort('liquidated'), { key: 'liquidations', direction: 'desc' });
+  const first = nextTableSort(presetSort('pnl'), 'volume');
+  assert.deepEqual(first, { key: 'volume', direction: 'desc' }, 'click a header: descending');
+  const second = nextTableSort(first, 'volume');
+  assert.deepEqual(second, { key: 'volume', direction: 'asc' }, 'click again: ascending');
+  assert.deepEqual(nextTableSort(second, 'volume'), first, 'and back');
+  assert.deepEqual(nextTableSort(second, 'account'), { key: 'account', direction: 'desc' });
+  assert.deepEqual(nextTableSort(presetSort('pnl'), 'netPnl'), { key: 'netPnl', direction: 'asc' });
+  assert.deepEqual(nextTableSort(presetSort('losses'), 'netPnl'), { key: 'netPnl', direction: 'desc' });
+});
+
+test('THE NOTE UNDER THE TABS KEEPS THE RULE: a re-ordered Top PnL or Top losses still says "at least 10 round trips"; the others name who they list', async () => {
+  const { sortedDescription } = await import('./traders.ts');
+  for (const ranking of ['pnl', 'losses'] as const) {
+    for (const key of ['account', 'netPnl', 'volume', 'winRate', 'liquidations'] as const) {
+      assert.match(sortedDescription(ranking, { key, direction: 'asc' }, 10), /among accounts with at least 10 round trips in the window, so one lucky trade cannot top it\.$/);
+    }
+  }
+  assert.equal(sortedDescription('pnl', { key: 'volume', direction: 'desc' }, 10), 'Sorted by volume, highest first, among accounts with at least 10 round trips in the window, so one lucky trade cannot top it.');
+  assert.match(sortedDescription('volume', { key: 'netPnl', direction: 'desc' }, 10), /^Sorted by Net PnL \(after fees and funding\), highest first, among every account that traded in the window\. This board has no round-trip floor; Top PnL and Top losses do\.$/);
+  assert.match(sortedDescription('liquidated', { key: 'winRate', direction: 'asc' }, 10), /lowest first, among accounts liquidated at least once in the window\. Accounts under 10 round trips have no rate and come last\.$/);
+  assert.match(sortedDescription('volume', { key: 'account', direction: 'asc' }, 10), /^Sorted by account id, oldest accounts first/);
+});

@@ -322,6 +322,20 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   Traders card liquidations are the Overview's rolling query on every window.
   The liquidation boards take an account because it was LIQUIDATED, not
   because it also traded (gated on trades they held 18 of 50).
+- THE TRADERS TABLE SORTS BY ANY OF ITS FIVE HEADERS, SERVER-SIDE (owner,
+  12 Oct 2026): account (the id), net PnL, volume, win rate, liquidations
+  (`TABLE_SORT_KEYS`; `sortable` on the pnl, losses, volume and liquidated
+  rankings in `pg.ts`). The list is paged, 50 a page, so the order is the
+  reader's over the WHOLE list, never the fifty rows in hand. A click sorts
+  descending, a second ascending, with an arrow on the active column; the
+  board's own preset counts as the current order. A BOARD CHOOSES WHO IS
+  LISTED, A HEADER ONLY THE ORDER: the board's filter and the 10-round-trip
+  floor on Top PnL and Top losses never move, and the note under the tabs
+  names the order AND the population (`sortedDescription`). The Volume board
+  has no floor under any order, and says so. A preset sends no `sort`, so the
+  default view is the same warmed request as before; a header's first read is
+  one ~20 ms query (30 days, measured), then the cache. Flows keeps its own
+  three sortable headers. Changing board resets the order.
 - RATIOS ARE WITHHELD BELOW `MIN_ROUND_TRIPS_FOR_RATIOS` = 10 ROUND TRIPS.
   Win rate and profit factor come back undefined under the floor, on the
   profile and on the traders list; the counts and the history are still served

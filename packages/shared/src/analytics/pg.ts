@@ -92,7 +92,7 @@ import type { BackstopHistory } from './exposure.ts';
 import { splitWindow, utcDaysIn, type MsRange } from './windowSplit.ts';
 import type { ActivityFeed, FeedLiquidation, TakerFill } from './feed.ts';
 import type { AccountFill, AccountFillsPage, CollateralTotalsAtBlock, CopySource, CopySourcePosition, CopySourceReader, OpenActivity, LeverageBaseline, WalletInsightFacts } from './types.ts';
-import { FLOW_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
+import { FLOW_SORT_KEYS, TABLE_SORT_KEYS, MAX_FILLS_PER_REQUEST, MIN_DEPOSIT_FOR_ROI_AUSD, MIN_ROUND_TRIPS_FOR_RATIOS, MIN_TRADERS_FOR_DISTRIBUTION, TRADER_RANKINGS, TRADER_SORT_KEYS } from './types.ts';
 
 export interface SqlClient {
   query(text: string, values?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -904,6 +904,8 @@ select p.market_id as id, m.name,
 const MIN_DEPOSIT_FOR_ROI_CNS = MIN_DEPOSIT_FOR_ROI_AUSD * 1_000_000;
 
 const TRADER_SORT: Record<TraderSortKey, string> = {
+  // The account id, as a number: ids are stored as text and "1000" must not sort below "24".
+  account: '(t.id::bigint)',
   netPnl: 'w.net_pnl',
   volume: 'w.volume',
   roundTrips: 'w.round_trips',
@@ -934,10 +936,10 @@ const TRADER_RANKING: Record<
   TraderRanking,
   { readonly sort: TraderSortKey; readonly direction: SortDirection; readonly where: string; readonly floor: boolean; readonly activity: keyof typeof TRADER_ACTIVITY; readonly sortable?: readonly TraderSortKey[] }
 > = {
-  pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
-  losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades' },
-  volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false, activity: 'trades' },
-  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'liquidations' },
+  pnl: { sort: 'netPnl', direction: 'desc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades', sortable: TABLE_SORT_KEYS },
+  losses: { sort: 'netPnl', direction: 'asc', where: `w.round_trips >= ${MIN_ROUND_TRIPS_FOR_RATIOS}`, floor: true, activity: 'trades', sortable: TABLE_SORT_KEYS },
+  volume: { sort: 'volume', direction: 'desc', where: 'true', floor: false, activity: 'trades', sortable: TABLE_SORT_KEYS },
+  liquidated: { sort: 'liquidations', direction: 'desc', where: 'w.liquidations > 0', floor: false, activity: 'liquidations', sortable: TABLE_SORT_KEYS },
   spare: { sort: 'spareHeld', direction: 'desc', where: 'l.spare_held is not null', floor: false, activity: 'liquidations' },
   flows: { sort: 'netFlowAbs', direction: 'desc', where: 'true', floor: false, activity: 'flows', sortable: FLOW_SORT_KEYS },
   // ALL TIME ONLY: `traders()` reads the lifetime rows for it whatever window is asked. The board
@@ -2198,7 +2200,8 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     const now = this.#now();
     const ranking = options.ranking !== undefined && TRADER_RANKINGS.includes(options.ranking) ? options.ranking : undefined;
     const rule = ranking === undefined ? undefined : TRADER_RANKING[ranking];
-    // A ranking fixes its order, except where it names sorts a reader may choose (Flows).
+    // A ranking fixes its order unless the reader names one of the sorts it allows: Flows' own, or the
+    // table's columns on the trading boards. The ranking's FILTER and floor are untouched either way.
     const chosen = rule?.sortable !== undefined && options.sort !== undefined && rule.sortable.includes(options.sort);
     const sort: TraderSortKey = chosen ? options.sort! : (rule?.sort ?? (options.sort !== undefined && TRADER_SORT_KEYS.includes(options.sort) ? options.sort : 'netPnl'));
     const direction: SortDirection = chosen ? (options.direction === 'asc' ? 'asc' : 'desc') : (rule?.direction ?? (options.direction === 'asc' ? 'asc' : 'desc'));

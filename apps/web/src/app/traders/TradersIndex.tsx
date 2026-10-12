@@ -8,7 +8,7 @@ import { api } from '@/lib/api.ts';
 import { formatAusdExact, formatCount, formatMoney, formatPct, formatSignedExact, formatSignedMoney, shortAddress } from '@/lib/format.ts';
 import { inWholeDays, periodLabel, wholeDaysLabel, wholeDaysTitle } from '@/lib/history.ts';
 import { useHistoryStart } from '@/lib/useHistory.ts';
-import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, pageRange, rankingFromQuery, rankingInfo, searchParam, type FlowSort, type RankedColumn } from '@/lib/traders.ts';
+import { DEFAULT_FLOW_SORT, RANKINGS, nextFlowSort, nextTableSort, pageRange, presetSort, rankingFromQuery, rankingInfo, searchParam, sortedDescription, type FlowSort, type RankedColumn, type TableSort, type TableSortKey } from '@/lib/traders.ts';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
@@ -45,9 +45,14 @@ export function TradersIndex() {
   const info = rankingInfo(ranking);
   const [offset, setOffset] = useState(0);
   const [flowSort, setFlowSort] = useState<FlowSort>(DEFAULT_FLOW_SORT);
+  /** A header the reader clicked on a trading board. Undefined: the board's own preset order. */
+  const [tableSort, setTableSort] = useState<TableSort | undefined>(undefined);
   const flows = ranking === 'flows';
-  // Only Flows takes a reader's order; every other ranking's order is fixed by the backend.
-  const sortParam = flows ? flowSort : undefined;
+  // What is showing on a trading board: the reader's header, else the board's preset.
+  const shownSort = tableSort ?? presetSort(ranking);
+  // SORTED BY THE BACKEND, over the whole list, never the fifty rows in hand. A preset sends nothing,
+  // so the default view is the same request as before and stays the warmed answer.
+  const sortParam = flows ? flowSort : tableSort;
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState<string | undefined>(undefined);
   const parsed = searchParam(typed);
@@ -91,6 +96,7 @@ export function TradersIndex() {
   const choose = (next: TraderRanking) => {
     setOffset(0);
     setFlowSort(DEFAULT_FLOW_SORT);
+    setTableSort(undefined);
     const nextParams = new URLSearchParams(params.toString());
     if (next === 'pnl') nextParams.delete('rank');
     else nextParams.set('rank', next);
@@ -101,6 +107,11 @@ export function TradersIndex() {
   const sortFlows = (column: 'netFlow' | 'deposits' | 'withdrawals') => {
     setOffset(0);
     setFlowSort((current) => nextFlowSort(current, column));
+  };
+
+  const sortTable = (column: TableSortKey) => {
+    setOffset(0);
+    setTableSort(nextTableSort(shownSort, column));
   };
 
   const flowColumns: readonly Column[] = [
@@ -179,7 +190,7 @@ export function TradersIndex() {
         </div>
 
         <div className="px-[14px] py-[8px] text-[12px] text-muted">
-          {info.describe(floor)}
+          {flows || tableSort === undefined ? info.describe(floor) : sortedDescription(ranking, tableSort, floor)}
           {data?.belowFloor !== undefined && data.belowFloor > 0 && (
             <>
               {' '}
@@ -231,19 +242,29 @@ export function TradersIndex() {
                     </th>
                   );
                 })}
-                {!flows && columns.map((c) => (
-                  <th
-                    key={c.key}
-                    scope="col"
-                    title={c.title}
-                    aria-sort={c.key === info.column ? (ranking === 'losses' ? 'ascending' : 'descending') : undefined}
-                    className={`px-[10px] py-[8px] font-semibold whitespace-nowrap align-bottom ${c.key === 'account' ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${c.key === info.column ? 'text-text' : ''}`}
-                  >
-                    {c.label}
-                    {c.key === info.column && <span className="ml-1" aria-hidden="true">{ranking === 'losses' ? '↑' : '↓'}</span>}
-                    {c.sub !== '' && <span className="block text-[10px] font-medium normal-case tracking-normal whitespace-normal text-muted2">{c.sub}</span>}
-                  </th>
-                ))}
+                {!flows && columns.map((c) => {
+                  const active = c.key === shownSort.key;
+                  return (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      title={c.title}
+                      aria-sort={active ? (shownSort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                      className={`px-[10px] py-[8px] font-semibold whitespace-nowrap align-bottom ${c.key === 'account' ? 'sticky left-0 z-[1] bg-card text-left' : 'text-right'} ${active ? 'text-text' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => sortTable(c.key as TableSortKey)}
+                        aria-label={`Sort by ${c.label}, ${active && shownSort.direction === 'desc' ? 'ascending' : 'descending'}`}
+                        className="cursor-pointer bg-transparent p-0 font-semibold tracking-[0.06em] text-inherit uppercase hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                      >
+                        {c.label}
+                        <span className={`ml-1 ${active ? 'text-accent-hi' : 'text-muted2'}`} aria-hidden="true">{active ? (shownSort.direction === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                      {c.sub !== '' && <span className="block text-[10px] font-medium normal-case tracking-normal whitespace-normal text-muted2">{c.sub}</span>}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>

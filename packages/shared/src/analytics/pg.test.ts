@@ -1087,6 +1087,41 @@ test('adding Flows changes no other ranking: their order is still fixed and they
   }
 });
 
+test("THE TABLE'S HEADERS: on a trading board a reader may order by any of the five columns, either way, and the board's own filter and floor never move", async () => {
+  const ORDER = { account: /order by \(t\.id::bigint\)/, netPnl: /order by w\.net_pnl/, volume: /order by w\.volume/, winRate: /order by win_rate/, liquidations: /order by w\.liquidations/ } as const;
+  for (const ranking of ['pnl', 'losses', 'volume', 'liquidated'] as const) {
+    const preset = new FakeSql();
+    await reader(preset).traders('30d', { ranking });
+    const where = (text: string): string => text.slice(text.lastIndexOf(' where '), text.lastIndexOf(' order by '));
+    const presetWhere = where(preset.touching('Trader')[0]!.sql);
+    for (const sort of ['account', 'netPnl', 'volume', 'winRate', 'liquidations'] as const) {
+      for (const direction of ['desc', 'asc'] as const) {
+        const sql = new FakeSql();
+        const list = await reader(sql).traders('30d', { ranking, sort, direction });
+        const text = sql.touching('Trader')[0]!.sql;
+        assert.match(text, new RegExp(`${ORDER[sort].source} ${direction} nulls last, \\(t\\.id::bigint\\) asc`), `${ranking} by ${sort} ${direction}`);
+        assert.equal(where(text), presetWhere, `${ranking}: who is listed does not change with the order`);
+        assert.deepEqual([list.sort, list.direction, list.ranking], [sort, direction, ranking]);
+      }
+    }
+  }
+  // THE FLOOR STAYS on the boards that have one, whatever the order, and is still reported.
+  for (const ranking of ['pnl', 'losses'] as const) {
+    const sql = new FakeSql();
+    const list = await reader(sql).traders('30d', { ranking, sort: 'volume', direction: 'asc' });
+    assert.match(sql.touching('Trader')[0]!.sql, /and \(w\.round_trips >= 10\)/);
+    assert.notEqual(list.belowFloor, undefined, 'the list still says how many the floor left out');
+  }
+  // A sort that is not one of the table's columns is not a trading-board order: the preset stands.
+  const refused = new FakeSql();
+  await reader(refused).traders('30d', { ranking: 'pnl', sort: 'freeBalance', direction: 'asc' });
+  assert.match(refused.touching('Trader')[0]!.sql, /order by w\.net_pnl desc/);
+  // Flows keeps its own sorts and takes none of the table's.
+  const flows = new FakeSql();
+  await reader(flows).traders('30d', { ranking: 'flows', sort: 'volume', direction: 'asc' });
+  assert.match(flows.touching('Trader')[0]!.sql, /order by abs\(w\.deposited - w\.withdrawn\) desc/);
+});
+
 test('insight facts: closed round trips only, the 48 h split as a parameter, leverage from hundredths; no account, no facts', async () => {
   const sql = new FakeSql()
     .on(/select 1 as found from "Trader"/, [{ found: 1 }])

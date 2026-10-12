@@ -309,6 +309,53 @@ export type FlowSort = { readonly key: 'netFlowAbs' | 'netFlow' | 'deposits' | '
 
 export const DEFAULT_FLOW_SORT: FlowSort = { key: 'netFlowAbs', direction: 'desc' };
 
+// ── the trading boards' header sorts ────────────────────────────────────────
+
+/** A trading-board column a reader may sort by: the table's own five. */
+export type TableSortKey = 'account' | 'netPnl' | 'volume' | 'winRate' | 'liquidations';
+export type TableSort = { readonly key: TableSortKey; readonly direction: 'asc' | 'desc' };
+
+/** The order a board shows before any header is clicked: its preset. */
+export function presetSort(ranking: TraderRanking): TableSort {
+  const column = rankingInfo(ranking).column;
+  return { key: column === 'netFlow' ? 'netPnl' : column, direction: ranking === 'losses' ? 'asc' : 'desc' };
+}
+
+/**
+ * The next order when a trading-board header is clicked: a new column starts
+ * DESCENDING, the active one flips. `current` is what is showing, the board's
+ * preset included, so a click on Top PnL's own Net PnL header turns it ascending.
+ */
+export function nextTableSort(current: TableSort, column: TableSortKey): TableSort {
+  if (current.key === column) return { key: column, direction: current.direction === 'desc' ? 'asc' : 'desc' };
+  return { key: column, direction: 'desc' };
+}
+
+const SORT_WORDS: Record<TableSortKey, { readonly name: string; readonly desc: string; readonly asc: string }> = {
+  account: { name: 'account id', desc: 'newest accounts first', asc: 'oldest accounts first' },
+  netPnl: { name: 'Net PnL (after fees and funding)', desc: 'highest first', asc: 'lowest first' },
+  volume: { name: 'volume', desc: 'highest first', asc: 'lowest first' },
+  winRate: { name: 'win rate, before fees', desc: 'highest first', asc: 'lowest first' },
+  liquidations: { name: 'liquidations', desc: 'most first', asc: 'fewest first' },
+};
+
+/**
+ * The sentence under the tabs once a header has re-ordered a board. A BOARD
+ * CHOOSES WHO IS LISTED, A HEADER ONLY THE ORDER: the sentence names the order
+ * and the board's own population, floor included, so the rule is never lost.
+ */
+export function sortedDescription(ranking: TraderRanking, sort: TableSort, floor: number): string {
+  const w = SORT_WORDS[sort.key];
+  const who =
+    ranking === 'pnl' || ranking === 'losses'
+      ? `among accounts with at least ${floor} round trips in the window, so one lucky trade cannot top it`
+      : ranking === 'liquidated'
+        ? 'among accounts liquidated at least once in the window'
+        : `among every account that traded in the window. This board has no round-trip floor; Top PnL and Top losses do`;
+  const rate = sort.key === 'winRate' && ranking !== 'pnl' && ranking !== 'losses' ? ` Accounts under ${floor} round trips have no rate and come last.` : '';
+  return `Sorted by ${w.name}, ${sort.direction === 'desc' ? w.desc : w.asc}, ${who}.${rate}`;
+}
+
 /**
  * The next order when a Flows header is clicked. Net flow cycles through
  * size (largest either way), largest inflows, largest outflows; a deposits or

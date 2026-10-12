@@ -932,13 +932,22 @@ export interface MarketPnl {
 
 // ── the Traders section ─────────────────────────────────────────────────────
 
-export type TraderSortKey = 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld' | 'deposits' | 'withdrawals' | 'netFlow' | 'netFlowAbs' | 'roi';
+export type TraderSortKey = 'account' | 'netPnl' | 'volume' | 'roundTrips' | 'winRate' | 'liquidations' | 'freeBalance' | 'lastActive' | 'spareHeld' | 'deposits' | 'withdrawals' | 'netFlow' | 'netFlowAbs' | 'roi';
 export type SortDirection = 'asc' | 'desc';
 
-export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld', 'deposits', 'withdrawals', 'netFlow', 'netFlowAbs', 'roi'];
+export const TRADER_SORT_KEYS: readonly TraderSortKey[] = ['account', 'netPnl', 'volume', 'roundTrips', 'winRate', 'liquidations', 'freeBalance', 'lastActive', 'spareHeld', 'deposits', 'withdrawals', 'netFlow', 'netFlowAbs', 'roi'];
 
-/** The sorts the Flows ranking lets a reader choose between. Every other ranking's order is fixed. */
+/** The sorts the Flows ranking lets a reader choose between. */
 export const FLOW_SORT_KEYS: readonly TraderSortKey[] = ['netFlowAbs', 'netFlow', 'deposits', 'withdrawals'];
+
+/**
+ * The Traders table's own columns, each a sort a reader may choose on the
+ * trading boards (pnl, losses, volume, liquidated; 12 Oct 2026). A BOARD
+ * CHOOSES WHO IS LISTED, A HEADER ONLY THE ORDER: the board's filter, and the
+ * round-trip floor where it has one, stay exactly as they are under any sort.
+ * `account` is the account id.
+ */
+export const TABLE_SORT_KEYS: readonly TraderSortKey[] = ['account', 'netPnl', 'volume', 'winRate', 'liquidations'];
 
 /**
  * The Traders page's leaderboards. Each is an order AND a filter, decided here
