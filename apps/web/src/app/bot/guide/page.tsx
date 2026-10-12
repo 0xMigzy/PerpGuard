@@ -328,6 +328,13 @@ export default async function GuidePage() {
           <li>A trading key can lose money without being able to withdraw any. Treat the permission seriously even though funds can&rsquo;t leave.</li>
           <li>Check the bot&rsquo;s username and the domain in the address bar before connecting.</li>
           <li>If anything looks wrong: stop automation in the bot, then revoke the key on Perpl.</li>
+          <li>
+            What PerpGuard stores about you, what it never stores and how to delete it is on the{' '}
+            <Link href="/privacy" className="text-accent-hi underline decoration-border2 underline-offset-2">
+              privacy page
+            </Link>
+            .
+          </li>
         </ul>
       </section>
 

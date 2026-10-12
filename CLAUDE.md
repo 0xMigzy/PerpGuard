@@ -618,6 +618,19 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   /bot every "@PerpGuardBot" is a link to the bot, in a new tab. Its link step
   names the real flow: 🔐 Trading account -> 🔑 Enter API key ->
   `https://perpguard.app/link?code=XXXX-XXXX` (+`&via=key`), one use, 5 min.
+- THE PRIVACY POLICY IS /privacy, ON BOTH SITES (owner, 12 Oct 2026): static,
+  ~520 words, plain prose in the guide's style, linked from every footer
+  beside Data & Methodology and from the guide's "Keeping it safe". IT SAYS
+  WHAT THE CODE DOES, never a template: what is stored for anyone (Telegram
+  ids, watched accounts, alert settings) and ONLY for a connected account
+  (wallet address, sealed key, rules, action and alert logs), the 14-day
+  logs, what is never held, who else sees it (Telegram, Perpl, Dynamic, the
+  RPC provider, Hostinger, Vercel), what Disconnect does and does not remove,
+  and data requests by GitHub issue (public, and it says so). An individual's
+  project: no company, address or DPO is claimed. `privacy.test.ts` reads the
+  backend's `create table` statements and FAILS ON A NEW TABLE until it is
+  classified, so the page cannot fall behind what is stored. The Telegram
+  name held in memory while linking (30 min, never written) is stated.
 - EVERY REQUEST IS ONE LOG LINE (8 Oct 2026, `server/requestLog.ts`):
   `http GET /api/analytics/copy/2399?size=1000 200 21ms` in
   `/var/log/perpguard/backend.log`. A query string survives only on

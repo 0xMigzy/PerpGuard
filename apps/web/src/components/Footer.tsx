@@ -14,6 +14,10 @@ export function Footer() {
           Data &amp; Methodology
         </Link>
         {' · '}
+        <Link href="/privacy" className="text-text2 underline decoration-border2 underline-offset-2 hover:text-text">
+          Privacy
+        </Link>
+        {' · '}
         <Link href="/bot/guide" className="text-text2 underline decoration-border2 underline-offset-2 hover:text-text">
           How it works
         </Link>

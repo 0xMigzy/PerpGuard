@@ -8,3 +8,5 @@ ENVIO_PERPL_HYPERSYNC_URL     # Envio's public HyperSync host, no token in it
 ENVIO_PG_HOST                 # 127.0.0.1
 ENVIO_PG_DATABASE             # the local database name
 PUBLIC_WEB_URL                # the site's public address
+PEER_BOT_USERNAME             # the other deployment's Telegram bot handle, public by nature (it is on the site)
+PERPL_ENROLMENT_ORIGIN        # this deployment's own public site origin (https://perpguard.app), the same value as PUBLIC_WEB_URL
