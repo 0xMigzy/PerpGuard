@@ -50,6 +50,8 @@ export function diffPositions(previous: readonly OpenPosition[] | undefined, nex
     leverage: p.leverage,
     openedAtMs: p.openedAtMs,
     seenAtMs: ctx.seenAtMs,
+    // An open carries the transaction that opened it; a close's is looked up by the source (the open row no longer has it).
+    ...(kind === 'position-opened' && p.openTxHash !== undefined ? { txHash: p.openTxHash } : {}),
     freshness: ctx.freshness,
   });
 

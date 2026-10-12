@@ -39,6 +39,10 @@ export interface PositionChangeEvent {
   readonly openedAtMs: number;
   /** When we noticed: a pass of the watch loop, not the chain's time. */
   readonly seenAtMs: number;
+  /** The transaction that opened (an open) or closed (a close) it, from the index. Adds and reduces have none: the index does not keep them. */
+  readonly txHash?: string | undefined;
+  /** When the index says it closed. Only on a close, once looked up. */
+  readonly closedAtMs?: number | undefined;
   readonly freshness: EventFreshness;
 }
 

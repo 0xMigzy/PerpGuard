@@ -56,6 +56,7 @@ import {
   loadPerplCredentials,
   lookupAccountByAddress,
   lookupAccountOwner,
+  explorerTxUrl,
   positionEventsInTxs,
   type TraderRow,
   type MarketRiskConfig,
@@ -1308,6 +1309,18 @@ let feedPoller: FeedPoller | undefined;
 let ledgerPrune: ReturnType<typeof setInterval> | undefined;
 if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefined) {
   const feed = analyticsReader;
+  // WHERE AN ALERT'S FIGURES COME FROM (alerts/provenance.ts): the wallet's page on THIS deployment's site, and the
+  // transaction on the ANALYTICS network's explorer. Watched accounts are mainnet on both bots, so never the trading network's.
+  const alertOwners = new OwnerDirectory({
+    fromIndex: (ids) => feed.knownOwners(ids),
+    fromChain: (id) => (analyticsNetworkConfig === undefined ? Promise.resolve(undefined) : lookupAccountOwner(id, { rpcUrl: analyticsNetworkConfig.rpcUrl, exchangeAddress: analyticsNetworkConfig.exchangeAddress })),
+  });
+  const ownerOf = async (accountId: number): Promise<string | undefined> => (await alertOwners.ownersOf([accountId])).get(accountId);
+  const alertRender = {
+    webUrl: /^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? undefined : PUBLIC_WEB_URL,
+    watchEveryMs: 30_000,
+    explorerTxUrl: explorerTxUrl(analyticsNetworkConfig?.name ?? 'mainnet'),
+  };
   let ledger: InMemoryLedger | PostgresLedger = new InMemoryLedger();
   if (alertDb !== undefined) {
     try {
@@ -1341,17 +1354,20 @@ if (bot !== undefined && botConfig !== undefined && analyticsReader !== undefine
       preferencesFor: (chatId) => preferences.get(chatId),
     },
     sender,
-    render: { webUrl: /^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? undefined : PUBLIC_WEB_URL, watchEveryMs: 30_000 },
+    render: alertRender,
+    ownerOf,
     logger: { info: log, warn },
   });
   eventEngine.start();
-  positionChanges = new PositionChanges(eventEngine);
+  // A close's transaction and time are the index's own: looked up when a watched position leaves the open list.
+  positionChanges = new PositionChanges(eventEngine, (accountId, marketId, openedAtMs) => feed.positionClose(accountId, marketId, openedAtMs));
   watchWarnings = new WatchWarnings({
     watchersOf: (accountId) => watchStore.watchersOf(accountId),
     preferencesFor: (chatId) => preferences.get(chatId),
     state: warningState,
     sender,
-    render: { webUrl: /^https?:\/\/(localhost|127\.)/.test(PUBLIC_WEB_URL) ? undefined : PUBLIC_WEB_URL, watchEveryMs: 30_000 },
+    render: alertRender,
+    ownerOf,
     logger: { warn },
   });
   feedPoller = new FeedPoller({

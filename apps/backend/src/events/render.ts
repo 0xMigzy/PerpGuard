@@ -2,25 +2,26 @@
  * Events in words, for Telegram. Pure.
  *
  * Plain voice, like every other screen: money first and in bold, whole AUSD,
- * what someone LOST or HELD floored, no "safe", no promises. Every message
- * says which block the index had reached and how far behind the chain that
- * was: every event here comes from the index, and a figure from it must never
- * pass for a live one.
+ * what someone LOST or HELD floored, no "safe", no promises.
+ *
+ * EVERY ALERT ENDS IN A TIME AND ITS LINKS (owner, 12 Oct 2026): the moment
+ * it is a claim about ("Oct 12 · 04:36 UTC"), then "0xa217…6205 · tx ↗": the
+ * wallet's page on this deployment's site and the transaction on the MAINNET
+ * explorer (these accounts are mainnet on both bots). They replaced the block
+ * footers and the two link buttons: one way to each place, one explorer.
  *
  * LINKS ONLY, NEVER AN ACTION. An event alert can be read by anyone the feed
- * reaches, so its only buttons are URLs: the trader's page on the site and
- * the transaction on Monadscan (viem's explorer for Monad mainnet). A URL
- * button opens a page and calls nothing back; the bot's gate still refuses
- * any callback from a chat that is not linked.
+ * reaches, so it carries no button at all now, only links in its text, which
+ * open a page and call nothing back; the bot's gate still refuses any
+ * callback from a chat that is not linked.
  */
 import type { FillAction } from '@perpguard/shared';
 import type { MarketRiskConfig } from '@perpguard/shared';
 import { NO_BUTTONS, esc, freeVerdict, freshness, fromLiquidation, held, watchedPositionLines } from '../alerts/plain.ts';
+import { alertTime, provenanceLine } from '../alerts/provenance.ts';
 import type { RiskAssessment } from '../risk/types.ts';
 import { levelsLabel, severityOf } from './warnings.ts';
-import type { EventFreshness, LargeTradeEvent, LiquidationEvent, PerpEvent, PositionChangeEvent } from './types.ts';
-
-export const EXPLORER_TX_URL = 'https://monadscan.com/tx/';
+import type { LargeTradeEvent, LiquidationEvent, PerpEvent, PositionChangeEvent } from './types.ts';
 
 export interface RenderedEvent {
   readonly html: string;
@@ -28,8 +29,12 @@ export interface RenderedEvent {
 }
 
 export interface RenderContext {
-  /** The public site, for the trader link. Undefined: no link. */
+  /** This deployment's own site, for the wallet link. Undefined: the wallet is named without a link. */
   readonly webUrl: string | undefined;
+  /** The MAINNET explorer's transaction prefix: these alerts are about mainnet accounts on both bots. Undefined: no tx link. */
+  readonly explorerTxUrl?: string | undefined;
+  /** The owner address of the account this one alert is about, when it could be found. Set per alert by the sender. */
+  readonly address?: string | undefined;
   /** How often the watch loop re-reads a watched account, for the "seen every" line. */
   readonly watchEveryMs: number;
 }
@@ -46,22 +51,13 @@ const price = (p: number | undefined): string | undefined =>
 const size = (lots: number, symbol: string): string => `${lots.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${esc(symbol)}`;
 const symbolOf = (market: { readonly symbol: string | undefined; readonly indexerName: string }): string => market.symbol ?? market.indexerName;
 
-/** "As of block 111,124,139, 140 blocks behind the chain." */
-function freshnessText(f: EventFreshness): string {
-  const block = f.indexerBlock === undefined ? 'From the mainnet index' : `As of block ${grouped(f.indexerBlock)}`;
-  const behind = f.blocksBehind === undefined ? '' : `, ${grouped(f.blocksBehind)} block${f.blocksBehind === 1 ? '' : 's'} behind the chain`;
-  return `${block}${behind}.`;
-}
-
-export function freshnessLine(f: EventFreshness): string {
-  return `<i>${freshnessText(f)}</i>`;
+/** The last lines of an event alert: the time, "Watching only" where it applies, then the links. */
+function footer(o: { readonly atMs: number; readonly accountId: number; readonly txHash: string | undefined; readonly watching: boolean }, ctx: RenderContext): string[] {
+  const links = provenanceLine({ wallet: { accountId: o.accountId, address: ctx.address, siteUrl: ctx.webUrl }, explorerTxUrl: ctx.explorerTxUrl, txHash: o.txHash });
+  return ['', `<i>${alertTime(o.atMs)}</i>`, ...(o.watching ? [NO_BUTTONS] : []), ...(links === undefined ? [] : [links])];
 }
 
 const ACTION_WORDS: Readonly<Record<FillAction, string>> = { open: 'Opened', add: 'Added to', reduce: 'Reduced', close: 'Closed', flip: 'Flipped to' };
-
-function traderLink(accountId: number, ctx: RenderContext): RenderedEvent['links'] {
-  return ctx.webUrl === undefined ? [] : [{ text: '👤 View trader', url: `${ctx.webUrl.replace(/\/$/, '')}/traders/${accountId}` }];
-}
 
 export function renderLiquidation(event: LiquidationEvent, why: 'watching' | 'feed', ctx: RenderContext): RenderedEvent {
   const l = event.liquidation;
@@ -76,9 +72,8 @@ export function renderLiquidation(event: LiquidationEvent, why: 'watching' | 'fe
   const entry = price(l.entryPrice);
   if (at !== undefined) lines.push(`Closed at ${at}${entry === undefined ? '' : `, entered at ${entry}`}`);
   lines.push(pnl < 0 ? `Realised loss ${ausd(-pnl, 'floor')} (profit and loss plus funding; fees not included)` : `Realised result ${ausd(pnl, 'floor')} in profit, after funding`);
-  lines.push('', freshnessLine(event.freshness));
-  if (why === 'watching') lines.push(NO_BUTTONS);
-  return { html: lines.join('\n'), links: [...traderLink(l.accountId, ctx), { text: '🔎 Monadscan', url: `${EXPLORER_TX_URL}${l.txHash}` }] };
+  lines.push(...footer({ atMs: l.atMs, accountId: l.accountId, txHash: l.txHash, watching: why === 'watching' }, ctx));
+  return { html: lines.join('\n'), links: [] };
 }
 
 export function renderLargeTrade(event: LargeTradeEvent, ctx: RenderContext): RenderedEvent {
@@ -91,8 +86,8 @@ export function renderLargeTrade(event: LargeTradeEvent, ctx: RenderContext): Re
     `${size(o.sizeLots, symbol)}${o.averagePrice === undefined ? '' : ` at ${price(o.averagePrice)} average`} · ${o.fills} fill${o.fills === 1 ? '' : 's'}`,
   ];
   if (d === undefined) lines.push('<i>The index does not record which way a taker traded, and the transaction did not settle it: unreadable, or more than one answer in it.</i>');
-  lines.push('', freshnessLine(event.freshness));
-  return { html: lines.join('\n'), links: [...traderLink(o.accountId, ctx), { text: '🔎 Monadscan', url: `${EXPLORER_TX_URL}${o.txHash}` }] };
+  lines.push(...footer({ atMs: o.atMs, accountId: o.accountId, txHash: o.txHash, watching: false }, ctx));
+  return { html: lines.join('\n'), links: [] };
 }
 
 const CHANGE: Readonly<Record<PositionChangeEvent['kind'], { readonly icon: string; readonly verb: string }>> = {
@@ -117,9 +112,10 @@ export function renderPositionChange(event: PositionChangeEvent, ctx: RenderCont
     ].filter((p): p is string => p !== undefined);
     if (parts.length > 0) lines.push(parts.join(' · ').replace(/^./, (ch) => ch.toUpperCase()));
   }
-  // Both delays, said: the index trails the chain, and we read it every N seconds.
-  lines.push('', `<i>${freshnessText(event.freshness)} Checked every ${Math.round(ctx.watchEveryMs / 1000)} seconds on top of that.</i>`, NO_BUTTONS);
-  return { html: lines.join('\n'), links: traderLink(event.accountId, ctx) };
+  // A PLAIN TIME: when it opened or closed, by the index; for an add or a reduce, when it was seen.
+  const atMs = event.kind === 'position-opened' ? event.openedAtMs : event.kind === 'position-closed' ? (event.closedAtMs ?? event.seenAtMs) : event.seenAtMs;
+  lines.push(...footer({ atMs, accountId: event.accountId, txHash: event.txHash, watching: true }, ctx));
+  return { html: lines.join('\n'), links: [] };
 }
 
 export function renderEvent(event: PerpEvent, why: 'watching' | 'feed', ctx: RenderContext): RenderedEvent {
@@ -152,6 +148,8 @@ export function renderWarning(assessment: RiskAssessment, level: number, levels:
   if (scope.freeBalanceCNS !== undefined) lines.push(`They hold free ${held(scope.freeBalanceCNS)}`);
   lines.push(freeVerdict(scope, [assessment]));
   lines.push(`<i>You warn at ${levelsLabel(levels)}. Each level warns once and waits for the position to recover before it can warn again.</i>`);
-  lines.push(freshness(scope, assessment), NO_BUTTONS);
-  return { html: lines.join('\n'), links: traderLink(scope.accountId, ctx) };
+  // No transaction: a warning is about a distance, not an event. The time of the reading, and the wallet's page.
+  const links = provenanceLine({ wallet: { accountId: scope.accountId, address: ctx.address, siteUrl: ctx.webUrl } });
+  lines.push(freshness(scope, assessment), NO_BUTTONS, ...(links === undefined ? [] : [links]));
+  return { html: lines.join('\n'), links: [] };
 }

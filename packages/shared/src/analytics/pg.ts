@@ -743,7 +743,7 @@ const OPEN_POSITIONS_SQL = `
 select p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
        p.side, p."lotLNS"::text, p."entryPricePNS"::text, p."entryPriceKnown",
        p."depositCNS"::text, p."leverageHdths"::text, p."openedAt",
-       p."marginAddedCNS"::text
+       p."marginAddedCNS"::text, p."openTxHash"
   from "Position" p join "Market" m on m.id = p.market_id
  where p.trader_id = $1 and p.status = 'OPEN'
  order by p."openedAt" desc
@@ -1126,7 +1126,7 @@ const ALL_OPEN_POSITIONS_SQL = `
 select p.trader_id as account, p.market_id as id, m.name, m."priceDecimals", m."lotDecimals",
        p.side, p."lotLNS"::text, p."entryPricePNS"::text, p."entryPriceKnown",
        p."depositCNS"::text, p."leverageHdths"::text, p."openedAt",
-       p."marginAddedCNS"::text
+       p."marginAddedCNS"::text, p."openTxHash"
   from "Position" p join "Market" m on m.id = p.market_id
  where p.status = 'OPEN'
  order by (p.market_id::bigint), p."openedAt" desc
@@ -1976,6 +1976,21 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
     return rows.map((row) => ({ address: String(row['owner']), accountId: count(row['id']) }));
   }
 
+  /**
+   * How one position ended: the transaction that closed it and when. Asked by
+   * the bot's "closed" alert for a watched wallet, which knows the position
+   * only by account, market and opening time (the index has one open position
+   * per account per market). Undefined while it is still open, or unknown.
+   */
+  async positionClose(accountId: number, marketId: number, openedAtMs: number): Promise<{ readonly txHash: string; readonly closedAtMs: number } | undefined> {
+    const row = await this.#one(
+      `select "closeTxHash", "closedAt" from "Position" where trader_id = $1 and market_id = $2 and "openedAt" = to_timestamp($3::double precision / 1000) and "closedAt" is not null limit 1`,
+      [String(accountId), String(marketId), openedAtMs],
+    );
+    const txHash = row?.['closeTxHash'];
+    return typeof txHash === 'string' && txHash !== '' ? { txHash, closedAtMs: requireMs(row!['closedAt']) } : undefined;
+  }
+
   async walletByAccountId(accountId: number): Promise<WalletProfile | undefined> {
     const decimals = await this.#decimals();
     const id = String(accountId);
@@ -2375,6 +2390,7 @@ export class PostgresAnalytics implements Analytics, ActivityFeed, CopySourceRea
       leverage: Number(bigintOrZero(row['leverageHdths'])) / 100,
       openedAtMs: requireMs(row['openedAt']),
       marginAddedAusd: toAusd(row['marginAddedCNS'], decimals),
+      ...(typeof row['openTxHash'] === 'string' && row['openTxHash'] !== '' ? { openTxHash: row['openTxHash'] } : {}),
     };
   }
 }

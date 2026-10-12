@@ -26,6 +26,7 @@ import type { MarketRiskConfig } from '@perpguard/shared';
 import { isBlind, type RiskAssessment, type WatchedScope } from '../risk/types.ts';
 import { formatPricePNS } from './render.ts';
 import type { AlertKind } from './types.ts';
+import { alertTime } from './provenance.ts';
 
 /** Escape for Telegram's HTML parse mode, which knows only these three. */
 export function esc(text: string): string {
@@ -134,17 +135,15 @@ export function sizePhrase(units: number | undefined, symbol: string): string | 
 }
 
 /**
- * How current a watched account's numbers are, in one line. Kept on every
- * watched message: the index is some blocks behind the chain, and a number
- * from it must never pass for a live one.
+ * WHEN a watched account's numbers were read, in one line: a plain time
+ * (owner, 12 Oct 2026; it was "Positions as of block N, M blocks behind the
+ * chain"). Where the figures come from is the alert's link and /status. One
+ * thing is still said: a price that is old, because a quiet market's last
+ * price is not a fresh one.
  */
-export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 'priceIsOld' | 'priceAgeMs'>): string {
-  const block = scope.indexerBlock === undefined ? 'the mainnet index' : `block ${scope.indexerBlock.toLocaleString('en-US')}`;
-  const behind =
-    scope.blocksBehind === undefined ? '' : `, ${scope.blocksBehind.toLocaleString('en-US')} block${scope.blocksBehind === 1 ? '' : 's'} behind the chain`;
-  const state = scope.indexerState === 'synced' ? '' : ` (indexer ${esc(scope.indexerState)})`;
-  const price = assessment.priceIsOld && assessment.priceAgeMs !== undefined ? `; the price is ${Math.floor(assessment.priceAgeMs / 1000)}s old` : '';
-  return `<i>Positions as of ${block}${behind}${state}${price}.</i>`;
+export function freshness(_scope: WatchedScope, assessment: Pick<RiskAssessment, 'priceIsOld' | 'priceAgeMs' | 'atMs'>): string {
+  const price = assessment.priceIsOld && assessment.priceAgeMs !== undefined ? ` · the price is ${Math.floor(assessment.priceAgeMs / 1000)}s old` : '';
+  return `<i>${alertTime(assessment.atMs)}${price}</i>`;
 }
 
 /** The rule underneath the watch tier, said where a watcher reads it. */

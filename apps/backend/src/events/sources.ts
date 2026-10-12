@@ -18,6 +18,7 @@ import { diffPositions } from './positionDiff.ts';
 import type { CursorStore } from './ledger.ts';
 import type { EventFreshness, LargeTradeEvent, LiquidationEvent, PerpEvent } from './types.ts';
 import type { PositionsPass } from '../watch/loop.ts';
+import type { PositionChangeEvent } from './types.ts';
 import type { OpenPosition } from '@perpguard/shared';
 
 export interface Publisher {
@@ -27,9 +28,12 @@ export interface Publisher {
 export class PositionChanges {
   readonly #last = new Map<number, readonly OpenPosition[]>();
   readonly #publisher: Publisher;
+  readonly #closeOf: CloseLookup | undefined;
 
-  constructor(publisher: Publisher) {
+  /** `closeOf`: how a position that left the open list ended, from the index. Absent or failing: the alert goes out without a transaction link. */
+  constructor(publisher: Publisher, closeOf?: CloseLookup) {
     this.#publisher = publisher;
+    this.#closeOf = closeOf;
   }
 
   /** One watch-loop pass. Returns the events it published. */
@@ -39,13 +43,25 @@ export class PositionChanges {
     const freshness: EventFreshness = { indexerBlock: pass.indexerBlock, blocksBehind: pass.blocksBehind };
     const events: PerpEvent[] = [];
     for (const [accountId, positions] of pass.reads) {
-      events.push(...diffPositions(this.#last.get(accountId), positions, { accountId, seenAtMs: pass.seenAtMs, freshness }));
+      for (const event of diffPositions(this.#last.get(accountId), positions, { accountId, seenAtMs: pass.seenAtMs, freshness })) {
+        events.push(event.kind === 'position-closed' ? await this.#withClose(event) : event);
+      }
       this.#last.set(accountId, positions);
     }
     if (events.length > 0) await this.#publisher.publish(events);
     return events;
   }
+
+  /** A close with its transaction and the index's own closing time. Never fails the alert: without them it is sent as it was. */
+  async #withClose(event: PositionChangeEvent): Promise<PositionChangeEvent> {
+    if (this.#closeOf === undefined) return event;
+    const close = await this.#closeOf(event.accountId, event.market.marketId, event.openedAtMs).catch(() => undefined);
+    return close === undefined ? event : { ...event, txHash: close.txHash, closedAtMs: close.closedAtMs };
+  }
 }
+
+/** How one position ended, by account, market and opening time. */
+export type CloseLookup = (accountId: number, marketId: number, openedAtMs: number) => Promise<{ readonly txHash: string; readonly closedAtMs: number } | undefined>;
 
 export interface FeedPollerOptions {
   readonly feed: ActivityFeed;

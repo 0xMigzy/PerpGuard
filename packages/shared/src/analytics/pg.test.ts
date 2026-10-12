@@ -1122,6 +1122,17 @@ test("THE TABLE'S HEADERS: on a trading board a reader may order by any of the f
   assert.match(flows.touching('Trader')[0]!.sql, /order by abs\(w\.deposited - w\.withdrawn\) desc/);
 });
 
+test("HOW A POSITION ENDED: its close transaction and time, by account, market and opening time; still open or unknown is undefined", async () => {
+  const sql = new FakeSql().on(/select "closeTxHash", "closedAt" from "Position"/, [{ closeTxHash: '0xclose', closedAt: new Date('2026-10-12T05:36:00Z') }]);
+  const close = await reader(sql).positionClose(4088, 1, Date.UTC(2026, 9, 12, 4, 36));
+  assert.deepEqual(close, { txHash: '0xclose', closedAtMs: Date.UTC(2026, 9, 12, 5, 36) });
+  const call = sql.calls.find((c) => /"closeTxHash"/.test(c.sql))!;
+  assert.deepEqual(call.values, ['4088', '1', Date.UTC(2026, 9, 12, 4, 36)], 'bound, never interpolated');
+  assert.match(call.sql, /"closedAt" is not null/);
+  assert.equal(await reader(new FakeSql()).positionClose(4088, 1, 1), undefined);
+  assert.equal(await reader(new FakeSql().on(/"closeTxHash"/, [{ closeTxHash: '', closedAt: new Date() }])).positionClose(4088, 1, 1), undefined, 'an empty hash is no hash');
+});
+
 test('insight facts: closed round trips only, the 48 h split as a parameter, leverage from hundredths; no account, no facts', async () => {
   const sql = new FakeSql()
     .on(/select 1 as found from "Trader"/, [{ found: 1 }])

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ActivityFeed, FeedLiquidation, OpenPosition, TakerFill } from '@perpguard/shared';
 import { FeedPoller, PositionChanges } from './sources.ts';
 import { InMemoryLedger } from './ledger.ts';
-import type { PerpEvent } from './types.ts';
+import type { PerpEvent, PositionChangeEvent } from './types.ts';
 
 const BTC = { marketId: 1, symbol: 'BTC', indexerName: 'BTC' };
 const recorder = () => {
@@ -25,6 +25,36 @@ test('position changes: first pass is a baseline; an unwatched account is forgot
   assert.equal(r.got.length, 1, 'watched again: a new baseline, not "increased" across the gap');
   await changes.observe(pass([7], []));
   assert.equal(r.got.length, 1, 'an account whose read failed is not reported closed');
+});
+
+test("AN OPEN CARRIES ITS TRANSACTION, A CLOSE'S IS LOOKED UP, an add or a reduce has none; a failed lookup never holds the alert back", async () => {
+  const TX_OPEN = `0x${'11'.repeat(32)}`;
+  const TX_CLOSE = `0x${'22'.repeat(32)}`;
+  const pos = (sizeLots: number, openedAtMs = 1_000): OpenPosition => ({ market: BTC, side: 'long', sizeLots, entryPrice: 1, marginAusd: 1, leverage: 1, openedAtMs, marginAddedAusd: 0, openTxHash: TX_OPEN });
+  const pass = (reads: [number, OpenPosition[]][]) => ({ seenAtMs: 9_000, indexerBlock: 5, blocksBehind: 2, watched: [7], reads: new Map(reads), assessments: [], configs: new Map() });
+  const r = recorder();
+  const asked: Array<[number, number, number]> = [];
+  const changes = new PositionChanges(r.publisher, async (accountId, marketId, openedAtMs) => {
+    asked.push([accountId, marketId, openedAtMs]);
+    return { txHash: TX_CLOSE, closedAtMs: 8_500 };
+  });
+  await changes.observe(pass([[7, []]]));
+  await changes.observe(pass([[7, [pos(1)]]]));
+  await changes.observe(pass([[7, [pos(2)]]]));
+  await changes.observe(pass([[7, []]]));
+  const seen = r.got as PositionChangeEvent[];
+  assert.deepEqual(seen.map((e) => [e.kind, e.txHash, e.closedAtMs]), [
+    ['position-opened', TX_OPEN, undefined],
+    ['position-increased', undefined, undefined],
+    ['position-closed', TX_CLOSE, 8_500],
+  ]);
+  assert.deepEqual(asked, [[7, 1, 1_000]], 'asked once, for the close, by account, market and opening time');
+
+  const failing = recorder();
+  const broken = new PositionChanges(failing.publisher, async () => { throw new Error('index unreachable'); });
+  await broken.observe(pass([[7, [pos(1)]]]));
+  await broken.observe(pass([[7, []]]));
+  assert.deepEqual((failing.got as PositionChangeEvent[]).map((e) => [e.kind, e.txHash]), [['position-closed', undefined]], 'still sent, without a link');
 });
 
 function feed(state: { liqs: FeedLiquidation[]; fills: TakerFill[]; asked: number[] }): ActivityFeed {

@@ -40,7 +40,9 @@ test('a watched position falling through 10% then 5% warns twice, once each, in 
   assert.match(r.sent[1]!.html, /^🔴 <b>#4088 is 4\.5% from liquidation<\/b>\n/);
   assert.doesNotMatch(r.sent[1]!.html, /RISK WARNING|reached your/);
   assert.match(r.sent[1]!.html, /You warn at 10% \/ 5%\. Each level warns once/);
-  assert.match(r.sent[1]!.html, /Positions as of block 111,000,000, 140 blocks behind the chain/);
+  // The footer is a time, "Watching only", then the wallet's page: no block, and no button.
+  assert.match(r.sent[1]!.html, /<i>[A-Z][a-z]{2} \d{1,2} · \d{2}:\d{2} UTC<\/i>\nWatching only — nothing here to press\.\n/);
+  assert.doesNotMatch(r.sent[1]!.html, /block|behind the chain/);
 });
 
 test('HELD WHILE BLIND: no warning from a position it cannot see, and the state stands', async () => {

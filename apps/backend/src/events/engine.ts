@@ -21,7 +21,7 @@
 import { recipientsFor, type MatchInputs } from './match.ts';
 import { renderEvent, type RenderContext, type RenderedEvent } from './render.ts';
 import type { DeliveryLedger } from './ledger.ts';
-import type { PerpEvent, PositionChangeEvent } from './types.ts';
+import { accountOf, type PerpEvent, type PositionChangeEvent } from './types.ts';
 
 export type SendResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
@@ -34,6 +34,8 @@ export interface EventEngineOptions {
   readonly match: MatchInputs;
   readonly sender: ChatSender;
   readonly render: RenderContext;
+  /** The owner address of an account, for the alert's wallet link. Absent, failing or unknown: the account number is shown. */
+  readonly ownerOf?: (accountId: number) => Promise<string | undefined>;
   readonly logger: { info(message: string): void; warn(message: string): void };
   readonly now?: () => number;
   readonly holdChangesMs?: number;
@@ -123,6 +125,8 @@ export class EventEngine {
   }
 
   async #deliver(event: PerpEvent): Promise<void> {
+    // Looked up once per event, only when somebody will be told, and never allowed to hold an alert back.
+    let render: RenderContext | undefined;
     for (const recipient of recipientsFor(event, this.#o.match)) {
       // Claimed BEFORE the send and kept whatever happens: a duplicate is the failure this prevents.
       // And before the flood check, so a re-read duplicate never uses up a chat's minute.
@@ -135,7 +139,8 @@ export class EventEngine {
       }
       if (!first) continue;
       if (recipient.why === 'feed' && !this.#roomFor(recipient.chatId)) continue;
-      const result = await this.#o.sender.send(recipient.chatId, renderEvent(event, recipient.why, this.#o.render));
+      render ??= { ...this.#o.render, address: await this.#o.ownerOf?.(accountOf(event)).catch(() => undefined) };
+      const result = await this.#o.sender.send(recipient.chatId, renderEvent(event, recipient.why, render));
       if (!result.ok) this.#o.logger.warn(`events: ${event.kind} ${event.id} not delivered to a chat: ${result.reason}`);
     }
   }

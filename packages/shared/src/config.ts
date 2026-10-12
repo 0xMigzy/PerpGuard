@@ -65,6 +65,20 @@ const DOC_DEFAULTS: Record<NetworkName, Omit<NetworkConfig, 'name'>> = {
   },
 };
 
+/**
+ * THE BLOCK EXPLORER, PER NETWORK: MonadVision, the first explorer on Monad's
+ * own docs page (docs.monad.xyz/tooling-and-infra/block-explorers). A
+ * transaction is `<base>/tx/<0x hash>`. Public, with nothing secret in it.
+ */
+const EXPLORER_TX_URL: Readonly<Record<NetworkName, string>> = {
+  mainnet: 'https://monadvision.com/tx/',
+  testnet: 'https://testnet.monadvision.com/tx/',
+};
+/** The explorer's transaction URL prefix for a network: append the 0x hash. */
+export function explorerTxUrl(network: NetworkName): string {
+  return EXPLORER_TX_URL[network];
+}
+
 export const DEFAULT_STALE_MS = 10_000;
 
 /** A read-only view of the environment. Injected so config loading stays pure. */

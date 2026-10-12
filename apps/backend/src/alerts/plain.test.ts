@@ -37,7 +37,9 @@ test('the watch alert leads with the account and position, then money, and says 
   assert.equal(lines[0], '🔴 <b>#3388 · BTC long is 2.7% from liquidation</b>');
   assert.equal(lines[1], 'BTC is 84,007.3. Liquidation at 81,770.1: they would lose the <b>2,810 AUSD</b> behind it.');
   assert.equal(lines[2], 'They hold <b>2,910 AUSD</b> free — enough to survive, if they move it.');
-  assert.match(lines[3]!, /^<i>Positions as of block 109,575,809, 12 blocks behind the chain\.<\/i>$/);
+  // A PLAIN TIME (owner, 12 Oct 2026): when the figures were read, not which block the index had reached.
+  assert.match(lines[3]!, /^<i>[A-Z][a-z]{2} \d{1,2} · \d{2}:\d{2} UTC<\/i>$/);
+  assert.doesNotMatch(html, /block|behind the chain|mainnet index/);
   assert.equal(lines[4], 'Watching only — nothing here to press.');
   assert.ok(!/safe/i.test(html));
 });

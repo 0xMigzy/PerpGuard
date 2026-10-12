@@ -836,6 +836,8 @@ export interface OpenPosition {
   readonly leverage: number;
   readonly openedAtMs: number;
   readonly marginAddedAusd: number;
+  /** The transaction that opened it, as the index recorded it. Absent on a read that did not ask. */
+  readonly openTxHash?: string | undefined;
 }
 
 /**

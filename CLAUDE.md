@@ -789,8 +789,31 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   $10K/$20K/$25K/$50K/off, default $25K (`preferences.ts`, with the measured
   frequencies). The feeds reach every chat that has started the bot, at most
   10 a minute per chat, the rest counted in one line.
-- EVERY EVENT ALERT SAYS HOW FRESH IT IS: the index block and how far behind
-  the chain; position changes also say they are checked every 30 s.
+- EVERY ALERT ENDS IN A PLAIN TIME AND ITS LINKS (owner, 12 Oct 2026;
+  `apps/backend/src/alerts/provenance.ts`). The time is the moment the alert
+  is a claim about, "Oct 12 · 04:36 UTC", always UTC: the chain's own for a
+  liquidation or large trade, the index's for an open or a close, the moment
+  it was seen for an add or a reduce (not marked: plain time everywhere). The
+  last line is "0xa217…6205 · tx ↗": the wallet, linked to
+  `<this deployment's site>/traders/<id>`, and the transaction on MonadVision.
+  They REPLACED the block footers ("As of block N, M blocks behind the
+  chain") and the two link buttons (👤 View trader, 🔎 Monadscan): one way to
+  each place, one explorer. An event alert carries no button at all.
+  - WATCHED-ACCOUNT ALERTS LINK THE MAINNET EXPLORER ON BOTH BOTS: those
+    accounts are mainnet whichever network the bot trades on. Action results
+    link the deployment's own network. `explorerTxUrl(network)` in
+    `packages/shared/src/config.ts`: monadvision.com, testnet.monadvision.com.
+  - NO LINK RATHER THAN A BROKEN ONE (`txHashOf`: 0x and 64 hex or nothing).
+    An owner address neither the index nor the chain gave is the account
+    number, still linked: "#4532 · tx ↗" (`OwnerDirectory`, asked once per
+    event and never allowed to hold an alert back).
+  - WHICH ALERTS HAVE A TRANSACTION: liquidations and large trades (the
+    event's own); a watched position OPENED (`Position.openTxHash`, read with
+    the open positions) and CLOSED (`positionClose`, looked up when it leaves
+    the open list, with the index's closing time). An ADD or a REDUCE has
+    none: the index keeps a position's open and close transactions only. A
+    warning-level alert has none either (it is about a distance); it carries
+    the time and the wallet link.
 
 ## The Telegram bot: screens, not commands
 - THE MENU IS THE OWNER'S 8 OCT 2026 SPEC, and `docs/bot-screens.html` is

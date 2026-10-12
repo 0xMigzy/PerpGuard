@@ -86,6 +86,8 @@ export interface WatchWarningsOptions {
   readonly state: WarningStateStore;
   readonly sender: ChatSender;
   readonly render: RenderContext;
+  /** The owner address of an account, for the alert's wallet link. Absent, failing or unknown: the account number is shown. */
+  readonly ownerOf?: (accountId: number) => Promise<string | undefined>;
   readonly logger: { warn(message: string): void };
   readonly now?: () => number;
   readonly graceMs?: number;
@@ -125,7 +127,8 @@ export class WatchWarnings {
         const r = evaluateWarning(prefs.warningLevels, a.liqBufferPct * 100, before);
         const baseline = this.#now() - sub.addedAtMs < this.#grace;
         if (r.fire !== undefined && !baseline) {
-          const result = await this.#o.sender.send(sub.chatId, renderWarning(a, r.fire, prefs.warningLevels, pass.configs.get(a.marketId), this.#o.render));
+          const address = await this.#o.ownerOf?.(accountId).catch(() => undefined);
+          const result = await this.#o.sender.send(sub.chatId, renderWarning(a, r.fire, prefs.warningLevels, pass.configs.get(a.marketId), { ...this.#o.render, address }));
           if (!result.ok) this.#o.logger.warn(`warnings: a ${r.fire}% warning for #${accountId} was not delivered: ${result.reason}`);
           sent += 1;
         }
