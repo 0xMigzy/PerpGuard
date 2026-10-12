@@ -1108,7 +1108,7 @@ test('THE BUG: /watch with nothing after it ASKS with force_reply, and the "710"
   await h.bot.handleUpdate(stranger('/watch'));
   const ask = h.telegram.last('sendMessage');
   assert.match(String(ask.payload['text']), /^Send me an address or an account id\./);
-  assert.deepEqual(ask.payload['reply_markup'], { force_reply: true, input_field_placeholder: '0x… or 710' });
+  assert.deepEqual(ask.payload['reply_markup'], { force_reply: true, input_field_placeholder: '0x… or an account number' });
 
   await h.bot.handleUpdate(stranger('710'));
   assert.match(texts(h.telegram).at(-1)!, /^✅ <b>WALLET ADDED<\/b> · #710/);
@@ -2691,4 +2691,20 @@ test('TWO BOTS: the Trading account screen and /help say which network this bot 
   assert.doesNotMatch(String(lastScreen(alone.telegram).payload['text']), /This bot acts on/);
   await alone.bot.handleUpdate(stranger('/help'));
   assert.equal(alone.telegram.last('sendMessage').payload['text'], HELP_TEXT);
+});
+
+test("A NEW CHAT STARTS WITH NOTHING WATCHED AND NO ACCOUNT NAMED: /start adds no subscription, and no screen, prompt or placeholder a stranger can reach names an account id", async () => {
+  const h = harness();
+  await h.bot.handleUpdate(stranger('/start'));
+  assert.deepEqual(h.watchStore.byChat(STRANGER_CHAT), [], '/start seeds no watch');
+  await tapNav(h, { to: 'watch-menu' }, AT_STRANGER);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Not watching any wallet yet\./);
+  for (const route of [{ to: 'wallets' }, { to: 'watchlist' }, { to: 'watch-ask' }, { to: 'equity' }, { to: 'account' }] as const) await tapNav(h, route, AT_STRANGER);
+  await h.bot.handleUpdate(stranger('/watch'));
+  await h.bot.handleUpdate(stranger('/help'));
+  assert.deepEqual(h.watchStore.byChat(STRANGER_CHAT), []);
+  for (const call of h.telegram.calls) {
+    const text = `${String(call.payload['text'] ?? '')} ${JSON.stringify(call.payload['reply_markup'] ?? '')}`;
+    assert.doesNotMatch(text, /#\d|\b710\b/, `an account id in: ${text.slice(0, 120)}`);
+  }
 });

@@ -182,7 +182,8 @@ export function closestOf(assessments: readonly RiskAssessment[]): RiskAssessmen
 // ── asking what to watch ────────────────────────────────────────────────────
 
 export const WATCH_PROMPT = 'Send me an address or an account id.\nEither works. You can paste one any time without pressing anything first.';
-export const WATCH_PLACEHOLDER = '0x… or 710';
+/** The grey hint in the reply field. NEVER A REAL ACCOUNT (owner, 12 Oct 2026): it read "0x… or 710", the owner's own account id, to every new user. */
+export const WATCH_PLACEHOLDER = '0x… or an account number';
 
 export function watchAskScreen(): Screen {
   return { html: WATCH_PROMPT, buttons: [[{ text: '← Back', route: { to: 'wallets' } }]] };
