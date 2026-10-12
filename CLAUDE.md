@@ -822,7 +822,10 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     MEASURED: three recorded frames, one of them the add-margin `st 7 / sr 32`
     that applies, each name a real transaction to the Exchange in the frame's
     own block. `txHashOfOrder` -> `ActionResult.txHash` -> the executor's
-    `reported.txHash` -> `action_log.tx_hash` -> the screens. READ, STORED AND
+    `reported.txHash` -> `action_log.tx_hash` -> the screens. SEEN ON MAINNET
+    12 Oct 2026: an add-margin (`st 7 / sr 32`, applied, as on testnet) and two
+    closes each carried a hash that is a real Exchange transaction, and the
+    owner opened "tx ↗" on MonadVision (`/tx/<hash>` is the right path). READ, STORED AND
     PRINTED, NOTHING MORE: no decision looks at it, and a test runs the same
     top-up with and without a hash and gets the same verdict. A request the
     forwarder dropped has no frame, so no hash and NO LINE.
@@ -1361,7 +1364,9 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     with no fee: a builder fee applies only to opening or increasing a
     position, and PerpGuard adds margin, reduces and closes. The wallet
     prompt names the builder and the ceiling; Perpl re-derives that statement
-    at enrol. Unverified live until the first mainnet enrolment.
+    at enrol. VERIFIED LIVE 12 Oct 2026 on mainnet account #69: the enrolment
+    with the declared origin succeeded and the owner saw the builder code on
+    the key at app.perpl.xyz/apikeys.
 - THREE STATES, KEPT AND NEVER COLLAPSED (Phases 10-11, 6 Oct 2026): wallet
   (connected in the browser), OWNERSHIP VERIFIED (`wallet_proofs`: the wallet
   signed our challenge and the Exchange says it owns the account on the
