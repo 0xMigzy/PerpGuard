@@ -112,6 +112,8 @@ import {
   WATCH_PLACEHOLDER,
   WATCH_PROMPT,
   accountScreen,
+  peerLine,
+  type PeerBot,
   connectGoScreen,
   connectUnavailableScreen,
   homeScreen,
@@ -230,6 +232,8 @@ export interface BotDeps {
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
   readonly webUrl?: string;
+  /** The other network's bot (two deployments, one per network): named on Trading account and in /help. */
+  readonly peerBot?: PeerBot;
   /**
    * The network a Trading Account is on in this deployment, named on every
    * screen that shows one. A linked account's own session's network wins.
@@ -542,6 +546,7 @@ export function createBot(deps: BotDeps): Bot {
         execution: undefined,
         ...(proven === undefined ? {} : { proven: { accountId: proven.accountId, walletAddress: proven.address } }),
         guideUrl,
+        peer: deps.peerBot,
       });
     }
     const session = deps.sessions.forAccount(link.accountId);
@@ -551,6 +556,7 @@ export function createBot(deps: BotDeps): Bot {
       execution: executionFor(link),
       linkedAtMs: link.linkedAtMs,
       guideUrl,
+      peer: deps.peerBot,
     });
   };
 
@@ -846,7 +852,11 @@ export function createBot(deps: BotDeps): Bot {
 
   // ── /help ─────────────────────────────────────────────────────────────────
   bot.command('help', async (ctx) => {
-    await ctx.reply(HELP_TEXT, guideUrl === undefined ? {} : { reply_markup: { inline_keyboard: [[{ text: '📖 Setup guide', url: guideUrl }]] } });
+    // TWO BOTS: /help says which network this one acts on, and where the other is.
+    const text = deps.peerBot === undefined ? HELP_TEXT : `${HELP_TEXT}\n\n${peerLine(deps.tradingNetwork, deps.peerBot)}`;
+    const peerUrl = deps.peerBot === undefined ? [] : [[{ text: `${deps.peerBot.network === 'mainnet' ? '🟢 Mainnet' : '🧪 Testnet'} bot`, url: `https://t.me/${deps.peerBot.username}` }]];
+    const rows = [...(guideUrl === undefined ? [] : [[{ text: '📖 Setup guide', url: guideUrl }]]), ...peerUrl];
+    await ctx.reply(text, rows.length === 0 ? {} : { reply_markup: { inline_keyboard: rows } });
   });
 
   // ── plain text: an answer, a typed amount, or a paste ────────────────────

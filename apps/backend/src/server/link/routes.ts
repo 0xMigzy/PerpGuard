@@ -25,7 +25,14 @@ import { parseCookies } from '../protect/session.ts';
 import type { LinkService, LinkStatus } from './service.ts';
 import type { WalletKeyFlow } from './walletKey.ts';
 
-export const LINK_COOKIE = 'pg_link';
+/**
+ * The page session's cookie, NAMED BY NETWORK (12 Oct 2026). Mainnet and
+ * testnet are two deployments on two hostnames (perpguard.app and
+ * testnet.perpguard.app); the cookie is host-only, so the browser already
+ * keeps them apart, and the name makes a session unusable on the other
+ * backend even if a proxy or a shared parent domain ever sent it there.
+ */
+export const linkCookieName = (network: NetworkName): string => `pg_link_${network}`;
 export const LINK_SESSION_TTL_MS = 30 * 60_000;
 
 export interface LinkSession extends ChallengeHolder {
@@ -127,11 +134,12 @@ const isSecure = (request: FastifyRequest): boolean => {
   return (proto ?? request.protocol) === 'https';
 };
 
-const cookie = (token: string, secure: boolean, maxAgeSec: number): string =>
-  `${LINK_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${Math.max(0, Math.floor(maxAgeSec))}`;
+const cookie = (name: string, token: string, secure: boolean, maxAgeSec: number): string =>
+  `${name}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${Math.max(0, Math.floor(maxAgeSec))}`;
 
 export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptions): FastifyInstance {
   const prefix = options.prefix ?? '/api/link';
+  const LINK_COOKIE = linkCookieName(options.network);
   const sessions = options.sessions ?? new LinkSessionStore(options.now === undefined ? {} : { now: options.now });
   const now = options.now ?? Date.now;
   const { service } = options;
@@ -167,14 +175,14 @@ export function registerLinkRoutes(app: FastifyInstance, options: LinkRouteOptio
     }
     const session = sessions.create(identity, identity.telegramName);
     log(`${identity.userId} opened the page with a code: session ${sessionTag(session.token)}; from ${clientLine(request.headers['user-agent'])}`);
-    reply.header('set-cookie', cookie(session.token, isSecure(request), (session.expiresAtMs - now()) / 1000));
+    reply.header('set-cookie', cookie(LINK_COOKIE, session.token, isSecure(request), (session.expiresAtMs - now()) / 1000));
     return me(session);
   });
 
   app.delete(`${prefix}/session`, async (request, reply) => {
     const token = parseCookies(request.headers.cookie)[LINK_COOKIE];
     if (token !== undefined) sessions.revoke(token);
-    reply.header('set-cookie', cookie('', isSecure(request), 0));
+    reply.header('set-cookie', cookie(LINK_COOKIE, '', isSecure(request), 0));
     return { signedOut: true };
   });
 

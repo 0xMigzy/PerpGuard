@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { PEER, TRADING } from '@/lib/tradingNetwork.ts';
 import type { ReactNode } from 'react';
 
 /**
@@ -10,12 +11,19 @@ import type { ReactNode } from 'react';
  * Prints to a clean light page (globals.css, `[data-guide]` under @media print).
  */
 
+const MAINNET = TRADING.network === 'mainnet';
+/** This deployment's own site, as a person reads it: perpguard.app or testnet.perpguard.app. */
+const SITE = TRADING.siteUrl.replace('https://', '');
+const GUIDE_LEAD = MAINNET
+  ? 'Open a Perpl account, give PerpGuard permission to add margin for you, and connect it to Telegram.'
+  : 'Create a Perpl testnet account, give PerpGuard permission to add margin for you, and connect it to Telegram.';
+
 export const metadata: Metadata = {
   title: 'Setup guide',
-  description: 'Create a Perpl testnet account, give PerpGuard permission to add margin for you, and connect it to Telegram.',
+  description: GUIDE_LEAD,
   openGraph: {
     title: 'Getting started with PerpGuard',
-    description: 'Create a Perpl testnet account, give PerpGuard permission to add margin for you, and connect it to Telegram.',
+    description: GUIDE_LEAD,
   },
 };
 
@@ -77,12 +85,12 @@ function Table({ head, rows }: { readonly head: readonly [string, string]; reado
 }
 
 const checklist = (walletKey: boolean): readonly string[] => [
-  'Wallet on Monad testnet, chain 10143',
-  'Perpl account created and funded with test AUSD',
+  `Wallet on ${TRADING.chainName}, chain ${TRADING.chainId}`,
+  MAINNET ? 'Perpl account created and funded with AUSD' : 'Perpl account created and funded with test AUSD',
   'One-Click Trading turned on — the step that’s easy to miss',
   ...(walletKey
-    ? ['Wallet connected on perpguard.app and one signature approved', 'If you pasted a key instead: on perpguard.app only, never in Telegram']
-    : ['API key created with read and trade permission, both parts saved', 'Key entered on perpguard.app only, never in Telegram']),
+    ? [`Wallet connected on ${SITE} and one signature approved`, `If you pasted a key instead: on ${SITE} only, never in Telegram`]
+    : ['API key created with read and trade permission, both parts saved', `Key entered on ${SITE} only, never in Telegram`]),
   'The bot shows the right account and network',
   'One small trade placed by hand, so you know the account works',
   'You’ve opened the kill switch screen and read it',
@@ -110,18 +118,19 @@ export default async function GuidePage() {
   const walletKey = await walletKeyOn();
   return (
     <div data-ui="terminal" data-guide="" className="mx-auto max-w-[720px]">
-      <div className="text-[12px] font-semibold tracking-[0.08em] text-muted uppercase">PerpGuard · Testnet setup</div>
+      <div className="text-[12px] font-semibold tracking-[0.08em] text-muted uppercase">PerpGuard · {MAINNET ? 'Mainnet' : 'Testnet'} setup</div>
       <h1 className="mt-2 mb-3 text-[30px] font-bold tracking-[-0.03em] sm:text-[34px]">Getting started with PerpGuard</h1>
-      <p className="mt-0 mb-4 text-[16.5px] leading-[1.6] text-text2">Create a Perpl testnet account, give PerpGuard permission to add margin for you, and connect it to Telegram.</p>
+      <p className="mt-0 mb-4 text-[16.5px] leading-[1.6] text-text2">{GUIDE_LEAD}</p>
       <div className="mb-2 flex flex-wrap gap-2">
         <span className="chip">{walletKey ? 'About 10 minutes' : 'About 15 minutes'}</span>
-        <span className="chip">Monad testnet · chain 10143</span>
-        <span className="chip">Test funds only</span>
+        <span className="chip">{TRADING.chainName} · chain {TRADING.chainId}</span>
+        <span className="chip">{TRADING.funds}</span>
       </div>
 
       <Callout>
-        You don&rsquo;t need any of this to get alerts. Send {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} any Perpl address or account number and it will watch that account on mainnet and message
-        you before it gets liquidated — no wallet, no key, nothing to set up. This guide is for the next step: letting PerpGuard add margin for you, which runs on testnet.
+        You don&rsquo;t need any of this to get alerts. Send {ext(TRADING.botUrl, TRADING.botHandle)} any Perpl address or account number and it will watch that account on mainnet and message
+        you before it gets liquidated — no wallet, no key, nothing to set up. This guide is for the next step: letting PerpGuard add margin for you, which runs on {TRADING.network} here.{' '}
+        {MAINNET ? 'To try it with test funds first' : 'For real funds'}, use {ext(PEER.botUrl, PEER.botHandle)} and {ext(PEER.siteUrl + '/bot/guide', PEER.siteUrl.replace('https://', '') + '/bot/guide')}.
         <span className="mt-2 block">
           The same goes for <code>/equity</code>: send it with an address or account number (<code>/equity 5213</code>) and the bot replies with what that mainnet account is worth now, as free
           balance + margin in use + unrealised P&amp;L = equity, the same figures as its page on this site.
@@ -135,17 +144,17 @@ export default async function GuidePage() {
         <Table
           head={['Thing', 'Where']}
           rows={[
-            ['A browser wallet', 'MetaMask or Rabby. Use a wallet kept for testing, not your main one.'],
-            ['Perpl testnet', ext('https://testnet.perpl.xyz', 'testnet.perpl.xyz')],
-            ['Perpl API keys', ext('https://testnet.perpl.xyz/apikeys', 'testnet.perpl.xyz/apikeys')],
+            ['A browser wallet', MAINNET ? 'MetaMask or Rabby.' : 'MetaMask or Rabby. Use a wallet kept for testing, not your main one.'],
+            [MAINNET ? 'Perpl' : 'Perpl testnet', ext(`https://${TRADING.perplSite}`, TRADING.perplSite)],
+            ['Perpl API keys', ext(`https://${TRADING.perplSite}/apikeys`, `${TRADING.perplSite}/apikeys`)],
             [
               'PerpGuard',
               <>
-                {ext('https://t.me/PerpGuardBot', 't.me/PerpGuardBot')} · <Link href="/" className="text-accent-hi underline decoration-border2 underline-offset-2">perpguard.app</Link>
+                {ext(TRADING.botUrl, TRADING.botUrl.replace('https://', ''))} · <Link href="/" className="text-accent-hi underline decoration-border2 underline-offset-2">{TRADING.siteUrl.replace('https://', '')}</Link>
               </>,
             ],
-            ['Network', 'Monad testnet, chain id 10143'],
-            ['RPC', <code key="rpc">https://testnet-rpc.monad.xyz</code>],
+            ['Network', `${TRADING.chainName}, chain id ${TRADING.chainId}`],
+            ['RPC', <code key="rpc">{TRADING.rpcUrl}</code>],
             ['Gas token', 'MON'],
             ['Collateral', 'AUSD'],
           ]}
@@ -154,24 +163,24 @@ export default async function GuidePage() {
 
       <Step n={1} title="Connect a wallet to Perpl" minutes={2}>
         <Ol>
-          <li>Open {ext('https://testnet.perpl.xyz', 'testnet.perpl.xyz')} and select Connect.</li>
-          <li>Approve the connection in your wallet. If it asks you to switch network, accept — Monad testnet, chain id 10143.</li>
+          <li>Open {ext(`https://${TRADING.perplSite}`, TRADING.perplSite)} and select Connect.</li>
+          <li>Approve the connection in your wallet. If it asks you to switch network, accept — {TRADING.chainName}, chain id {TRADING.chainId}.</li>
           <li>
-            To add the network by hand: chain id 10143, RPC <code>https://testnet-rpc.monad.xyz</code>, currency symbol MON.
+            To add the network by hand: chain id {TRADING.chainId}, RPC <code>{TRADING.rpcUrl}</code>, currency symbol MON.
           </li>
         </Ol>
-        <Callout>Use a wallet you keep for testing. Never give your recovery phrase or private key to PerpGuard, to Perpl, or to anyone — nothing here will ever ask for them.</Callout>
+        <Callout>{MAINNET ? 'This is real money: start with an amount you can afford to lose.' : 'Use a wallet you keep for testing.'} Never give your recovery phrase or private key to PerpGuard, to Perpl, or to anyone — nothing here will ever ask for them.</Callout>
       </Step>
 
       <Step n={2} title="Open a funded account" minutes={3}>
         <P>Connecting a wallet doesn&rsquo;t create a trading account. You need an account on Perpl&rsquo;s exchange contract with collateral in it.</P>
         <Ol>
-          <li>Select Deposit and claim your test AUSD. Perpl gives new testnet accounts a starting balance.</li>
+          <li>{MAINNET ? 'Select Deposit. You need AUSD in your wallet on Monad mainnet; Perpl does not hand any out.' : 'Select Deposit and claim your test AUSD. Perpl gives new testnet accounts a starting balance.'}</li>
           <li>Deposit at least the minimum Perpl asks for, and approve the wallet transactions.</li>
           <li>Wait for the balance to appear in the trading interface.</li>
           <li>Place one small trade by hand to confirm the account works.</li>
         </Ol>
-        <Callout tone="warn">You may need a little MON for gas. Deposits and permissions are on-chain transactions. If a transaction fails for lack of gas, get testnet MON from a Monad faucet first.</Callout>
+        <Callout tone="warn">You may need a little MON for gas. Deposits and permissions are on-chain transactions. If a transaction fails for lack of gas, {MAINNET ? 'add MON to the wallet first.' : 'get testnet MON from a Monad faucet first.'}</Callout>
       </Step>
 
       <Step n={3} title="Allow order forwarding" minutes={1}>
@@ -191,10 +200,10 @@ export default async function GuidePage() {
       {walletKey ? (
         <Step n={4} title="Connect PerpGuard" minutes={2}>
           <Ol>
-            <li>Open {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} in Telegram and send /start.</li>
+            <li>Open {ext(TRADING.botUrl, TRADING.botHandle)} in Telegram and send /start.</li>
             <li>Choose 🔐 Trading account.</li>
             <li>
-              Tap 🔗 Connect wallet. The bot gives you a one-time link. It opens <code>https://perpguard.app/link?code=…</code> over HTTPS and works once, for five minutes.
+              Tap 🔗 Connect wallet. The bot gives you a one-time link. It opens <code>{TRADING.siteUrl}/link?code=…</code> over HTTPS and works once, for five minutes.
             </li>
             <li>
               Check the address bar reads <b className="text-text">perpguard.app</b> before you go on.
@@ -219,7 +228,7 @@ export default async function GuidePage() {
           <P>PerpGuard places orders with a Perpl API key. A Perpl key can trade, and can never withdraw or move your funds.</P>
           <H3>Create an API key</H3>
           <Ol>
-            <li>With the same wallet connected, open {ext('https://testnet.perpl.xyz/apikeys', 'testnet.perpl.xyz/apikeys')}.</li>
+            <li>With the same wallet connected, open {ext(`https://${TRADING.perplSite}/apikeys`, `${TRADING.perplSite}/apikeys`)}.</li>
             <li>Create a new key and label it PerpGuard.</li>
             <li>Give it read and trade permission. Nothing more.</li>
             <li>Approve the wallet signature.</li>
@@ -228,10 +237,10 @@ export default async function GuidePage() {
           <Callout tone="warn">The API secret is not your wallet&rsquo;s recovery phrase. It&rsquo;s a separate credential. Never paste either into a Telegram message, including to PerpGuard.</Callout>
           <H3>Enter it on PerpGuard</H3>
           <Ol>
-            <li>Open {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} in Telegram and send /start.</li>
+            <li>Open {ext(TRADING.botUrl, TRADING.botHandle)} in Telegram and send /start.</li>
             <li>Choose 🔐 Trading account.</li>
             <li>
-              Tap 🔑 Enter API key. The bot gives you a one-time link. It opens <code>https://perpguard.app/link?code=…</code> over HTTPS and works once, for five minutes.
+              Tap 🔑 Enter API key. The bot gives you a one-time link. It opens <code>{TRADING.siteUrl}/link?code=…</code> over HTTPS and works once, for five minutes.
             </li>
             <li>
               Check the address bar reads <b className="text-text">perpguard.app</b> before you type anything.
@@ -293,7 +302,7 @@ export default async function GuidePage() {
             ['Orders rejected with sr 34', 'Order forwarding is off. Turn on One-Click Trading in Perpl’s settings. This is the most common one.'],
             ['Account not found', 'The deposit hasn’t completed, or you’re on the wrong wallet. Check the account exists in Perpl’s own interface first.'],
             ...(walletKey ? ([['This wallet hasn’t used Perpl yet', 'No account exists for it. Do steps 1 and 2 first, then come back.']] as const) : []),
-            ['The key is refused', 'A mainnet key on a testnet account, or the other way round. PerpGuard’s actions are testnet only.'],
+            ['The key is refused', `A key from the other network. This bot acts on ${TRADING.network} only; ${PEER.network} is ${PEER.botHandle}.`],
             ['You can see positions but nothing can be sent', 'Either the key lacks trade permission, or forwarding is off.'],
             ['A wallet transaction fails', 'Wrong network, or no MON for gas.'],
             ['You’ve lost the key, or shown it to someone', 'Revoke it on Perpl’s API keys page and make a new one. Revoking stops future orders; it does not close positions already open.'],
@@ -328,7 +337,7 @@ export default async function GuidePage() {
         <p className="m-0">
           <Link href="/" className="text-accent-hi underline decoration-border2 underline-offset-2">perpguard.app</Link> — the dashboard ·{' '}
           <Link href="/status" className="text-accent-hi underline decoration-border2 underline-offset-2">perpguard.app/status</Link> — where every figure comes from ·{' '}
-          {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} — the bot
+          {ext(TRADING.botUrl, TRADING.botHandle)} — the bot
         </p>
       </footer>
     </div>

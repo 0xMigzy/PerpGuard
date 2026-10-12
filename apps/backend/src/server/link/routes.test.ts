@@ -10,7 +10,7 @@ import { ApiSecret, type AccountLookup } from '@perpguard/shared';
 import { InMemoryIdentityStore, InMemoryLinkStore } from '@perpguard/bot';
 import { LinkCodeStore } from '../protect/session.ts';
 import { KeyVault } from './crypto.ts';
-import { registerLinkRoutes, LINK_COOKIE } from './routes.ts';
+import { registerLinkRoutes, linkCookieName } from './routes.ts';
 import { LinkService } from './service.ts';
 import { InMemoryKeyStore } from './stores.ts';
 import { hashTypedData, verifyMessage, verifyTypedData } from 'viem';
@@ -133,7 +133,9 @@ test('a code opens a cookie session that says who is here and that nothing is li
   assert.equal(body.provenAccountId, null);
   assert.equal(body.walletSignIn, false);
   const setCookie = opened.headers['set-cookie'];
-  assert.match(cookieOf(setCookie), new RegExp(`^${LINK_COOKIE}=[0-9a-f]{64}$`));
+  // NAMED BY NETWORK: this is the testnet deployment's session, and the mainnet one's has another name.
+  assert.match(cookieOf(setCookie), /^pg_link_testnet=[0-9a-f]{64}$/);
+  assert.deepEqual([linkCookieName('mainnet'), linkCookieName('testnet')], ['pg_link_mainnet', 'pg_link_testnet']);
   assert.match(String(setCookie), /HttpOnly; SameSite=Lax/);
 
   const again = await r.app.inject({ method: 'POST', url: '/api/link/session', payload: { code } });

@@ -271,7 +271,25 @@ export interface AccountScreenInput {
   readonly proven?: { readonly accountId: number; readonly walletAddress: string };
   /** The setup guide on the site (perpguard.app/bot/guide). Absent: no button. */
   readonly guideUrl?: string | undefined;
+  /** TWO BOTS, ONE PER NETWORK: the other network's bot, named on this screen with a link to it. Absent: one deployment. */
+  readonly peer?: PeerBot | undefined;
 }
+
+/** The other deployment's bot (12 Oct 2026): mainnet is @PerpGuardBot, testnet is @PerpGuardTestnetBot. */
+export interface PeerBot {
+  readonly network: NetworkName;
+  /** Without the @. */
+  readonly username: string;
+}
+
+const title = (network: NetworkName): string => (network === 'mainnet' ? 'Mainnet' : 'Testnet');
+/** "This bot acts on testnet. Mainnet is @PerpGuardBot." */
+export function peerLine(own: NetworkName | undefined, peer: PeerBot): string {
+  return `${own === undefined ? '' : `This bot acts on ${own}. `}${title(peer.network)} is @${peer.username}.`;
+}
+/** A link button to the other bot. A URL: it opens Telegram and calls nothing back. */
+export const peerRow = (peer: PeerBot | undefined): Button[][] =>
+  peer === undefined ? [] : [[{ text: `${peer.network === 'mainnet' ? '🟢' : '🧪'} ${title(peer.network)} bot`, url: `https://t.me/${peer.username}` }]];
 
 const shortAddress = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -304,9 +322,10 @@ export function accountScreen(input: AccountScreenInput): Screen {
         '',
         `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${input.network ?? 'testnet'} #${p.accountId}.`,
         'To add margin for you I also need an API key for it. Enter it on the page, never here.',
+        ...(input.peer === undefined ? [] : ['', `<i>${peerLine(input.network, input.peer)}</i>`]),
       ].join('\n'),
       // A proof with no link is still something held for this person, so it can be undone from here.
-      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [{ text: `🔌 Disconnect #${p.accountId}`, route: { to: 'disconnect-ask' } }], ...guideRow(input.guideUrl), [BACK_HOME]],
+      buttons: [[{ text: '🔑 Enter API key', route: { to: 'connect-key' } }], [{ text: `🔌 Disconnect #${p.accountId}`, route: { to: 'disconnect-ask' } }], ...guideRow(input.guideUrl), ...peerRow(input.peer), [BACK_HOME]],
     };
   }
   if (input.accountId === undefined) {
@@ -319,8 +338,9 @@ export function accountScreen(input: AccountScreenInput): Screen {
         'Connect your Perpl account and I can warn you before a position is liquidated, and add margin the moment you tap.',
         '',
         'A Perpl key can trade but can never withdraw or move your funds.',
+        ...(input.peer === undefined ? [] : ['', `<i>${peerLine(input.network, input.peer)}</i>`]),
       ].join('\n'),
-      buttons: [...CONNECT_BUTTONS.slice(0, -1), ...guideRow(input.guideUrl), [BACK_HOME]],
+      buttons: [...CONNECT_BUTTONS.slice(0, -1), ...guideRow(input.guideUrl), ...peerRow(input.peer), [BACK_HOME]],
     };
   }
   const e = input.execution;
@@ -331,6 +351,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
   ];
   if (input.linkedAtMs !== undefined) lines.push(`Connected ${shortWhen(input.linkedAtMs)}`);
   if (e?.next !== undefined) lines.push('', esc(e.next));
+  if (input.peer !== undefined) lines.push('', `<i>${peerLine(input.network, input.peer)}</i>`);
   // A remedy that runs through the connect page gets its button; forwarding off does not (it needs the owner's wallet on Perpl).
   const fixable = e !== undefined && (e.dot === '🔴' || e.label === 'Not running');
   return {
@@ -339,6 +360,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
       ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
       [{ text: `🔌 Disconnect #${input.accountId}`, route: { to: 'disconnect-ask' } }],
       ...guideRow(input.guideUrl),
+      ...peerRow(input.peer),
       [BACK_HOME],
     ],
   };

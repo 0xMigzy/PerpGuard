@@ -92,7 +92,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading> } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading>; readonly peerBot?: { readonly network: 'mainnet' | 'testnet'; readonly username: string } } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -131,6 +131,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     botInfo: bot.botInfo,
     ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer, preferences: prefs, traders: fakeTraders, ...(options.equity === undefined ? {} : { equity: options.equity }) } }),
     ...(options.link === undefined ? {} : { link: options.link }),
+    ...(options.peerBot === undefined ? {} : { peerBot: options.peerBot }),
   });
   // The bot under test must talk to the fake, not to Telegram.
   telegram.install(built.api);
@@ -2667,4 +2668,27 @@ test('💰 EQUITY, NOTHING WATCHED: it asks with force_reply, the next message i
   // Answered: the next bare number is a fresh paste, offered as a watch, not read as another equity answer.
   await h.bot.handleUpdate(stranger('5213'));
   assert.equal(texts(h.telegram).at(-1), 'Watch account <b>#5213</b>?');
+});
+
+// ── two bots, one per network ───────────────────────────────────────────────
+
+test('TWO BOTS: the Trading account screen and /help say which network this bot acts on and link to the other; one deployment says nothing', async () => {
+  const h = harness({ peerBot: { network: 'mainnet', username: 'PerpGuardBot' } });
+  await tapNav(h, { to: 'account' }, AT_STRANGER);
+  const screen = lastScreen(h.telegram);
+  assert.match(String(screen.payload['text']), /<i>This bot acts on testnet\. Mainnet is @PerpGuardBot\.<\/i>$/);
+  const rows = (screen.payload['reply_markup'] as InlineKeyboard).inline_keyboard;
+  const peer = rows.flat().find((b) => b.text === '🟢 Mainnet bot') as { url?: string; callback_data?: string } | undefined;
+  assert.equal(peer?.url, 'https://t.me/PerpGuardBot', 'a link: it opens Telegram and calls nothing back');
+  assert.equal(peer?.callback_data, undefined);
+  await h.bot.handleUpdate(stranger('/help'));
+  const help = h.telegram.last('sendMessage');
+  assert.ok(String(help.payload['text']).endsWith('This bot acts on testnet. Mainnet is @PerpGuardBot.'));
+  assert.deepEqual((help.payload['reply_markup'] as InlineKeyboard).inline_keyboard.flat().map((b) => b.text), ['📖 Setup guide', '🟢 Mainnet bot']);
+
+  const alone = harness();
+  await tapNav(alone, { to: 'account' }, AT_STRANGER);
+  assert.doesNotMatch(String(lastScreen(alone.telegram).payload['text']), /This bot acts on/);
+  await alone.bot.handleUpdate(stranger('/help'));
+  assert.equal(alone.telegram.last('sendMessage').payload['text'], HELP_TEXT);
 });

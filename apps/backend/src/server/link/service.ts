@@ -66,7 +66,9 @@ export interface LinkServiceDeps {
    * where the wallet's account actually is. Never linked to: acting there is
    * switched off for this deployment.
    */
-  readonly lookupElsewhere?: (address: string) => Promise<{ readonly network: string; readonly accountId: number } | undefined>;
+  readonly lookupElsewhere?: (address: string) => Promise<{ readonly network: string; readonly accountId: number; readonly watchable?: boolean } | undefined>;
+  /** The other network's bot (two deployments): where an account on the other network is connected. Without the @. */
+  readonly peerBot?: string;
   /** Verified wallet ownership, kept. Absent: in memory only. */
   readonly proofs?: WalletProofStore;
   readonly secretFromHex: (hex: string) => import('@perpguard/shared').ApiSecret;
@@ -268,9 +270,15 @@ export class LinkService {
         return {
           kind: 'refused',
           reason:
-            `This wallet owns Perpl account #${elsewhere.accountId} on ${elsewhere.network}. Actions are ${here} only for now, so it cannot be linked to act on. ` +
-            `You can watch it instead: alerts in your Telegram chat as it nears liquidation, opens and closes, read-only. Or sign with the wallet that owns your account on ${here}.`,
-          watchInstead: { network: elsewhere.network, accountId: elsewhere.accountId },
+            `This wallet owns Perpl account #${elsewhere.accountId} on ${elsewhere.network}. ` +
+            (this.#deps.peerBot === undefined
+              ? `Actions are ${here} only for now, so it cannot be linked to act on. `
+              : `This bot acts on ${here} only. To connect that account, open @${this.#deps.peerBot}, the ${elsewhere.network} bot. `) +
+            // Watching reads the MAINNET index, so only a mainnet account can be watched instead.
+            (elsewhere.watchable === false
+              ? `Or sign with the wallet that owns your account on ${here}.`
+              : `You can watch it instead: alerts in your Telegram chat as it nears liquidation, opens and closes, read-only. Or sign with the wallet that owns your account on ${here}.`),
+          ...(elsewhere.watchable === false ? {} : { watchInstead: { network: elsewhere.network, accountId: elsewhere.accountId } }),
         };
       }
     }

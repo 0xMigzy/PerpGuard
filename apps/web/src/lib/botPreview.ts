@@ -10,12 +10,15 @@
  * example, not live data, and the page says so.
  */
 
-export const BOT_HANDLE = '@PerpGuardBot';
-/** Which network each half runs on, said once on Overview and on /bot (owner, 12 Oct 2026). */
-export const NETWORK_SPLIT = 'Analytics: Monad mainnet, every block since launch. Actions: Monad testnet.';
-export const BOT_URL = 'https://t.me/PerpGuardBot';
+import { TRADING, networkSplit } from './tradingNetwork.ts';
 
-/** The testnet setup guide (apps/web/src/app/bot/guide). Undefined would render "Coming soon" and no link. */
+/** THIS deployment's bot: @PerpGuardBot on mainnet, @PerpGuardTestnetBot on testnet (`tradingNetwork.ts`). */
+export const BOT_HANDLE = TRADING.botHandle;
+/** Which network each half runs on, said once on Overview and on /bot (owner, 12 Oct 2026). */
+export const NETWORK_SPLIT = networkSplit(TRADING);
+export const BOT_URL = TRADING.botUrl;
+
+/** The setup guide (apps/web/src/app/bot/guide), written for this deployment's network. Undefined would render "Coming soon" and no link. */
 export const TESTNET_GUIDE_URL: string | undefined = '/bot/guide';
 
 /** The manual alert at the account's alert distance, for a BTC long 2.7% from liquidation. */

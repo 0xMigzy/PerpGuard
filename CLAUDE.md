@@ -628,7 +628,9 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
 
 ## Networks
 - Read-only analytics run against MAINNET (chain 143) so the demo shows real data.
-- All trading actions run against TESTNET (chain 10143) with our own wallet.
+- Trading actions run on the deployment's own network: TESTNET (chain 10143)
+  on the testnet deployment, MAINNET (chain 143, real funds, only with
+  `PERPGUARD_MAINNET_TRADING=1`) on the mainnet one. See "Two deployments".
 - Network config comes from env vars, never hard-coded. Both must be selectable.
 - ONE NETWORK PER RISK LOOP, ENFORCED AT CONSTRUCTION. A position and the mark
   price it is assessed against MUST come from the same network. This is a rule,
@@ -638,6 +640,44 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   a buffer percentage and an alert, all confidently derived from two unrelated
   markets. Nothing about the output would look off. Mixing must be impossible
   to express, not merely discouraged.
+
+## Two deployments, one per network (owner, 12 Oct 2026)
+- MAINNET IS @PerpGuardBot ON perpguard.app; TESTNET IS @PerpGuardTestnetBot
+  ON testnet.perpguard.app. Two bots with two tokens, two backend services,
+  two databases, two encryption keys. A person picks a network by opening one
+  bot or the other; there is no router and no in-bot picker (a one-token
+  router was started and is stashed, unfinished). Both read the same mainnet
+  index, so both have the full watch tier.
+  - INHERITANCE: the testnet deployment took over the database and the
+    encryption key that existed before the split, untouched, so every testnet
+    link, sealed key, Rescue rule and setting still works there. The mainnet
+    database is new, with a copy of the PUBLIC tables only (watch lists,
+    alert settings, identities). No testnet account record is ever in the
+    mainnet database: five tables key on the bare account id, and ids are
+    not shared between networks.
+- EACH BACKEND RUNS FROM ITS OWN COMPLETE ENV FILE, never layered: `.env`
+  (mainnet, `perpguard-backend`, :8080, api.perpguard.app) and `.env.testnet`
+  (`perpguard-backend-testnet`, 127.0.0.1:8081, api-testnet.perpguard.app;
+  the unit names its file with `PERPGUARD_ENV_FILE`). What differs is listed
+  in `.env.example`. `.env.*` is git-ignored; only `.env.example` is tracked.
+- THE SITE'S ANALYTICS JOBS RUN ONCE: `PERPGUARD_ANALYTICS_JOBS=off` on the
+  testnet backend skips the hourly cache warming, the treasury scan and the
+  open-interest reconcile. Running them twice is how Postgres gets capped
+  again. The testnet site's `/api/analytics/*` is rewritten to the mainnet
+  backend (`ANALYTICS_BACKEND_URL`), which is the warm one.
+- THE WEB IS ONE CODEBASE, TWO VERCEL PROJECTS. `NEXT_PUBLIC_TRADING_NETWORK`
+  (unset = testnet) is the ONE value every network-naming sentence reads,
+  through `apps/web/src/lib/tradingNetwork.ts`: the chain and its id, the RPC,
+  Perpl's site, this deployment's bot and site, and the other deployment's.
+  Never write "testnet", a chain id or a bot handle into a page.
+- THE BOTS POINT AT EACH OTHER (`PEER_BOT_USERNAME`): a line and a link button
+  on 🔐 Trading account and in /help, and on /link a wallet whose account is
+  on the other network is sent to that network's bot by name
+  (`lookupElsewhere` asks the OTHER trading network's Exchange). Only a
+  MAINNET account is offered "watch it instead": the watch tier reads the
+  mainnet index.
+- THE /link COOKIE IS NAMED BY NETWORK (`pg_link_mainnet`, `pg_link_testnet`).
+  It is host-only, so the two sites never shared it; the name is a guard.
 
 ## Stack
 TypeScript everywhere, pnpm workspaces.

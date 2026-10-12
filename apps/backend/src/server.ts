@@ -596,6 +596,15 @@ if (alertDb !== undefined) {
 // with it off, no account session opens, so nothing can execute.
 const MAINNET_TRADING = process.env['PERPGUARD_MAINNET_TRADING']?.trim() === '1';
 /**
+ * THE OTHER NETWORK'S BOT (two deployments, one bot each): named on the
+ * Trading account screen, in /help and on /link when a wallet's account is on
+ * the other network. `PEER_BOT_USERNAME`, with or without the @.
+ */
+const PEER_BOT = ((): { readonly network: 'mainnet' | 'testnet'; readonly username: string } | undefined => {
+  const username = process.env['PEER_BOT_USERNAME']?.trim().replace(/^@/, '');
+  return username === undefined || !/^[A-Za-z0-9_]{5,32}$/.test(username) ? undefined : { network: network.name === 'mainnet' ? 'testnet' : 'mainnet', username };
+})();
+/**
  * TWO DEPLOYMENTS, ONE BOX (12 Oct 2026): mainnet and testnet each run this
  * process, and both read the same mainnet index. The jobs that exist to serve
  * the WEBSITE'S analytics run in one of them only: the hourly cache warming
@@ -816,6 +825,7 @@ const bot =
         ...(envAccountId === undefined ? {} : { ownerAccountId: envAccountId }),
         configs: riskConfigs,
         tradingNetwork: network.name,
+        ...(PEER_BOT === undefined ? {} : { peerBot: PEER_BOT }),
         amounts: pendingAmounts,
         identities,
         link: {
@@ -1057,11 +1067,14 @@ const linkService = new LinkService({
   // The analytics network (mainnet), asked only to NAME where a wallet's account is when the
   // trading network has none. Nothing is ever linked there: acting on it is switched off.
   lookupElsewhere: async (address) => {
-    const other = analyticsNetworkConfig;
-    if (other === undefined || other.chainId === network.chainId) return undefined;
+    // THE OTHER NETWORK, whichever this deployment trades on (two deployments, 12 Oct 2026): on the
+    // mainnet one that is testnet. Only a MAINNET account can be watched instead; the watch tier reads the mainnet index.
+    const otherName = network.name === 'mainnet' ? 'testnet' : 'mainnet';
+    const other = analyticsNetworkConfig?.name === otherName ? analyticsNetworkConfig : loadNetworkConfig(otherName, process.env);
     const found = await lookupAccountByAddress(address, { rpcUrl: other.rpcUrl, exchangeAddress: other.exchangeAddress });
-    return found.found ? { network: other.name, accountId: found.accountId } : undefined;
+    return found.found ? { network: other.name, accountId: found.accountId, watchable: other.name === analyticsNetworkConfig?.name } : undefined;
   },
+  ...(PEER_BOT === undefined ? {} : { peerBot: PEER_BOT.username }),
   secretFromHex: (hex) => ApiSecret.fromHex(hex),
   envAccountId,
   webUrl: PUBLIC_WEB_URL,

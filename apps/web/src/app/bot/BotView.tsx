@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/PageHeader.tsx';
 import { ALERT_EXAMPLE, BOT_HANDLE, BOT_URL, NETWORK_SPLIT, TESTNET_GUIDE_URL } from '@/lib/botPreview.ts';
+import { PEER, TRADING } from '@/lib/tradingNetwork.ts';
 
 /**
  * THE BOT PAGE: what @PerpGuardBot does, in three words — WATCH, MANAGE,
@@ -99,7 +100,7 @@ const handleLink = (
 const STEPS: readonly { readonly title: string; readonly text: ReactNode }[] = [
   { title: 'Open Telegram', text: <>Launch {handleLink} and tap Start.</> },
   { title: 'Start watching', text: 'Add up to 10 wallets and set your alerts. No account or API key needed to monitor.' },
-  { title: 'Connect and protect', text: 'Optionally connect your Perpl account to manage positions, add margin and set up Liquidation Rescue. Trading actions are testnet only.' },
+  { title: 'Connect and protect', text: `Optionally connect your Perpl account to manage positions, add margin and set up Liquidation Rescue. Trading actions here run on ${TRADING.network}.` },
 ];
 
 const SECURITY: readonly { readonly title: string; readonly points: readonly string[] }[] = [
@@ -190,7 +191,12 @@ export function BotView() {
             <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
           </svg>
         </a>
-        <div className="text-[12.5px] text-muted">Mainnet monitoring · Testnet trading actions</div>
+        <div className="text-[12.5px] text-muted">
+          Mainnet monitoring · {TRADING.network === 'mainnet' ? 'Mainnet' : 'Testnet'} trading actions ·{' '}
+          <a href={PEER.siteUrl + '/bot'} className="underline decoration-border2 underline-offset-2 hover:text-text">
+            {PEER.network === 'mainnet' ? 'Mainnet' : 'Testnet'} is {PEER.botHandle}
+          </a>
+        </div>
       </div>
 
       {/* ── how it works ──────────────────────────────────────────────────── */}
@@ -215,9 +221,9 @@ export function BotView() {
       <section aria-labelledby="bot-guide-title" className="card mb-6 flex flex-col gap-3 px-[18px] py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 id="bot-guide-title" className="m-0 text-[15px] font-bold">
-            New to Perpl Testnet?
+            {TRADING.network === 'mainnet' ? 'New to Perpl?' : 'New to Perpl Testnet?'}
           </h2>
-          <p className="mt-1 mb-0 max-w-[62ch] text-[13px] leading-[1.5] text-muted">Learn how to create a Testnet account, get test funds and connect to PerpGuard Bot.</p>
+          <p className="mt-1 mb-0 max-w-[62ch] text-[13px] leading-[1.5] text-muted">{TRADING.network === 'mainnet' ? 'Learn how to open a Perpl account, turn on order forwarding and connect it to PerpGuard Bot.' : 'Learn how to create a Testnet account, get test funds and connect to PerpGuard Bot.'}</p>
         </div>
         {TESTNET_GUIDE_URL === undefined ? (
           <span className="chip flex-none self-start sm:self-center">Coming soon</span>
@@ -282,7 +288,8 @@ function AlertPreview() {
           </div>
         </div>
         <div className="rounded-[12px] rounded-tl-[4px] bg-[#182533] px-[13px] py-[10px] text-[14px] leading-[1.5] text-[#E9EDF2]">
-          <div className="text-[13px] text-[#9BA8B6]">{a.network}</div>
+          {/* The acting network's first line, as the bot writes it (`actingBadge`): "testnet", or the mainnet warning. */}
+          <div className="text-[13px] text-[#9BA8B6]">{TRADING.network === 'mainnet' ? <>⚠️ <b>MAINNET</b> · real funds</> : a.network}</div>
           <div className="font-bold">
             🔴 {a.position} is <span className="text-danger">{a.distance}</span> from liquidation
           </div>

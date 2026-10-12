@@ -10,6 +10,14 @@ import type { NextConfig } from 'next';
  * them: the browser never executes anything, and every action lives in Telegram.
  */
 const backend = process.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
+/**
+ * TWO DEPLOYMENTS (12 Oct 2026): each Vercel project points `/api` at its own
+ * backend, which holds its own links and keys. The ANALYTICS are the same
+ * mainnet index on both sites, and only the mainnet backend keeps them warm,
+ * so the testnet project sets ANALYTICS_BACKEND_URL to that one. Unset: the
+ * project's own backend, as before.
+ */
+const analyticsBackend = process.env['ANALYTICS_BACKEND_URL'] ?? backend;
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -27,7 +35,12 @@ const config: NextConfig = {
     return webpackConfig;
   },
   async rewrites() {
-    return [{ source: '/api/:path*', destination: `${backend}/api/:path*` }];
+    return [
+      // First match wins: analytics before the catch-all.
+      { source: '/api/analytics/:path*', destination: `${analyticsBackend}/api/analytics/:path*` },
+      { source: '/api/analytics', destination: `${analyticsBackend}/api/analytics` },
+      { source: '/api/:path*', destination: `${backend}/api/:path*` },
+    ];
   },
   async redirects() {
     // The wallet pages became the Traders section. Old links keep working.
