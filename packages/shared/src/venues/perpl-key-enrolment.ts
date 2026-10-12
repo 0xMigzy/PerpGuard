@@ -31,15 +31,50 @@ export interface PerplKeyTypedData {
 export interface PerplReply {
   readonly status: number;
   readonly body: string;
-  /** The headers this request carried, for the record: never an Origin or a Referer. */
+  /** The headers this request carried, for the record: never a Referer, and an Origin only when this deployment declares its OWN approved one. */
   readonly sentHeaders: Readonly<Record<string, unknown>>;
 }
 
 /** The transport: a POST that sends exactly the headers it is given. Replaceable in tests. */
 export type PerplPoster = (restBaseUrl: string, path: string, body: unknown) => Promise<PerplReply>;
 
-/** A POST to Perpl with exactly content-type, content-length and host. */
-export const postToPerpl: PerplPoster = (restBaseUrl, path, body) => {
+/**
+ * THE ORIGIN WE MAY DECLARE TO PERPL, or undefined for none (owner, 12 Oct 2026).
+ *
+ * NEVER A FALSE ORIGIN. The rule was always that PerpGuard never claims to be
+ * Perpl's own site; Perpl has since approved https://perpguard.app, and
+ * saying so honestly is not that. So an origin is declared only when it is
+ * (1) asked for explicitly, (2) https, (3) EXACTLY the origin of the site
+ * this deployment serves, and (4) not a Perpl host. Anything else throws at
+ * start-up: a mistyped or borrowed origin must stop the process, never be
+ * sent.
+ */
+export function declaredOrigin(requested: string | undefined, ownSiteUrl: string | undefined): string | undefined {
+  const asked = requested?.trim();
+  if (asked === undefined || asked === '') return undefined;
+  let origin: URL;
+  try {
+    origin = new URL(asked);
+  } catch {
+    throw new RangeError(`PERPL_ENROLMENT_ORIGIN is not a URL: ${JSON.stringify(asked)}`);
+  }
+  if (origin.protocol !== 'https:') throw new RangeError('PERPL_ENROLMENT_ORIGIN must be https');
+  if (/(^|\.)perpl\.xyz$/i.test(origin.hostname)) throw new RangeError("PERPL_ENROLMENT_ORIGIN names Perpl's own site: PerpGuard never claims to be Perpl");
+  let own: string | undefined;
+  try {
+    own = ownSiteUrl === undefined ? undefined : new URL(ownSiteUrl).origin;
+  } catch {
+    own = undefined;
+  }
+  if (own !== origin.origin) throw new RangeError(`PERPL_ENROLMENT_ORIGIN (${origin.origin}) is not this deployment's own site (${own ?? 'PUBLIC_WEB_URL is not set'}): only our own origin is ever declared`);
+  return origin.origin;
+}
+
+/**
+ * A POST to Perpl with exactly content-type, content-length and host, plus an
+ * Origin ONLY when one is given (see `declaredOrigin`). Never a Referer.
+ */
+export const perplPoster = (options: { readonly origin?: string | undefined } = {}): PerplPoster => (restBaseUrl, path, body) => {
   const base = new URL(restBaseUrl);
   const data = JSON.stringify(body);
   return new Promise((resolve, reject) => {
@@ -50,7 +85,7 @@ export const postToPerpl: PerplPoster = (restBaseUrl, path, body) => {
         ...(base.port === '' ? {} : { port: Number(base.port) }),
         path: `${base.pathname.replace(/\/$/, '')}${path}`,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), ...(options.origin === undefined ? {} : { Origin: options.origin }) },
         timeout: 15_000,
       },
       (res) => {
@@ -64,6 +99,34 @@ export const postToPerpl: PerplPoster = (restBaseUrl, path, body) => {
     req.end(data);
   });
 };
+
+/** No Origin, no Referer: what every deployment sends unless it declares its own approved origin. */
+export const postToPerpl: PerplPoster = perplPoster();
+
+/**
+ * A BUILDER CODE (Perpl docs, api/builder-codes): bound to a key AT ENROLMENT,
+ * by two extra fields on the payload request, and frozen there. An order never
+ * names its own code. `maxFeePer100k` is the ceiling the user signs for
+ * (1 = 0.001%, at most 100); 0 is attribution with no fee, which is all
+ * PerpGuard can use: a builder fee applies only to opening or increasing a
+ * position, and PerpGuard adds margin, reduces and closes.
+ */
+export interface BuilderTerms {
+  readonly id: number;
+  readonly maxFeePer100k: number;
+}
+
+/** The builder terms from env values, or undefined for none. A value Perpl would refuse throws at start-up. */
+export function builderTermsFrom(idRaw: string | undefined, maxFeeRaw: string | undefined): BuilderTerms | undefined {
+  const idText = idRaw?.trim();
+  if (idText === undefined || idText === '') return undefined;
+  const id = Number(idText);
+  if (!Number.isInteger(id) || id < 1 || id > 255) throw new RangeError('PERPL_BUILDER_ID must be a whole number from 1 to 255');
+  const feeText = maxFeeRaw?.trim();
+  const maxFeePer100k = feeText === undefined || feeText === '' ? 0 : Number(feeText);
+  if (!Number.isInteger(maxFeePer100k) || maxFeePer100k < 0 || maxFeePer100k > 100) throw new RangeError('PERPL_MAX_BUILDER_FEE_PER_100K must be a whole number from 0 to 100');
+  return { id, maxFeePer100k };
+}
 
 /** A fresh Ed25519 key: the public half as Perpl wants it (0x + 32 bytes hex), the secret as hex for sealing. */
 export function newPerplKeyPair(): { readonly publicKeyHex: string; readonly secretHex: string; readonly privateKey: crypto.KeyObject } {
@@ -83,9 +146,17 @@ export type PayloadResult = { readonly kind: 'ok'; readonly typedData: PerplKeyT
 export async function requestKeyPayload(
   post: PerplPoster,
   restBaseUrl: string,
-  request: { readonly chainId: number; readonly address: string; readonly publicKeyHex: string; readonly label: string },
+  request: { readonly chainId: number; readonly address: string; readonly publicKeyHex: string; readonly label: string; readonly builder?: BuilderTerms | undefined },
 ): Promise<PayloadResult> {
-  const reply = await post(restBaseUrl, '/v1/api-key/payload', { chain_id: request.chainId, address: request.address, public_key: request.publicKeyHex, scope_mask: 3, label: request.label });
+  const reply = await post(restBaseUrl, '/v1/api-key/payload', {
+    chain_id: request.chainId,
+    address: request.address,
+    public_key: request.publicKeyHex,
+    scope_mask: 3,
+    label: request.label,
+    // Present only on a builder-bound key: Perpl writes the terms into the typed data the user signs.
+    ...(request.builder === undefined ? {} : { builder_id: request.builder.id, max_builder_fee_per_100k: request.builder.maxFeePer100k }),
+  });
   if (reply.status !== 200) return { kind: 'failed', status: reply.status, detail: reply.body.slice(0, 200) };
   try {
     const parsed = JSON.parse(reply.body) as { typed_data?: PerplKeyTypedData; mac?: string };

@@ -1272,11 +1272,23 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   step 4 only while it is on. The sign-in-with-Ethereum challenge is NOT used
   while the switch is on (the key signature proves ownership) and is kept for
   the switch-off path until the owner says remove it.
-  - NEVER AN ORIGIN OR REFERER TO PERPL, on any request, anywhere
-    (`postToPerpl`: content-type, content-length, host; a test checks what
-    arrives). Perpl refuses an Origin it has not approved (perpguard.app:
-    400) and accepts none; its docs say integrating sites are approved
-    first. If it ever needs Perpl's own Origin, it is a no.
+  - NEVER A FALSE ORIGIN, NEVER A REFERER (owner, restated 12 Oct 2026: the
+    rule was always "never claim to be Perpl's own site"). By default nothing
+    names a site (`postToPerpl`: content-type, content-length, host). Perpl
+    has approved https://perpguard.app, so the MAINNET deployment declares
+    it: `PERPL_ENROLMENT_ORIGIN`, checked by `declaredOrigin` to be https,
+    EXACTLY this deployment's own `PUBLIC_WEB_URL` origin, and not a Perpl
+    host, or the backend refuses to start. The testnet site is not approved
+    and sends none. A test checks what arrives either way.
+  - 🧱 THE BUILDER CODE (`PERPL_BUILDER_ID`, mainnet; never in a committed
+    file, never logged) is bound to a key AT ENROLMENT by two extra fields on
+    the payload request (`builder_id`, `max_builder_fee_per_100k`) and frozen
+    there: only keys PerpGuard creates through the wallet signature carry it,
+    never a pasted key or one enrolled before. The ceiling is 0, attribution
+    with no fee: a builder fee applies only to opening or increasing a
+    position, and PerpGuard adds margin, reduces and closes. The wallet
+    prompt names the builder and the ceiling; Perpl re-derives that statement
+    at enrol. Unverified live until the first mainnet enrolment.
 - THREE STATES, KEPT AND NEVER COLLAPSED (Phases 10-11, 6 Oct 2026): wallet
   (connected in the browser), OWNERSHIP VERIFIED (`wallet_proofs`: the wallet
   signed our challenge and the Exchange says it owns the account on the

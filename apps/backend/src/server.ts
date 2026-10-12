@@ -36,7 +36,9 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import {
   ApiSecret,
-  postToPerpl,
+  perplPoster,
+  declaredOrigin,
+  builderTermsFrom,
   reconcileOpenInterest,
   toOpenInterest,
   type OiReconciliation,
@@ -1098,10 +1100,17 @@ if (alertDb !== undefined) {
 log(`feature flags: wallet-key ${featureFlags.isOn('wallet-key') ? 'on' : 'off'}`);
 
 // 🔗 CONNECT WITH ONE WALLET SIGNATURE: Perpl creates the key, PerpGuard seals it (behind `wallet-key`).
-// No Origin and no Referer reach Perpl: postToPerpl sends content-type, content-length and host only.
+// NEVER A FALSE ORIGIN, NEVER A REFERER. With PERPL_ENROLMENT_ORIGIN set, the one Origin declared is this
+// deployment's OWN site, which Perpl has approved (perpguard.app, 12 Oct 2026); `declaredOrigin` stops the
+// process on anything else. Unset: content-type, content-length and host only, as it always was.
+const enrolmentOrigin = declaredOrigin(process.env['PERPL_ENROLMENT_ORIGIN'], PUBLIC_WEB_URL);
+// PerpGuard's builder code, bound to every key this deployment creates. The id is never logged.
+const builderTerms = builderTermsFrom(process.env['PERPL_BUILDER_ID'], process.env['PERPL_MAX_BUILDER_FEE_PER_100K']);
+log(`key enrolment: ${enrolmentOrigin === undefined ? 'no Origin sent' : `Origin ${enrolmentOrigin}`}; ${builderTerms === undefined ? 'no builder code' : `builder code set, fee ceiling ${builderTerms.maxFeePer100k} per 100k`}`);
 const walletKeyFlow = new WalletKeyFlow({
   flags: featureFlags,
-  post: postToPerpl,
+  post: perplPoster({ origin: enrolmentOrigin }),
+  builder: builderTerms,
   restBaseUrl: network.restBaseUrl,
   chainId: network.chainId,
   digestOf: (typedData) => hashTypedData(viemTypedData(typedData) as never),

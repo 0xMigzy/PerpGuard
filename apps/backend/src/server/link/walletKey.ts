@@ -18,7 +18,7 @@
  * words that point at pasting a key, which keeps working either way.
  */
 import type { TelegramIdentity } from '@perpguard/bot';
-import { enrollKey, newPerplKeyPair, proofOfPossession, requestKeyPayload, type PerplKeyTypedData, type PerplPoster } from '@perpguard/shared';
+import { enrollKey, newPerplKeyPair, proofOfPossession, requestKeyPayload, type BuilderTerms, type PerplKeyTypedData, type PerplPoster } from '@perpguard/shared';
 import type { KeyObject } from 'node:crypto';
 import type { FeatureFlags } from '../featureFlags.ts';
 import type { KeyProof, WalletProof } from './service.ts';
@@ -29,6 +29,8 @@ export interface WalletKeyDeps {
   /** The TRADING network's REST base, e.g. https://testnet.perpl.xyz/api. */
   readonly restBaseUrl: string;
   readonly chainId: number;
+  /** PerpGuard's builder code, bound to every key created here. Absent: an ordinary key. Never logged. */
+  readonly builder?: BuilderTerms | undefined;
   /** The EIP-712 digest of Perpl's typed data, as the wallet signed it (viem's hashTypedData). */
   readonly digestOf: (typedData: PerplKeyTypedData) => string;
   /** Whether `signature` is `address`'s signature over the typed data. */
@@ -134,7 +136,7 @@ export class WalletKeyFlow {
     const pair = newPerplKeyPair();
     let payload;
     try {
-      payload = await requestKeyPayload(this.#d.post, this.#d.restBaseUrl, { chainId: this.#d.chainId, address, publicKeyHex: pair.publicKeyHex, label });
+      payload = await requestKeyPayload(this.#d.post, this.#d.restBaseUrl, { chainId: this.#d.chainId, address, publicKeyHex: pair.publicKeyHex, label, builder: this.#d.builder });
     } catch (error) {
       this.#d.log(`wallet-key: payload for ${address} did not answer (${error instanceof Error ? error.message : String(error)})`);
       return this.#refuse('failed');
