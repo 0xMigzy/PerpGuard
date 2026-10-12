@@ -1,0 +1,30 @@
+# The TESTNET backend: its own bot (@PerpGuardTestnetBot), its own database and
+# encryption key, the analytics API on :8081 behind api-testnet.perpguard.app.
+# The mainnet backend is perpguard-backend.service on :8080.
+#   cp deploy/systemd/perpguard-backend-testnet.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now perpguard-backend-testnet
+[Unit]
+Description=PerpGuard backend, TESTNET (risk loop, alerts, bot, API)
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PerpGuard
+# ONE COMPLETE FILE, never layered on the mainnet one: see run-backend.sh.
+Environment=PERPGUARD_ENV_FILE=/root/PerpGuard/.env.testnet
+EnvironmentFile=/root/PerpGuard/.env.testnet
+# Per-unit overrides, loaded second so they win.
+EnvironmentFile=/root/PerpGuard/deploy/systemd/backend-testnet.env
+ExecStart=/root/PerpGuard/apps/backend/scripts/run-backend.sh
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/perpguard/backend-testnet.log
+StandardError=append:/var/log/perpguard/backend-testnet.log
+
+[Install]
+WantedBy=multi-user.target

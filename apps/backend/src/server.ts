@@ -595,6 +595,17 @@ if (alertDb !== undefined) {
 // network-aware, ship testnet-only). Monitoring and alerts run either way;
 // with it off, no account session opens, so nothing can execute.
 const MAINNET_TRADING = process.env['PERPGUARD_MAINNET_TRADING']?.trim() === '1';
+/**
+ * TWO DEPLOYMENTS, ONE BOX (12 Oct 2026): mainnet and testnet each run this
+ * process, and both read the same mainnet index. The jobs that exist to serve
+ * the WEBSITE'S analytics run in one of them only: the hourly cache warming
+ * (default views and hot profiles), the treasury scan and the open-interest
+ * reconcile. `PERPGUARD_ANALYTICS_JOBS=off` on the other: it still answers
+ * every analytics request and still runs its own watch tier, it just does not
+ * keep the site warm. Postgres was capped for CPU once (8 Oct) by exactly
+ * these scans; running them twice is how it happens again.
+ */
+const ANALYTICS_JOBS = process.env['PERPGUARD_ANALYTICS_JOBS']?.trim().toLowerCase() !== 'off';
 const tradingOff =
   network.name === 'mainnet' && !MAINNET_TRADING
     ? 'Trading on mainnet is switched off for this deployment (PERPGUARD_MAINNET_TRADING is not set), so no account can execute here.'
@@ -1199,7 +1210,8 @@ if (indexerUrl !== undefined && indexerUrl !== '') {
   // OPEN INTEREST, RECONCILED LIKE FOR LIKE (8 Oct 2026): every 5 minutes and once now, the venue's
   // reading (a fresh context) and, straight after, the index's live totals (~0.1 ms), each with its
   // block. NOT ON A REQUEST: page loads read the last result from memory and cost nothing.
-  {
+  if (!ANALYTICS_JOBS) log('open interest reconcile: off for this deployment (PERPGUARD_ANALYTICS_JOBS=off)');
+  else {
     const reader = analyticsReader;
     const oiVenue = analyticsVenue;
     const reconcile = async (): Promise<void> => {
@@ -1399,7 +1411,7 @@ const health = (): HealthReport => {
 // backend's Postgres, seeded once from the committed one-off scan. Needs the
 // index for the reconciliation, so it runs only beside the analytics API.
 const treasuryScanner =
-  analyticsReader === undefined || analyticsNetworkConfig === undefined
+  analyticsReader === undefined || analyticsNetworkConfig === undefined || !ANALYTICS_JOBS
     ? undefined
     : (() => {
         const seedFile = process.env.PROTOCOL_FLOWS_FILE?.trim() || fileURLToPath(new URL('../../../fixtures/protocol-flows-mainnet.json', import.meta.url));
@@ -1414,6 +1426,7 @@ const treasuryScanner =
         });
       })();
 treasuryScanner?.start();
+if (!ANALYTICS_JOBS) log('treasury scan: off for this deployment (PERPGUARD_ANALYTICS_JOBS=off)');
 
 const app = createHealthApp({
   health,
@@ -1668,7 +1681,8 @@ try {
 // problem on a timer. The hot set is whatever was read in the last ten minutes,
 // so a profile someone is watching stays warm and one nobody opened does not
 // cost anything.
-if (analyticsReader !== undefined) {
+if (analyticsReader !== undefined && !ANALYTICS_JOBS) log('analytics cache warming: off for this deployment (PERPGUARD_ANALYTICS_JOBS=off); every answer is computed on first read');
+if (analyticsReader !== undefined && ANALYTICS_JOBS) {
   const reader = analyticsReader;
   const defaults = defaultWarmEntries(reader);
   const loaderFor = new Map(defaults.map((entry) => [entry.key, entry.load]));

@@ -1,0 +1,15 @@
+# /etc/caddy/Caddyfile. TLS termination in front of the two backends; Caddy
+# obtains and renews the Let's Encrypt certificates itself. The web app is on
+# Vercel (perpguard.app, testnet.perpguard.app) and reaches these by name.
+
+# MAINNET: perpguard-backend.service on :8080.
+api.perpguard.app {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+# TESTNET: perpguard-backend-testnet.service on :8081.
+api-testnet.perpguard.app {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8081
+}
