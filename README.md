@@ -1,6 +1,10 @@
 # PerpGuard
 
-[perpguard.app](https://perpguard.app) · [@PerpGuardBot](https://t.me/PerpGuardBot) · [Data & methodology](https://perpguard.app/status) · [Setup guide](https://perpguard.app/bot/guide)
+**Mainnet:** [perpguard.app](https://perpguard.app) · [@PerpGuardBot](https://t.me/PerpGuardBot) · [Setup guide](https://perpguard.app/bot/guide) · [Privacy](https://perpguard.app/privacy)
+
+**Testnet:** [testnet.perpguard.app](https://testnet.perpguard.app) · [@PerpGuardTestnetBot](https://t.me/PerpGuardTestnetBot) · [Setup guide](https://testnet.perpguard.app/bot/guide) · [Privacy](https://testnet.perpguard.app/privacy)
+
+[Data & methodology](https://perpguard.app/status)
 
 ## Overview
 
@@ -27,27 +31,38 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 
 **Risk.** Every open position on mainnet is re-priced at each half-percent step from −50% to +50%. The Risk page shows what a 5% or 10% move would liquidate in each direction, the losses beyond collateral, and each market's insurance fund against them.
 
-**The bot.** [@PerpGuardBot](https://t.me/PerpGuardBot) has two tiers.
+**The bot.** There are two, one per network, and you pick a network by opening one or the other:
 
-**Watch, for anyone.** Send it any mainnet address or account number. It re-reads the account every 30 seconds and warns at the distances you choose (Standard: 10% and 5% from liquidation). It also reports liquidations and large trades above thresholds you set. Watched accounts get words only. There is nothing to press.
+| | Site | Analytics and watching | Actions |
+| --- | --- | --- | --- |
+| [@PerpGuardBot](https://t.me/PerpGuardBot) | [perpguard.app](https://perpguard.app) | Monad mainnet | Monad mainnet, real funds |
+| [@PerpGuardTestnetBot](https://t.me/PerpGuardTestnetBot) | [testnet.perpguard.app](https://testnet.perpguard.app) | Monad mainnet | Monad testnet |
 
-**Act, for a linked account.** Link your Perpl account at [perpguard.app/link](https://perpguard.app/link). At your alert distance (5% by default, or 2, 3, 5, 8, 10%, or anything from 0.5% to 20%) the bot sends one message per position per crossing, with up to two top-ups that fit the free balance and a custom amount. Each amount shows the distance from liquidation it buys. Tapping one shows the margin, liquidation price, distance and free balance before and after. Nothing is sent until you confirm.
+Both read the same mainnet index, so the analytics and the watch tier are identical on the two. Each runs its own backend, database and encryption key, and each names the other where a wallet's account turns out to be on the other network. Each has two tiers.
+
+**Watch, for anyone.** Send either bot any mainnet address or account number. It re-reads the account every 30 seconds and warns at the distances you choose (Standard: 10% and 5% from liquidation). It also reports liquidations and large trades above thresholds you set. Watched accounts get words only. There is nothing to press.
+
+**Act, for a linked account.** Link your Perpl account on the page the bot sends you to: [perpguard.app/link](https://perpguard.app/link) for a mainnet account, [testnet.perpguard.app/link](https://testnet.perpguard.app/link) for a testnet one. At your alert distance (5% by default, or 2, 3, 5, 8, 10%, or anything from 0.5% to 20%) the bot sends one message per position per crossing, with up to two top-ups that fit the free balance and a custom amount. Each amount shows the distance from liquidation it buys. Tapping one shows the margin, liquidation price, distance and free balance before and after. Nothing is sent until you confirm.
 
 📊 My positions shows one button per position, closest to liquidation first. 🚪 Close position is on each position's own screen: it offers 25%, 50%, 75%, a custom percentage or closing everything, each behind a confirmation showing what the close would realise.
 
 🤖 Rescue is off until you turn it on. It adds margin by itself at your alert distance, for one position at a time, and only after you arm it with a tap in the linked chat.
 
+**Every message ends in where to check it.** An alert ends in its time and two links: the wallet's page on the site, and the transaction on MonadVision where the alert has one (a liquidation, a large trade, a watched position's open or close). The result of an action (added margin, a partial or full close, a Rescue top-up) ends in the transaction Perpl reported for it, on that deployment's own network. When there is no hash, there is no link.
+
 **Safety.** See [Safety model](#safety-model).
 
 ## Using it
 
-Alerts need no setup: send [@PerpGuardBot](https://t.me/PerpGuardBot) any Perpl mainnet address, or `/watch` and an account number, and it starts watching.
+Alerts need no setup: send [@PerpGuardBot](https://t.me/PerpGuardBot) or [@PerpGuardTestnetBot](https://t.me/PerpGuardTestnetBot) any Perpl mainnet address, or `/watch` and an account number, and it starts watching.
 
-To let it act for you, the five-step setup is at [perpguard.app/bot/guide](https://perpguard.app/bot/guide).
+To let it act for you, follow the setup guide for the network your Perpl account is on: [perpguard.app/bot/guide](https://perpguard.app/bot/guide) for mainnet, [testnet.perpguard.app/bot/guide](https://testnet.perpguard.app/bot/guide) for testnet.
+
+What each deployment stores, for how long, and what Disconnect deletes is on its privacy page: [perpguard.app/privacy](https://perpguard.app/privacy), [testnet.perpguard.app/privacy](https://testnet.perpguard.app/privacy).
 
 ## Data and provenance
 
-| | Mainnet (analytics, watch tier) | Testnet (actions) |
+| | Mainnet (analytics and watch tier on both bots; actions on @PerpGuardBot) | Testnet (actions on @PerpGuardTestnetBot) |
 | --- | --- | --- |
 | Chain id | 143 | 10143 |
 | Perpl Exchange (proxy) | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` | `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` |
@@ -89,15 +104,17 @@ Every figure on the site names its window, and [/status](https://perpguard.app/s
 
 **The kill switch.** 🆘 Kill switch → "Stop automation only" writes a flag in PerpGuard's database, switches off every Rescue rule, and sends nothing to the exchange, so it works with the connection down. "Stop everything" stops automation first, then closes each position once, after a confirmation showing what it costs.
 
-**Actions run on testnet.** Analytics and the watch tier read mainnet. Margin, close and Rescue act on Perpl testnet. Mainnet trading is off unless the operator sets `PERPGUARD_MAINNET_TRADING=1`.
+**One network per deployment.** Analytics and the watch tier read mainnet on both. Margin, close and Rescue act on Perpl mainnet, with real funds, from @PerpGuardBot, and on Perpl testnet from @PerpGuardTestnetBot. A link stores its network, and a wallet or key for the other network is refused by name and pointed at the other bot. The two deployments share no database and no encryption key, so no testnet account record is ever in the mainnet database. In the code, mainnet trading is off unless the operator sets `PERPGUARD_MAINNET_TRADING=1`; the mainnet deployment sets it.
 
 **One network per risk loop.** A position is only ever priced against marks from its own network. The code refuses to build anything else.
 
 ### Dynamic
 
-[perpguard.app/link](https://perpguard.app/link) uses Dynamic to connect the wallet. The backend generates an Ed25519 key, asks Perpl for the enrolment payload, and the wallet signs Perpl's EIP-712 typed data once. The backend verifies the signature (smart-contract wallets included), enrols the key with Perpl, signs in with it to learn the account, and seals it.
+The link page on each site ([perpguard.app/link](https://perpguard.app/link), [testnet.perpguard.app/link](https://testnet.perpguard.app/link)) uses Dynamic to connect the wallet. The backend generates an Ed25519 key, asks Perpl for the enrolment payload, and the wallet signs Perpl's EIP-712 typed data once. The backend verifies the signature (smart-contract wallets included), enrols the key with Perpl, signs in with it to learn the account, and seals it.
 
 The key's secret never reaches the browser, and nobody copies a key by hand. A held key that still works is reused rather than creating another. Pasting an existing key remains available.
+
+**Builder code.** On mainnet, a key PerpGuard creates through that signature carries PerpGuard's Perpl builder code, bound at enrolment with a fee ceiling of 0: attribution only, no builder fee. The wallet prompt names the builder and the ceiling before anything is signed. A pasted key never carries it. The enrolment request declares its origin as https://perpguard.app, the deployment's own site; the backend refuses to start on a declared origin that is not its own site. The testnet deployment declares none.
 
 ## How it works
 
@@ -114,15 +131,30 @@ The key's secret never reaches the browser, and nobody copies a key by hand. A h
  Envio HyperIndex                           │
         │                                   │
         ▼                                   ▼
- Postgres ◀─────────────────────────  apps/backend  ◀──────▶ Perpl API (REST + WebSocket)
- index + PerpGuard's                  Fastify API, risk          reads: mainnet marks and context,
- own tables                           loops, alerts, Rescue,            testnet positions and balances
-                                      kill switch                writes: add margin, close
-                                        │         │                     (testnet, Ed25519-signed)
-                       /api/analytics/* │         └──▶ Telegram (grammY bot, in-process)
-                            (read-only) ▼
-                              apps/web (Next.js) ──▶ perpguard.app
+ Postgres: the mainnet index ───▶ read by BOTH backends
+        │
+        ├───────────────────────────────────────────┐
+        ▼                                           ▼
+ apps/backend · mainnet deployment           apps/backend · testnet deployment
+ api.perpguard.app                           api-testnet.perpguard.app
+ own database, own encryption key            own database, own encryption key
+ analytics API and its scheduled jobs        no analytics jobs (they run once)
+ risk loops, alerts, Rescue, kill switch     risk loops, alerts, Rescue, kill switch
+ Telegram: @PerpGuardBot                     Telegram: @PerpGuardTestnetBot
+ Perpl API (REST + WebSocket)                Perpl API (REST + WebSocket)
+   reads: mainnet marks, context,              reads: mainnet marks and context,
+          positions and balances                      testnet positions and balances
+   writes: add margin, close                   writes: add margin, close
+           (mainnet, Ed25519-signed)                   (testnet, Ed25519-signed)
+        │                                           │
+        │ /api/analytics/* (read-only),             │ /link and its own bot only;
+        │ for both sites                            │ analytics come from the left
+        ▼                                           ▼
+ apps/web (Next.js), one codebase, two builds
+ perpguard.app                               testnet.perpguard.app
 ```
+
+Each bot runs inside its backend (grammY, in-process). The two backends are the same code started from two complete env files.
 
 Envio supplies the entire event history, synced over HyperSync with no RPC in the path. A Monad RPC provider answers a small set of live contract reads the history cannot contain, and is also used to verify Envio's output independently by comparing indexed rows against raw logs from a different provider.
 
@@ -134,7 +166,7 @@ Needs Node 22.9 or later, pnpm, PostgreSQL 16, an [Envio HyperSync token](https:
 
 ```bash
 git clone https://github.com/0xMigzy/PerpGuard.git && cd PerpGuard && pnpm install
-cp .env.example .env    # fill in the Postgres, HyperSync and Telegram values it lists
+cp .env.example .env    # fill in the Postgres, HyperSync and Telegram values it lists; it also lists what a second deployment's env file changes
 pnpm --filter @perpguard/indexer codegen && ENVIO_PERPGUARD_START_BLOCK=54773010 pnpm --filter @perpguard/indexer start
 pnpm start & pnpm web   # backend on :8080, then open http://localhost:3000
 ```
@@ -163,7 +195,6 @@ pnpm typecheck
 
 ## After the hackathon
 
-* Liquidation Rescue on mainnet.
 * Copy trading.
 * Exploring funding arbitrage and delta-neutral positions across other perp venues.
 
