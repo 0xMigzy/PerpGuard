@@ -165,6 +165,8 @@ interface Envelope<T> {
  * millions of rows. The page still says how old the answer is.
  */
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
+/** The TTL an unwarmed answer is served under; the bot's /equity reads the profile with the same one. */
+export const ANALYTICS_CACHE_TTL_MS = DEFAULT_CACHE_TTL_MS;
 /** The health verdict: one small query plus a chain RPC, and every response wants it. */
 const HEALTH_TTL_MS = 2_000;
 

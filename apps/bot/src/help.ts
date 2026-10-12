@@ -5,6 +5,7 @@ export const HELP_TEXT = [
   'Send /start for the menu. Everything is on buttons; /help shows this.',
   '',
   '👁 Watch any account: send its address or account number, or use /watch. No key, nothing to set up.',
+  '💰 /equity with an address or account number shows what that account is worth now: free balance, margin in use and unrealised P&L.',
   '',
   '🔐 Connect your own account with /link (a wallet signature or an API key, on a one-time page, never here). Then:',
   '📊 My positions shows how far each position is from liquidation, and adds margin when you tap and confirm.',
@@ -42,6 +43,7 @@ export const WRONG_CHAT_TEXT =
 export const BOT_MENU_COMMANDS: readonly { readonly command: string; readonly description: string }[] = [
   { command: 'start', description: 'The menu' },
   { command: 'watch', description: 'Watch an address or account id' },
+  { command: 'equity', description: 'An account’s equity, broken down' },
   { command: 'link', description: 'Connect your own account' },
   { command: 'help', description: 'What PerpGuard does' },
 ];

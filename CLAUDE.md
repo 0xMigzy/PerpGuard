@@ -767,9 +767,20 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   today's link record does not keep how it was proved, so nothing claims it.
   Disconnect lives here, labelled with the account, not in Settings.
 - Every screen is reachable by button;
-  the only commands are `/start` (the menu), `/watch`, `/link` and `/help`,
-  and the BotFather menu is set to exactly those at startup
-  (`BOT_MENU_COMMANDS`). `/positions`, `/status`, `/cancel`, `/unwatch`,
+  the only commands are `/start` (the menu), `/watch`, `/equity`, `/link` and
+  `/help`, and the BotFather menu is set to exactly those at startup
+  (`BOT_MENU_COMMANDS`).
+  - `/equity <address or account id>` (owner, 12 Oct 2026) is PUBLIC, like
+    `/watch`, under the same per-chat limit: one MAINNET account's money now
+    as free balance + margin in use + unrealised P&L = equity. THE TRADER
+    PAGE'S OWN CODE PATH: `accountSummary` lives in `packages/shared/src/
+    analytics/accountSummary.ts` (the web re-exports it; a test asserts they
+    are the same function), read by `apps/backend/src/server/accountEquity.ts`
+    over the CACHED profile the page's route serves and the positions route's
+    own pricing (`assessOnAnalyticsVenue`). TO THE CENT, unlike the plain
+    voice's whole AUSD, so the printed sum adds up as it does on the page.
+    Equity is withheld while any open position has no mark. It reads and
+    subscribes to nothing; no buttons, and no "Watching only" line. `/positions`, `/status`, `/cancel`, `/unwatch`,
   `/watching` and `/unlink` are gone; their jobs are buttons.
 - NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
   `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The

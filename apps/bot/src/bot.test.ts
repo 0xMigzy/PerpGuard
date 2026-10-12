@@ -13,6 +13,8 @@ import type { Bot, InlineKeyboard } from 'grammy';
 import { encodeCallback, decodeCallback } from './callback.ts';
 import { createBot } from './bot.ts';
 import { HELP_TEXT, REFUSAL_TEXT, WRONG_CHAT_TEXT } from './help.ts';
+import { accountSummary } from '@perpguard/shared';
+import { EQUITY_UNAVAILABLE, EQUITY_USAGE, type EquityReading } from './equity.ts';
 import { InMemoryLinkStore } from './links.ts';
 import { PendingActionStore } from './actions.ts';
 import { CONFIRM_BUTTON_LABEL } from './confirm.ts';
@@ -90,7 +92,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading> } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -127,7 +129,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     configs: CONFIGS,
     now: () => state.nowMs,
     botInfo: bot.botInfo,
-    ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer, preferences: prefs, traders: fakeTraders } }),
+    ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer, preferences: prefs, traders: fakeTraders, ...(options.equity === undefined ? {} : { equity: options.equity }) } }),
     ...(options.link === undefined ? {} : { link: options.link }),
   });
   // The bot under test must talk to the fake, not to Telegram.
@@ -2529,4 +2531,81 @@ test('📖 SETUP GUIDE: /help and every Trading account screen link to the site�
   await tapNav(h, { to: 'account' }, { from: STRANGER_ID, chat: STRANGER_CHAT });
   const keys = (lastScreen(h.telegram).payload['reply_markup'] as { inline_keyboard: Array<Array<{ text: string; url?: string }>> }).inline_keyboard.flat();
   assert.deepEqual(keys.find((k) => k.text === '📖 Setup guide'), { text: '📖 Setup guide', url: 'https://perpguard.example/bot/guide' });
+});
+
+// ── /equity ─────────────────────────────────────────────────────────────────
+
+/** The backend's answer for #5213: the trader page's own summary over a profile and two priced positions. */
+const equityOf5213 = async (accountId: number): Promise<EquityReading> =>
+  accountId !== 5213
+    ? { kind: 'unknown-account', accountId }
+    : {
+        kind: 'ok',
+        accountId,
+        marksAsOfMs: 1_000_000 - 12_000,
+        summary: accountSummary({ freeBalanceAusd: 4_180.004, depositedAusd: 23_500, withdrawnAusd: 0 }, [
+          { position: { marginAusd: 8_000 }, unrealisedPnlAusd: -1_000.4 },
+          { position: { marginAusd: 4_450 }, unrealisedPnlAusd: -283.6 },
+        ]),
+      };
+
+test('/equity, A VALID ACCOUNT, from a chat with nothing linked: free + margin + unrealised = equity, to the cent, by id and by address', async () => {
+  const h = harness({ equity: equityOf5213 });
+  h.resolver.answers.set('5213', { accountId: 5213, address: undefined, resolvedBy: 'index' });
+  await h.bot.handleUpdate(stranger('/equity 5213'));
+  const reply = texts(h.telegram).at(-1)!;
+  assert.match(reply, /^💰 <b>#5213 · equity 15,346\.00 AUSD<\/b>/);
+  assert.match(reply, /Free balance: <b>4,180\.00 AUSD<\/b>\nMargin in use: <b>12,450\.00 AUSD<\/b>\nUnrealised P&amp;L: <b>−1,284\.00 AUSD<\/b>\nFree \+ margin \+ unrealised = <b>15,346\.00 AUSD<\/b>/);
+  assert.match(reply, /2 open positions, priced with marks up to 12 s old\. Positions come from the mainnet index/);
+  assert.equal(h.telegram.last('sendMessage').payload['parse_mode'], 'HTML');
+  assert.equal(h.telegram.last('sendMessage').payload['reply_markup'], undefined, 'it reads; there is nothing to press');
+  assert.deepEqual(h.watchStore.watchersOf(5213), [], 'asking for equity watches nothing');
+
+  // A checksummed address resolves like any other: the parser lowercases it for the resolver.
+  h.resolver.answers.set('0xb7854953a71e45d1033b3d619e76d56391291765', { accountId: 5213, address: '0xb7854953a71e45d1033b3d619e76d56391291765', resolvedBy: 'index' });
+  await h.bot.handleUpdate(stranger('/equity 0xB7854953A71e45D1033B3d619E76d56391291765'));
+  assert.match(texts(h.telegram).at(-1)!, /^💰 <b>#5213 · equity 15,346\.00 AUSD<\/b>/);
+});
+
+test('/equity, AN UNKNOWN ACCOUNT: an address nothing owns, and an id the index does not hold, are each said plainly; no figures', async () => {
+  const h = harness({ equity: equityOf5213 });
+  await h.bot.handleUpdate(stranger('/equity 0x00000000000000000000000000000000000000aa'));
+  assert.match(texts(h.telegram).at(-1)!, /^I cannot find that account: nothing is known about 0x0+aa$/);
+  // The resolver knows the id (the chain does), the index has no profile for it.
+  h.resolver.answers.set('999999', { accountId: 999_999, address: undefined, resolvedBy: 'chain' });
+  await h.bot.handleUpdate(stranger('/equity 999999'));
+  assert.equal(texts(h.telegram).at(-1), 'There is no Perpl account #999999 in the mainnet index.');
+  for (const t of texts(h.telegram)) assert.doesNotMatch(t, /AUSD/);
+});
+
+test('/equity, MALFORMED INPUT: nothing after it, a short address and nonsense each get the usage, and nothing is looked up', async () => {
+  let reads = 0;
+  const h = harness({ equity: async (id) => { reads += 1; return equityOf5213(id); } });
+  await h.bot.handleUpdate(stranger('/equity'));
+  assert.equal(texts(h.telegram).at(-1), EQUITY_USAGE);
+  await h.bot.handleUpdate(stranger('/equity 0x123'));
+  assert.match(texts(h.telegram).at(-1)!, /^0x123 is not a full address: I need 0x followed by 40 hex characters\.\n\n/);
+  assert.ok(texts(h.telegram).at(-1)!.endsWith(EQUITY_USAGE));
+  await h.bot.handleUpdate(stranger('/equity twelve'));
+  assert.match(texts(h.telegram).at(-1)!, /^I did not understand "twelve"\./);
+  await h.bot.handleUpdate(stranger('/equity -5'));
+  assert.ok(texts(h.telegram).at(-1)!.endsWith(EQUITY_USAGE));
+  assert.equal(reads, 0);
+  assert.deepEqual(h.resolver.asked, []);
+});
+
+test('/equity when the index or the prices cannot be read says so and shows no figure; with no reader wired it says unavailable', async () => {
+  const failing = harness({ equity: async () => { throw new Error('connection refused'); } });
+  failing.resolver.answers.set('5213', { accountId: 5213, address: undefined, resolvedBy: 'index' });
+  await failing.bot.handleUpdate(stranger('/equity 5213'));
+  assert.equal(texts(failing.telegram).at(-1), EQUITY_UNAVAILABLE);
+  const absent = harness();
+  await absent.bot.handleUpdate(stranger('/equity 5213'));
+  assert.equal(texts(absent.telegram).at(-1), EQUITY_UNAVAILABLE);
+});
+
+test('/equity is in the command menu and in /help', async () => {
+  const { BOT_MENU_COMMANDS } = await import('./help.ts');
+  assert.deepEqual(BOT_MENU_COMMANDS.map((c) => c.command), ['start', 'watch', 'equity', 'link', 'help']);
+  assert.match(HELP_TEXT, /\/equity/);
 });

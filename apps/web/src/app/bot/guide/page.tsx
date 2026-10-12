@@ -122,6 +122,10 @@ export default async function GuidePage() {
       <Callout>
         You don&rsquo;t need any of this to get alerts. Send {ext('https://t.me/PerpGuardBot', '@PerpGuardBot')} any Perpl address or account number and it will watch that account on mainnet and message
         you before it gets liquidated — no wallet, no key, nothing to set up. This guide is for the next step: letting PerpGuard add margin for you, which runs on testnet.
+        <span className="mt-2 block">
+          The same goes for <code>/equity</code>: send it with an address or account number (<code>/equity 5213</code>) and the bot replies with what that mainnet account is worth now, as free
+          balance + margin in use + unrealised P&amp;L = equity, the same figures as its page on this site.
+        </span>
       </Callout>
 
       <section className="mt-8" aria-labelledby="need">

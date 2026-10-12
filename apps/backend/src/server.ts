@@ -128,7 +128,9 @@ import { createHealthApp } from './server/http.ts';
 import { IndexerLagMonitor } from './server/indexerHealth.ts';
 import { DEFAULT_TTL_MS as RISK_SNAPSHOT_TTL_MS, RiskSnapshotSource } from './server/riskSnapshot.ts';
 import { providerDomain } from './server/infrastructure.ts';
-import { analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
+import { ANALYTICS_CACHE_TTL_MS, analyticsLoaders, defaultWarmEntries } from './server/analyticsRoutes.ts';
+import { readAccountEquity, type AccountEquity } from './server/accountEquity.ts';
+import type { AssessedPositions, WalletProfile } from '@perpguard/shared';
 import { buildVenueFundingPayload, describeFetchError, VENUE_FUNDING_TTL_MS, VenueFundingStore } from './funding/venueFundingStore.ts';
 import { readScanFile, treasuryDaysOf } from './exchangeBalance/protocolDays.ts';
 import { TREASURY_SCAN_INTERVAL_MS, TreasuryScanner } from './exchangeBalance/treasuryScanner.ts';
@@ -677,6 +679,30 @@ const traderFigures = {
     }),
 };
 
+/**
+ * Open positions priced on the ANALYTICS venue: its configs, its marks, the
+ * analytics network's index. What `/account/:id/positions` serves, and what
+ * the bot's /equity reads, so the two cannot differ. Nothing here can reach
+ * the trading venue.
+ */
+async function assessOnAnalyticsVenue(positions: WalletProfile['openPositions']): Promise<AssessedPositions> {
+  if (analyticsVenue === undefined) throw new Error('no venue is wired on the analytics network');
+  const [configs, oi] = await Promise.all([analyticsVenue.getRiskConfigs(), analyticsVenue.getOpenInterest()]);
+  const marks = new Map(oi.map((m) => [m.marketId, { markPrice: m.markPrice, atMs: m.atMs }]));
+  const assessed = assessOpenPositions(positions, configs, marks);
+  const used = assessed.map((a) => a.markAtMs).filter((ms): ms is number => ms !== undefined);
+  return { positions: assessed, asOfMs: used.length === 0 ? undefined : Math.min(...used) };
+}
+/**
+ * The bot's /equity: the trader page's reads (the CACHED profile its route
+ * serves, the positions route's pricing) through the page's own summary.
+ */
+function accountEquityOf(accountId: number): Promise<AccountEquity> {
+  if (analyticsReader === undefined) throw new Error('no analytics index is wired');
+  const entry = analyticsLoaders(analyticsReader).profile(accountId);
+  return readAccountEquity({ profile: async () => (await analyticsCache.get(entry.key, ANALYTICS_CACHE_TTL_MS, entry.load)).value, assess: assessOnAnalyticsVenue }, accountId);
+}
+
 // Declared before the bot (whose deps close over it), set once the engine exists.
 let killSwitch: KillSwitch | undefined;
 let closeEverything: CloseEverything | undefined;
@@ -803,6 +829,7 @@ const bot =
           refresh: async () => watchLoop?.evaluate(),
           preferences: { get: (chatId) => preferences.get(chatId), set: (chatId, p) => preferences.set(chatId, p) },
           traders: traderFigures,
+          equity: (accountId) => accountEquityOf(accountId),
         },
         settings: accountSettings,
         rescue: rescueControl,
@@ -1521,13 +1548,7 @@ const app = createHealthApp({
         // ONE NETWORK: configs and marks both come from the analytics venue, and
         // the positions from the analytics network's indexer. Nothing here can
         // reach the trading venue.
-        assessPositions: async (positions) => {
-          const [configs, oi] = await Promise.all([analyticsVenue!.getRiskConfigs(), analyticsVenue!.getOpenInterest()]);
-          const marks = new Map(oi.map((m) => [m.marketId, { markPrice: m.markPrice, atMs: m.atMs }]));
-          const assessed = assessOpenPositions(positions, configs, marks);
-          const used = assessed.map((a) => a.markAtMs).filter((ms): ms is number => ms !== undefined);
-          return { positions: assessed, asOfMs: used.length === 0 ? undefined : Math.min(...used) };
-        },
+        assessPositions: assessOnAnalyticsVenue,
       }),
 });
 

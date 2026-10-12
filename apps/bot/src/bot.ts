@@ -132,6 +132,7 @@ import {
 import { partialLots } from '@perpguard/backend/emergency/partial';
 import { pricedOffers } from './offers.ts';
 import { HELP_TEXT, OLD_MENU_TEXT, REFUSAL_TEXT } from './help.ts';
+import { EQUITY_UNAVAILABLE, EQUITY_USAGE, equityHtml, unknownAccountText, type EquityReading } from './equity.ts';
 import type { LinkStore } from './links.ts';
 import {
   DEFAULT_RATE_LIMIT,
@@ -139,6 +140,7 @@ import {
   labelFor,
   parseWatchArgument,
   parseWatchTarget,
+  describeWatchFreshness,
   type WatchResolver,
   type WatchStore,
   type WatchTarget,
@@ -221,6 +223,8 @@ export interface BotDeps {
     readonly traders?: {
       stats(accountId: number): Promise<TraderStats>;
     };
+    /** One account's equity, as the trader page computes it (`/equity`). Absent: the command says it is unavailable. */
+    readonly equity?: (accountId: number) => Promise<EquityReading>;
   };
   /** The public web app, for the home screen's "Open PerpGuard" button. */
   readonly webUrl?: string;
@@ -256,7 +260,7 @@ export interface BotDeps {
  * button tap, needs the link. Matched on the first word with any @mention
  * stripped, so `/watch@PerpGuardBot 0x…` in a group is `/watch`.
  */
-const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/link']);
+const PUBLIC_COMMANDS: ReadonlySet<string> = new Set(['/start', '/help', '/watch', '/equity', '/link']);
 
 /** At most one "I did not catch that" per chat per hour. */
 const HINT_EVERY_MS = 60 * 60_000;
@@ -756,6 +760,46 @@ export function createBot(deps: BotDeps): Bot {
       return;
     }
     await watchTarget(ctx, target);
+  });
+
+  // ── /equity ───────────────────────────────────────────────────────────────
+  // Public, like /watch, and under the same per-chat limit: one account's money
+  // now, in the trader page's own breakdown. It reads; it subscribes to nothing.
+  bot.command('equity', async (ctx) => {
+    if (!(await withinLimit(ctx))) return;
+    const watch = deps.watch;
+    if (watch === undefined || watch.equity === undefined) {
+      await ctx.reply(watch === undefined ? watchUnavailable : EQUITY_UNAVAILABLE);
+      return;
+    }
+    const text = ctx.message?.text ?? '';
+    if (text.trim().split(/\s+/).length < 2) {
+      await ctx.reply(EQUITY_USAGE);
+      return;
+    }
+    const target = parseWatchTarget(text);
+    if ('error' in target) {
+      await ctx.reply(`${target.error}\n\n${EQUITY_USAGE}`);
+      return;
+    }
+    const resolved = await watch.resolver.resolve(target);
+    if ('error' in resolved) {
+      await ctx.reply(`I cannot find that account: ${resolved.error}`);
+      return;
+    }
+    let reading: EquityReading;
+    try {
+      reading = await watch.equity(resolved.accountId);
+    } catch (error) {
+      deps.log?.(`equity: account ${resolved.accountId} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      await ctx.reply(EQUITY_UNAVAILABLE);
+      return;
+    }
+    if (reading.kind === 'unknown-account') {
+      await ctx.reply(unknownAccountText(reading.accountId));
+      return;
+    }
+    await ctx.reply(equityHtml(reading, { nowMs: now(), freshness: describeWatchFreshness(watch.indexerHealth?.()) }), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
   });
 
   // ── /help ─────────────────────────────────────────────────────────────────
