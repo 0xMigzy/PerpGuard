@@ -822,10 +822,14 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   Large trades, Warning levels, Alert settings. AT MOST 10 WALLETS PER CHAT
   ("Watching 1 of 10"). A watched wallet's screen: how many are open, the
   closest, "Watching only — nothing here to press." All public: they read the index or
-  change the chat's OWN settings (`alert_preferences`). EVERY SCREEN STATES
-  ITS LIMITS: index blocks behind, watched wallets re-read every 30 s, ~6% of
-  fills with no taker, direction sometimes not known, past results do not
-  predict returns.
+  change the chat's OWN settings (`alert_preferences`). SCREENS STATE THEIR
+  LIMITS, NOT HOW IT WORKS (owner, 12 Oct 2026): the menu says "Watched
+  wallets are re-read every 30 seconds.", a watched wallet's screen "Re-read
+  every 30 seconds, so a change can arrive a minute or so after it happens.";
+  where the data comes from and how far the index is behind belongs on
+  /status, never on a screen. Still said where they apply: ~6% of fills with
+  no taker, direction sometimes not known, past results do not predict
+  returns. (Pushed ALERTS still carry their own block and lag.)
 - ROI IS ALL TIME, WITH ITS DENOMINATOR, AND WITHHELD UNDER 100 AUSD DEPOSITED
   (owner, 6 Oct 2026; `MIN_DEPOSIT_FOR_ROI_AUSD`). Lifetime net PnL over
   lifetime deposits, so both cover the same period; never a window's PnL over

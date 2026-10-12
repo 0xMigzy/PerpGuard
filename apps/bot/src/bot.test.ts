@@ -1096,7 +1096,8 @@ test('a stranger can /watch a checksummed address: it resolves, is stored, and t
   assert.deepEqual(h.resolver.asked, [{ kind: 'address', address: OWNER_ADDRESS.toLowerCase() }], 'lowercased before lookup');
   const reply = texts(h.telegram).at(-1)!;
   assert.match(reply, /^✅ <b>WALLET ADDED<\/b> · #5293 \(found through the Exchange contract\)/);
-  assert.match(reply, /From the mainnet index, re-read every 30 seconds/);
+  assert.match(reply, /<i>Re-read every 30 seconds, so a change can arrive a minute or so after it happens\.<\/i>/);
+  assert.doesNotMatch(reply, /mainnet index|blocks behind/, 'how it works is for /status, not the bot');
   assert.match(reply, /Watching only — nothing here to press\./);
   assert.deepEqual(h.watchStore.watchersOf(5293).map((s) => s.chatId), [STRANGER_CHAT]);
   assert.equal(h.telegram.last('sendMessage').payload['parse_mode'], 'HTML');
@@ -1159,7 +1160,8 @@ test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, 
   await tap({ to: 'watch-menu' });
   const menu = h.telegram.last('editMessageText');
   assert.match(String(menu.payload['text']), /^👁 <b>WATCH & ALERTS<\/b>\nRead-only\. No wallet, no key\./);
-  assert.match(String(menu.payload['text']), /Read off the mainnet index, 7 blocks behind the chain\. Watched wallets are re-read every 30 seconds\./, 'the menu states its own latency');
+  assert.ok(String(menu.payload['text']).endsWith('<i>Watched wallets are re-read every 30 seconds.</i>'), 'the menu states how often it looks, and nothing about the index');
+  assert.doesNotMatch(String(menu.payload['text']), /mainnet index|blocks behind/);
   assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch wallet', '⭐ Watchlist', '💥 Liquidations', '🐋 Large trades', '⚠️ Warning levels', '⚙️ Alert settings', '💰 Equity', '← Back']);
 
   await tap({ to: 'watch-ask' });

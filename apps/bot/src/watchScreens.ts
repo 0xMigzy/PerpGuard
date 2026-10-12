@@ -47,10 +47,12 @@ export function winRatePhrase(row: Pick<TraderRow, 'winRate' | 'wins' | 'roundTr
     : `${Math.round(row.winRate * 100)}% (${row.wins} of ${row.roundTrips} round trips)`;
 }
 
-/** "Read off the mainnet index, 140 blocks behind the chain." */
-export function indexLimitsLine(health: IndexerHealth | undefined): string {
-  const behind = health?.blocksBehind === undefined ? '' : `, ${grouped(health.blocksBehind)} block${health.blocksBehind === 1 ? '' : 's'} behind the chain`;
-  return `<i>Read off the mainnet index${behind}. Watched wallets are re-read every ${WATCH_EVERY_SECONDS} seconds.</i>`;
+/**
+ * The one thing a watcher needs to know about freshness: how often a wallet is re-read. Where the data
+ * comes from and how far the index is behind the chain is for /status, not the bot (owner, 12 Oct 2026).
+ */
+export function indexLimitsLine(): string {
+  return `<i>Watched wallets are re-read every ${WATCH_EVERY_SECONDS} seconds.</i>`;
 }
 
 // ── the menu ────────────────────────────────────────────────────────────────
@@ -63,7 +65,7 @@ export function watchMenuScreen(input: { readonly watching: number; readonly sta
       '',
       input.watching === 0 ? 'Not watching any wallet yet.' : `Watching ${input.watching} of ${input.maxPerChat}${input.starred === 0 ? '' : ` · ${input.starred} on your Watchlist`}`,
       '',
-      indexLimitsLine(input.health),
+      indexLimitsLine(),
     ].join('\n'),
     buttons: [
       [
@@ -129,7 +131,7 @@ export function walletAddedScreen(input: { readonly accountId: number; readonly 
     '• getting close to liquidation, at your warning levels',
     '• liquidation',
     '',
-    `<i>From the mainnet index, re-read every ${WATCH_EVERY_SECONDS} seconds: a change can arrive a minute or so after it happened.</i>`,
+    `<i>Re-read every ${WATCH_EVERY_SECONDS} seconds, so a change can arrive a minute or so after it happens.</i>`,
     NO_BUTTONS,
   );
   return {
