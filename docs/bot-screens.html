@@ -31,7 +31,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Anyone · watch-menu</figcaption>
       <div class="chat"><div class="bubble">👁 <b>WATCH & ALERTS</b><br>Read-only. No wallet, no key.<br><br>Watching 1 of 10 · 1 on your Watchlist<br><br><i>Read off the mainnet index, 140 blocks behind the chain. Watched wallets are re-read every 30 seconds.</i></div>
-      <div class="row"><span class="btn">👛 Watch wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">💥 Liquidations</span><span class="btn">🐋 Large trades</span></div><div class="row"><span class="btn">⚠️ Warning levels</span><span class="btn">⚙️ Alert settings</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="row"><span class="btn">👛 Watch wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">💥 Liquidations</span><span class="btn">🐋 Large trades</span></div><div class="row"><span class="btn">⚠️ Warning levels</span><span class="btn">⚙️ Alert settings</span></div><div class="row"><span class="btn">💰 Equity</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -77,6 +77,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Anyone · equity</figcaption>
+      <div class="chat"><div class="bubble">Equity is not available right now: I could not read the mainnet index or the prices. Nothing was changed; try again in a minute.</div>
+      <div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Anyone · wallet</figcaption>
       <div class="chat"><div class="bubble">👁 <b>mainnet #4088</b><br>I haven't read it yet. The first look takes up to 30 seconds — open it again in a moment.<br><br>Watching only — nothing here to press.</div>
       <div class="row"><span class="btn changes">🗑 Stop watching</span><span class="btn">← Back</span></div>
@@ -104,7 +110,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · watch-menu</figcaption>
       <div class="chat"><div class="bubble">👁 <b>WATCH & ALERTS</b><br>Read-only. No wallet, no key.<br><br>Not watching any wallet yet.<br><br><i>Read off the mainnet index, 140 blocks behind the chain. Watched wallets are re-read every 30 seconds.</i></div>
-      <div class="row"><span class="btn">👛 Watch wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">💥 Liquidations</span><span class="btn">🐋 Large trades</span></div><div class="row"><span class="btn">⚠️ Warning levels</span><span class="btn">⚙️ Alert settings</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="row"><span class="btn">👛 Watch wallet</span><span class="btn">⭐ Watchlist</span></div><div class="row"><span class="btn">💥 Liquidations</span><span class="btn">🐋 Large trades</span></div><div class="row"><span class="btn">⚠️ Warning levels</span><span class="btn">⚙️ Alert settings</span></div><div class="row"><span class="btn">💰 Equity</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -171,6 +177,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       <figcaption>Owner · alert-settings</figcaption>
       <div class="chat"><div class="bubble">⚙️ <b>ALERT SETTINGS</b><br><br>Wallet alerts: 🟢 ON<br>Liquidations: <b>$10K+</b><br>Large trades: <b>$25K+</b><br>Warnings: <b>10% / 5%</b><br><br><i>Wallet alerts are the changes on wallets you watch. Liquidations and large trades are the whole exchange. At most 10 of those a minute reach this chat; any more are counted in one line.</i></div>
       <div class="row"><span class="btn changes">🔕 Turn wallet alerts off</span></div><div class="row"><span class="btn">💥 Liquidations</span><span class="btn">🐋 Large trades</span></div><div class="row"><span class="btn">⚠️ Warning levels</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · equity</figcaption>
+      <div class="chat"><div class="bubble">Send me an address or an account id, and I’ll show what that account is worth now.<br>Nothing is watched; it only reads.</div>
+      <div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -241,13 +253,13 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-on-next</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · alert-custom</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -283,31 +295,31 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt-custom</figcaption>
-      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 10 Oct, 13:48.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble">testnet<br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 12 Oct, 14:09.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>

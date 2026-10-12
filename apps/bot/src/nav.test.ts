@@ -11,6 +11,7 @@ const ALL: Route[] = [
   { to: 'wallets' }, { to: 'star', accountId: 4088 }, { to: 'unstar', accountId: 4088 },
   { to: 'liq' }, { to: 'liq-set', level: 2 }, { to: 'big' }, { to: 'big-set', level: 9 },
   { to: 'warn-levels' }, { to: 'warn-preset', level: 0 }, { to: 'warn-custom' }, { to: 'alert-settings' }, { to: 'wallet-alerts' },
+  { to: 'equity' }, { to: 'equity-of', accountId: 5213 },
 ];
 
 test('every route round-trips, fits in 64 bytes, and is never readable as an action button', () => {
@@ -28,6 +29,7 @@ test('the public set is exactly the screens a watcher needs, and nothing that re
     'disconnect-ask', 'disconnect',
     'wallets', 'star', 'unstar', 'liq', 'liq-set', 'big', 'big-set',
     'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
+    'equity', 'equity-of',
   ]);
   for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'position', 'settings', 'warn-ask', 'warn-set'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
 });

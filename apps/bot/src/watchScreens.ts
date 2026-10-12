@@ -78,10 +78,26 @@ export function watchMenuScreen(input: { readonly watching: number; readonly sta
         { text: '⚠️ Warning levels', route: { to: 'warn-levels' } },
         { text: '⚙️ Alert settings', route: { to: 'alert-settings' } },
       ],
+      // Its own row, under the six: nothing above it moved (owner, 12 Oct 2026).
+      [{ text: '💰 Equity', route: { to: 'equity' } }],
       [{ text: '← Back', route: { to: 'home' } }],
     ],
   };
 }
+
+// ── equity ──────────────────────────────────────────────────────────────────
+
+/** 💰 Several wallets watched: one button each, three to a row like the watched-wallets list. */
+export function equityPickScreen(subs: readonly { readonly accountId: number; readonly starred?: boolean | undefined }[]): Screen {
+  const rows: Button[][] = [];
+  for (let i = 0; i < subs.length; i += 3) {
+    rows.push(subs.slice(i, i + 3).map((s) => ({ text: `${s.starred === true ? '⭐ ' : ''}#${s.accountId}`, route: { to: 'equity-of', accountId: s.accountId } }) as Button));
+  }
+  return { html: '💰 <b>EQUITY</b>\nWhich wallet? Free balance, margin in use and unrealised P&amp;L, now.', buttons: [...rows, [BACK_TO_WATCH]] };
+}
+
+/** What the 💰 Equity button asks when this chat watches nothing. */
+export const EQUITY_PROMPT = 'Send me an address or an account id, and I’ll show what that account is worth now.\nNothing is watched; it only reads.';
 
 // ── watched wallets ─────────────────────────────────────────────────────────
 

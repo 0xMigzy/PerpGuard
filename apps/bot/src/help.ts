@@ -43,7 +43,7 @@ export const WRONG_CHAT_TEXT =
 export const BOT_MENU_COMMANDS: readonly { readonly command: string; readonly description: string }[] = [
   { command: 'start', description: 'The menu' },
   { command: 'watch', description: 'Watch an address or account id' },
-  { command: 'equity', description: 'An account’s equity, broken down' },
+  { command: 'equity', description: 'Check any account’s equity' },
   { command: 'link', description: 'Connect your own account' },
   { command: 'help', description: 'What PerpGuard does' },
 ];

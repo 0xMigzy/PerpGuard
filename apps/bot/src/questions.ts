@@ -16,6 +16,8 @@
 export type Question =
   /** "Send me an address or an account id." */
   | { readonly kind: 'watch-target' }
+  /** 💰 "Send me an address or an account id", to show its equity. Nothing is watched. */
+  | { readonly kind: 'equity-target' }
   /** "Send up to five levels, like 15 8 3." */
   | { readonly kind: 'warning-levels' }
   /** 🛟 A custom rescue amount, in AUSD. */

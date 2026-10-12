@@ -794,7 +794,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     own pricing (`assessOnAnalyticsVenue`). TO THE CENT, unlike the plain
     voice's whole AUSD, so the printed sum adds up as it does on the page.
     Equity is withheld while any open position has no mark. It reads and
-    subscribes to nothing; no buttons, and no "Watching only" line. `/positions`, `/status`, `/cancel`, `/unwatch`,
+    subscribes to nothing; no buttons, and no "Watching only" line.
+  - 💰 EQUITY IS ALSO A BUTTON on 👁 Watch & Alerts (owner, 12 Oct 2026), on
+    its own row under the six, which did not move. ONE wallet watched: its
+    equity at once. SEVERAL: a button per watched wallet (`equityPickScreen`).
+    NONE: it asks (`equity-target`, force_reply) and the next message is the
+    answer; a bad one re-asks, and nothing is watched. Routes `equity` and
+    `equity-of` are public; `equity-of` shows only a wallet this chat watches.
+    ONE PATH (`equityOf` in `bot.ts`) for the command, the button and the
+    typed answer, so the text is the same word for word; the button's screen
+    adds only ← Back. The menu's description is "Check any account's equity". `/positions`, `/status`, `/cancel`, `/unwatch`,
   `/watching` and `/unlink` are gone; their jobs are buttons.
 - NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
   `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The

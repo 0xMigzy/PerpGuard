@@ -1159,7 +1159,7 @@ test('a stranger navigates the read-only half by buttons: home, Watch & Alerts, 
   const menu = h.telegram.last('editMessageText');
   assert.match(String(menu.payload['text']), /^👁 <b>WATCH & ALERTS<\/b>\nRead-only\. No wallet, no key\./);
   assert.match(String(menu.payload['text']), /Read off the mainnet index, 7 blocks behind the chain\. Watched wallets are re-read every 30 seconds\./, 'the menu states its own latency');
-  assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch wallet', '⭐ Watchlist', '💥 Liquidations', '🐋 Large trades', '⚠️ Warning levels', '⚙️ Alert settings', '← Back']);
+  assert.deepEqual(keyboardOf(menu).map((b) => b.text), ['👛 Watch wallet', '⭐ Watchlist', '💥 Liquidations', '🐋 Large trades', '⚠️ Warning levels', '⚙️ Alert settings', '💰 Equity', '← Back']);
 
   await tap({ to: 'watch-ask' });
   const edit = h.telegram.last('editMessageText');
@@ -1523,7 +1523,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'close-pos', 'disconnect-ask', 'disconnect', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'close-pos', 'disconnect-ask', 'disconnect', 'equity', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1543,7 +1543,7 @@ test('PHASE 7: a STRANGER reaches only the public screens, and the Trading accou
   const who = { from: STRANGER_ID, chat: STRANGER_CHAT };
   const seen = await walkMenu(h, who);
   const reached = new Set([...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)));
-  assert.deepEqual([...reached].sort(), ['account', 'alert-settings', 'big', 'big-set', 'connect-go', 'connect-key', 'home', 'liq', 'liq-set', 'wallet-alerts', 'wallets', 'warn-custom', 'warn-levels', 'warn-preset', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...reached].sort(), ['account', 'alert-settings', 'big', 'big-set', 'connect-go', 'connect-key', 'equity', 'home', 'liq', 'liq-set', 'wallet-alerts', 'wallets', 'warn-custom', 'warn-levels', 'warn-preset', 'watch-ask', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, key);
   const home = seen.get('home')!;
   assert.match(home.html, /^🛡 <b>PERPGUARD<\/b>\n\nI message you before a Perpl position gets liquidated\.\n\nSend me any address or account number to start watching it — no key, nothing to set up\./);
@@ -2607,5 +2607,64 @@ test('/equity when the index or the prices cannot be read says so and shows no f
 test('/equity is in the command menu and in /help', async () => {
   const { BOT_MENU_COMMANDS } = await import('./help.ts');
   assert.deepEqual(BOT_MENU_COMMANDS.map((c) => c.command), ['start', 'watch', 'equity', 'link', 'help']);
+  assert.equal(BOT_MENU_COMMANDS.find((c) => c.command === 'equity')!.description, 'Check any account’s equity');
   assert.match(HELP_TEXT, /\/equity/);
+});
+
+// ── 💰 Equity, the Watch & Alerts button ────────────────────────────────────
+
+const AT_STRANGER = { from: STRANGER_ID, chat: STRANGER_CHAT };
+const EQUITY_5213 = /^💰 <b>#5213 · equity 15,346\.00 AUSD<\/b>[\s\S]*Free \+ margin \+ unrealised = <b>15,346\.00 AUSD<\/b>/;
+
+test('💰 EQUITY sits on its own row under the six Watch & Alerts buttons, whose rows and order did not move', async () => {
+  const h = harness({ equity: equityOf5213 });
+  await tapNav(h, { to: 'watch-menu' }, AT_STRANGER);
+  const rows = (lastScreen(h.telegram).payload['reply_markup'] as InlineKeyboard).inline_keyboard.map((row) => row.map((b) => b.text));
+  assert.deepEqual(rows, [['👛 Watch wallet', '⭐ Watchlist'], ['💥 Liquidations', '🐋 Large trades'], ['⚠️ Warning levels', '⚙️ Alert settings'], ['💰 Equity'], ['← Back']]);
+});
+
+test('💰 EQUITY, ONE WALLET WATCHED: its equity straight away, the same figures as /equity, with the way back', async () => {
+  const h = harness({ equity: equityOf5213 });
+  h.resolver.answers.set('5213', { accountId: 5213, address: undefined, resolvedBy: 'index' });
+  h.watchStore.add({ chatId: STRANGER_CHAT, accountId: 5213, label: '#5213', addedAtMs: 0 });
+  await tapNav(h, { to: 'equity' }, AT_STRANGER);
+  const screen = lastScreen(h.telegram);
+  assert.match(String(screen.payload['text']), EQUITY_5213);
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['← Back']);
+  // THE SAME OUTPUT: the command's reply is the button's text, word for word.
+  await h.bot.handleUpdate(stranger('/equity 5213'));
+  assert.equal(texts(h.telegram).at(-1), String(screen.payload['text']));
+});
+
+test('💰 EQUITY, SEVERAL WATCHED: a button per watched wallet, and the one picked is shown; a wallet this chat does not watch is not', async () => {
+  const h = harness({ equity: equityOf5213 });
+  h.watchStore.add({ chatId: STRANGER_CHAT, accountId: 5213, label: '#5213', addedAtMs: 0 });
+  h.watchStore.add({ chatId: STRANGER_CHAT, accountId: 940, label: '#940', addedAtMs: 1 });
+  h.watchStore.star(STRANGER_CHAT, 940, true);
+  await tapNav(h, { to: 'equity' }, AT_STRANGER);
+  const pick = lastScreen(h.telegram);
+  assert.match(String(pick.payload['text']), /^💰 <b>EQUITY<\/b>\nWhich wallet\?/);
+  assert.deepEqual(keyboardOf(pick).map((b) => b.text).sort(), ['#5213', '← Back', '⭐ #940'].sort());
+  await tapNav(h, { to: 'equity-of', accountId: 5213 }, AT_STRANGER);
+  assert.match(String(lastScreen(h.telegram).payload['text']), EQUITY_5213);
+  await tapNav(h, { to: 'equity-of', accountId: 24 }, AT_STRANGER);
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^This chat does not watch #24\./);
+  assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /AUSD/);
+});
+
+test('💰 EQUITY, NOTHING WATCHED: it asks with force_reply, the next message is the answer, a bad one re-asks, and nothing is watched', async () => {
+  const h = harness({ equity: equityOf5213 });
+  h.resolver.answers.set('5213', { accountId: 5213, address: undefined, resolvedBy: 'index' });
+  await tapNav(h, { to: 'equity' }, AT_STRANGER);
+  const ask = h.telegram.last('sendMessage');
+  assert.equal((ask.payload['reply_markup'] as { force_reply: boolean }).force_reply, true);
+  await h.bot.handleUpdate(stranger('0x123'));
+  assert.match(texts(h.telegram).at(-1)!, /^0x123 is not a full address/);
+  assert.equal((h.telegram.last('sendMessage').payload['reply_markup'] as { force_reply: boolean }).force_reply, true, 'the question stays open');
+  await h.bot.handleUpdate(stranger('5213'));
+  assert.match(texts(h.telegram).at(-1)!, EQUITY_5213);
+  assert.deepEqual(h.watchStore.byChat(STRANGER_CHAT), [], 'asking for equity watches nothing');
+  // Answered: the next bare number is a fresh paste, offered as a watch, not read as another equity answer.
+  await h.bot.handleUpdate(stranger('5213'));
+  assert.equal(texts(h.telegram).at(-1), 'Watch account <b>#5213</b>?');
 });

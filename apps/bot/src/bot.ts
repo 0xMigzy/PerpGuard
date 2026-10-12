@@ -62,6 +62,8 @@ import {
   warningCustomAskScreen,
   warningLevelsScreen,
   watchMenuScreen,
+  equityPickScreen,
+  EQUITY_PROMPT,
   watchlistScreen,
   type TraderStats,
 } from './watchScreens.ts';
@@ -652,6 +654,63 @@ export function createBot(deps: BotDeps): Bot {
     return false;
   }
 
+  /** 💰 Ask whose equity, and hear the answer: parked like every question the bot asks. */
+  async function askEquityTarget(ctx: Context, text: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    const telegramUserId = ctx.from?.id;
+    if (chatId === undefined || telegramUserId === undefined) return;
+    amounts.delete(telegramUserId);
+    questions.ask(chatId, telegramUserId, { kind: 'equity-target' });
+    await ctx.reply(text, { reply_markup: { force_reply: true, input_field_placeholder: WATCH_PLACEHOLDER } });
+  }
+
+  /**
+   * ONE EQUITY PATH for the command, the button and a typed answer: the
+   * backend's reading (the trader page's own summary) through `equityHtml`.
+   * A sentence when it cannot be had; the figures otherwise.
+   */
+  async function equityOf(accountId: number): Promise<{ readonly ok: true; readonly html: string } | { readonly ok: false; readonly text: string }> {
+    const watch = deps.watch;
+    if (watch === undefined) return { ok: false, text: watchUnavailable };
+    if (watch.equity === undefined) return { ok: false, text: EQUITY_UNAVAILABLE };
+    let reading: EquityReading;
+    try {
+      reading = await watch.equity(accountId);
+    } catch (error) {
+      deps.log?.(`equity: account ${accountId} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      return { ok: false, text: EQUITY_UNAVAILABLE };
+    }
+    if (reading.kind === 'unknown-account') return { ok: false, text: unknownAccountText(reading.accountId) };
+    return { ok: true, html: equityHtml(reading, { nowMs: now(), freshness: describeWatchFreshness(watch.indexerHealth?.()) }) };
+  }
+
+  /** An address or id someone typed: resolved like /watch, answered as a new message. True when figures were shown. */
+  async function replyEquity(ctx: Context, target: WatchTarget): Promise<boolean> {
+    const watch = deps.watch;
+    if (watch === undefined) {
+      await ctx.reply(watchUnavailable);
+      return false;
+    }
+    const resolved = await watch.resolver.resolve(target);
+    if ('error' in resolved) {
+      await ctx.reply(`I cannot find that account: ${resolved.error}`);
+      return false;
+    }
+    const answer = await equityOf(resolved.accountId);
+    if (!answer.ok) {
+      await ctx.reply(answer.text);
+      return false;
+    }
+    await ctx.reply(answer.html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    return true;
+  }
+
+  /** 💰 A watched wallet's equity ON THE SCREEN that was tapped, with the way back. */
+  async function showEquity(ctx: Context, accountId: number): Promise<void> {
+    const answer = await equityOf(accountId);
+    await showScreen(ctx, { html: answer.ok ? answer.html : esc(answer.text), buttons: [[{ text: '← Back', route: { to: 'watch-menu' } }]] });
+  }
+
   async function askWatchTarget(ctx: Context, text: string): Promise<void> {
     const chatId = ctx.chat?.id;
     const telegramUserId = ctx.from?.id;
@@ -782,24 +841,7 @@ export function createBot(deps: BotDeps): Bot {
       await ctx.reply(`${target.error}\n\n${EQUITY_USAGE}`);
       return;
     }
-    const resolved = await watch.resolver.resolve(target);
-    if ('error' in resolved) {
-      await ctx.reply(`I cannot find that account: ${resolved.error}`);
-      return;
-    }
-    let reading: EquityReading;
-    try {
-      reading = await watch.equity(resolved.accountId);
-    } catch (error) {
-      deps.log?.(`equity: account ${resolved.accountId} could not be read: ${error instanceof Error ? error.message : String(error)}`);
-      await ctx.reply(EQUITY_UNAVAILABLE);
-      return;
-    }
-    if (reading.kind === 'unknown-account') {
-      await ctx.reply(unknownAccountText(reading.accountId));
-      return;
-    }
-    await ctx.reply(equityHtml(reading, { nowMs: now(), freshness: describeWatchFreshness(watch.indexerHealth?.()) }), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    await replyEquity(ctx, target);
   });
 
   // ── /help ─────────────────────────────────────────────────────────────────
@@ -901,6 +943,18 @@ export function createBot(deps: BotDeps): Bot {
       }
       questions.close(chatId, telegramUserId);
       await sendScreen(ctx, warningLevelsScreen(next.warningLevels));
+      return;
+    }
+    if (question?.kind === 'equity-target') {
+      if (!(await withinLimit(ctx))) return;
+      const target = parseWatchArgument(text);
+      if ('error' in target) {
+        await askEquityTarget(ctx, `${target.error}\n\n${EQUITY_PROMPT}`);
+        return;
+      }
+      // Shown: the question is answered. Not found: it stays open for another try.
+      if (await replyEquity(ctx, target)) questions.close(chatId, telegramUserId);
+      else await askEquityTarget(ctx, 'Send another address or account id.');
       return;
     }
     if (question?.kind === 'watch-target') {
@@ -1050,6 +1104,38 @@ export function createBot(deps: BotDeps): Bot {
         const next = { ...before, walletAlerts: !before.walletAlerts };
         if (!(await savePrefs(ctx, chatId, next))) return;
         await showScreen(ctx, alertSettingsScreen(next));
+        return;
+      }
+      case 'equity': {
+        // 💰 One watched wallet: its equity at once. Several: pick one. None: ask, and hear the answer.
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        if (deps.watch === undefined) {
+          await showScreen(ctx, { html: watchUnavailable, buttons: [[{ text: '← Back', route: { to: 'home' } }]] });
+          return;
+        }
+        const subs = deps.watch.store.byChat(chatId);
+        if (subs.length === 1) {
+          await showEquity(ctx, subs[0]!.accountId);
+          return;
+        }
+        if (subs.length > 1) {
+          await showScreen(ctx, equityPickScreen(subs));
+          return;
+        }
+        await showScreen(ctx, { html: EQUITY_PROMPT, buttons: [[{ text: '← Back', route: { to: 'watch-menu' } }]] });
+        await askEquityTarget(ctx, '↩️ Reply with it here.');
+        return;
+      }
+      case 'equity-of': {
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        // Only a wallet THIS chat watches: the picker is its list, and anything else has the command.
+        if (deps.watch?.store.byChat(chatId).some((sub) => sub.accountId === route.accountId) !== true) {
+          await showScreen(ctx, { html: `This chat does not watch #${route.accountId}. Send /equity ${route.accountId} to see it.`, buttons: [[{ text: '← Back', route: { to: 'watch-menu' } }]] });
+          return;
+        }
+        await showEquity(ctx, route.accountId);
         return;
       }
       case 'watch-ask':

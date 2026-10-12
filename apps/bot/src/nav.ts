@@ -43,6 +43,10 @@ export type Route =
   | { readonly to: 'alert-settings' }
   | { readonly to: 'wallet-alerts' }
   | { readonly to: 'wallet'; readonly accountId: number }
+  /** 💰 Equity, from Watch & Alerts: one watched wallet's at once, a pick among several, or a question with none. */
+  | { readonly to: 'equity' }
+  /** 💰 One watched wallet's equity, picked from the list. */
+  | { readonly to: 'equity-of'; readonly accountId: number }
   | { readonly to: 'unwatch'; readonly accountId: number }
   /** 🔐 Trading Account. Public: an unlinked chat sees "Not connected" and how to connect. */
   | { readonly to: 'account' }
@@ -146,6 +150,8 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'alert-settings': 'as',
   'wallet-alerts': 'wt',
   wallet: 'w',
+  equity: 'eq',
+  'equity-of': 'eo',
   unwatch: 'uw',
   account: 'ta',
   connect: 'c',
@@ -194,6 +200,7 @@ const NAME_BY_CODE = new Map<string, RouteName>(Object.entries(CODE).map(([name,
 /** Routes whose single argument is required, and what it is called. */
 const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   wallet: 'accountId',
+  'equity-of': 'accountId',
   star: 'accountId',
   unstar: 'accountId',
   'liq-set': 'level',
@@ -233,6 +240,8 @@ const PUBLIC: ReadonlySet<RouteName> = new Set<RouteName>([
   // Phase 8: read the index, or change this chat's OWN alert settings. Nothing touches an account.
   'wallets', 'star', 'unstar', 'liq', 'liq-set', 'big', 'big-set',
   'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
+  // 💰 Equity reads the index and the venue's marks, like /equity. It touches no account.
+  'equity', 'equity-of',
   // Disconnect undoes whatever this person has given us (a link, a key, a wallet proof with no link yet): their
   // own records, read at tap time, and it can only remove. Public so a proof-only identity is never stuck with it.
   'disconnect-ask', 'disconnect',
