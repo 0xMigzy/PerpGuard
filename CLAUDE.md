@@ -39,7 +39,9 @@ indexer). The Liquidations hero, "Potentially avoidable losses", is realised
 loss (PnL + funding) summed over rescuable liquidations: once per event,
 excludes liquidation fees, so it understates. Never word it as money the trader
 would have kept: a top-up keeps the position open, it does not undo the price
-move. See `docs/notes/accamount-finding-2026-10-05.md`.
+move. Under the figure: "Every one of these traders had the balance to act on
+a warning." (12 Oct 2026), never "would have had a warning": the index shows
+the balance, not that an alert would have arrived in time. See `docs/notes/accamount-finding-2026-10-05.md`.
 
 NEVER quote `liquidationsWithSpareBalanceCount` or `hadSpareBalance` as a
 headline. That flag is `freeBalanceBeforeCNS > 0`, so it counts dust: it is true
@@ -404,7 +406,12 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   The backend's `/api/protect/*` routes still exist and no page calls them —
   `apps/web/src/lib/api.ts` has GETs against `/api/analytics/*` and nothing
   else, no session, no provider, no sign-in. Everything reads the mainnet
-  indexer, so there is ONE network and NO network labelling anywhere on a page.
+  indexer. THE NETWORK SPLIT IS SAID IN ONE LINE, IN TWO PLACES (owner,
+  12 Oct 2026; until then no page named a network): `NETWORK_SPLIT` in
+  `apps/web/src/lib/botPreview.ts`, a small muted line under the heading on
+  Overview and on /bot (`PageHeader`'s `note`): "Analytics: Monad mainnet,
+  every block since launch. Actions: Monad testnet." One constant; no banner,
+  no box, no other network labelling on a page.
 - SIX SECTIONS, in this order, Overview as the landing page: Overview,
   Markets, Traders, Liquidations, Risk, Bot (`/bot`; `/alerts` redirects to it
   permanently: the page was Alerts until 5 Oct 2026). `docs/frontend-mockup.html` is
@@ -591,8 +598,10 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   same either way, so monitors are unaffected.
 - THE SETUP GUIDE IS /bot/guide (8 Oct 2026, owner's wording): static, no
   fetch, single column ~720px, a print stylesheet scoped to `[data-guide]`
-  (Cmd+P gives a light PDF). Linked from the /bot card, /help and every
-  🔐 Trading account screen (📖 Setup guide, a URL button). Its link step
+  (Cmd+P gives a light PDF). Linked from the /bot header ("How it works",
+  above the fold) and card, the footer of every page (12 Oct 2026), /help
+  and every 🔐 Trading account screen (📖 Setup guide, a URL button). On
+  /bot every "@PerpGuardBot" is a link to the bot, in a new tab. Its link step
   names the real flow: 🔐 Trading account -> 🔑 Enter API key ->
   `https://perpguard.app/link?code=XXXX-XXXX` (+`&via=key`), one use, 5 min.
 - EVERY REQUEST IS ONE LOG LINE (8 Oct 2026, `server/requestLog.ts`):

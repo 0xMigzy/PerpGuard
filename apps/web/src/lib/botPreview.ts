@@ -11,6 +11,8 @@
  */
 
 export const BOT_HANDLE = '@PerpGuardBot';
+/** Which network each half runs on, said once on Overview and on /bot (owner, 12 Oct 2026). */
+export const NETWORK_SPLIT = 'Analytics: Monad mainnet, every block since launch. Actions: Monad testnet.';
 export const BOT_URL = 'https://t.me/PerpGuardBot';
 
 /** The testnet setup guide (apps/web/src/app/bot/guide). Undefined would render "Coming soon" and no link. */

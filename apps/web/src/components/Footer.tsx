@@ -13,6 +13,10 @@ export function Footer() {
         <Link href="/status" className="text-text2 underline decoration-border2 underline-offset-2 hover:text-text">
           Data &amp; Methodology
         </Link>
+        {' · '}
+        <Link href="/bot/guide" className="text-text2 underline decoration-border2 underline-offset-2 hover:text-text">
+          How it works
+        </Link>
       </p>
       <p className="m-0 mt-1">Unofficial analytics. Not affiliated with or endorsed by Perpl or the Monad Foundation.</p>
     </footer>

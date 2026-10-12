@@ -4,12 +4,15 @@ export function PageHeader({
   title,
   thin,
   subtitle,
+  note,
   right,
 }: {
   readonly title: ReactNode;
   /** A muted tail on the H1, e.g. a short address. */
   readonly thin?: ReactNode;
   readonly subtitle: ReactNode;
+  /** One small muted line under the subtitle. */
+  readonly note?: ReactNode;
   readonly right?: ReactNode;
 }) {
   return (
@@ -20,6 +23,7 @@ export function PageHeader({
           {thin !== undefined && <span className="font-medium text-muted"> {thin}</span>}
         </h1>
         <p className="m-0 max-w-[70ch] text-muted">{subtitle}</p>
+        {note !== undefined && <p className="m-0 mt-1 max-w-[70ch] text-[12px] text-muted">{note}</p>}
       </div>
       {right !== undefined && <div className="flex flex-wrap items-center gap-[10px]">{right}</div>}
     </div>

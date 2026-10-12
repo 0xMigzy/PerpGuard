@@ -98,6 +98,7 @@ export function LiquidationsView() {
               <div className="num text-[13px] text-text">
                 {formatCount(r.rescuableCount)} of {formatCount(r.judgeableCount)} liquidations
               </div>
+              <p className="m-0 mt-[6px] text-[13px] text-muted">Every one of these traders had the balance to act on a warning.</p>
             </div>
             <div className="min-w-0 flex-1 basis-[300px]">
               <p className="m-0 max-w-[60ch] text-[13px] text-text2">

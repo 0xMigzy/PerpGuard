@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/PageHeader.tsx';
-import { ALERT_EXAMPLE, BOT_HANDLE, BOT_URL, TESTNET_GUIDE_URL } from '@/lib/botPreview.ts';
+import { ALERT_EXAMPLE, BOT_HANDLE, BOT_URL, NETWORK_SPLIT, TESTNET_GUIDE_URL } from '@/lib/botPreview.ts';
 
 /**
  * THE BOT PAGE: what @PerpGuardBot does, in three words — WATCH, MANAGE,
@@ -89,8 +89,15 @@ const FEATURES: readonly Feature[] = [
   },
 ];
 
-const STEPS: readonly { readonly title: string; readonly text: string }[] = [
-  { title: 'Open Telegram', text: `Launch ${BOT_HANDLE} and tap Start.` },
+/** The handle, as the way to the bot: the same link wherever it is named on the page. */
+const handleLink = (
+  <a href={BOT_URL} target="_blank" rel="noopener noreferrer" className="underline decoration-border2 underline-offset-2 hover:text-text">
+    {BOT_HANDLE}
+  </a>
+);
+
+const STEPS: readonly { readonly title: string; readonly text: ReactNode }[] = [
+  { title: 'Open Telegram', text: <>Launch {handleLink} and tap Start.</> },
   { title: 'Start watching', text: 'Add up to 10 wallets and set your alerts. No account or API key needed to monitor.' },
   { title: 'Connect and protect', text: 'Optionally connect your Perpl account to manage positions, add margin and set up Liquidation Rescue. Trading actions are testnet only.' },
 ];
@@ -121,11 +128,23 @@ export function BotView() {
   return (
     // Opts this page into the terminal design system (globals.css).
     <div data-ui="terminal">
-      <PageHeader title="PerpGuard Bot" subtitle="Track wallets, receive liquidation alerts and manage your Perpl positions directly from Telegram." />
+      <PageHeader
+        title="PerpGuard Bot"
+        subtitle="Track wallets, receive liquidation alerts and manage your Perpl positions directly from Telegram."
+        note={NETWORK_SPLIT}
+        right={
+          <Link className="btn" href="/bot/guide">
+            How it works
+          </Link>
+        }
+      />
 
       {/* ── the panel ─────────────────────────────────────────────────────── */}
       <section aria-labelledby="bot-panel-title" className="card mb-4 px-[18px] py-5 sm:px-6 sm:py-6">
-        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Telegram · {BOT_HANDLE}</div>
+        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+          Telegram ·{' '}
+          {handleLink}
+        </div>
         {/* The terminal system sets every h2 to 14px; this one is the page's display line, sized inline. */}
         <h2 id="bot-panel-title" className="mt-2 mb-1" style={{ fontSize: 'clamp(21px, 2.2vw, 27px)', fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
           Monitor risk. Protect your positions.

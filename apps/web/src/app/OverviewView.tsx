@@ -14,6 +14,7 @@ import { GrowthChart } from '@/components/charts/GrowthChart.tsx';
 import { usePoll } from '@/lib/usePoll.ts';
 import { ErrorNote } from '@/components/ErrorNote.tsx';
 import { PageHeader } from '@/components/PageHeader.tsx';
+import { NETWORK_SPLIT } from '@/lib/botPreview.ts';
 import { Skeleton } from '@/components/Skeleton.tsx';
 import { SkewBar } from '@/components/SkewBar.tsx';
 import { StaleMarker } from '@/components/StaleMarker.tsx';
@@ -122,6 +123,7 @@ export function OverviewView() {
         title="Perpl"
         thin="Analytics"
         subtitle="Everything below is derived from indexed on-chain events. No account needed."
+        note={NETWORK_SPLIT}
         right={
           <>
             {block !== undefined && <span className="chip">indexed to block {formatCount(block)}</span>}
