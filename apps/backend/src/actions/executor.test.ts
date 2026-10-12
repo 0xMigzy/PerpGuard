@@ -274,6 +274,24 @@ test('the row is opened BEFORE the send, and carries the before-figure', async (
   assert.equal(recorded?.row.network, 'testnet');
 });
 
+test("THE TRANSACTION IS READ, STORED AND HANDED BACK, AND DECIDES NOTHING: the reply's hash is on the outcome and in the log; with none, both are empty and the verdict is the same", async () => {
+  const HASH = `0x${'c3'.repeat(32)}`;
+  const withHash = harness();
+  withHash.venue.addMarginResult = { ...rejected('st: 7 Failed, sr: 32 OrderDescIdTooLow'), txHash: HASH };
+  withHash.venue.applyOnSend = () => withHash.positions.patch(MARKET, { marginCNS: 83_160n });
+  const a = await withHash.executor.execute(topUp());
+  assert.equal(a.kind, 'applied');
+  assert.equal(a.kind === 'applied' ? a.reported.txHash : undefined, HASH);
+  assert.equal(withHash.log.find('trader-1:16:custom:tok1')?.settlement?.txHash, HASH);
+
+  const without = harness();
+  without.venue.applyOnSend = () => without.positions.patch(MARKET, { marginCNS: 83_160n });
+  const b = await without.executor.execute(topUp());
+  assert.equal(b.kind, 'applied', 'the same verdict, from the position, with or without a hash');
+  assert.equal(b.kind === 'applied' ? b.reported.txHash : 'x', undefined);
+  assert.equal(without.log.find('trader-1:16:custom:tok1')?.settlement?.txHash, undefined);
+});
+
 test('the settlement records what happened AND what the venue claimed, separately', async () => {
   const h = harness();
   h.venue.applyOnSend = () => h.positions.patch(MARKET, { marginCNS: 83_160n });

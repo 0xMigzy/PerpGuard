@@ -459,7 +459,7 @@ export class RescueEngine {
         totalRescuedCNS: rule.totalRescuedCNS + amountCNS,
       });
       logger.warn(`rescue ${idempotencyKey}: UNKNOWN — rule paused, ${amountCNS} stays reserved until a restart. ${outcome.detail}`);
-      this.#tell(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail: outcome.nextStep });
+      this.#tell(rule.accountId, { kind: 'paused', rule: paused, amountCNS, detail: outcome.nextStep, txHash: outcome.reported?.txHash });
       return;
     }
 
@@ -467,7 +467,7 @@ export class RescueEngine {
       // The position shows nothing landed, so nothing left the account.
       this.#release(rule.accountId, idempotencyKey, 'not applied: the position did not move');
       logger.info(`rescue ${idempotencyKey}: not applied — the position's margin did not move. ${outcome.detail}`);
-      this.#tell(rule.accountId, { kind: 'not-applied', rule: store.rule(rule.id) ?? rule, amountCNS, cooldownMs: rule.cooldownMs });
+      this.#tell(rule.accountId, { kind: 'not-applied', rule: store.rule(rule.id) ?? rule, amountCNS, cooldownMs: rule.cooldownMs, txHash: outcome.reported.txHash });
       return;
     }
 
@@ -494,6 +494,7 @@ export class RescueEngine {
       marginAfterCNS: rec.after,
       distanceAfterPct,
       receiptDisagreed: outcome.reported.status === 'rejected',
+      txHash: outcome.reported.txHash,
     });
   }
 

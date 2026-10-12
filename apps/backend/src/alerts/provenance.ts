@@ -65,3 +65,17 @@ export function provenanceLine(p: Provenance): string | undefined {
   if (hash !== undefined && p.explorerTxUrl !== undefined) parts.push(`<a href="${p.explorerTxUrl}${hash}">tx ↗</a>`);
   return parts.length === 0 ? undefined : parts.join(' · ');
 }
+
+/**
+ * AN ACTION RESULT'S LAST LINE: "tx ↗" for one transaction, "BTC tx ↗ · ETH tx ↗"
+ * for several (Stop everything closes one position at a time). Only what has a
+ * real hash is listed; with none, there is no line. No wallet link: it is the
+ * person's own account.
+ */
+export function actionTxLine(explorerTxUrl: string | undefined, txs: ReadonlyArray<{ readonly label?: string | undefined; readonly txHash: string | undefined }>): string | undefined {
+  if (explorerTxUrl === undefined) return undefined;
+  const linked = txs.map((t) => ({ label: t.label, hash: txHashOf(t.txHash) })).filter((t): t is { label: string | undefined; hash: string } => t.hash !== undefined);
+  if (linked.length === 0) return undefined;
+  const named = linked.length > 1;
+  return linked.map((t) => `${named && t.label !== undefined ? `${esc(t.label)} ` : ''}<a href="${explorerTxUrl}${t.hash}">tx ↗</a>`).join(' · ');
+}

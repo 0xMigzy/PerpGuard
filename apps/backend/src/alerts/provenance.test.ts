@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { explorerTxUrl } from '@perpguard/shared';
-import { alertTime, provenanceLine, shortAddress, txHashOf } from './provenance.ts';
+import { actionTxLine, alertTime, provenanceLine, shortAddress, txHashOf } from './provenance.ts';
 
 const TX = `0x${'1338ea5d'.repeat(8)}`;
 
@@ -38,4 +38,14 @@ test('AN ACTION RESULT: only "tx ↗", on the deployment\'s own network; no hash
   assert.equal(provenanceLine({ explorerTxUrl: explorerTxUrl('testnet'), txHash: undefined }), undefined);
   assert.equal(provenanceLine({ explorerTxUrl: explorerTxUrl('testnet'), txHash: '12' }), undefined);
   assert.equal(provenanceLine({ explorerTxUrl: undefined, txHash: TX }), undefined, 'no explorer configured: nothing to link to');
+});
+
+test('several closes name their markets, one does not; a close with no hash is left out, and with none at all there is no line', () => {
+  const B = `0x${'b2'.repeat(32)}`;
+  const base = explorerTxUrl('testnet');
+  assert.equal(actionTxLine(base, [{ label: 'BTC', txHash: TX }]), `<a href="${base}${TX}">tx ↗</a>`);
+  assert.equal(actionTxLine(base, [{ label: 'BTC', txHash: TX }, { label: 'ETH', txHash: undefined }, { label: 'SOL', txHash: B }]), `BTC <a href="${base}${TX}">tx ↗</a> · SOL <a href="${base}${B}">tx ↗</a>`);
+  assert.equal(actionTxLine(base, [{ label: 'BTC', txHash: undefined }]), undefined);
+  assert.equal(actionTxLine(base, []), undefined);
+  assert.equal(actionTxLine(undefined, [{ txHash: TX }]), undefined);
 });

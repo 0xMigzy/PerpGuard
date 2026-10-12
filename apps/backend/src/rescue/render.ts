@@ -35,9 +35,11 @@ export type RescueNotice =
       readonly distanceAfterPct: number | undefined;
       /** The `t: 6` case: the receipt said rejected while the position shows the margin. */
       readonly receiptDisagreed: boolean;
+      /** The top-up's transaction, off the exchange's reply, for the message's link. Absent when the reply named none. */
+      readonly txHash?: string | undefined;
     }
-  | { readonly kind: 'not-applied'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly cooldownMs: number }
-  | { readonly kind: 'paused'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly detail: string }
+  | { readonly kind: 'not-applied'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly cooldownMs: number; readonly txHash?: string | undefined }
+  | { readonly kind: 'paused'; readonly rule: RescueRule; readonly amountCNS: bigint; readonly detail: string; readonly txHash?: string | undefined }
   /** Refused before sending, the same way twice in a row: nothing was sent either time. */
   | { readonly kind: 'paused-refused'; readonly rule: RescueRule; readonly detail: string }
   | { readonly kind: 'exhausted'; readonly rule: RescueRule; readonly assessment: RiskAssessment; readonly why: string }

@@ -56,16 +56,18 @@ export type ExecutionOutcome =
        * WITH the fact that it applied, never as a failure.
        */
       readonly venueRejected?: boolean;
+      /** The transaction the exchange's reply came from (0x and 64 hex), for the outcome's "tx ↗". Absent when the reply named none. */
+      readonly txHash?: string | undefined;
     }
   /** Sent, reconciled, and the position did not move. */
-  | { readonly kind: 'not-applied'; readonly detail: string }
+  | { readonly kind: 'not-applied'; readonly detail: string; readonly txHash?: string | undefined }
   /**
    * Sent, and what it did cannot be established.
    *
    * `nextStep` is mandatory: an unknown outcome that does not say what to do
    * about it is a dead end, and the user must not fill that silence with a retry.
    */
-  | { readonly kind: 'unknown'; readonly detail: string; readonly nextStep: string }
+  | { readonly kind: 'unknown'; readonly detail: string; readonly nextStep: string; readonly txHash?: string | undefined }
   /** Built, but not wired. Honest, and never mistakable for a fill. */
   | { readonly kind: 'not-implemented'; readonly detail: string }
   /** Refused before submission — an unavailable market, a `fw` flag that is false. */

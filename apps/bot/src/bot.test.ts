@@ -92,7 +92,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading>; readonly peerBot?: { readonly network: 'mainnet' | 'testnet'; readonly username: string } } = {}): Harness {
+function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading>; readonly peerBot?: { readonly network: 'mainnet' | 'testnet'; readonly username: string }; readonly explorerTxUrl?: string } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -132,6 +132,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     ...(options.watch === false ? {} : { watch: { store: watchStore, resolver, limiter, indexerHealth: () => indexer, preferences: prefs, traders: fakeTraders, ...(options.equity === undefined ? {} : { equity: options.equity }) } }),
     ...(options.link === undefined ? {} : { link: options.link }),
     ...(options.peerBot === undefined ? {} : { peerBot: options.peerBot }),
+    ...(options.explorerTxUrl === undefined ? {} : { explorerTxUrl: options.explorerTxUrl }),
   });
   // The bot under test must talk to the fake, not to Telegram.
   telegram.install(built.api);
@@ -2729,4 +2730,45 @@ test('EVERY MESSAGE THAT CARRIES THE BANNER IS SENT AS HTML, and the banner is t
     assert.doesNotMatch(text, /⚠️ <b>(MAINNET|TESTNET)|real funds|^testnet$|^mainnet$/m);
   }
   assert.ok(carried >= 5, `only ${carried} banner-carrying messages were seen`);
+});
+
+// ── action results end in their transaction ─────────────────────────────────
+
+const tap = (h: Harness, data: string): Promise<void> => h.bot.handleUpdate(callbackUpdate(data));
+const TESTNET_TX = 'https://testnet.monadvision.com/tx/';
+const HASH_A = `0x${'a1'.repeat(32)}`;
+const HASH_B = `0x${'b2'.repeat(32)}`;
+const lastLine = (h: Harness): string => String(lastScreen(h.telegram).payload['text']).split('\n').at(-1)!;
+
+test('ADD MARGIN ENDS IN "tx ↗" on this deployment\'s own explorer: the applied result, and the one the exchange called a failure; no hash, no line', async () => {
+  for (const venueRejected of [false, true]) {
+    const h = harness({ explorerTxUrl: TESTNET_TX });
+    h.executor.outcome = { kind: 'applied', detail: 'Done — the margin is in.', ...(venueRejected ? { venueRejected: true } : {}), txHash: HASH_A };
+    await tap(h, await confirmedTopUp(h));
+    assert.equal(lastLine(h), `<a href="${TESTNET_TX}${HASH_A}">tx ↗</a>`);
+    assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /traders\//, 'an action result carries no wallet link: it is your own account');
+    assert.deepEqual(lastScreen(h.telegram).payload['link_preview_options'], { is_disabled: true }, 'a link in the text must not grow a preview');
+  }
+  // The forwarder dropped the request, or no reply came: there is no hash, so there is no line. Never a broken link.
+  const dropped = harness({ explorerTxUrl: TESTNET_TX });
+  dropped.executor.outcome = { kind: 'not-applied', detail: 'Nothing was added.' };
+  await tap(dropped, await confirmedTopUp(dropped));
+  assert.doesNotMatch(String(lastScreen(dropped.telegram).payload['text']), /tx ↗/);
+});
+
+test('PARTIAL CLOSE AND CLOSE ALL END IN THEIR TRANSACTIONS: one "tx ↗" for one close; each market named when Stop everything closed several', async () => {
+  const emergency = new FakeEmergency();
+  const h = harness({ killSwitch: new FakeKillSwitch(), emergency, explorerTxUrl: TESTNET_TX });
+  const btc = emergency.positions!.find((p) => p.symbol === 'BTC')!;
+  emergency.nextPart = { kind: 'ran', position: btc, requestedLNS: 500n, result: { kind: 'reduced', beforeLNS: btc.sizeLNS, afterLNS: btc.sizeLNS - 500n, closedLNS: 500n, asAsked: true }, realisedCNS: undefined, feeCNS: undefined, replayed: false, txHash: HASH_A };
+  await tapNav(h, { to: 'close-pos-25', marketId: 16 });
+  await tapNav(h, { to: 'close-part-go', marketId: 16 });
+  assert.equal(lastLine(h), `<a href="${TESTNET_TX}${HASH_A}">tx ↗</a>`);
+
+  const [p1, p2, p3] = emergency.positions!;
+  emergency.next = { kind: 'ran', complete: true, replayed: false, results: [p1!, p2!, p3!].map((position) => ({ kind: 'closed' as const, position, exitPrice: 1 })), txByPosition: { [p1!.positionId]: HASH_A, [p3!.positionId]: HASH_B } };
+  await tapNav(h, { to: 'stop-all' });
+  await tapNav(h, { to: 'stop-all-go' });
+  // ETH's close got no reply, so ETH has no link; the two that did are named.
+  assert.equal(lastLine(h), `${p1!.symbol} <a href="${TESTNET_TX}${HASH_A}">tx ↗</a> · ${p3!.symbol} <a href="${TESTNET_TX}${HASH_B}">tx ↗</a>`);
 });

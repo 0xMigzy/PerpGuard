@@ -34,7 +34,8 @@ update action_log set
   venue_ref       = $5,
   after_value     = $6::numeric,
   detail          = $7,
-  settled_at      = $8
+  settled_at      = $8,
+  tx_hash         = $9
 where idempotency_key = $1
 `;
 
@@ -82,6 +83,7 @@ export class PostgresActionLog implements ActionLog {
       num(settlement.after),
       settlement.detail,
       iso(settlement.settledAtMs),
+      settlement.txHash ?? null,
     ]);
   }
 }

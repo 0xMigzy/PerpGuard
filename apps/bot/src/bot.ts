@@ -47,6 +47,7 @@ import {
 import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
 import { buildMessage, formatPricePNS } from '@perpguard/backend/alerts/render';
 import { esc, networkName, pct, withBadge } from '@perpguard/backend/alerts/plain';
+import { actionTxLine } from '@perpguard/backend/alerts/provenance';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { ALERT_DISTANCE_PRESETS, MAX_ALERT_DISTANCE_PCT, MIN_ALERT_DISTANCE_PCT, distanceLabel, parseAlertDistance } from '@perpguard/backend/manual/distance';
 import { OFF_LEVEL, decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
@@ -88,6 +89,7 @@ import {
   stopAllConfirmScreen,
   stopAllExpiredScreen,
   type EmergencyControl,
+  type EmergencyReport,
 } from './emergency.ts';
 
 /** A request id for one close-everything (or one retry): random, used once. */
@@ -233,6 +235,8 @@ export interface BotDeps {
   readonly webUrl?: string;
   /** The other network's bot (two deployments, one per network): named on Trading account and in /help. */
   readonly peerBot?: PeerBot;
+  /** The explorer's transaction prefix for the network this deployment TRADES on: an action result ends in "tx ↗". Absent: no link. */
+  readonly explorerTxUrl?: string;
   /**
    * The network a Trading Account is on in this deployment, named on every
    * screen that shows one. A linked account's own session's network wins.
@@ -1429,7 +1433,7 @@ export function createBot(deps: BotDeps): Bot {
         // HTML, like everything that carries the banner: sent as plain text, the banner's tags showed as text (12 Oct 2026).
         await ctx.reply(withBadge('🛑 Stopping automation, then closing your positions one at a time. This takes a few seconds per position…', deps.tradingNetwork), { parse_mode: 'HTML' });
         const report = await emergency.closeAll(accountId, pending.requestId, by);
-        await sendScreen(ctx, closeAllResultScreen(report, control.stopped(accountId)));
+        await sendScreen(ctx, withTx(deps, closeAllResultScreen(report, control.stopped(accountId)), closeTxs(report)));
         return;
       }
       case 'close-retry': {
@@ -1450,7 +1454,7 @@ export function createBot(deps: BotDeps): Bot {
         retryRequests.delete(key);
         await ctx.answerCallbackQuery({ text: 'Closing…' });
         const report = await emergency.closeOne(accountId, route.marketId, requestId, by);
-        await showScreen(ctx, closeAllResultScreen(report, control.stopped(accountId)));
+        await showScreen(ctx, withTx(deps, closeAllResultScreen(report, control.stopped(accountId)), closeTxs(report)));
         return;
       }
       case 'close-pos': {
@@ -1498,7 +1502,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery({ text: 'Closing…' });
         await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
         const report = await emergency.reducePosition(accountId, route.marketId, pending.closeLNS, { positionId: pending.positionId, sizeLNS: pending.sizeLNS }, pending.requestId, by);
-        await sendScreen(ctx, partialCloseResultScreen(report, route.marketId));
+        await sendScreen(ctx, withTx(deps, partialCloseResultScreen(report, route.marketId), report.kind === 'ran' ? [{ txHash: report.txHash }] : []));
         return;
       }
       case 'close-pos-all': {
@@ -1530,7 +1534,7 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery({ text: 'Closing…' });
         await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
         const report = await emergency.closePosition(accountId, route.marketId, pending.requestId, by);
-        await sendScreen(ctx, closePositionResultScreen(report, route.marketId));
+        await sendScreen(ctx, withTx(deps, closePositionResultScreen(report, route.marketId), closeTxs(report)));
         return;
       }
       case 'kill-confirm':
@@ -1891,6 +1895,21 @@ interface Resolved {
  * thing Send would have fired.
  */
 /** THE NETWORK ON EVERY ACTION SCREEN: the acting network's badge on the first line. */
+/**
+ * AN ACTION RESULT ENDS IN ITS TRANSACTION (owner, 12 Oct 2026): "tx ↗" on the explorer of the network
+ * this deployment trades on, read off the exchange's own reply. No hash (the forwarder dropped the
+ * request, or no reply came) is no line: never a broken link.
+ */
+function withTx(deps: Pick<BotDeps, 'explorerTxUrl'>, screen: Screen, txs: ReadonlyArray<{ readonly label?: string | undefined; readonly txHash: string | undefined }>): Screen {
+  const line = actionTxLine(deps.explorerTxUrl, txs);
+  return line === undefined ? screen : { ...screen, html: `${screen.html}\n${line}` };
+}
+/** Each close's transaction in a Stop-everything or Close-position report, named by its market. */
+function closeTxs(report: EmergencyReport): ReadonlyArray<{ readonly label: string; readonly txHash: string | undefined }> {
+  if (report.kind !== 'ran' || report.txByPosition === undefined) return [];
+  return report.results.map((r) => ({ label: r.position.symbol, txHash: report.txByPosition?.[r.position.positionId] }));
+}
+
 function badged(deps: Pick<BotDeps, 'tradingNetwork'>, screen: Screen): Screen {
   return { ...screen, html: withBadge(screen.html, deps.tradingNetwork) };
 }
@@ -2155,7 +2174,9 @@ async function runConfirmed(
     const retry = deps.store.put({ userId: pending.userId, telegramUserId: pending.telegramUserId, action });
     retryData = encodeCallback({ kind: 'confirm', token: retry.token, marketId: action.marketId, amountCNS: action.amountCNS });
   }
-  await editOrSend(ctx, badged(deps, outcomeScreen({ action, outcome, market, assessment, ...(retryData === undefined ? {} : { retryData }) })));
+  // The transaction the exchange's reply came from, whatever the reply said: the `sr 32` "failure" that applied has one too.
+  const tx = 'txHash' in outcome ? outcome.txHash : undefined;
+  await editOrSend(ctx, withTx(deps, badged(deps, outcomeScreen({ action, outcome, market, assessment, ...(retryData === undefined ? {} : { retryData }) })), [{ txHash: tx }]));
 }
 
 /** Edit the tapped message into a screen; send it fresh when that is not possible. */

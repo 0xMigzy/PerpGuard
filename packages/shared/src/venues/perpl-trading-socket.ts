@@ -90,6 +90,23 @@ export interface SubmitResult {
   /** The raw `mt: 24` entry, absent when the gateway rejected the frame. */
   readonly order: OrderUpdateEntry | undefined;
   readonly orderId: number | undefined;
+  /**
+   * The transaction the order update came from: `at.txid` on the `mt: 24`
+   * entry, as 0x and 64 hex. MEASURED, not documented: three recorded frames
+   * (a close, a position update and an add-margin `st 7 / sr 32`) each name a
+   * real transaction to the Exchange in the frame's own block (12 Oct 2026).
+   * Undefined when the frame carries none, or no frame came at all.
+   */
+  readonly txHash: string | undefined;
+}
+
+/** `at.txid` off a raw order update entry: bare hex on the wire, 0x-prefixed here. Anything that is not 64 hex is not a hash. */
+export function txHashOfOrder(order: unknown): string | undefined {
+  const at = (order as { at?: unknown } | undefined)?.at;
+  const raw = (at as { txid?: unknown } | undefined)?.txid;
+  if (typeof raw !== 'string') return undefined;
+  const hex = raw.trim().replace(/^0x/i, '').toLowerCase();
+  return /^[0-9a-f]{64}$/.test(hex) ? `0x${hex}` : undefined;
 }
 
 interface Pending {
@@ -592,6 +609,7 @@ export class PerplTradingSocket {
         reason: `gateway rejected the frame: code ${ack.code}${ack.error === '' ? '' : ` — ${ack.error}`}`,
         order: undefined,
         orderId: undefined,
+        txHash: undefined,
       };
     }
 
@@ -617,7 +635,7 @@ export class PerplTradingSocket {
     const st = numberAt(order, 'st');
     const sr = numberAt(order, 'sr');
     const { outcome, reason } = classifyOrderUpdate(st, sr, options.intent);
-    return { ack, outcome, reason, order, orderId: orderIdOf(order) };
+    return { ack, outcome, reason, order, orderId: orderIdOf(order), txHash: txHashOfOrder(order) };
   }
 
   close(): void {

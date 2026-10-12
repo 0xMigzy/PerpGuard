@@ -255,6 +255,8 @@ export interface ActionResult {
   readonly symbol: string;
   /** Venue order/request id once known. */
   readonly venueRef?: string;
+  /** The on-chain transaction the venue's outcome came from (0x and 64 hex), when the venue reported one. For a link, never for a decision. */
+  readonly txHash?: string;
   /** Present when status is 'rejected'. */
   readonly reason?: string;
   readonly at: number;

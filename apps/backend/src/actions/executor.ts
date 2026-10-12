@@ -424,6 +424,8 @@ export class ActionsExecutor {
           status: result.status,
           reason: result.reason,
           venueRef: result.venueRef,
+          // READ, STORED AND PRINTED, nothing more: no decision in this file looks at it.
+          ...(result.txHash === undefined ? {} : { txHash: result.txHash }),
         },
       };
     } catch (error) {
@@ -670,6 +672,7 @@ export class ActionsExecutor {
         reportedStatus: reported?.status,
         reportedReason: reported?.reason,
         venueRef: reported?.venueRef,
+        ...(reported?.txHash === undefined ? {} : { txHash: reported.txHash }),
         after,
         detail: outcome.detail,
         settledAtMs: this.#now(),

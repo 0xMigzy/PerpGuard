@@ -814,6 +814,18 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     none: the index keeps a position's open and close transactions only. A
     warning-level alert has none either (it is about a distance); it carries
     the time and the wallet link.
+  - AN ACTION RESULT ENDS IN "tx ↗" ALONE, on the explorer of the network
+    this deployment TRADES on, with no wallet link (it is the person's own
+    account): add margin, partial close, close all (each market named when
+    several closed: "BTC tx ↗ · SOL tx ↗"), close position, Rescue top-ups.
+    THE HASH IS `at.txid` ON PERPL'S ORDER UPDATE (`mt: 24`), undocumented and
+    MEASURED: three recorded frames, one of them the add-margin `st 7 / sr 32`
+    that applies, each name a real transaction to the Exchange in the frame's
+    own block. `txHashOfOrder` -> `ActionResult.txHash` -> the executor's
+    `reported.txHash` -> `action_log.tx_hash` -> the screens. READ, STORED AND
+    PRINTED, NOTHING MORE: no decision looks at it, and a test runs the same
+    top-up with and without a hash and gets the same verdict. A request the
+    forwarder dropped has no frame, so no hash and NO LINE.
 
 ## The Telegram bot: screens, not commands
 - THE MENU IS THE OWNER'S 8 OCT 2026 SPEC, and `docs/bot-screens.html` is

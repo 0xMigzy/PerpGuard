@@ -4,7 +4,7 @@ import { loadNetworkConfig } from '../config.ts';
 import { ActionTimeoutError, VenueAuthError } from '../errors.ts';
 import { matchPlacement, orderIdOf, reconcileOrderState } from './perpl-orders.ts';
 import { ApiSecret, wsSignInCanonical } from './perpl-signing.ts';
-import { PerplTradingSocket } from './perpl-trading-socket.ts';
+import { PerplTradingSocket, txHashOfOrder } from './perpl-trading-socket.ts';
 
 const testnet = loadNetworkConfig('testnet', {});
 const secret = ApiSecret.fromHex(
@@ -774,4 +774,15 @@ describe('close and stall', () => {
     assert.equal(socket.closed, false);
     socket.close();
   });
+});
+
+it("THE ORDER UPDATE'S TRANSACTION (`at.txid`): bare hex on the wire, 0x and 64 hex here; the recorded add-margin frame that says st 7 / sr 32 carries one too", async () => {
+  const { readFileSync } = await import('node:fs');
+  const run = JSON.parse(readFileSync(new URL('../../../../fixtures/live-action-run-testnet.json', import.meta.url), 'utf8')) as { orderFrames: Array<{ d: Array<Record<string, unknown>> }> };
+  const entry = run.orderFrames.flatMap((f) => f.d).find((o) => (o['at'] as { txid?: string } | undefined)?.txid !== undefined)!;
+  assert.deepEqual([Number(entry['t']), Number(entry['st']), Number(entry['sr'])], [6, 7, 32], 'the top-up the exchange reports as failed');
+  assert.equal(txHashOfOrder(entry), '0x50c9c16e83b87a4556739d55a6509cf06a190f38a65b612484f9e5b755354787');
+  // Nothing that is not a hash is ever passed on as one.
+  for (const bad of [undefined, {}, { at: {} }, { at: { txid: 12 } }, { at: { txid: 'abc' } }, { at: { txid: 'zz'.repeat(32) } }]) assert.equal(txHashOfOrder(bad), undefined);
+  assert.equal(txHashOfOrder({ at: { txid: `0x${'AB'.repeat(32)}` } }), `0x${'ab'.repeat(32)}`);
 });

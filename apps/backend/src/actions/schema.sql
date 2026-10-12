@@ -99,3 +99,8 @@ create index if not exists action_log_needs_attention_idx
 
 -- The account acted on. Added after accounts became plural; old rows keep null.
 alter table action_log add column if not exists account_id bigint;
+
+-- The on-chain transaction behind an action's outcome (12 Oct 2026): `at.txid` off Perpl's order
+-- update, 0x and 64 hex. For the result's explorer link. Null when no frame came (a dropped
+-- request, a timeout) and on every row from before.
+alter table action_log add column if not exists tx_hash text;

@@ -557,12 +557,15 @@ export class PerplVenue implements Venue {
     });
 
     const venueRef = result.orderId === undefined ? undefined : String(result.orderId);
+    // The transaction behind the outcome, read off the same frame. Carried for the result's link; it decides nothing.
+    const tx = result.txHash === undefined ? {} : { txHash: result.txHash };
     if (result.outcome === 'confirmed') {
       return {
         ...base,
         status: 'confirmed',
         at: this.#now(),
         ...(venueRef === undefined ? {} : { venueRef }),
+        ...tx,
       };
     }
     return {
@@ -571,6 +574,7 @@ export class PerplVenue implements Venue {
       reason: result.reason,
       at: this.#now(),
       ...(venueRef === undefined ? {} : { venueRef }),
+      ...tx,
     };
   }
 

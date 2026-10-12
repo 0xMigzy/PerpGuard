@@ -33,7 +33,7 @@ export type EmergencyResult =
 export type EmergencyReport =
   | { readonly kind: 'nothing-sent'; readonly why: 'already-flat' | 'cannot-see' | 'no-session' }
   | { readonly kind: 'already-running' }
-  | { readonly kind: 'ran'; readonly results: readonly EmergencyResult[]; readonly complete: boolean; readonly replayed: boolean; readonly automationOff?: boolean };
+  | { readonly kind: 'ran'; readonly results: readonly EmergencyResult[]; readonly complete: boolean; readonly replayed: boolean; readonly automationOff?: boolean; readonly txByPosition?: Readonly<Record<number, string>> };
 
 export interface EmergencyControl {
   /** Every open position, or undefined when the list cannot be seen (or the account has no session). */
@@ -61,6 +61,8 @@ export type PartialReport =
       readonly realisedCNS: bigint | undefined;
       readonly feeCNS: bigint | undefined;
       readonly replayed: boolean;
+      /** The transaction the exchange's reply came from. Absent when no reply came. */
+      readonly txHash?: string | undefined;
     };
 
 /** The shares the Close position screen offers. */

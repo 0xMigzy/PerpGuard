@@ -95,6 +95,7 @@ import {
 } from '@perpguard/bot';
 import { DEFAULT_ALERT_CONFIG } from './alerts/types.ts';
 import { withBadge } from './alerts/plain.ts';
+import { actionTxLine } from './alerts/provenance.ts';
 import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore } from './rescue/automation.ts';
 import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
 import { RescueControlService } from './rescue/control.ts';
@@ -741,7 +742,9 @@ const requireCloseEverything = (): CloseEverything => {
 };
 /** The backend's report, in the bot's terms. */
 const toEmergencyReport = (r: Awaited<ReturnType<CloseEverything['closeAll']>>) =>
-  r.kind === 'ran' ? { kind: 'ran' as const, results: r.verified.results, complete: r.verified.complete, replayed: r.replayed, ...(r.automationOff === undefined ? {} : { automationOff: r.automationOff }) } : r;
+  r.kind === 'ran'
+    ? { kind: 'ran' as const, results: r.verified.results, complete: r.verified.complete, replayed: r.replayed, ...(r.automationOff === undefined ? {} : { automationOff: r.automationOff }), ...(r.txByPosition === undefined ? {} : { txByPosition: r.txByPosition }) }
+    : r;
 
 const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
   const session = registry.get(accountId);
@@ -829,6 +832,8 @@ const bot =
         configs: riskConfigs,
         tradingNetwork: network.name,
         ...(PEER_BOT === undefined ? {} : { peerBot: PEER_BOT }),
+        // An action result's "tx ↗" is on the network this deployment trades on.
+        explorerTxUrl: explorerTxUrl(network.name),
         amounts: pendingAmounts,
         identities,
         link: {
@@ -929,7 +934,9 @@ const rescueEngine = new RescueEngine({
   notify: async (accountId, notice) => {
     const raw = renderRescue(notice, collateralDecimals);
     // THE NETWORK ON EVERY ACTION SCREEN: Rescue's messages are about money that moved, or will.
-    const rendered = { ...raw, html: withBadge(raw.html, network.name) };
+    // ...and end in the top-up's transaction on this deployment's own network, when the exchange's reply named one.
+    const txLine = 'txHash' in notice ? actionTxLine(explorerTxUrl(network.name), [{ txHash: notice.txHash }]) : undefined;
+    const rendered = { ...raw, html: `${withBadge(raw.html, network.name)}${txLine === undefined ? '' : `\n${txLine}`}` };
     const keyboard = rendered.buttons.map((b) => ({
       text: b.text,
       // Fresh: a rescue report is the record of what happened to someone's money, never edited away.
@@ -938,7 +945,7 @@ const rescueEngine = new RescueEngine({
     for (const link of links.byAccountId(accountId)) {
       if (bot === undefined) break;
       try {
-        await bot.api.sendMessage(link.chatId, rendered.html, { parse_mode: 'HTML', ...(keyboard.length === 0 ? {} : { reply_markup: { inline_keyboard: [keyboard] } }) });
+        await bot.api.sendMessage(link.chatId, rendered.html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...(keyboard.length === 0 ? {} : { reply_markup: { inline_keyboard: [keyboard] } }) });
       } catch (error) {
         warn(`rescue: the ${notice.kind} message to chat ${link.chatId} did not go: ${classifyTelegramError(error, botConfig?.token ?? '').reason ?? 'Telegram refused it'}`);
       }

@@ -108,6 +108,9 @@ function toCommand(request: ExecuteRequest): ActionCommand | undefined {
  * EXPORTED so the web's Protect page tells a trader the same sentence the bot
  * does for the same outcome. Two front doors, one set of words.
  */
+/** The reply's transaction, when it named one: for the outcome's link, never for its wording. */
+const tx = (reported: { readonly txHash?: string | undefined } | undefined): { readonly txHash?: string } => (reported?.txHash === undefined ? {} : { txHash: reported.txHash });
+
 export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutcome {
   switch (outcome.kind) {
     case 'applied':
@@ -115,6 +118,7 @@ export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutco
         kind: 'applied',
         detail: appliedText(outcome),
         ...(outcome.reported.status === 'rejected' ? { venueRejected: true } : {}),
+        ...tx(outcome.reported),
       };
     case 'not-applied':
       // SAYS WHY SENDING AGAIN IS SAFE, rather than leaving the user to wonder.
@@ -127,12 +131,13 @@ export function describeExecutionOutcome(outcome: ActionOutcome): ExecutionOutco
           `Nothing was added. I checked the position afterwards and its margin is unchanged, ` +
           `so no collateral left your balance and the request did not reach the exchange. ` +
           `Sending it again is safe — I verified nothing landed, so it cannot go through twice.`,
+        ...tx(outcome.reported),
       };
     case 'unknown':
       // ONE SHORT PARAGRAPH, NO CODES (owner, 8 Oct 2026). The actions layer's
       // detail (the command, the venue's status and reason) stays in action_log
       // and the server log, where somebody debugging needs it. It never says "retry".
-      return { kind: 'unknown', ...unknownText(outcome.command) };
+      return { kind: 'unknown', ...unknownText(outcome.command), ...tx(outcome.reported) };
     case 'refused':
       return { kind: 'refused', detail: refusedText(outcome) };
   }

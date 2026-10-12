@@ -160,6 +160,8 @@ export interface ReportedStatus {
     | 'threw';
   readonly reason: string | undefined;
   readonly venueRef: string | undefined;
+  /** The transaction the venue's report came from, when its frame named one. For the result's link; it decides nothing. */
+  readonly txHash?: string | undefined;
 }
 
 /** Why an action was never sent. */
@@ -365,6 +367,8 @@ export interface ActionLogSettlement {
   readonly reportedStatus: string | undefined;
   readonly reportedReason: string | undefined;
   readonly venueRef: string | undefined;
+  /** The on-chain transaction, when the venue reported one. Absent when no frame came (a dropped request, a timeout). */
+  readonly txHash?: string | undefined;
   readonly after: bigint | undefined;
   readonly detail: string;
   readonly settledAtMs: number;

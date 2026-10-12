@@ -55,6 +55,8 @@ export type ReduceReport =
       readonly feeCNS: bigint | undefined;
       readonly exitPricePNS: bigint | undefined;
       readonly replayed: boolean;
+      /** The transaction the exchange's reply came from, for the result's link. Absent when no reply came. */
+      readonly txHash?: string | undefined;
     };
 
 export type CloseAllReport =
@@ -62,7 +64,15 @@ export type CloseAllReport =
   | { readonly kind: 'nothing-sent'; readonly why: 'already-flat' | 'cannot-see' | 'no-session'; readonly stop: StopReport | undefined }
   /** Another run on this account is still going. Nothing new was sent. */
   | { readonly kind: 'already-running' }
-  | { readonly kind: 'ran'; readonly verified: Verified; readonly stop: StopReport | undefined; readonly replayed: boolean; readonly automationOff?: boolean };
+  | {
+      readonly kind: 'ran';
+      readonly verified: Verified;
+      readonly stop: StopReport | undefined;
+      readonly replayed: boolean;
+      readonly automationOff?: boolean;
+      /** Each close's transaction, by position id, for the result's links. A position whose close got no reply has none. */
+      readonly txByPosition?: Readonly<Record<number, string>>;
+    };
 
 /**
  * What runs before the closes. Close everything and its retries STOP ALL AUTOMATION (the kill
@@ -235,7 +245,8 @@ export class CloseEverything {
     } catch (error) {
       log(`${tag}: the run could not be recorded (${error instanceof Error ? error.message : String(error)}); the log lines above are the record`);
     }
-    return { kind: 'ran', position: p, requestedLNS: closeLNS, result, realisedCNS, feeCNS, exitPricePNS, replayed: false };
+    const txHash = outcome !== undefined && outcome.kind !== 'refused' ? outcome.reported.txHash : undefined;
+    return { kind: 'ran', position: p, requestedLNS: closeLNS, result, realisedCNS, feeCNS, exitPricePNS, replayed: false, ...(txHash === undefined ? {} : { txHash }) };
   }
 
   async #run(accountId: number, requestId: string, by: string, scope: Scope): Promise<CloseAllReport> {
@@ -323,7 +334,9 @@ export class CloseEverything {
     for (const r of verified.results) {
       log(`close-everything ${accountId}:${requestId}: ${r.position.symbol} VERIFIED ${r.kind}${r.kind === 'partial' ? ` (${r.remainingLNS} lots remain)` : ''}${r.kind === 'still-open' || r.kind === 'partial' || r.kind === 'not-seen' ? `: ${r.why}` : ''}`);
     }
-    const report: CloseAllReport = { kind: 'ran', verified, stop, replayed: false, ...(scope.kind === 'position' ? { automationOff } : {}) };
+    const txByPosition: Record<number, string> = {};
+    for (const [positionId, o] of outcomes) if (o !== undefined && o.kind !== 'refused' && o.reported.txHash !== undefined) txByPosition[positionId] = o.reported.txHash;
+    const report: CloseAllReport = { kind: 'ran', verified, stop, replayed: false, ...(scope.kind === 'position' ? { automationOff } : {}), ...(Object.keys(txByPosition).length === 0 ? {} : { txByPosition }) };
     await this.#record(accountId, requestId, by, startedAtMs, requested, outcomes, report);
     return report;
   }
