@@ -336,5 +336,6 @@ export function flowsCsv(rows: readonly TraderRow[]): string {
 
 // ── Account summary ─────────────────────────────────────────────────────────
 
-// The maths lives in the shared package: the bot's /equity reply is the same function.
-export { accountSummary, type AccountSummary } from '@perpguard/shared';
+// The maths lives in the shared package: the bot's /equity reply is the same function. Imported by its
+// own subpath: the package root pulls in server-only modules (node:crypto) that a browser bundle cannot take.
+export { accountSummary, type AccountSummary } from '@perpguard/shared/analytics/account-summary';
