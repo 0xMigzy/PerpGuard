@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { accountSummary } from '@perpguard/shared';
 import { equityHtml } from './equity.ts';
 
-const FRESH = 'Positions come from the mainnet index at block 100; marks come from the venue. Not live, and read-only from this chat.';
+const FRESH = 'Positions come from the MAINNET index at block 100; marks come from the venue. Not live, and read-only from this chat.';
 const ok = (profile: Parameters<typeof accountSummary>[0], positions: Parameters<typeof accountSummary>[1], marksAsOfMs?: number) =>
   ({ kind: 'ok' as const, accountId: 24, summary: accountSummary(profile, positions), marksAsOfMs });
 
@@ -24,7 +24,7 @@ test('a gain carries a plus, a loss a true minus, and an account with nothing op
   const flat = equityHtml(ok({ freeBalanceAusd: 7.5, depositedAusd: 0, withdrawnAusd: 0 }, []), { nowMs: 0, freshness: FRESH });
   assert.match(flat, /^💰 <b>#24 · equity 7\.50 AUSD<\/b>/);
   assert.match(flat, /Unrealised P&amp;L: <b>0\.00 AUSD<\/b>/);
-  assert.match(flat, /No open positions\. Positions come from the mainnet index/);
+  assert.match(flat, /No open positions\. Positions come from the MAINNET index/);
 });
 
 test('ONE UNPRICED POSITION: equity is not totalled, never a partial sum, and the message says why', () => {

@@ -15,7 +15,7 @@
 import { scaledToNumber, type ActionAvailability, type FeedHealth, type MarketRiskConfig, type PositionSourceStatus } from '@perpguard/shared';
 import type { AlertAction, AlertActionIntent } from '@perpguard/backend/alerts';
 import { formatPricePNS } from '@perpguard/backend/alerts/render';
-import { dot, esc, fromLiquidation, held, pct, positionName, shortDistance, signedPnl } from '@perpguard/backend/alerts/plain';
+import { dot, esc, fromLiquidation, held, networkName, pct, positionName, shortDistance, signedPnl } from '@perpguard/backend/alerts/plain';
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import { ALERT_DISTANCE_PRESETS, distanceLabel } from '@perpguard/backend/manual/distance';
 import type { FreeBalanceReading } from './balance.ts';
@@ -56,7 +56,7 @@ export interface PositionsInput {
  */
 export function positionsScreen(input: PositionsInput): Screen {
   const all = ordered(input.assessments);
-  const lines = [`📊 <b>MY POSITIONS</b> · ${input.network ?? 'testnet'} #${input.accountId}`];
+  const lines = [`📊 <b>MY POSITIONS</b> · ${networkName(input.network)} #${input.accountId}`];
   const d = collateralDecimalsOf(input.configs);
   const seen = all.filter((a) => !isBlind(a.state));
   const unseen = all.length - seen.length;
@@ -361,7 +361,7 @@ export function outcomeScreen(input: OutcomeInput): Screen {
 
 export function settingsScreen(accountId: number, settings: AccountSettings, network?: string): Screen {
   return {
-    html: `⚙️ <b>SETTINGS</b> · ${network ?? 'testnet'} #${accountId}`,
+    html: `⚙️ <b>SETTINGS</b> · ${networkName(network)} #${accountId}`,
     buttons: [
       [{ text: `🔔 Alert me at: ${distanceLabel(settings.alertPct)} from liquidation`, route: { to: 'warn-ask' } }],
       [{ text: '← Back', route: { to: 'home' } }],

@@ -23,7 +23,7 @@ export const TESTNET_GUIDE_URL: string | undefined = '/bot/guide';
 
 /** The manual alert at the account's alert distance, for a BTC long 2.7% from liquidation. */
 export const ALERT_EXAMPLE = {
-  /** The first line on every message that offers an action: the acting network, said once. */
+  /** The banner's network: the page prints its own deployment's, uppercase and bold, as the bot does (`actingBadge`). */
   network: 'testnet',
   /** The position and its distance; the distance is the part the page highlights. */
   position: 'BTC long',

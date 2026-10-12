@@ -26,6 +26,7 @@ import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import type { Route } from './nav.ts';
 import type { WatchSubscription } from './watch.ts';
 import { networkLabel, type ExecutionState } from './trading.ts';
+import { networkName } from '@perpguard/backend/alerts/plain';
 
 export type Button =
   /** `fresh`: open as a new message rather than editing this one (see `NavTap`). */
@@ -113,7 +114,7 @@ export function indexLine(health: IndexerHealth | undefined): string | undefined
 }
 
 /** `🔗 testnet #24`: the network, said once. */
-export const accountTag = (network: NetworkName | undefined, accountId: number): string => `🔗 ${network ?? 'testnet'} #${accountId}`;
+export const accountTag = (network: NetworkName | undefined, accountId: number): string => `🔗 ${networkName(network)} #${accountId}`;
 
 /**
  * 🏠 THE MENU (owner, 8 Oct 2026). Nothing connected: what PerpGuard does and
@@ -240,7 +241,7 @@ export function walletScreen(input: WalletInput): Screen {
   }
   const lead = input.lead === undefined ? [] : [input.lead, ''];
   const stop: Button = { text: '🗑 Stop watching', route: { to: 'unwatch', accountId: input.accountId } };
-  const head = `👁 <b>mainnet ${id}</b>`;
+  const head = `👁 <b>MAINNET ${id}</b>`;
   const lines = [...lead];
 
   if (input.facts === undefined && input.assessments.length === 0) {
@@ -286,7 +287,7 @@ export interface PeerBot {
 const title = (network: NetworkName): string => (network === 'mainnet' ? 'Mainnet' : 'Testnet');
 /** "This bot acts on testnet. Mainnet is @PerpGuardBot." */
 export function peerLine(own: NetworkName | undefined, peer: PeerBot): string {
-  return `${own === undefined ? '' : `This bot acts on ${own}. `}${title(peer.network)} is @${peer.username}.`;
+  return `${own === undefined ? '' : `This bot acts on ${networkName(own)}. `}${networkName(peer.network)} is @${peer.username}.`;
 }
 /** A link button to the other bot. A URL: it opens Telegram and calls nothing back. */
 export const peerRow = (peer: PeerBot | undefined): Button[][] =>
@@ -321,7 +322,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
       html: [
         '🔐 <b>TRADING ACCOUNT</b>',
         '',
-        `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${input.network ?? 'testnet'} #${p.accountId}.`,
+        `Your wallet <code>${shortAddress(p.walletAddress)}</code> owns ${networkName(input.network)} #${p.accountId}.`,
         'To add margin for you I also need an API key for it. Enter it on the page, never here.',
         ...(input.peer === undefined ? [] : ['', `<i>${peerLine(input.network, input.peer)}</i>`]),
       ].join('\n'),

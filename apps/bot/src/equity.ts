@@ -8,7 +8,7 @@
  * each rounded to the cent first and equity is their sum, so the arithmetic
  * printed in the message adds up exactly, as it does on the page.
  *
- * PUBLIC, like /watch: it reads the mainnet index and the venue's marks and
+ * PUBLIC, like /watch: it reads the MAINNET index and the venue's marks and
  * touches no account; the freshness sentence says it is read-only, and there
  * is no "Watching only" line because nothing is being watched. Equity is WITHHELD while any open position has no mark:
  * a partial sum is not equity.
@@ -21,9 +21,9 @@ export type EquityReading =
   | { readonly kind: 'unknown-account'; readonly accountId: number };
 
 export const EQUITY_USAGE = 'Send /equity followed by a 0x address or an account id, for example /equity 5213.';
-export const EQUITY_UNAVAILABLE = 'Equity is not available right now: I could not read the mainnet index or the prices. Nothing was changed; try again in a minute.';
+export const EQUITY_UNAVAILABLE = 'Equity is not available right now: I could not read the MAINNET index or the prices. Nothing was changed; try again in a minute.';
 
-export const unknownAccountText = (accountId: number): string => `There is no Perpl account #${accountId} in the mainnet index.`;
+export const unknownAccountText = (accountId: number): string => `There is no Perpl account #${accountId} in the MAINNET index.`;
 
 const cents = (ausd: number): string => Math.abs(ausd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** A signed amount with a true minus sign; zero carries none. */

@@ -251,14 +251,14 @@ export function labelFor(target: WatchTarget, resolved: ResolvedWatchTarget): st
 
 /** How current the watched data is, for `/watching` and the subscribe reply. */
 export function describeWatchFreshness(health: IndexerHealth | undefined): string {
-  if (health === undefined) return 'Positions come from the mainnet index; I could not read how far behind it is right now.';
+  if (health === undefined) return 'Positions come from the MAINNET index; I could not read how far behind it is right now.';
   const behind = health.blocksBehind;
   const block = health.latestProcessedBlock;
   const base =
     block !== undefined && block > 0
-      ? `Positions come from the mainnet index at block ${block.toLocaleString('en-US')}` +
+      ? `Positions come from the MAINNET index at block ${block.toLocaleString('en-US')}` +
         (behind === undefined ? '' : `, ${behind.toLocaleString('en-US')} block${behind === 1 ? '' : 's'} behind the chain`)
-      : 'Positions come from the mainnet index';
+      : 'Positions come from the MAINNET index';
   const state = health.state === 'synced' ? '' : ` (indexer ${health.state})`;
   return `${base}${state}; marks come from the venue. Not live, and read-only from this chat.`;
 }

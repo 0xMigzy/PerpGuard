@@ -48,7 +48,7 @@ const symbolOf = (market: { readonly symbol: string | undefined; readonly indexe
 
 /** "As of block 111,124,139, 140 blocks behind the chain." */
 function freshnessText(f: EventFreshness): string {
-  const block = f.indexerBlock === undefined ? 'From the mainnet index' : `As of block ${grouped(f.indexerBlock)}`;
+  const block = f.indexerBlock === undefined ? 'From the MAINNET index' : `As of block ${grouped(f.indexerBlock)}`;
   const behind = f.blocksBehind === undefined ? '' : `, ${grouped(f.blocksBehind)} block${f.blocksBehind === 1 ? '' : 's'} behind the chain`;
   return `${block}${behind}.`;
 }

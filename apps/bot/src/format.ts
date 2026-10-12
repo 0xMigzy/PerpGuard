@@ -123,7 +123,7 @@ export function availabilityNote(
     return 'Actions are unavailable: PerpGuard has not been told whether this market can be acted on.';
   }
   if (availability.actionable) return undefined;
-  return `Actions are unavailable on ${availability.network}: ${availability.reason}`;
+  return `Actions are unavailable on ${availability.network.toUpperCase()}: ${availability.reason}`;
 }
 
 export interface TelegramMessage {

@@ -11,7 +11,7 @@ const screen = (assessments: RiskAssessment[]) =>
 
 test('MY POSITIONS: one button per position, closest to liquidation first, the distance on it; past liquidation in words', () => {
   const s = screen([at(0.2, { marketId: base.marketId }), at(0.027), at(0.05), at(-0.004)]);
-  assert.equal(s.html, '📊 <b>MY POSITIONS</b> · testnet #710\nFree balance <b>10,000 AUSD</b> · unrealised −45 AUSD');
+  assert.equal(s.html, '📊 <b>MY POSITIONS</b> · TESTNET #710\nFree balance <b>10,000 AUSD</b> · unrealised −45 AUSD');
   assert.deepEqual(s.buttons.flat().map((b) => b.text), ['🔴 BTC long · past liquidation · −12 AUSD', '🔴 BTC long · 2.7% · −12 AUSD', '🟡 BTC long · 5.0% · −12 AUSD', '🟢 BTC long · 20.0% · −12 AUSD', '← Back']);
   assert.doesNotMatch(s.buttons.flat().map((b) => b.text).join(' '), /-0\./, 'never a negative percentage');
 });

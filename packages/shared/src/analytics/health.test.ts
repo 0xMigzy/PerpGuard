@@ -2,7 +2,7 @@
  * The distinction this file protects: HALTED is not LAGGING, and neither is
  * SYNCED.
  *
- * Two facts measured against the running mainnet indexer drive these tests,
+ * Two facts measured against the running MAINNET indexer drive these tests,
  * and both are counter-intuitive enough to be worth asserting directly:
  *
  *   - the indexer's own `block_height` is not independent, so a DEAD indexer

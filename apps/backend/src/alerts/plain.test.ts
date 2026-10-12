@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distance, esc, freeVerdict, money, renderWatchAlertHtml, shortDistance, watchedPositionLines, wholeAusd, signedPnl } from './plain.ts';
+import { actingBadge, distance, esc, freeVerdict, money, networkName, renderWatchAlertHtml, shortDistance, watchedPositionLines, wholeAusd, signedPnl, withBadge } from './plain.ts';
 import { buildMessage } from './render.ts';
 import { DEFAULT_ALERT_CONFIG } from './types.ts';
 import { BTC, FIXTURE_BTC, FIXTURE_BTC_MARK, assessOne } from './testSupport.ts';
@@ -116,4 +116,24 @@ test('P&L ROUNDS AGAINST THE READER: a loss away from zero, a gain toward it, ne
   assert.equal(signedPnl(-1_234_500_000n), '−1,235 AUSD');
   assert.equal(signedPnl(-300_000n), '−under 1 AUSD');
   assert.equal(signedPnl(0n), '+0 AUSD');
+});
+
+test('THE BANNER is the bare network name, uppercase and bold: no symbol, no "real funds", the same shape on both networks', () => {
+  assert.equal(actingBadge('mainnet'), '<b>MAINNET</b>');
+  assert.equal(actingBadge('testnet'), '<b>TESTNET</b>');
+  assert.equal(actingBadge(undefined), undefined);
+  assert.equal(actingBadge('devnet'), undefined);
+  assert.deepEqual([networkName('mainnet'), networkName('testnet'), networkName(undefined)], ['MAINNET', 'TESTNET', 'TESTNET']);
+});
+
+test("A MAINNET SCREEN NEVER LOSES ITS BANNER TO ITS OWN PROSE: only the bot's own uppercase name, in a heading or the banner itself, counts as already said", () => {
+  // The old rule skipped the banner whenever the text contained "mainnet" anywhere, in lowercase.
+  assert.equal(withBadge('⚠️ <b>Add 100 AUSD to BTC long?</b>\nThis account is on mainnet, where funds are real.', 'mainnet'), '<b>MAINNET</b>\n⚠️ <b>Add 100 AUSD to BTC long?</b>\nThis account is on mainnet, where funds are real.');
+  assert.equal(withBadge('🚪 <b>CLOSE BTC long</b>', 'testnet'), '<b>TESTNET</b>\n🚪 <b>CLOSE BTC long</b>');
+  // A heading that names the network the bot's way is not given a second line.
+  assert.equal(withBadge('📊 <b>MY POSITIONS</b> · MAINNET #4855', 'mainnet'), '📊 <b>MY POSITIONS</b> · MAINNET #4855');
+  // Idempotent: a screen that already carries the banner is left alone.
+  const once = withBadge('🆘 <b>KILL SWITCH</b>', 'mainnet');
+  assert.equal(withBadge(once, 'mainnet'), once);
+  assert.equal(withBadge('anything', undefined), 'anything');
 });

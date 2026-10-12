@@ -139,7 +139,7 @@ export function sizePhrase(units: number | undefined, symbol: string): string | 
  * from it must never pass for a live one.
  */
 export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 'priceIsOld' | 'priceAgeMs'>): string {
-  const block = scope.indexerBlock === undefined ? 'the mainnet index' : `block ${scope.indexerBlock.toLocaleString('en-US')}`;
+  const block = scope.indexerBlock === undefined ? 'the MAINNET index' : `block ${scope.indexerBlock.toLocaleString('en-US')}`;
   const behind =
     scope.blocksBehind === undefined ? '' : `, ${scope.blocksBehind.toLocaleString('en-US')} block${scope.blocksBehind === 1 ? '' : 's'} behind the chain`;
   const state = scope.indexerState === 'synced' ? '' : ` (indexer ${esc(scope.indexerState)})`;
@@ -156,20 +156,36 @@ export function freshness(scope: WatchedScope, assessment: Pick<RiskAssessment, 
 export const NO_BUTTONS = 'Watching only — nothing here to press.';
 
 /**
- * THE NETWORK, SAID ONCE (owner, 8 Oct 2026; was a 🧪 TESTNET banner): every
- * action screen and message names the acting network, and a screen that
- * already names it is left alone. Undefined network: no badge.
+ * THE NETWORK'S NAME, ONE WAY EVERYWHERE IN THE BOT (owner, 12 Oct 2026):
+ * UPPERCASE, wherever it is named: the banner, a heading ("MY POSITIONS ·
+ * TESTNET #24"), a sentence ("the MAINNET index"). Unknown reads as testnet,
+ * what every caller already assumed.
  */
-export function actingBadge(network: string | undefined): string | undefined {
-  if (network === 'testnet') return 'testnet';
-  if (network === 'mainnet') return '⚠️ <b>MAINNET</b> · real funds';
-  return undefined;
+export function networkName(network: string | undefined): string {
+  return (network ?? 'testnet').toUpperCase();
 }
 
-/** A screen's HTML with the network on its first line, unless the screen already names it. Idempotent. */
+/**
+ * THE BANNER: the acting network on the first line of every action screen and
+ * message, bold, with no symbol and nothing after it (owner, 12 Oct 2026; it
+ * was "testnet" in lowercase and "⚠️ MAINNET · real funds"). It is HTML, so
+ * everything that carries it is sent with parse_mode HTML: the one message
+ * that was not showed its tags as text. Undefined network: no banner.
+ */
+export function actingBadge(network: string | undefined): string | undefined {
+  return network === 'testnet' || network === 'mainnet' ? `<b>${networkName(network)}</b>` : undefined;
+}
+
+/**
+ * A screen's HTML with the banner on its first line, unless the screen
+ * already names the network THE BOT'S WAY (uppercase: its own heading, or the
+ * banner itself). Idempotent. Until 12 Oct 2026 the test was "the text
+ * contains the network's name in lowercase", so a mainnet action screen
+ * whose prose happened to say "mainnet" would have silently lost its banner.
+ */
 export function withBadge(html: string, network: string | undefined): string {
   const badge = actingBadge(network);
-  if (badge === undefined || network === undefined || html.includes(network)) return html;
+  if (badge === undefined || network === undefined || html.includes(networkName(network))) return html;
   return `${badge}\n${html}`;
 }
 

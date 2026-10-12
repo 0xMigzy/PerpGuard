@@ -60,7 +60,7 @@ test('whatever the line and the position, a smaller top-up that is shown has lan
 });
 
 test("THE OWNER'S BTC LONG: the balance cannot reach the clear level, so ONE top-up, 90% of the free balance, and it says what it leaves", () => {
-  // Measured live on testnet #24 (9 Oct 2026): 93,754 AUSD notional, 2.37% from liquidation, alert at 2.5%, 1,088.977 free.
+  // Measured live on TESTNET #24 (9 Oct 2026): 93,754 AUSD notional, 2.37% from liquidation, alert at 2.5%, 1,088.977 free.
   const s = suggestAmounts(position({ notional: 93_754, now: 0.0237, d: 0.025, free: 1_088.977 }));
   assert.equal(s.note, undefined);
   // 4.5% would need 2,000 and twice that is 4,000; 90% of 1,088.977 is a whole 980. Its half (490) would land at 2.9%, short of 4.5%: hidden.

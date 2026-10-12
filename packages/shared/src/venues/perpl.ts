@@ -284,7 +284,7 @@ export class PerplVenue implements Venue {
         actionable: false,
         network,
         code: 'not-listed-on-acting-network',
-        reason: `${symbol} (market ${ref.marketId}) is not listed on Perpl ${network}, so there is nothing to act on there. Monitoring and alerts continue.`,
+        reason: `${symbol} (market ${ref.marketId}) is not listed on Perpl ${network.toUpperCase()}, so there is nothing to act on there. Monitoring and alerts continue.`,
       };
     }
 
@@ -293,7 +293,7 @@ export class PerplVenue implements Venue {
         actionable: false,
         network,
         code: 'market-closed',
-        reason: `${symbol} is currently closed on Perpl ${network}. Monitoring and alerts continue.`,
+        reason: `${symbol} is currently closed on Perpl ${network.toUpperCase()}. Monitoring and alerts continue.`,
       };
     }
 

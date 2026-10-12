@@ -20,7 +20,8 @@ test('THE /bot PREVIEW IS THE REAL ALERT: its lines are what manualAlertText and
   const assessment = { ...dangerAssessment(), symbol: 'BTC', side: 'long' as const, liqBufferPct: ALERT_EXAMPLE_INPUTS.liqBufferPct, marginCNS: ALERT_EXAMPLE_INPUTS.marginCNS };
   const text = withBadge(manualAlertText({ accountId: 710, assessment, alertPct: 5, auto: { kind: 'off' } }, { known: true, floorCNS: ALERT_EXAMPLE_INPUTS.freeCNS }, BTC), ALERT_EXAMPLE.network);
   assert.deepEqual(plain(text).split('\n'), [
-    ALERT_EXAMPLE.network,
+    // The banner: the acting network, uppercase (and bold in the chat; `plain` strips the tags).
+    ALERT_EXAMPLE.network.toUpperCase(),
     `🔴 ${ALERT_EXAMPLE.position} is ${ALERT_EXAMPLE.distance} from liquidation`,
     `Margin ${ALERT_EXAMPLE.margin} · ${ALERT_EXAMPLE.free} free`,
   ]);

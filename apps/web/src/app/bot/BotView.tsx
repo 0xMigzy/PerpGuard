@@ -288,8 +288,10 @@ function AlertPreview() {
           </div>
         </div>
         <div className="rounded-[12px] rounded-tl-[4px] bg-[#182533] px-[13px] py-[10px] text-[14px] leading-[1.5] text-[#E9EDF2]">
-          {/* The acting network's first line, as the bot writes it (`actingBadge`): "testnet", or the mainnet warning. */}
-          <div className="text-[13px] text-[#9BA8B6]">{TRADING.network === 'mainnet' ? <>⚠️ <b>MAINNET</b> · real funds</> : a.network}</div>
+          {/* The banner, as the bot writes it (`actingBadge`): the acting network, uppercase and bold, nothing else. */}
+          <div className="text-[13px] text-[#9BA8B6]">
+            <b>{TRADING.network.toUpperCase()}</b>
+          </div>
           <div className="font-bold">
             🔴 {a.position} is <span className="text-danger">{a.distance}</span> from liquidation
           </div>

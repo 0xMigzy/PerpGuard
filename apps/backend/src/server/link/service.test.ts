@@ -78,7 +78,7 @@ function rig(options: { readonly vault?: KeyVault | undefined; readonly keys?: I
     ...(options.proofs === undefined ? {} : { proofs: options.proofs }),
     lookupElsewhere: async (address) => {
       const id = options.elsewhere?.get(address);
-      // The other deployment's network. Only a mainnet account can be watched (the watch tier reads the mainnet index).
+      // The other deployment's network. Only a mainnet account can be watched (the watch tier reads the MAINNET index).
       const other = (options.deployment ?? 'testnet') === 'testnet' ? 'mainnet' : 'testnet';
       return id === undefined ? undefined : { network: other, accountId: id, watchable: other === 'mainnet' };
     },
@@ -299,7 +299,7 @@ test('TWO BOTS: an account on the other network is sent to THAT network\'s bot b
   // The MAINNET bot, a wallet whose account is on testnet: named, sent to the testnet bot, and NOT offered as a watch.
   const onMainnet = await rig({ elsewhere: new Map([[wallet, 24]]), peerBot: 'PerpGuardTestnetBot', deployment: 'mainnet' }).service.proveWallet(rig().identity, [wallet]);
   assert.equal((onMainnet as { reason: string }).reason, 'This wallet owns Perpl account #24 on testnet. This bot acts on mainnet only. To connect that account, open @PerpGuardTestnetBot, the testnet bot. Or sign with the wallet that owns your account on mainnet.');
-  assert.equal((onMainnet as { watchInstead?: unknown }).watchInstead, undefined, 'a testnet account cannot be watched: the watch tier reads the mainnet index');
+  assert.equal((onMainnet as { watchInstead?: unknown }).watchInstead, undefined, 'a testnet account cannot be watched: the watch tier reads the MAINNET index');
 });
 
 test('status is FROM RECORDS: wallet-linked, key-linked and owner-linked read differently; unlink deletes the proof', async () => {

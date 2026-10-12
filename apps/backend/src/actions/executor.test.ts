@@ -379,7 +379,7 @@ test('a market the acting venue will not take refuses, and names the network', a
 
   assert.ok(outcome.kind === 'refused');
   assert.equal(outcome.code, 'not-actionable');
-  assert.match(outcome.detail, /not actionable on testnet: the venue has BTC closed/);
+  assert.match(outcome.detail, /not actionable on TESTNET: the venue has BTC closed/);
   assert.equal(h.venue.sends.length, 0);
 });
 

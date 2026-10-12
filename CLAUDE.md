@@ -729,17 +729,29 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   bot-wide cap on distinct accounts (`apps/bot/src/watch.ts`). Subscriptions
   persist in the backend's Postgres (`watch_subscriptions`) so a self-restart
   does not unsubscribe anyone.
-- THE NETWORK IS SAID ONCE (owner, 8 Oct 2026; was a 🧪 TESTNET banner on
-  every screen). Home says "🔗 testnet #24" and "👁 Watching 1"; headings that
-  name the account carry the network ("📊 MY POSITIONS · testnet #24"). Every
-  other ACTION screen and message gets the one word "testnet" on its first
-  line from `actingBadge`/`withBadge`/`badged()`, which skip a screen that
-  already names the network; never added by hand. Every watched-account
-  message ends in `NO_BUTTONS`, "Watching only — nothing here to press." On
-  /link, a wallet that owns a MAINNET account is refused for acting and
-  offered "👁 Watch it instead" (`POST /api/link/watch-instead`), which
-  watches ONLY the account the page session proved, never one posted in the
-  body.
+- THE NETWORK'S NAME IS UPPERCASE EVERYWHERE IN THE BOT, AND THE BANNER IS
+  THE BARE NAME (owner, 12 Oct 2026; `networkName`, `actingBadge`, `withBadge`
+  in `apps/backend/src/alerts/plain.ts`). One treatment of the word: the
+  banner, a heading ("📊 MY POSITIONS · TESTNET #24", "🔗 MAINNET #4855"), a
+  sentence ("the MAINNET index", "connected on MAINNET, but PerpGuard trades
+  on TESTNET here"). The website keeps its own prose ("Monad mainnet").
+  - THE BANNER is `<b>MAINNET</b>` or `<b>TESTNET</b>` on the first line of
+    every ACTION screen and message: bold, NO SYMBOL, NOTHING AFTER IT (it
+    was lowercase "testnet" and "⚠️ MAINNET · real funds"). Never added by
+    hand: `badged()`/`withBadge` add it.
+  - IT IS HTML, SO EVERYTHING THAT CARRIES IT IS SENT AS HTML. The one
+    message that was not (the "🛑 Stopping automation…" progress line of Stop
+    everything) showed "<b>MAINNET</b>" as text. A test walks the action
+    screens and fails on any banner-carrying message sent without it.
+  - A SCREEN IS SKIPPED ONLY WHEN IT ALREADY NAMES THE NETWORK THE BOT'S WAY
+    (uppercase: its own heading, or the banner). Until 12 Oct the test was
+    "the text contains the name in lowercase", so a mainnet action screen
+    whose prose said "mainnet" would have silently lost its banner.
+  Every watched-account message ends in `NO_BUTTONS`, "Watching only —
+  nothing here to press." On /link, a wallet whose account is on the other
+  network is sent to that network's bot; a MAINNET account is also offered
+  "👁 Watch it instead" (`POST /api/link/watch-instead`), which watches ONLY
+  the account the page session proved, never one posted in the body.
 - EVERY TELEGRAM USER IS SOMEBODY: `/start` registers an identity
   (`tg:<telegram user id>`, `apps/bot/src/identity.ts`, persisted in
   `telegram_identities`) for anyone, and NEVER hands out the acting slot
