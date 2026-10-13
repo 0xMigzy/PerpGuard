@@ -1,10 +1,26 @@
-# PerpGuard
+<div align="center">
 
-**Mainnet:** [perpguard.app](https://perpguard.app) · [@PerpGuardBot](https://t.me/PerpGuardBot) · [Setup guide](https://perpguard.app/bot/guide) · [Privacy](https://perpguard.app/privacy)
+<img src="brand/perpguard-logo-192.png" width="96" height="96" alt="PerpGuard">
 
-**Testnet:** [testnet.perpguard.app](https://testnet.perpguard.app) · [@PerpGuardTestnetBot](https://t.me/PerpGuardTestnetBot) · [Setup guide](https://testnet.perpguard.app/bot/guide) · [Privacy](https://testnet.perpguard.app/privacy)
+<h1>PerpGuard</h1>
 
-[Data & methodology](https://perpguard.app/status)
+<p>
+<b>Most liquidations on Perpl were preventable.</b><br>
+PerpGuard watches your positions, warns you before the line, and tops up margin on a tap — from Telegram.
+</p>
+
+<p>
+<a href="https://perpguard.app"><img src="https://img.shields.io/badge/mainnet-live-22c55e?style=flat-square&labelColor=161b22" alt="mainnet: live"></a>
+<a href="https://testnet.perpguard.app"><img src="https://img.shields.io/badge/testnet-try%20it%20free-8b5cf6?style=flat-square&labelColor=161b22" alt="testnet: try it free"></a>
+<a href="https://t.me/PerpGuardBot"><img src="https://img.shields.io/badge/telegram-%40PerpGuardBot-26a5e4?style=flat-square&labelColor=161b22" alt="telegram: @PerpGuardBot"></a>
+<a href="https://github.com/0xMigzy/PerpGuard/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/0xMigzy/PerpGuard/ci.yml?branch=main&label=ci&style=flat-square&labelColor=161b22" alt="ci status"></a>
+<img src="https://img.shields.io/badge/tests-1%2C656-22c55e?style=flat-square&labelColor=161b22" alt="tests: 1,656">
+<img src="https://img.shields.io/badge/indexed-84M%20events-7c3aed?style=flat-square&labelColor=161b22" alt="indexed: 84M events">
+<img src="https://img.shields.io/badge/built%20for-Monad%20Metropolis-836ef9?style=flat-square&labelColor=161b22" alt="built for: Monad Metropolis">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-64748b?style=flat-square&labelColor=161b22" alt="license: MIT"></a>
+</p>
+
+</div>
 
 ## Overview
 
