@@ -6,6 +6,7 @@ pnpm workspace, and it touches no application code.
 
     npm install            # Playwright; Chromium via `npx playwright install chromium` if missing
     npm run record         # -> out/perpguard-walkthrough.mp4, out/shots.json
+    npm run record:intro   # -> out/perpguard-intro.mp4, out/intro-shots.json: shots 1 to 4, exactly 29 s
     npm run probe          # prints each page's headings, table headers and controls
 
 Needs `ffmpeg` on the PATH (`apt-get install -y ffmpeg`). `out/shots.json`
