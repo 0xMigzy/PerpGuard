@@ -1,0 +1,13 @@
+{
+  "name": "perpguard-demo-recording",
+  "private": true,
+  "type": "module",
+  "description": "Records a walkthrough of the live perpguard.app for the bounty video. Standalone: not part of the pnpm workspace.",
+  "scripts": {
+    "probe": "node probe.mjs",
+    "record": "node record.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
