@@ -3,6 +3,7 @@
 //   npm run record                      -> out/perpguard-walkthrough.mp4
 //   SITE=https://perpguard.app          the site to record (never a local build by default)
 //   TRADER=4734                         open this account in shot 8 instead of the board's first row
+//   TRIM=0                          keep the loading placeholders in the MP4 (they are cut by default)
 //   CURSOR=0                            leave out the drawn cursor (Playwright's video has none of its own)
 //   HEADED=1                            watch it run
 //
@@ -17,6 +18,7 @@ import { join } from 'node:path';
 const SITE = (process.env.SITE ?? 'https://perpguard.app').replace(/\/$/, '');
 const TRADER = process.env.TRADER;
 const SHOW_CURSOR = process.env.CURSOR !== '0';
+const TRIM_LOADING = process.env.TRIM !== '0';
 const SIZE = { width: 1920, height: 1080 };
 const OUT = 'out';
 const RAW = join(OUT, 'raw');
@@ -26,6 +28,8 @@ const HEADER_PX = 112;
 
 const warnings = [];
 const shots = [];
+/** Spans of the raw video, in seconds, where a page was loading: cut from the MP4. */
+const cuts = [];
 let videoStartMs = 0;
 let trimSec = 0;
 
@@ -62,13 +66,27 @@ async function settle(page, label, timeoutMs = 45_000) {
       .catch(() => ['navigating']);
     if (last.length === 0) {
       cleanSince ??= Date.now();
-      if (Date.now() - cleanSince >= 1000) return;
+      if (Date.now() - cleanSince >= 1000) return cleanSince;
     } else {
       cleanSince = undefined;
     }
     await sleep(200);
   }
   warnings.push(`${label}: still loading after ${timeoutMs / 1000}s when captured (${[...new Set(last)].join(', ')})`);
+  return Date.now();
+}
+
+/**
+ * Runs a navigation and waits for the page, and marks the wait for cutting:
+ * from the moment the navigation starts to the first clean frame, so the MP4
+ * goes straight from the page before to the loaded page after.
+ */
+async function loading(page, label, navigate) {
+  const from = sinceStart();
+  await navigate();
+  const cleanAtMs = await settle(page, label);
+  // A little past the first clean look: the recorder is a few frames behind the page.
+  cuts.push({ label, from, to: (cleanAtMs - videoStartMs) / 1000 + 0.25 });
 }
 
 /** Eased scroll in small steps on the page's own frame clock: no jumps. */
@@ -141,9 +159,10 @@ const cursorScript = () => {
 };
 
 async function open(page, path, label) {
-  await page.goto(SITE + path, { waitUntil: 'load' });
-  await page.mouse.move(mouse.x, mouse.y); // the drawn cursor starts over on every document
-  await settle(page, label);
+  await loading(page, label, async () => {
+    await page.goto(SITE + path, { waitUntil: 'load' });
+    await page.mouse.move(mouse.x, mouse.y); // the drawn cursor starts over on every document
+  });
 }
 
 // ── the recording ─────────────────────────────────────────────────────────
@@ -162,7 +181,8 @@ page.on('response', (r) => {
 
 // 1 — Overview: protocol totals, slow scroll.
 await open(page, '/', 'Overview');
-trimSec = Math.max(0, sinceStart() - 0.4); // the blank lead-in before the first page is up is cut from the MP4
+trimSec = cuts[0].to; // the blank lead-in and the first page's loading are cut from the MP4
+cuts.shift();
 shot(1, 'Overview: protocol totals, slow scroll');
 await sleep(3000);
 await scrollToY(page, 1e6, 9000);
@@ -220,9 +240,10 @@ await sleep(2500);
 const board = page.getByRole('tab', { name: 'Liquidated', exact: true });
 await glideTo(page, board, 0.5, 0.5, 1000);
 await sleep(400);
-await board.click();
-await page.waitForURL(/rank=liquidated/);
-await settle(page, 'Traders, Liquidated board');
+await loading(page, 'Traders, Liquidated board', async () => {
+  await board.click();
+  await page.waitForURL(/rank=liquidated/);
+});
 await sleep(600);
 await glideTo(page, page.locator('thead th').last(), 0.7, 0.5, 1200); // the Liquidations header, arrow down
 await sleep(2000);
@@ -237,10 +258,11 @@ if ((await row.count()) === 0) throw new Error(`account ${TRADER} is not on the 
 await row.scrollIntoViewIfNeeded();
 await glideTo(page, row, 0.5, 0.5, 1200);
 await sleep(500);
-await row.click();
-await page.waitForURL(/\/traders\/\d+/);
-await page.mouse.move(mouse.x, mouse.y);
-await settle(page, `Trader page ${page.url()}`);
+await loading(page, 'Trader page', async () => {
+  await row.click();
+  await page.waitForURL(/\/traders\/\d+/);
+  await page.mouse.move(mouse.x, mouse.y);
+});
 shots.at(-1).what += ` (${new URL(page.url()).pathname})`;
 t = Date.now();
 await sleep(3500);
@@ -277,22 +299,28 @@ if (webm === undefined) throw new Error('Playwright wrote no video');
 const rawPath = join(RAW, 'walkthrough.webm');
 renameSync(join(RAW, webm), rawPath);
 
+// Kept: from the first loaded frame to the end, minus every loading span.
+const dropped = (TRIM_LOADING ? cuts : []).filter((c) => c.to > c.from);
+const keep = [`gte(t,${trimSec.toFixed(3)})`, `lte(t,${rawEndSec.toFixed(3)})`, ...dropped.map((c) => `not(between(t,${c.from.toFixed(3)},${c.to.toFixed(3)}))`)].join('*');
 const ff = spawnSync(
   'ffmpeg',
-  ['-y', '-loglevel', 'error', '-ss', trimSec.toFixed(2), '-i', rawPath, '-t', (rawEndSec - trimSec).toFixed(2), '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', '-an', MP4],
+  ['-y', '-loglevel', 'error', '-i', rawPath, '-vf', `select='${keep}',setpts=N/(25*TB)`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p', '-r', '25', '-movflags', '+faststart', '-an', MP4],
   { stdio: 'inherit' },
 );
 if (ff.error?.code === 'ENOENT') throw new Error('ffmpeg is not installed: apt-get install -y ffmpeg');
 if (ff.status !== 0) throw new Error(`ffmpeg exited ${ff.status}`);
 
+/** Where a moment of the raw video lands in the MP4. */
+const inMp4 = (raw) => raw - trimSec - dropped.reduce((sum, c) => sum + Math.max(0, Math.min(raw, c.to) - c.from), 0);
 const timeline = shots.map((s, i) => {
-  const at = Number((s.rawAtSec - trimSec).toFixed(2));
   const next = i + 1 < shots.length ? shots[i + 1].rawAtSec : rawEndSec;
-  return { shot: s.shot, what: s.what, atSec: at, lengthSec: Number((next - s.rawAtSec).toFixed(2)) };
+  return { shot: s.shot, what: s.what, atSec: Number(inMp4(s.rawAtSec).toFixed(2)), lengthSec: Number((inMp4(next) - inMp4(s.rawAtSec)).toFixed(2)) };
 });
-writeFileSync(join(OUT, 'shots.json'), JSON.stringify({ site: SITE, recordedAt: new Date().toISOString(), shots: timeline, warnings }, null, 2) + '\n');
+const loadingCut = dropped.map((c) => ({ before: c.label, cutSec: Number((c.to - c.from).toFixed(2)), atSec: Number(inMp4(c.from).toFixed(2)) }));
+writeFileSync(join(OUT, 'shots.json'), JSON.stringify({ site: SITE, recordedAt: new Date().toISOString(), shots: timeline, loadingCut, warnings }, null, 2) + '\n');
 
 console.log('\nshot   at     length');
 for (const s of timeline) console.log(`${String(s.shot).padStart(4)}  ${s.atSec.toFixed(1).padStart(6)}s ${s.lengthSec.toFixed(1).padStart(6)}s  ${s.what}`);
+for (const c of loadingCut) console.log(`cut ${c.cutSec.toFixed(1).padStart(5)}s of loading at ${c.atSec.toFixed(1)}s (${c.before})`);
 console.log(`\n${MP4}  ${(statSync(MP4).size / 1e6).toFixed(2)} MB (${statSync(MP4).size} bytes)`);
 console.log(warnings.length === 0 ? 'no warnings' : `\nWARNINGS\n- ${[...new Set(warnings)].join('\n- ')}`);
