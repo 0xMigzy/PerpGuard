@@ -53,7 +53,7 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 </table>
 
 <img src="docs/screenshots/two-bots.png" width="486" alt="Two Telegram bots in a list: PerpGuard, and PerpGuard | Testnet"><br>
-<em>The two bots in Telegram: PerpGuard for mainnet, and PerpGuard | Testnet.</em>
+<em>The two bots in Telegram — PerpGuard on mainnet, PerpGuard | Testnet on testnet.</em>
 
 ## What it does
 
