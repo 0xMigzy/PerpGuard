@@ -922,7 +922,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     `equity-of` are public; `equity-of` shows only a wallet this chat watches.
     ONE PATH (`equityOf` in `bot.ts`) for the command, the button and the
     typed answer, so the text is the same word for word; the button's screen
-    adds only ← Back. The menu's description is "Check any account's equity". `/positions`, `/status`, `/cancel`, `/unwatch`,
+    adds only ← Back. The menu's description is "Check any account's equity".
+  - 💰 EQUITY FOR THE CONNECTED ACCOUNT is on 🔐 Trading account (owner,
+    13 Oct 2026): a new FIRST row, [📊 My positions | 💰 Equity], above the
+    buttons that were there, whose order did not move. One tap, no input:
+    route `my-equity` (not public; the link is read at tap time, no session
+    needed) calls the same `equityOf`, so the text is /equity's word for
+    word, with ← Back to Trading account. MAINNET LINKS ONLY
+    (`equityAnswersFor`): /equity reads the mainnet index, and a testnet
+    account's number is somebody else's account there, so the testnet bot
+    shows no such row and a hand-made tap shows no figure. `/positions`, `/status`, `/cancel`, `/unwatch`,
   `/watching` and `/unlink` are gone; their jobs are buttons.
 - NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
   `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The

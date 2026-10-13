@@ -275,6 +275,12 @@ export interface AccountScreenInput {
   readonly guideUrl?: string | undefined;
   /** TWO BOTS, ONE PER NETWORK: the other network's bot, named on this screen with a link to it. Absent: one deployment. */
   readonly peer?: PeerBot | undefined;
+  /**
+   * 💰 Equity for the connected account (owner, 13 Oct 2026), beside 📊 My positions on a row of its own above
+   * the rest. True only where /equity can answer for this account: a MAINNET link, since /equity reads the
+   * mainnet index and a testnet account's number is somebody else's account there.
+   */
+  readonly equity?: boolean | undefined;
 }
 
 /** The other deployment's bot (12 Oct 2026): mainnet is @PerpGuardBot, testnet is @PerpGuardTestnetBot. */
@@ -359,6 +365,7 @@ export function accountScreen(input: AccountScreenInput): Screen {
   return {
     html: lines.join('\n'),
     buttons: [
+      ...(input.equity === true ? [[{ text: '📊 My positions', route: { to: 'positions' } } as Button, { text: '💰 Equity', route: { to: 'my-equity' } } as Button]] : []),
       ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
       [{ text: `🔌 Disconnect #${input.accountId}`, route: { to: 'disconnect-ask' } }],
       ...guideRow(input.guideUrl),

@@ -47,6 +47,8 @@ export type Route =
   | { readonly to: 'equity' }
   /** 💰 One watched wallet's equity, picked from the list. */
   | { readonly to: 'equity-of'; readonly accountId: number }
+  /** 💰 The CONNECTED account's equity, from 🔐 Trading account: no input, the link read at tap time. */
+  | { readonly to: 'my-equity' }
   | { readonly to: 'unwatch'; readonly accountId: number }
   /** 🔐 Trading Account. Public: an unlinked chat sees "Not connected" and how to connect. */
   | { readonly to: 'account' }
@@ -152,6 +154,7 @@ const CODE: Readonly<Record<RouteName, string>> = {
   wallet: 'w',
   equity: 'eq',
   'equity-of': 'eo',
+  'my-equity': 'mq',
   unwatch: 'uw',
   account: 'ta',
   connect: 'c',

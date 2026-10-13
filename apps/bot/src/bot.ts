@@ -560,8 +560,12 @@ export function createBot(deps: BotDeps): Bot {
       linkedAtMs: link.linkedAtMs,
       guideUrl,
       peer: deps.peerBot,
+      equity: equityAnswersFor(link),
     });
   };
+
+  /** /equity reads the MAINNET index, so it answers for a connected account only when that account is a mainnet one. */
+  const equityAnswersFor = (link: LinkRecord): boolean => (link.network ?? deps.tradingNetwork) === 'mainnet' && deps.watch?.equity !== undefined;
 
   const preferences = deps.watch?.preferences ?? new InMemoryPreferenceStore();
   const prefsOf = (chatId: number): AlertPreferences => preferences.get(chatId) ?? DEFAULT_PREFERENCES;
@@ -1187,6 +1191,20 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery({ text: removed ? `Stopped watching #${route.accountId}.` : `You were not watching #${route.accountId}.` });
         const list = wallets(chatId);
         await showScreen(ctx, { ...list, html: `${removed ? `Stopped watching <b>#${route.accountId}</b>.` : `You were not watching <b>#${route.accountId}</b>.`}\n\n${list.html}` });
+        return;
+      }
+      case 'my-equity': {
+        // 💰 THE CONNECTED ACCOUNT'S EQUITY: /equity's own path (`equityOf`) for the account this chat is
+        // linked to, read at tap time. No session needed: it reads the index, like the command.
+        if (!(await tapWithinLimit(ctx, chatId))) return;
+        await ctx.answerCallbackQuery();
+        const link = linkHere(telegramUserId, chatId);
+        if (link === undefined || !equityAnswersFor(link)) {
+          await showScreen(ctx, tradingAccount(chatId, telegramUserId));
+          return;
+        }
+        const reply = await equityOf(link.accountId);
+        await showScreen(ctx, { html: reply.ok ? reply.html : esc(reply.text), buttons: [[{ text: '← Back', route: { to: 'account' } }]] });
         return;
       }
       case 'account':

@@ -92,7 +92,7 @@ const fakeTraders = {
       : { accountId, month: traderRow({ accountId, roiPct: undefined }), lifetime: traderRow({ accountId }) },
 };
 
-function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading>; readonly peerBot?: { readonly network: 'mainnet' | 'testnet'; readonly username: string }; readonly explorerTxUrl?: string } = {}): Harness {
+function harness(options: { readonly tradingNetwork?: 'mainnet' | 'testnet'; readonly links?: InMemoryLinkStore; readonly watch?: boolean; readonly maxPerChat?: number; readonly rateLimit?: number; readonly owner?: number; readonly link?: NonNullable<Parameters<typeof createBot>[0]['link']>; readonly settings?: InMemoryAccountSettingsStore; readonly rescue?: RescueControl; readonly killSwitch?: KillSwitchControl; readonly emergency?: EmergencyControl; readonly reserved?: (accountId: number) => bigint; readonly equity?: (accountId: number) => Promise<EquityReading>; readonly peerBot?: { readonly network: 'mainnet' | 'testnet'; readonly username: string }; readonly explorerTxUrl?: string } = {}): Harness {
   const { bot, telegram } = fakeBot();
   const executor = new FakeExecutor();
   const view = new FakeView();
@@ -118,7 +118,7 @@ function harness(options: { readonly links?: InMemoryLinkStore; readonly watch?:
     store,
     amounts,
     sessions: new StaticSessionRouter([{ accountId: OWNER_ACCOUNT, view, executor, balance, status: () => state.sessionStatus }]),
-    tradingNetwork: 'testnet',
+    tradingNetwork: options.tradingNetwork ?? 'testnet',
     webUrl: 'https://perpguard.example',
     ownerAccountId: OWNER_ACCOUNT,
     ...(options.settings === undefined ? {} : { settings: options.settings }),
@@ -2630,6 +2630,50 @@ test('💰 EQUITY sits on its own row under the six Watch & Alerts buttons, whos
   await tapNav(h, { to: 'watch-menu' }, AT_STRANGER);
   const rows = (lastScreen(h.telegram).payload['reply_markup'] as InlineKeyboard).inline_keyboard.map((row) => row.map((b) => b.text));
   assert.deepEqual(rows, [['👛 Watch wallet', '⭐ Watchlist'], ['💥 Liquidations', '🐋 Large trades'], ['⚠️ Warning levels', '⚙️ Alert settings'], ['💰 Equity'], ['← Back']]);
+});
+
+/** The connected account's reading: `equityOf5213`'s figures under the linked account's own number. */
+const equityOfLinked = async (accountId: number): Promise<EquityReading> => {
+  if (accountId !== OWNER_ACCOUNT) return { kind: 'unknown-account', accountId };
+  const reading = await equityOf5213(5213);
+  return reading.kind === 'ok' ? { ...reading, accountId } : reading;
+};
+const accountRows = (h: Harness): string[][] => (lastScreen(h.telegram).payload["reply_markup"] as InlineKeyboard).inline_keyboard.map((row) => row.map((b) => b.text));
+
+test('💰 EQUITY ON 🔐 TRADING ACCOUNT (mainnet): beside 📊 My positions on a new first row; the buttons that were there keep their order', async () => {
+  const before = harness({ tradingNetwork: 'mainnet' });
+  await tapNav(before, { to: 'account' });
+  const without = accountRows(before);
+  const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked });
+  await tapNav(h, { to: 'account' });
+  assert.deepEqual(accountRows(h), [['📊 My positions', '💰 Equity'], ...without]);
+});
+
+test("💰 EQUITY, THE CONNECTED ACCOUNT: one tap, no input, /equity's own reply word for word, and the way back to Trading account", async () => {
+  const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked });
+  h.resolver.answers.set(String(OWNER_ACCOUNT), { accountId: OWNER_ACCOUNT, address: undefined, resolvedBy: 'index' });
+  await tapNav(h, { to: 'my-equity' });
+  const screen = lastScreen(h.telegram);
+  assert.match(String(screen.payload['text']), new RegExp(`^💰 <b>#${OWNER_ACCOUNT} · equity 15,346\\.00 AUSD</b>`));
+  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['← Back']);
+  assert.equal(h.telegram.calls.some((c) => 'force_reply' in ((c.payload['reply_markup'] as object | undefined) ?? {})), false, 'nothing is asked');
+  await h.bot.handleUpdate(messageUpdate(`/equity ${OWNER_ACCOUNT}`));
+  assert.equal(texts(h.telegram).at(-1), String(screen.payload['text']));
+});
+
+test('💰 EQUITY IS NOT OFFERED ON TESTNET: /equity reads the mainnet index, where a testnet account number is somebody else; a hand-made tap shows no figure', async () => {
+  const h = harness({ equity: equityOfLinked });
+  await tapNav(h, { to: 'account' });
+  assert.equal(accountRows(h).flat().includes('💰 Equity'), false);
+  await tapNav(h, { to: 'my-equity' });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔐 <b>TRADING ACCOUNT<\/b>/);
+  assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /AUSD/);
+});
+
+test('💰 EQUITY of the connected account is not for an unlinked chat: its tap is refused and shows no figure', async () => {
+  const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked });
+  await tapNav(h, { to: 'my-equity' }, AT_STRANGER);
+  assert.equal(h.telegram.calls.some((c) => /AUSD/.test(String(c.payload['text'] ?? ''))), false);
 });
 
 test('💰 EQUITY, ONE WALLET WATCHED: its equity straight away, the same figures as /equity, with the way back', async () => {
