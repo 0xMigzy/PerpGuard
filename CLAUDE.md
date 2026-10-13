@@ -158,6 +158,9 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
     venue said it had failed. Same rule as a cancel timeout, for the same reason.
   - And never report the failure to the user either: telling someone their
     rescue failed when it worked is how they double it by hand.
+  - MAINNET DOES THE SAME (12 Oct 2026, account #69): an 11.5 AUSD top-up
+    came back `st 7 / sr 32` and applied in full, 17.416539 -> 28.916539, tx
+    `0x1926fd3c…3f9c`, block 112,885,275. One measurement.
   See `docs/evidence.md` and `pnpm risk:live`.
 - THE `sr 32` LIE IS SPECIFIC TO `t: 6`. `t: 3`/`t: 4` CloseLong/CloseShort report
   their outcome TRUTHFULLY on `mt: 24`: `st: 4 Filled, sr: 43 TakerOrderFilled` on

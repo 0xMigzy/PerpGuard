@@ -496,6 +496,10 @@ margin is now 0.08316 AUSD (was 0.0557): 27460 micros applied, 27460 requested
   — LANDED, while the order reported "rejected"
 ```
 
+**Measured on mainnet too (12 Oct 2026).** The same report and the same result,
+with real funds: see "2026-10-12 — mainnet: add margin reports `sr 32` and
+applies" at the end of this file.
+
 ### What this run proves
 
 - The risk engine's projected buffer matched the live one: **2.67% predicted,
@@ -1001,3 +1005,35 @@ the position before and after (`judgePartial`), not by the receipt.
 in full at once. A partial fill of the reduce, a short, and a reduce whose row
 arrives without its event (after a reconnect) are covered by tests against a
 simulated exchange, not by a live run.
+
+## 2026-10-12 — mainnet: add margin reports `sr 32` and applies
+
+Everything above about `t: 6` IncreasePositionCollateral was measured on
+testnet. This is the first top-up sent on **mainnet** (chain 143), by the owner,
+from @PerpGuardBot, on mainnet account #69, with real funds. It behaved exactly
+as testnet does.
+
+| | |
+| --- | --- |
+| Action | add margin, 11.5 AUSD (11500000 micros), BTC, position `7398022643720` |
+| Sent / settled | 23:25:13.917 / 23:25:17.096 UTC, 12 Oct 2026 |
+| Reported on the order update | **`st: 7 Failed, sr: 32 OrderDescIdTooLow`** (order `7398049382432`) |
+| Margin before → after | **17.416539 → 28.916539 AUSD** |
+| Applied / requested | 11500000 / 11500000 micros |
+| PerpGuard's verdict | **applied** (`action_log` row 3 on the mainnet deployment: outcome `applied`, reported status `rejected`) |
+| Transaction | `0x1926fd3cb0a44f5aa21b736a11b656627d89e1ff0809436a7c71d9bb449d3f9c` |
+| Block | 112,885,275 |
+
+The transaction hash is the `at.txid` Perpl sent on the order update. Its
+receipt, read from Monad's public RPC, is a successful transaction (`status
+0x1`) to the Exchange proxy `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F`.
+
+**How it was judged.** By the position's margin before and after, as on
+testnet, never by the receipt: `action_log` records the outcome as `applied`
+beside the venue's `rejected`. Nothing was re-sent.
+
+**Limits of this evidence.** One top-up, one market, one account. The figures
+are from PerpGuard's own `action_log` row and the chain; the raw `mt: 24` frame
+was not captured to a fixture, so the reported status is as the venue adapter
+decoded it, not a verbatim frame. The testnet frames remain the only verbatim
+ones. The Telegram message itself was not captured here.
