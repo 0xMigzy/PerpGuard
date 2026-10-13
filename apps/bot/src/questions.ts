@@ -24,6 +24,8 @@ export type Question =
   | { readonly kind: 'rescue-amount' }
   /** 🔔 A custom alert distance, in percent. */
   | { readonly kind: 'alert-distance' }
+  /** 🛟 A custom Rescue floor, in whole AUSD (0 or more). */
+  | { readonly kind: 'rescue-floor' }
   /** 🚪 A custom share of one position to close, in percent (1 to 100). */
   | { readonly kind: 'close-percent'; readonly marketId: number };
 

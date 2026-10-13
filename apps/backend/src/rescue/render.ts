@@ -43,7 +43,8 @@ export type RescueNotice =
   /** Refused before sending, the same way twice in a row: nothing was sent either time. */
   | { readonly kind: 'paused-refused'; readonly rule: RescueRule; readonly detail: string }
   | { readonly kind: 'exhausted'; readonly rule: RescueRule; readonly assessment: RiskAssessment; readonly why: string }
-  | { readonly kind: 'held'; readonly rule: RescueRule; readonly reason: HoldReason; readonly detail: string; readonly assessment: RiskAssessment | undefined }
+  /** `minRemainingCNS`: the account's Rescue floor the hold was decided on (its own setting), for the words of `balance-low`. */
+  | { readonly kind: 'held'; readonly rule: RescueRule; readonly reason: HoldReason; readonly detail: string; readonly assessment: RiskAssessment | undefined; readonly minRemainingCNS?: bigint | undefined }
   /**
    * `cause` says WHAT ended it. 'position': the fully loaded list no longer has
    * it. 'market': the exchange no longer lists the market, which says nothing
@@ -137,8 +138,9 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           BEFORE_TRIGGER.has(n.reason)
             ? `🛟 <b>Rescue can't judge ${name(n.rule)} right now</b>`
             : `🛟 <b>Rescue didn't add to ${name(n.rule)}</b>${n.assessment === undefined ? '' : ` · ${distance(n.assessment.liqBufferPct)}`}`,
-          `Nothing was sent: ${esc(n.detail)}.`,
-          HOLD_NEXT[n.reason](n.rule, heldMoney),
+          ...(n.reason === 'balance-low'
+            ? balanceLow(n.rule.amountCNS, n.minRemainingCNS ?? n.rule.minRemainingCNS, (cns) => money(cns, 'ceil').replace(/<\/?b>/g, ''), (cns) => heldMoney(cns).replace(/<\/?b>/g, ''))
+            : [`Nothing was sent: ${esc(n.detail)}.`, HOLD_NEXT[n.reason](n.rule, heldMoney)]),
         ].join('\n'),
         buttons: [{ text: '📊 View / close position', route: 'position' }],
       };
@@ -158,6 +160,21 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
   }
 }
 
+/**
+ * THE DECLINE FOR THE FREE BALANCE (owner, 13 Oct 2026): THE PERSON'S OWN FIGURE, the floor their account is set
+ * to now, never a fixed number. At 0 there is no floor to quote: the balance does not cover one top-up, and
+ * Rescue never sends a smaller amount.
+ */
+export function balanceLow(amountCNS: bigint, floorCNS: bigint, need: (cns: bigint) => string, keep: (cns: bigint) => string): string[] {
+  if (floorCNS === 0n) {
+    return [`Nothing was sent: your free balance doesn't cover the ${need(amountCNS)} top-up, and Rescue waits rather than send less.`, 'Add a smaller amount yourself if you want to.'];
+  }
+  return [
+    `Nothing was sent: adding ${need(amountCNS)} would take your free balance below the ${keep(floorCNS)} you chose to keep.`,
+    'Change that amount under ⚙️ Settings, or add margin yourself: your own top-ups are not limited by it.',
+  ];
+}
+
 /** Holds decided before the trigger is even looked at: the message must not claim it is at its trigger. */
 const BEFORE_TRIGGER: ReadonlySet<HoldReason> = new Set<HoldReason>(['positions-untrusted', 'unassessed']);
 
@@ -169,7 +186,8 @@ const HOLD_NEXT: Record<HoldReason, (r: RescueRule, heldMoney: (cns: bigint) => 
   'market-closed': () => 'It will act once the exchange reopens the market. Nothing is recorded as an attempt meanwhile.',
   cooldown: (r) => `Top-ups on one position are at least ${minutes(r.cooldownMs)} apart. Add margin yourself if it can't wait.`,
   'balance-unknown': () => 'It will act once I can see your balance.',
-  'balance-low': (r, heldMoney) => `Rescue never takes your free balance below ${heldMoney(r.minRemainingCNS)}. Add margin yourself if you want to go below it.`,
+  // Never reached: `balance-low` is worded by `balanceLow`, with the account's own floor.
+  'balance-low': () => 'Add margin yourself if you want to.',
   'no-session': () => 'It will act once the account reconnects.',
   'in-flight': () => 'It will look again once that action has settled.',
   refused: () => 'It will look again in a minute.',

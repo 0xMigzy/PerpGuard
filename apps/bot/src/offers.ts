@@ -29,7 +29,7 @@ export function pricedOffers(o: {
   /** The account's alert distance, percent. */
   readonly alertPct: number;
   readonly free: FreeBalanceReading;
-  /** Held back from the free balance: Rescue in flight and the largest armed "minimum remaining". */
+  /** Held back from the free balance: Rescue in flight, and the account's Rescue floor while a rule is armed. */
   readonly reservedCNS?: bigint | undefined;
   readonly bufferDecimals: number;
 }): PricedOffers {

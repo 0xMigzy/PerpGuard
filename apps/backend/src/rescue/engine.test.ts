@@ -85,7 +85,7 @@ function applied(c: ActionCommand, acct: FakeAccount): ActionOutcome {
   };
 }
 
-function rig(o: { clock?: { t: number } } = {}) {
+function rig(o: { clock?: { t: number }; floorOf?: (accountId: number) => bigint } = {}) {
   const clock = o.clock ?? { t: 1_000_000 };
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore(() => clock.t);
@@ -98,6 +98,7 @@ function rig(o: { clock?: { t: number } } = {}) {
   const engine = new RescueEngine({
     // These tests are about the engine's logic; rules here count as tap-armed. Arming has its own tests.
     armProblem: () => undefined,
+    ...(o.floorOf === undefined ? {} : { floorOf: o.floorOf }),
     store,
     automation,
     account: (id) => (id === 710 ? acct : undefined),
@@ -280,6 +281,60 @@ test('the minimum kept is never spent: held, never a smaller amount', async () =
   assert.equal(r.acct.commands.length, 0);
   const n = r.notices.at(-1);
   assert.ok(n?.kind === 'held' && n.reason === 'balance-low');
+});
+
+test("ENFORCED IN THE ENGINE: the account's floor is read at every decision, so a rule turned on at 500 follows a change at once", async () => {
+  let floor = 500n * AUSD;
+  const r = rig({ floorOf: () => floor });
+  const rule = await r.store.create(newRule(), r.clock.t);
+  assert.equal(rule.minRemainingCNS, 500n * AUSD, 'what the rule stored when it was turned on');
+  r.acct.floor = 36n * AUSD; // mainnet #69: 36 AUSD free, a 25 top-up
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 0, 'held at 500');
+  const told = r.notices.at(-1);
+  assert.ok(told?.kind === 'held' && told.reason === 'balance-low' && told.minRemainingCNS === 500n * AUSD, "the notice carries the account's figure");
+
+  floor = 100n * AUSD; // the new default: still above 36 - 25
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 0, 'held at 100 too');
+
+  floor = 0n; // set to 0 in Settings: nothing re-armed, nothing re-signed
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 1, 'sent as soon as the floor allows it');
+  const c = r.acct.commands[0]!;
+  assert.ok(c.kind === 'add-margin' && c.amountCNS === 25n * AUSD, 'the rule amount, not the whole balance');
+  assert.equal(r.acct.floor, 11n * AUSD);
+  assert.equal(r.store.rule(rule.id)?.minRemainingCNS, 500n * AUSD, 'the stored record (and with it the arming signature) is untouched');
+});
+
+test('ENFORCED IN THE ENGINE: a floor RAISED in Settings holds a rule that stored a lower one, and the message says the new figure', async () => {
+  const r = rig({ floorOf: () => 1_000n * AUSD });
+  await r.store.create(newRule(), r.clock.t);
+  r.acct.floor = 900n * AUSD; // 900 - 25 clears the stored 500, not the 1,000 set since
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 0);
+  const n = r.notices.at(-1)!;
+  assert.match(renderRescue(n, 6).html, /would take your free balance below the 1,000 AUSD you chose to keep/);
+});
+
+test('A FLOOR OF 0 NEVER OVERDRAWS: with less free than one top-up it holds and says so, with no floor named', async () => {
+  const r = rig({ floorOf: () => 0n });
+  await r.store.create(newRule(), r.clock.t);
+  r.acct.floor = 24n * AUSD;
+  await r.fireTwice();
+  assert.equal(r.acct.commands.length, 0);
+  assert.match(renderRescue(r.notices.at(-1)!, 6).html, /your free balance doesn't cover the 25 AUSD top-up, and Rescue waits rather than send less/);
+});
+
+test('AUTO NOW, for the alert: "adding" or "waiting" is judged on the same floor the engine acts on', async () => {
+  let floor = 100n * AUSD;
+  const r = rig({ floorOf: () => floor });
+  await r.store.create(newRule(), r.clock.t);
+  r.acct.floor = 36n * AUSD;
+  const a = r.acct.snapshot()[0]!;
+  assert.equal(r.engine.autoNow(710, a).kind, 'waiting');
+  floor = 0n;
+  assert.equal(r.engine.autoNow(710, a).kind, 'adding');
 });
 
 test('a transient hold (balance not known yet at boot) is said only once it has lasted 30 s', async () => {

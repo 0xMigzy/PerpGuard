@@ -1333,7 +1333,7 @@ test('Trading Account → Disconnect asks first, then calls the link service for
   const fake = fakeLinkService();
   const h = harness({ link: fake.service });
   await tapNav(h, { to: 'settings' });
-  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔔 Alert me at: 5% from liquidation', '← Back'], 'Settings no longer holds Disconnect');
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔔 Alert me at: 5% from liquidation', '🛟 Rescue keeps: 100 AUSD free', '← Back'], 'Settings no longer holds Disconnect');
   await tapNav(h, { to: 'account' });
   const account = lastScreen(h.telegram);
   assert.match(String(account.payload['text']), new RegExp(`🔗 ${h.view.network.toUpperCase()} #710\nExecution: 🟢 Authorized\nConnected `));
@@ -1368,6 +1368,73 @@ test('ALERT DISTANCE: one number, presets with the current one marked, custom ty
   await h.bot.handleUpdate(messageUpdate('4.5%'));
   assert.deepEqual(saved.at(-1), [710, 4.5]);
   assert.equal(keyboardOf(lastScreen(h.telegram))[0]!.text, '🔔 Alert me at: 4.5% from liquidation');
+});
+
+test('🛟 RESCUE FLOOR: one number per account in ⚙️ Settings, default 100, presets and any typed amount from 0; AT 0 THE SCREEN SAYS WHAT IT MEANS', async () => {
+  const saved: Array<[number, number]> = [];
+  const settings = new InMemoryAccountSettingsStore({ onChange: (id, v) => saved.push([id, v.rescueFloorAusd]) });
+  const h = harness({ settings });
+  await tapNav(h, { to: 'settings' });
+  assert.equal(keyboardOf(lastScreen(h.telegram))[1]!.text, '🛟 Rescue keeps: 100 AUSD free', 'the default, for an account that never set one');
+
+  await tapNav(h, { to: 'floor-ask' });
+  assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['0', '50', '✅ 100', '250', '500', '🎛 Custom amount', '← Back']);
+  const at100 = String(lastScreen(h.telegram).payload['text']);
+  assert.match(at100, /Now: <b>100 AUSD<\/b>\./);
+  assert.match(at100, /At 0: Rescue may spend your entire free balance, up to the limits you set on each rule/, 'what 0 means is said BEFORE it is chosen');
+
+  // 0, by a tap: saved, and the screen it lands on says plainly what that means.
+  await tapNav(h, { to: 'floor-set', level: 0 });
+  assert.deepEqual(saved, [[710, 0]]);
+  const at0 = String(lastScreen(h.telegram).payload['text']);
+  assert.match(at0, /⚠️ <b>Now: 0 AUSD\.<\/b> Rescue may spend your entire free balance, up to the limits you set on each rule \(the amount, the number of top-ups, the total\)\./);
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '✅ 0'));
+  await tapNav(h, { to: 'settings' });
+  assert.equal(keyboardOf(lastScreen(h.telegram))[1]!.text, '🛟 Rescue keeps: nothing back (0 AUSD)');
+
+  await tapNav(h, { to: 'floor-set', level: 9 });
+  assert.match(answers(h.telegram).at(-1)!, /do not know that setting/);
+  assert.equal(saved.length, 1, 'an unknown preset saves nothing');
+
+  // Any whole amount from 0 upward, typed. Bad input asks again and saves nothing.
+  await tapNav(h, { to: 'floor-custom' });
+  for (const bad of ['-5', '12.5', 'lots']) {
+    await h.bot.handleUpdate(messageUpdate(bad));
+    assert.match(texts(h.telegram).at(-1)!, /whole amount in AUSD, 0 or more/, bad);
+  }
+  assert.equal(saved.length, 1);
+  await h.bot.handleUpdate(messageUpdate('36'));
+  assert.deepEqual(saved.at(-1), [710, 36]);
+  assert.equal(keyboardOf(lastScreen(h.telegram))[1]!.text, '🛟 Rescue keeps: 36 AUSD free');
+  await tapNav(h, { to: 'floor-ask' });
+  assert.ok(keyboardOf(lastScreen(h.telegram)).some((b) => b.text === '🎛 Custom amount (now 36 AUSD)'));
+  // Typed 0 says the same sentence in the reply itself.
+  await tapNav(h, { to: 'floor-custom' });
+  await h.bot.handleUpdate(messageUpdate('0'));
+  assert.ok(texts(h.telegram).some((t) => /^Saved: 0 AUSD\. Rescue may spend your entire free balance/.test(t)));
+  assert.equal(settings.get(710).alertPct, 5, 'the alert distance did not move');
+});
+
+test('🛟 RESCUE FLOOR: the rule sentence and the draft follow the SETTING, and an old "Keep 500" button decodes to nothing', async () => {
+  const settings = new InMemoryAccountSettingsStore();
+  const rescue = new FakeRescue();
+  const h = harness({ rescue, settings });
+  const a = dangerAssessment();
+  h.view.assessments = [a];
+  await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Never spending your last 100 AUSD\./);
+
+  // The old per-rule picker's payloads (limit 2, options 0..4) change NOTHING: never read as a cooldown.
+  for (const level of [200, 201, 202, 203, 204]) await tapNav(h, { to: 'rescue-lim', level });
+  await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Never spending your last 100 AUSD\.\nAt least 15 minutes apart\./);
+
+  // Changed in Settings while a draft is open: the SAME draft shows the new floor.
+  await settings.set(710, { ...settings.get(710), rescueFloorAusd: 0 });
+  await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
+  assert.match(String(lastScreen(h.telegram).payload['text']), /Up to 2 times\. It may spend your whole free balance\./);
+  await tapNav(h, { to: 'rescue-on' });
+  assert.equal(rescue.enabled[0]!.draft.minRemainingCNS, 0n);
 });
 
 test('RETIRED BUTTONS: every code taken off the menu fires NOTHING, from anyone', async () => {
@@ -1527,7 +1594,7 @@ test('PHASE 7: every screen the OWNER can reach has a way back, offers nothing u
   h.view.assessments = [dangerAssessment()];
   const seen = await walkMenu(h, {});
   const reached = [...seen.keys()].map((k) => (k === 'home' ? 'home' : (JSON.parse(k) as Route).to)).sort();
-  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'close-pos', 'disconnect-ask', 'disconnect', 'equity', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
+  assert.deepEqual([...new Set(reached)], ['account', 'alert-custom', 'alert-settings', 'big', 'big-set', 'close-pos', 'disconnect-ask', 'disconnect', 'equity', 'floor-ask', 'floor-custom', 'floor-set', 'home', 'liq', 'liq-set', 'position', 'positions', 'settings', 'wallet-alerts', 'wallets', 'warn-ask', 'warn-custom', 'warn-levels', 'warn-preset', 'warn-set', 'watch-ask', 'watch-menu', 'watchlist'].sort());
   for (const [key, screen] of seen) {
     if (screen.html.startsWith('(changes')) continue;
     assert.doesNotMatch(screen.labels.join(' | '), UNBUILT, `${key} offers something not built`);
@@ -1862,7 +1929,7 @@ test('RESCUE: the rule as one sentence at the alert distance; Change amount (25 
   assert.deepEqual(keyboardOf(lastScreen(h.telegram)).map((b) => b.text), ['🔴 BTC long · 2.7% · off', '← Back']);
   await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });
   const pos = lastScreen(h.telegram);
-  assert.match(String(pos.payload['text']), /🛟 <b>RESCUE · BTC long<\/b>\n\nIf BTC reaches 5% from liquidation, add 100 AUSD\.\nUp to 2 times\. Never spending your last 500 AUSD\.\nAt least 15 minutes apart\./);
+  assert.match(String(pos.payload['text']), /🛟 <b>RESCUE · BTC long<\/b>\n\nIf BTC reaches 5% from liquidation, add 100 AUSD\.\nUp to 2 times\. Never spending your last 100 AUSD\.\nAt least 15 minutes apart\./);
   // Already inside 5%: turning on is a choice (owner's finding, 7 Oct 2026).
   assert.deepEqual(keyboardOf(pos).map((b) => b.text), ['Change amount', 'Change limits', '🟢 Turn on · add now', '🟢 Turn on · next time', '← Back']);
 
@@ -1872,10 +1939,13 @@ test('RESCUE: the rule as one sentence at the alert distance; Change amount (25 
   await h.bot.handleUpdate(messageUpdate('25'));
   assert.match(texts(h.telegram).at(-1)!, /If BTC reaches 5% from liquidation, add 25 AUSD\.\nUp to 2 times\./);
 
-  // ALL FOUR LIMITS ON ONE SCREEN; MAX TOTAL is its own setting, said once it bites.
+  // THE THREE LIMITS ON ONE SCREEN; MAX TOTAL is its own setting, said once it bites. The free balance kept
+  // is NOT a per-rule limit any more (13 Oct 2026): no "Keep N" button, and the screen points at ⚙️ Settings.
   await tapNav(h, { to: 'rescue-limits' });
   const limits = keyboardOf(lastScreen(h.telegram)).map((b) => b.text);
-  assert.ok(limits.includes('✅ 2 times') && limits.includes('✅ Keep 500') && limits.includes('✅ 15 min apart'), limits.join(' | '));
+  assert.ok(limits.includes('✅ 2 times') && limits.includes('✅ 15 min apart'), limits.join(' | '));
+  assert.ok(!limits.some((l) => /Keep/.test(l)), limits.join(' | '));
+  assert.match(String(lastScreen(h.telegram).payload['text']), /one setting for the whole account: ⚙️ Settings\./);
   assert.ok(limits.some((l) => /in all$/.test(l)));
   await tapNav(h, { to: 'rescue-lim', level: 100 });
   await tapNav(h, { to: 'rescue-pos', marketId: a.marketId });

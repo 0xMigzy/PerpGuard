@@ -7,7 +7,7 @@ const ALL: Route[] = [
   { to: 'home' }, { to: 'watch-menu' }, { to: 'watch-ask' }, { to: 'watch-id', accountId: 710 }, { to: 'watchlist' },
   { to: 'wallet', accountId: 3388 }, { to: 'unwatch', accountId: 3388 }, { to: 'account' }, { to: 'connect' }, { to: 'connect-go' }, { to: 'connect-key' },
   { to: 'positions' }, { to: 'position', marketId: 16 }, { to: 'settings' }, { to: 'warn-ask' },
-  { to: 'warn-set', level: 5 }, { to: 'disconnect-ask' }, { to: 'disconnect' },
+  { to: 'warn-set', level: 5 }, { to: 'floor-ask' }, { to: 'floor-set', level: 0 }, { to: 'floor-custom' }, { to: 'disconnect-ask' }, { to: 'disconnect' },
   { to: 'wallets' }, { to: 'star', accountId: 4088 }, { to: 'unstar', accountId: 4088 },
   { to: 'liq' }, { to: 'liq-set', level: 2 }, { to: 'big' }, { to: 'big-set', level: 9 },
   { to: 'warn-levels' }, { to: 'warn-preset', level: 0 }, { to: 'warn-custom' }, { to: 'alert-settings' }, { to: 'wallet-alerts' },
@@ -31,7 +31,7 @@ test('the public set is exactly the screens a watcher needs, and nothing that re
     'warn-levels', 'warn-preset', 'warn-custom', 'alert-settings', 'wallet-alerts',
     'equity', 'equity-of',
   ]);
-  for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'position', 'settings', 'warn-ask', 'warn-set'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
+  for (const r of ALL.filter((x) => !isPublicRoute(x))) assert.ok(['positions', 'position', 'settings', 'warn-ask', 'warn-set', 'floor-ask', 'floor-set', 'floor-custom'].includes(r.to), `${r.to} reads an account and must stay linked-only`);
 });
 
 test('the decoder rejects anything it did not write', () => {

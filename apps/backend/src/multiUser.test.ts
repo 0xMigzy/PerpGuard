@@ -60,6 +60,7 @@ function world() {
     signer: new ArmSigner('22'.repeat(32)),
     isLinked: (tg, chat, acct) => links.byTelegramUserId(tg)?.accountId === acct && links.byTelegramUserId(tg)?.chatId === chat,
     alertPctOf: (id) => settings.get(id).alertPct,
+    floorOf: (id) => BigInt(settings.get(id).rescueFloorAusd) * 1_000_000n,
     snapshot: (id) => byAccount.get(id)?.snapshot(),
   });
   const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: { inFlightOn: () => false, settleAccount: async () => true }, log: () => {} });

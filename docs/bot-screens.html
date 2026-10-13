@@ -140,7 +140,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     <figure class="phone">
       <figcaption>Owner · settings</figcaption>
       <div class="chat"><div class="bubble">⚙️ <b>SETTINGS</b> · TESTNET #710</div>
-      <div class="row"><span class="btn">🔔 Alert me at: 5% from liquidation</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="row"><span class="btn">🔔 Alert me at: 5% from liquidation</span></div><div class="row"><span class="btn">🛟 Rescue keeps: 100 AUSD free</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -193,7 +193,7 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-pos</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b><br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>It's already inside 5%. Add 100 AUSD as soon as it's on, or wait until it has climbed back above and falls to it again?</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b><br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>It's already inside 5%. Add 100 AUSD as soon as it's on, or wait until it has climbed back above and falls to it again?</div>
       <div class="row"><span class="btn">Change amount</span><span class="btn">Change limits</span></div><div class="row"><span class="btn changes">🟢 Turn on · add now</span></div><div class="row"><span class="btn">🟢 Turn on · next time</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
@@ -222,6 +222,12 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
       </div>
     </figure>
     <figure class="phone">
+      <figcaption>Owner · floor-ask</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>100 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">50</span><span class="btn">✅ 100</span><span class="btn">250</span><span class="btn">500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
       <figcaption>Owner · watch-ask</figcaption>
       <div class="chat"><div class="bubble">Send me an address or an account id.<br>Either works. You can paste one any time without pressing anything first.</div>
       <div class="row"><span class="btn">← Back</span></div>
@@ -247,20 +253,56 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-limits</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · limits<br><br>How many top-ups at most, how much in all, how much free balance to always keep, and how long to wait between top-ups. Tap to change.</div>
-      <div class="row"><span class="btn changes">Once</span><span class="btn changes">✅ 2 times</span><span class="btn changes">3 times</span></div><div class="row"><span class="btn changes">5 times</span></div><div class="row"><span class="btn changes">100 in all</span><span class="btn changes">250 in all</span><span class="btn changes">500 in all</span></div><div class="row"><span class="btn changes">1,000 in all</span><span class="btn changes">2,500 in all</span><span class="btn changes">5,000 in all</span></div><div class="row"><span class="btn changes">Keep 100</span><span class="btn changes">Keep 250</span><span class="btn changes">✅ Keep 500</span></div><div class="row"><span class="btn changes">Keep 1,000</span><span class="btn changes">Keep 2,500</span></div><div class="row"><span class="btn changes">5 min apart</span><span class="btn changes">✅ 15 min apart</span><span class="btn changes">30 min apart</span></div><div class="row"><span class="btn changes">60 min apart</span></div><div class="row"><span class="btn">← Back</span></div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · limits<br><br>How many top-ups at most, how much in all, and how long to wait between top-ups. Tap to change.<br>The free balance Rescue always leaves is one setting for the whole account: ⚙️ Settings.</div>
+      <div class="row"><span class="btn changes">Once</span><span class="btn changes">✅ 2 times</span><span class="btn changes">3 times</span></div><div class="row"><span class="btn changes">5 times</span></div><div class="row"><span class="btn changes">100 in all</span><span class="btn changes">250 in all</span><span class="btn changes">500 in all</span></div><div class="row"><span class="btn changes">1,000 in all</span><span class="btn changes">2,500 in all</span><span class="btn changes">5,000 in all</span></div><div class="row"><span class="btn changes">5 min apart</span><span class="btn changes">✅ 15 min apart</span><span class="btn changes">30 min apart</span></div><div class="row"><span class="btn changes">60 min apart</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-on-next</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · alert-custom</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>Rescue is on for BTC. It's already inside 5%, so it waits until BTC climbs back above and falls to it again.<br><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-set</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>⚠️ <b>Now: 0 AUSD.</b> Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">✅ 0</span><span class="btn">50</span><span class="btn">100</span><span class="btn">250</span><span class="btn">500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-set</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>50 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">✅ 50</span><span class="btn">100</span><span class="btn">250</span><span class="btn">500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-set</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>100 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">50</span><span class="btn">✅ 100</span><span class="btn">250</span><span class="btn">500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-set</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>250 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">50</span><span class="btn">100</span><span class="btn">✅ 250</span><span class="btn">500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-set</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>500 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">50</span><span class="btn">100</span><span class="btn">250</span><span class="btn">✅ 500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
+      </div>
+    </figure>
+    <figure class="phone">
+      <figcaption>Owner · floor-custom</figcaption>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>How much free balance should Rescue always leave?</b><br>Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.<br>It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.<br><br>Now: <b>500 AUSD</b>.<br>At 0: Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).</div>
+      <div class="row"><span class="btn">0</span><span class="btn">50</span><span class="btn">100</span><span class="btn">250</span><span class="btn">✅ 500</span></div><div class="row"><span class="btn">🎛 Custom amount</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
@@ -295,31 +337,31 @@ figcaption{padding:8px 12px;font-size:12px;color:var(--muted);border-bottom:1px 
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>
     <figure class="phone">
       <figcaption>Owner · rescue-amt-custom</figcaption>
-      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 500 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 01:00.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
+      <div class="chat"><div class="bubble"><b>TESTNET</b><br>🛟 <b>RESCUE · BTC long</b> · 🟢 On<br><br>If BTC reaches 5% from liquidation, add 100 AUSD.<br>Up to 2 times. Never spending your last 100 AUSD.<br>At least 15 minutes apart.<br><br>Turned on by you, 13 Oct, 19:10.<br>Top-ups used: 0 of 2 · 0 AUSD added.</div>
       <div class="row"><span class="btn changes">⛔ Turn off</span></div><div class="row"><span class="btn">← Back</span></div>
       </div>
     </figure>

@@ -51,7 +51,7 @@ export interface ManualAlertDeps {
   readonly alerts: Pick<AlertConfig, 'bufferDecimals'>;
   /** The acting network, for the badge on the alert (it offers actions). */
   readonly network?: string | undefined;
-  /** Held back from an account's free balance: Rescue in flight and the largest armed "minimum remaining". */
+  /** Held back from an account's free balance: Rescue in flight, and the account's Rescue floor while a rule is armed. */
   readonly reserved?: ((accountId: number) => bigint) | undefined;
 }
 

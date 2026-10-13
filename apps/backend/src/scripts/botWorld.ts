@@ -112,7 +112,7 @@ export function build(options: { readonly link?: boolean; readonly resolver?: bo
       traders: sampleTraders,
     },
     // The real control over in-memory stores, so the document shows the real Rescue screens.
-    rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('00'.repeat(32)), isLinked: () => true, alertPctOf: () => 5, snapshot: () => view.assessments }),
+    rescue: new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('00'.repeat(32)), isLinked: () => true, alertPctOf: () => 5, floorOf: () => 100_000_000n, snapshot: () => view.assessments }),
     // Previewed from the sample position; nothing in the document closes anything.
     emergency: {
       preview: () => view.assessments.map((a) => ({ marketId: a.marketId, symbol: a.symbol, positionId: a.positionId ?? 1, side: a.side ?? 'long', sizeLNS: a.lotLNS ?? 0n, lotDecimals: CONFIGS.get(a.marketId)?.lotDecimals ?? 0, unrealisedPnlCNS: a.metrics.unrealisedPnlCNS })),

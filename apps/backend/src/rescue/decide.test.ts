@@ -125,6 +125,40 @@ test('FREE BALANCE: unknown holds; the minimum kept is never spent; exactly at t
   assert.equal(decide(facts({ freeFloorCNS: 600n * AUSD })).kind, 'fire');
 });
 
+test("THE ACCOUNT'S FLOOR DECIDES, not the figure the rule stored: 100 lets through what 500 held, and a raised floor holds", () => {
+  // The rule stored 500 when it was turned on. 250 free, a 100 top-up.
+  const stored500 = decide(facts({ freeFloorCNS: 250n * AUSD }));
+  assert.ok(stored500.kind === 'hold' && stored500.reason === 'balance-low', 'with no setting wired, the stored figure applies');
+  assert.equal(decide(facts({ freeFloorCNS: 250n * AUSD, minRemainingCNS: 100n * AUSD })).kind, 'fire', '250 - 100 leaves 150, above a floor of 100');
+  assert.equal(decide(facts({ freeFloorCNS: 200n * AUSD, minRemainingCNS: 100n * AUSD })).kind, 'fire', 'exactly at the floor fires');
+  const one = decide(facts({ freeFloorCNS: 200n * AUSD - 1n, minRemainingCNS: 100n * AUSD }));
+  assert.ok(one.kind === 'hold' && one.reason === 'balance-low', 'one micro short holds');
+  const raised = decide(facts({ freeFloorCNS: 9_000n * AUSD, minRemainingCNS: 8_950n * AUSD }));
+  assert.ok(raised.kind === 'hold' && raised.reason === 'balance-low', 'a floor raised above the stored 500 holds too');
+});
+
+test('A FLOOR OF 0 SPENDS THE WHOLE FREE BALANCE AND NOT A MICRO MORE: mainnet #69, 36 AUSD free', () => {
+  const r36 = rule({ amountCNS: 36n * AUSD, maxTotalCNS: 72n * AUSD });
+  assert.equal(decide(facts({ rule: r36, freeFloorCNS: 36n * AUSD, minRemainingCNS: 0n })).kind, 'fire', 'all 36 may go');
+  const short = decide(facts({ rule: r36, freeFloorCNS: 36n * AUSD - 1n, minRemainingCNS: 0n }));
+  assert.ok(short.kind === 'hold' && short.reason === 'balance-low', 'never more than is there, never a smaller amount');
+  // The default 100 still holds this account, as the 500 did: 36 free is below any top-up plus 100.
+  const at100 = decide(facts({ rule: rule({ amountCNS: 10n * AUSD }), freeFloorCNS: 36n * AUSD, minRemainingCNS: 100n * AUSD }));
+  assert.ok(at100.kind === 'hold' && at100.reason === 'balance-low');
+});
+
+test("A FLOOR OF 0 LIFTS ONLY THE FLOOR: the rule's own ceiling, count, cooldown and the kill switch still bind", () => {
+  const zero = { minRemainingCNS: 0n, freeFloorCNS: 9_000n * AUSD };
+  assert.equal(decide(facts({ ...zero, rule: rule({ rescueCount: 2 }) })).kind, 'exhausted');
+  assert.equal(decide(facts({ ...zero, rule: rule({ totalRescuedCNS: 150n * AUSD }) })).kind, 'exhausted', 'the total already set on the rule');
+  const cool = decide(facts({ ...zero, rule: rule({ rescueCount: 1, lastAttemptAtMs: NOW - 60_000 }) }));
+  assert.ok(cool.kind === 'hold' && cool.reason === 'cooldown');
+  const stopped = decide(facts({ ...zero, automationStopped: true }));
+  assert.ok(stopped.kind === 'hold' && stopped.reason === 'stopped');
+  const fired = decide(facts(zero));
+  assert.ok(fired.kind === 'fire' && fired.amountCNS === 100n * AUSD, 'the amount is the rule amount, never "everything"');
+});
+
 test('the kill switch outranks exhaustion: a stopped account is told it is stopped, not handed over', () => {
   const d = decide(facts({ automationStopped: true, rule: rule({ rescueCount: 2 }) }));
   assert.ok(d.kind === 'hold' && d.reason === 'stopped');

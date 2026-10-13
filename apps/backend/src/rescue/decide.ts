@@ -79,6 +79,12 @@ export interface RescueFacts {
   readonly feedConnected: boolean;
   /** The free-balance FLOOR (`b - lb`) LESS this account's open reservations, or undefined when not known. */
   readonly freeFloorCNS: bigint | undefined;
+  /**
+   * THE ACCOUNT'S RESCUE FLOOR (`rescue/floor.ts`), from its settings NOW: the
+   * free balance never spent. Undefined only where no setting is wired (tests,
+   * tools): then the figure the rule stored when it was turned on applies.
+   */
+  readonly minRemainingCNS?: bigint | undefined;
   readonly nowMs: number;
 }
 
@@ -122,7 +128,7 @@ export function decide(f: RescueFacts): RescueDecision {
   }
 
   if (f.freeFloorCNS === undefined) return hold('balance-unknown');
-  if (f.freeFloorCNS - rule.amountCNS < rule.minRemainingCNS) return hold('balance-low');
+  if (f.freeFloorCNS - rule.amountCNS < (f.minRemainingCNS ?? rule.minRemainingCNS)) return hold('balance-low');
 
   return { kind: 'fire', amountCNS: rule.amountCNS };
 }

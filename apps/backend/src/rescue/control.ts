@@ -21,7 +21,8 @@ export interface RescueDraftInput {
   readonly amountCNS: bigint | undefined;
   readonly maxRescues: number;
   readonly maxTotalCNS: bigint | undefined;
-  readonly minRemainingCNS: bigint;
+  /** IGNORED since 13 Oct 2026: the floor is the account's own setting (`rescue/floor.ts`), read server-side. */
+  readonly minRemainingCNS?: bigint | undefined;
   readonly cooldownMs: number;
 }
 
@@ -39,6 +40,7 @@ export class RescueControlService {
   readonly #isLinked: (telegramUserId: number, chatId: number, accountId: number) => boolean;
   readonly #busy: (ruleId: number) => boolean;
   readonly #alertPctOf: (accountId: number) => number;
+  readonly #floorOf: (accountId: number) => bigint;
 
   constructor(o: {
     readonly collateralDecimals: number;
@@ -48,6 +50,8 @@ export class RescueControlService {
     readonly isLinked: (telegramUserId: number, chatId: number, accountId: number) => boolean;
     /** The account's alert distance, in percent: where AUTO acts. */
     readonly alertPctOf: (accountId: number) => number;
+    /** The account's Rescue floor, in the collateral's units, from its settings: the free balance never spent. */
+    readonly floorOf: (accountId: number) => bigint;
     readonly store: RescueStore;
     readonly automation: AutomationStore;
     /** The account's live assessments, or undefined when it has no session. */
@@ -65,13 +69,23 @@ export class RescueControlService {
     this.#signer = o.signer;
     this.#isLinked = o.isLinked;
     this.#alertPctOf = o.alertPctOf;
+    this.#floorOf = o.floorOf;
     this.#busy = o.busy ?? (() => false);
     if (!Number.isInteger(o.collateralDecimals) || o.collateralDecimals < 0 || o.collateralDecimals > 18) throw new RangeError(`collateral decimals must be 0..18, got ${o.collateralDecimals}`);
     this.#decimals = o.collateralDecimals;
   }
 
-  /** The current rule per market: the enabled one, else the most recent paused or ended one for an OPEN position. */
+  /**
+   * The current rule per market: the enabled one, else the most recent paused or ended one for an OPEN position.
+   * AS THE SCREENS SHOW THEM: each carries the account's floor NOW, which is what the engine decides on, not the
+   * figure stored when it was turned on. Never fed back to `armProblem`: the signature is over the stored rule.
+   */
   rules(accountId: number): readonly RescueRule[] {
+    const minRemainingCNS = this.#floorOf(accountId);
+    return this.#current(accountId).map((r) => ({ ...r, minRemainingCNS }));
+  }
+
+  #current(accountId: number): readonly RescueRule[] {
     const all = [...this.#store.rulesFor(accountId)].sort((a, b) => b.id - a.id);
     const out = new Map<number, RescueRule>();
     for (const r of all) if (r.enabled && !out.has(r.marketId)) out.set(r.marketId, r);
@@ -140,7 +154,9 @@ export class RescueControlService {
     if (amount === undefined || amount < AUSD || amount > 100_000n * AUSD) return { ok: false, text: 'The amount must be between 1 and 100,000 AUSD. Nothing was turned on.' };
     if (!Number.isInteger(d.maxRescues) || d.maxRescues < 1 || d.maxRescues > 10) return { ok: false, text: 'The number of top-ups must be between 1 and 10. Nothing was turned on.' };
     if (cap === undefined || cap < amount) return { ok: false, text: 'The total must cover at least one top-up. Nothing was turned on.' };
-    if (d.minRemainingCNS < 0n) return { ok: false, text: "The balance you keep can't be negative. Nothing was turned on." };
+    // THE FLOOR IS THE ACCOUNT'S SETTING, read here: whatever a draft carried is not looked at.
+    const minRemainingCNS = this.#floorOf(accountId);
+    if (minRemainingCNS < 0n) return { ok: false, text: "The balance you keep can't be negative. Nothing was turned on." };
     if (!Number.isInteger(d.cooldownMs) || d.cooldownMs < 60_000 || d.cooldownMs > 24 * 3_600_000) return { ok: false, text: 'The cooldown must be between 1 minute and 24 hours. Nothing was turned on.' };
 
     // ONE AUTOMATION AT A TIME: NONE -> LIQUIDATION_RESCUE, atomically. Already Rescue is fine.
@@ -162,7 +178,7 @@ export class RescueControlService {
       amountCNS: amount,
       maxRescues: d.maxRescues,
       maxTotalCNS: cap,
-      minRemainingCNS: d.minRemainingCNS,
+      minRemainingCNS,
       cooldownMs: d.cooldownMs,
       armedBy: arm.telegramUserId,
       armedChat: arm.chatId,
@@ -172,7 +188,7 @@ export class RescueControlService {
     const waitForCrossing = inside && options.fromNextCrossing === true;
     const rule = await this.#store.create({ ...fields, symbol: a.symbol, triggerPct, armProof: this.#signer.sign(fields), waitForCrossing }, armedAtMs);
     this.#log(
-      `rescue rule ${rule.id} ARMED by tg:${arm.telegramUserId} in chat ${arm.chatId} on account ${accountId} ${a.symbol} position ${d.positionId}: acts at ${(triggerPct * 100).toFixed(2)}% (the alert distance), amount ${amount}, max ${d.maxRescues} top-ups / ${cap} total, keeps ${d.minRemainingCNS}, cooldown ${d.cooldownMs} ms`,
+      `rescue rule ${rule.id} ARMED by tg:${arm.telegramUserId} in chat ${arm.chatId} on account ${accountId} ${a.symbol} position ${d.positionId}: acts at ${(triggerPct * 100).toFixed(2)}% (the alert distance), amount ${amount}, max ${d.maxRescues} top-ups / ${cap} total, keeps ${minRemainingCNS} (the account's setting, followed if it changes), cooldown ${d.cooldownMs} ms`,
     );
     // The rule itself is on the screen under this line, as one sentence: the reply only says what is different.
     const at = `${Number((triggerPct * 100).toFixed(1))}%`;

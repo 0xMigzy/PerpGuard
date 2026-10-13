@@ -12,6 +12,7 @@
  */
 import { DEFAULT_WARN_LEVEL, type WarnLevel } from '@perpguard/backend/risk/warn';
 import { DEFAULT_ALERT_DISTANCE_PCT } from '@perpguard/backend/manual/distance';
+import { DEFAULT_RESCUE_FLOOR_AUSD } from '@perpguard/backend/rescue/floor';
 
 export interface AccountSettings {
   /** The risk bands on the screens (WATCH, DANGER). No longer chosen on a screen: the alert distance replaced it. */
@@ -21,9 +22,15 @@ export interface AccountSettings {
    * where an armed AUTO top-up acts. One number per account.
    */
   readonly alertPct: number;
+  /**
+   * THE RESCUE FLOOR, in whole AUSD (owner, 13 Oct 2026): the free balance
+   * Rescue never spends. 0 lets it spend all of it. One number per account,
+   * read by the engine at every decision.
+   */
+  readonly rescueFloorAusd: number;
 }
 
-export const DEFAULT_SETTINGS: AccountSettings = { warnLevel: DEFAULT_WARN_LEVEL, alertPct: DEFAULT_ALERT_DISTANCE_PCT };
+export const DEFAULT_SETTINGS: AccountSettings = { warnLevel: DEFAULT_WARN_LEVEL, alertPct: DEFAULT_ALERT_DISTANCE_PCT, rescueFloorAusd: DEFAULT_RESCUE_FLOOR_AUSD };
 
 export interface AccountSettingsStore {
   get(accountId: number): AccountSettings;

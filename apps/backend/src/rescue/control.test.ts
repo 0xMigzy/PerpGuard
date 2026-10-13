@@ -16,7 +16,7 @@ const draft = (o: Partial<RescueDraftInput> = {}): RescueDraftInput => ({ market
 function rig(snapshot: readonly RiskAssessment[] | 'no-session' = open) {
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore();
-  return { store, automation, control: new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat, acct) => tg === 7 && chat === 7 && acct === 710, alertPctOf: () => 4, snapshot: () => (snapshot === 'no-session' ? undefined : snapshot) }) };
+  return { store, automation, control: new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat, acct) => tg === 7 && chat === 7 && acct === 710, alertPctOf: () => 4, floorOf: () => 100_000_000n, snapshot: () => (snapshot === 'no-session' ? undefined : snapshot) }) };
 }
 
 test('enable creates the rule with its four limits as sent, and moves the account into Rescue', async () => {
@@ -38,7 +38,7 @@ test('SERVER-SIDE: a draft for a position that is gone, or replaced by a new one
 test('SERVER-SIDE: every limit is checked, whatever the screens allowed', async () => {
   const r = rig();
   // The trigger is no longer the screen's to set (it is the alert distance), so it is not in this list.
-  for (const bad of [{ amountCNS: 0n }, { maxRescues: 0 }, { maxTotalCNS: 10_000_000n }, { cooldownMs: 0 }, { minRemainingCNS: -1n }]) {
+  for (const bad of [{ amountCNS: 0n }, { maxRescues: 0 }, { maxTotalCNS: 10_000_000n }, { cooldownMs: 0 }]) {
     assert.equal((await r.control.enable(710, draft(bad), TAP)).ok, false, JSON.stringify(bad, (_k, v) => (typeof v === 'bigint' ? String(v) : v)));
   }
   assert.equal(r.store.enabledRules().length, 0);
@@ -140,7 +140,7 @@ test('ARMING: once the person who armed it is no longer linked, the rule is no l
   let linked = true;
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore();
-  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat) => linked && tg === 7 && chat === 7, alertPctOf: () => 4, snapshot: () => open });
+  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat) => linked && tg === 7 && chat === 7, alertPctOf: () => 4, floorOf: () => 100_000_000n, snapshot: () => open });
   await control.enable(710, draft(), TAP);
   const rule = store.enabledRules()[0]!;
   assert.equal(control.armProblem(rule), undefined);
@@ -170,7 +170,7 @@ test('TURNING OFF WHILE A TOP-UP IS ON ITS WAY says it cannot be recalled and th
   const store = new InMemoryRescueStore();
   const automation = new InMemoryAutomationStore();
   let busy = false;
-  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: () => true, alertPctOf: () => 4, snapshot: () => open, busy: () => busy });
+  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: () => true, alertPctOf: () => 4, floorOf: () => 100_000_000n, snapshot: () => open, busy: () => busy });
   await control.enable(710, draft(), TAP);
   busy = true;
   const off = await control.disable(710, 16);
@@ -179,4 +179,24 @@ test('TURNING OFF WHILE A TOP-UP IS ON ITS WAY says it cannot be recalled and th
   await control.enable(710, draft(), TAP);
   busy = false;
   assert.match((await control.disable(710, 16)).text, /^Rescue is off for BTC\. Nothing more will be added automatically\./);
+});
+
+test("THE FLOOR IS THE ACCOUNT'S SETTING, READ SERVER-SIDE: whatever a draft carries is ignored, and the screens' view follows a change", async () => {
+  const store = new InMemoryRescueStore();
+  const automation = new InMemoryAutomationStore();
+  let floor = 100_000_000n;
+  const control = new RescueControlService({ store, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: () => true, alertPctOf: () => 4, floorOf: () => floor, snapshot: () => open });
+
+  // A hand-made draft asking to keep nothing, or a negative amount: neither reaches the rule.
+  assert.equal((await control.enable(710, draft({ minRemainingCNS: -1n }), TAP)).ok, true);
+  assert.equal(store.enabledRules()[0]?.minRemainingCNS, 100_000_000n, "the account's floor at the tap, not the draft's");
+  assert.equal((await control.enable(710, draft({ minRemainingCNS: 0n }), TAP)).ok, true);
+  const stored = store.enabledRules()[0]!;
+  assert.equal(stored.minRemainingCNS, 100_000_000n);
+
+  // Changed in Settings afterwards: the screens show the new figure, the stored rule and its signature are untouched.
+  floor = 0n;
+  assert.equal(control.rules(710)[0]?.minRemainingCNS, 0n, 'what the rule sentence shows is what the engine decides on');
+  assert.equal(store.enabledRules()[0]?.minRemainingCNS, 100_000_000n);
+  assert.equal(control.armProblem(store.enabledRules()[0]!), undefined, 'changing the floor never invalidates a tap-armed rule');
 });

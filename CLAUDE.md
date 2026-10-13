@@ -1192,9 +1192,10 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   hours.
 - 🛟 LIQUIDATION RESCUE (Phase 17, `apps/backend/src/rescue/`, bot half
   `apps/bot/src/rescue.ts`). A rule is ONE POSITION (venue pid; a reopened
-  position is a new one and its rule ends) with a trigger, an amount and FOUR
-  LIMITS, each its own column: max rescues, MAX TOTAL (independent, never
-  count × amount once picked), minimum free balance never spent, cooldown.
+  position is a new one and its rule ends) with a trigger, an amount and THREE
+  LIMITS OF ITS OWN: max rescues, MAX TOTAL (independent, never count × amount
+  once picked) and cooldown. The minimum free balance never spent is the
+  ACCOUNT'S, not the rule's (see "the free balance Rescue keeps" below).
   `decide.ts` is pure: triggered on two looks ≥1 s apart at or below the
   trigger; then kill switch -> feed/positions -> limits (exhausted) ->
   cooldown -> free-balance FLOOR (hold, never a scaled-down amount). The
@@ -1217,6 +1218,33 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     has stopped, what the trader can still do. Never "failed".
   - ENABLE is re-validated server-side (`control.ts`) against the live
     position; a second rule on a position replaces the first.
+  - THE FREE BALANCE RESCUE KEEPS IS ONE SETTING PER ACCOUNT (owner, 13 Oct
+    2026; `apps/backend/src/rescue/floor.ts`, `account_settings
+    .rescue_floor_ausd`): whole AUSD, ANY VALUE FROM 0, default 100 for every
+    account that never set one, the same on both deployments. Set in ⚙️
+    Settings ("🛟 Rescue keeps: 100 AUSD free": presets 0/50/100/250/500 or
+    typed). Until then it was a per-rule limit, default 500, never below 100,
+    which held mainnet #69 (36 AUSD free) every time. AT 0 THE SCREEN SAYS
+    IT: "Rescue may spend your entire free balance, up to the limits you set
+    on each rule". Zero lifts the floor ONLY: the rule's amount, count, total
+    and cooldown still bind, and it never sends a smaller amount.
+    - ENFORCED IN THE BACKEND, READ AT EVERY DECISION: `decide` takes the
+      account's floor from its settings (`RescueFacts.minRemainingCNS`), so a
+      change applies at once to rules already on. `rescue_rules
+      .min_remaining_cns` is now a RECORD of the floor when the rule was
+      turned on; it is in the arming signature, so it is NEVER REWRITTEN, and
+      nothing decides on it while a setting is wired. `control.enable` reads
+      the setting itself and ignores whatever a draft carries.
+    - THE DECLINE QUOTES THE ACCOUNT'S OWN FIGURE (`balanceLow` in
+      `render.ts`): "adding 100 AUSD would take your free balance below the
+      36 AUSD you chose to keep". At 0 no floor is named: the balance does
+      not cover the top-up.
+    - IT ALSO NARROWS THE ONE-TAP TOP-UPS, BUT ONLY WHILE A RULE IS ARMED
+      (`heldBackCNS`, the `reserved` the alert and View position size from).
+      Nothing armed, nothing held: it limits automation, never the person.
+    - LIMIT INDEX 2 IS RETIRED, NOT REUSED: the old "Keep N" buttons were
+      `rescue-lim` level 200-204; `RESCUE_LIMITS[2]` stays, empty, so one in
+      a chat decodes to nothing and never to a cooldown.
   - THE FLOOR IS ACCOUNT-WIDE (7 Oct 2026): ONE RESCUE IN FLIGHT PER
     ACCOUNT, locked from the balance check through settlement, and every
     amount sent is RESERVED off the balance `decide` sees. Released on a

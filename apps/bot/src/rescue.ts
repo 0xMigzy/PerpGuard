@@ -10,7 +10,7 @@
  *               Turn on. While on: who turned it on and when, top-ups used,
  *               ⛔ Turn off.
  *   amount      +100 / +250 / +500 / +1,000 AUSD or 🎛 Custom amount
- *   limits      all four on one screen, each a row of choices
+ *   limits      all three on one screen, each a row of choices (the free balance kept is in ⚙️ Settings)
  */
 import type { MarketRiskConfig } from '@perpguard/shared';
 import { esc, held, money, positionName } from '@perpguard/backend/alerts/plain';
@@ -79,18 +79,25 @@ export interface RescueControl {
 /** One whole collateral unit (1 AUSD) in the token's own decimals. Never assumed to be 6. */
 export const unitOf = (collateralDecimals: number): bigint => 10n ** BigInt(collateralDecimals);
 export const RESCUE_AMOUNTS_AUSD = [100, 250, 500, 1_000] as const;
-/** The four limits, each its own choice. Max total is NEVER derived once picked. */
-export const RESCUE_LIMITS = [
+/**
+ * The limits a rule carries, each its own choice. Max total is NEVER derived once picked.
+ *
+ * INDEX 2 IS RETIRED AND STAYS EMPTY (13 Oct 2026). It was "Minimum remaining", per rule; the floor is now one
+ * number per account, set in ⚙️ Settings (`rescue/floor.ts`). A limit button's payload is index x 100 + option, so
+ * the slot is kept: an old "Keep 500" button in a chat decodes to nothing, never to a cooldown.
+ */
+export const RESCUE_LIMITS: readonly { readonly name: string; readonly options: readonly number[] }[] = [
   { name: 'Maximum top-ups', options: [1, 2, 3, 5] },
   { name: 'Maximum total', options: [100, 250, 500, 1_000, 2_500, 5_000] },
-  { name: 'Minimum remaining', options: [100, 250, 500, 1_000, 2_500] },
+  { name: 'Minimum remaining (retired: ⚙️ Settings)', options: [] },
   { name: 'Cooldown', options: [5, 15, 30, 60] },
-] as const;
-/** Defaults in WHOLE AUSD; turned into the token's units with `unitOf`. */
-export const RESCUE_DEFAULTS = { triggerPct: 0.03, amountAusd: 100n, maxRescues: 2, minRemainingAusd: 500n, cooldownMs: 15 * 60_000 } as const;
+];
+/** Defaults in WHOLE AUSD; turned into the token's units with `unitOf`. The floor is not here: it is the account's setting. */
+export const RESCUE_DEFAULTS = { triggerPct: 0.03, amountAusd: 100n, maxRescues: 2, cooldownMs: 15 * 60_000 } as const;
 const defaultAmount = (d: Pick<RescueDraft, 'collateralDecimals'>): bigint => RESCUE_DEFAULTS.amountAusd * unitOf(d.collateralDecimals);
 
-export const freshDraft = (a: Pick<RiskAssessment, 'marketId' | 'positionId'>, rule: RescueRuleView | undefined, collateralDecimals: number): RescueDraft => ({
+/** `floorCNS`: the account's Rescue floor from its settings. A draft only SHOWS it; the backend reads the setting itself. */
+export const freshDraft = (a: Pick<RiskAssessment, 'marketId' | 'positionId'>, rule: RescueRuleView | undefined, collateralDecimals: number, floorCNS: bigint): RescueDraft => ({
   marketId: a.marketId,
   collateralDecimals,
   positionId: a.positionId ?? 0,
@@ -98,7 +105,7 @@ export const freshDraft = (a: Pick<RiskAssessment, 'marketId' | 'positionId'>, r
   amountCNS: undefined,
   maxRescues: rule?.maxRescues ?? RESCUE_DEFAULTS.maxRescues,
   maxTotalCNS: undefined,
-  minRemainingCNS: rule?.minRemainingCNS ?? RESCUE_DEFAULTS.minRemainingAusd * unitOf(collateralDecimals),
+  minRemainingCNS: floorCNS,
   cooldownMs: rule?.cooldownMs ?? RESCUE_DEFAULTS.cooldownMs,
 });
 
@@ -116,7 +123,8 @@ export function applyLimit(d: RescueDraft, level: number): RescueDraft | undefin
     case 1:
       return { ...d, maxTotalCNS: BigInt(value) * unitOf(d.collateralDecimals) };
     case 2:
-      return { ...d, minRemainingCNS: BigInt(value) * unitOf(d.collateralDecimals) };
+      // Retired: no option decodes here (the list is empty). Kept so the slot can never mean something else.
+      return undefined;
     default:
       return { ...d, cooldownMs: value * 60_000 };
   }
@@ -178,13 +186,15 @@ export interface RuleTerms {
 
 /**
  * "If BTC reaches 5% from liquidation, add 100 AUSD. Up to 2 times. Never
- * spending your last 500 AUSD. At least 15 minutes apart." The total cap is
- * said only when it is tighter than count × amount, which is when it bites.
+ * spending your last 100 AUSD. At least 15 minutes apart." The floor is the
+ * account's own (⚙️ Settings); at 0 the sentence says the whole free balance
+ * may go. The total cap is said only when it is tighter than count × amount,
+ * which is when it bites.
  */
 export function ruleSentence(symbol: string, t: RuleTerms, d: number): string[] {
   const lines = [
     `If ${esc(symbol)} reaches ${pctOf(t.triggerPct)} from liquidation, add ${ceiled(t.amountCNS, d)}.`,
-    `Up to ${t.maxRescues === 1 ? 'once' : `${t.maxRescues} times`}. Never spending your last ${whole(t.minRemainingCNS, d)}.`,
+    `Up to ${t.maxRescues === 1 ? 'once' : `${t.maxRescues} times`}. ${t.minRemainingCNS === 0n ? 'It may spend your whole free balance.' : `Never spending your last ${whole(t.minRemainingCNS, d)}.`}`,
     `At least ${minutes(t.cooldownMs)} apart.`,
   ];
   if (t.maxTotalCNS < BigInt(t.maxRescues) * t.amountCNS) lines.push(`No more than ${whole(t.maxTotalCNS, d)} in all.`);
@@ -232,7 +242,7 @@ export function rescuePositionScreen(input: {
   if (r !== undefined && r.pausedReason !== undefined) lines.push('', `<i>The last rule ended: ${esc(r.pausedReason)}.</i>`);
   const inside = a.liqBufferPct !== undefined && draft.triggerPct !== undefined && a.liqBufferPct <= draft.triggerPct;
   if (capOf(draft) < amount) lines.push('', '⚠️ The total cap is below one top-up, so it could never act. Raise it under Change limits.');
-  if (input.free !== undefined && input.free - amount < draft.minRemainingCNS) lines.push('', `⚠️ Your free balance is ${held(input.free, d)}: a top-up now would go below what you keep, so it would wait rather than send less.`);
+  if (input.free !== undefined && input.free - amount < draft.minRemainingCNS) lines.push('', draft.minRemainingCNS === 0n ? `⚠️ Your free balance is ${held(input.free, d)}, less than one top-up, so it would wait rather than send less.` : `⚠️ Your free balance is ${held(input.free, d)}: a top-up now would go below the ${whole(draft.minRemainingCNS, d)} you keep (⚙️ Settings), so it would wait rather than send less.`);
 
   const buttons: Button[][] = [[{ text: 'Change amount', route: { to: 'rescue-cfg', marketId: a.marketId } }, { text: 'Change limits', route: { to: 'rescue-limits' } }]];
   if (input.stopped) {
@@ -299,7 +309,8 @@ export function rescueLimitsScreen(a: RiskAssessment, d: RescueDraft): Screen {
     html: [
       `🛟 <b>RESCUE · ${positionName(a)}</b> · limits`,
       '',
-      'How many top-ups at most, how much in all, how much free balance to always keep, and how long to wait between top-ups. Tap to change.',
+      'How many top-ups at most, how much in all, and how long to wait between top-ups. Tap to change.',
+      'The free balance Rescue always leaves is one setting for the whole account: ⚙️ Settings.',
     ].join('\n'),
     buttons: [...rows.flatMap((row) => chunk(row, 3)), [{ text: '← Back', route: { to: 'rescue-pos', marketId: a.marketId } }]],
   };

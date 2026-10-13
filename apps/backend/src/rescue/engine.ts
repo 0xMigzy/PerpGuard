@@ -65,6 +65,13 @@ export interface RescueEngineOptions {
    * an engine that could act on an unsigned rule is the 01:55 failure.
    */
   readonly armProblem: (rule: RescueRule) => string | undefined;
+  /**
+   * THE ACCOUNT'S RESCUE FLOOR, in the collateral's units, from its settings
+   * (`rescue/floor.ts`). Asked at every decision, so a change in ⚙️ Settings
+   * applies at once to rules already on. Absent (tests, tools): each rule's
+   * own stored figure applies.
+   */
+  readonly floorOf?: (accountId: number) => bigint;
   readonly notify: (accountId: number, notice: RescueNotice) => Promise<void>;
   readonly logger: { info(message: string): void; warn(message: string): void };
   readonly now?: () => number;
@@ -158,6 +165,7 @@ export class RescueEngine {
       automationStopped: this.#o.automation.automationStopped(accountId),
       feedConnected: account.feedConnected(),
       freeFloorCNS: this.#availableFloor(accountId, account.freeFloorCNS()),
+      minRemainingCNS: this.#o.floorOf?.(accountId),
       nowMs: now,
     });
     switch (d.kind) {
@@ -276,6 +284,7 @@ export class RescueEngine {
       automationStopped: this.#o.automation.automationStopped(rule.accountId),
       feedConnected: account.feedConnected(),
       freeFloorCNS: floor,
+      minRemainingCNS: this.#o.floorOf?.(rule.accountId),
       nowMs: now,
     });
 
@@ -565,7 +574,7 @@ export class RescueEngine {
     }
     await this.#o.store.update(rule.id, { lastNotice: notice });
     this.#o.logger.info(`rescue rule ${rule.id}: holding (${detail ?? holdDetail(reason)})`);
-    this.#tell(rule.accountId, { kind: 'held', rule, reason, detail: detail ?? holdDetail(reason), assessment });
+    this.#tell(rule.accountId, { kind: 'held', rule, reason, detail: detail ?? holdDetail(reason), assessment, minRemainingCNS: this.#o.floorOf?.(rule.accountId) });
   }
 
   /**

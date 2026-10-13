@@ -99,6 +99,7 @@ import { actionTxLine } from './alerts/provenance.ts';
 import { InMemoryAutomationStore, PostgresAutomationStore, type AutomationStore } from './rescue/automation.ts';
 import { InMemoryRescueStore, PostgresRescueStore, type RescueStore } from './rescue/store.ts';
 import { RescueControlService } from './rescue/control.ts';
+import { heldBackCNS, rescueFloorCNS } from './rescue/floor.ts';
 import { RescueEngine } from './rescue/engine.ts';
 import { KillSwitch } from './rescue/killSwitch.ts';
 import { ArmSigner } from './rescue/arming.ts';
@@ -566,7 +567,7 @@ const linkedAccountTransport: AlertTransport = {
 // account's own thresholds; a change applies to the live loop at once.
 const applySettings = (accountId: number, value: AccountSettings): void => {
   registry.get(accountId)?.loop.setThresholds(thresholdsFor(value.warnLevel));
-  log(`[account ${accountId}] warn level set to ${value.warnLevel}`);
+  log(`[account ${accountId}] settings saved: warn level ${value.warnLevel}, alerts at ${value.alertPct}%, Rescue keeps ${value.rescueFloorAusd} AUSD free`);
 };
 let accountSettings: AccountSettingsStore = new InMemoryAccountSettingsStore({ onChange: (id, v) => applySettings(id, v) });
 if (alertDb !== undefined) {
@@ -577,6 +578,13 @@ if (alertDb !== undefined) {
     warn(`account settings could not be loaded from Postgres (${error instanceof Error ? error.message : String(error)}); they are in memory until the next restart`);
   }
 }
+
+/**
+ * THE ACCOUNT'S RESCUE FLOOR (owner, 13 Oct 2026), in the collateral's own units: the free balance Rescue never
+ * spends. Read from the account's settings every time it is asked, so the engine, the arming check and the
+ * suggested top-ups all see a change at once. 100 AUSD for an account that has never set one.
+ */
+const rescueFloorOf = (accountId: number): bigint => rescueFloorCNS(accountSettings.get(accountId).rescueFloorAusd, collateralDecimals);
 
 // ── 🛟 automation: state per account, Rescue rules and attempts ──────────────
 // Postgres when there is one. Without it Rescue still runs, but its claims and
@@ -764,11 +772,10 @@ const openPositionsOf = (accountId: number): OpenPosition[] | undefined => {
 
 /**
  * HELD BACK FROM AN ACCOUNT'S FREE BALANCE when a top-up is suggested (owner, 10 Oct 2026): any Rescue top-up
- * in flight, plus the largest "minimum remaining" among its armed Rescue rules. Nothing armed, nothing held.
+ * in flight, plus the account's Rescue floor (its own setting) while any Rescue rule is armed. Nothing armed, nothing held.
  */
 const reservedFor = (accountId: number): bigint => {
-  const floor = rescueStore.rulesFor(accountId).filter((r) => r.enabled).reduce((max, r) => (r.minRemainingCNS > max ? r.minRemainingCNS : max), 0n);
-  return rescueEngine.reservedCNS(accountId) + floor;
+  return heldBackCNS({ anyRuleArmed: rescueStore.rulesFor(accountId).some((r) => r.enabled), floorCNS: rescueFloorOf(accountId), inFlightCNS: rescueEngine.reservedCNS(accountId) });
 };
 
 /** 🚪 Close part of a position: what closing `closeLNS` of it is estimated to realise and cost, at the mark. */
@@ -813,6 +820,7 @@ const rescueControl = new RescueControlService({
   signer: armSigner,
   isLinked: isLinkedHere,
   alertPctOf: (accountId) => accountSettings.get(accountId).alertPct,
+  floorOf: (accountId) => rescueFloorOf(accountId),
   snapshot: (accountId) => registry.get(accountId)?.view.snapshot(),
   // The engine is built below; a turn-off only ever asks after both exist.
   busy: (ruleId: number): boolean => rescueEngine.busy(ruleId),
@@ -912,6 +920,7 @@ const rescueEngine = new RescueEngine({
   store: rescueStore,
   automation,
   armProblem: (rule) => rescueControl.armProblem(rule),
+  floorOf: (accountId) => rescueFloorOf(accountId),
   account: (accountId) => {
     const session = registry.get(accountId);
     if (session === undefined) return undefined;

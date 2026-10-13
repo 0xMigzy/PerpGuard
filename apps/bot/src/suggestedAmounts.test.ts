@@ -143,3 +143,15 @@ test('nothing it cannot price: no amounts at all, and no sentence blaming the ba
   const s = suggestAmounts({ ...position({ notional: 10_000, now: 0.02, d: 0.05, free: 1_000 }), project: () => undefined });
   assert.deepEqual(s, { amounts: [] });
 });
+
+test('RESCUE FLOOR (13 Oct 2026): 36 AUSD free offers the same top-ups with nothing armed and with Rescue armed at a floor of 0; an armed floor of 100 offers none', () => {
+  // A 500 AUSD position 2.7% from liquidation, alerts at 5%: mainnet #69's free balance.
+  const base = { notional: 500, now: 0.027, d: 0.05, free: 36 };
+  const nothingArmed = suggestAmounts(position(base));
+  const armedAtZero = suggestAmounts(position({ ...base, reserved: 0 }));
+  assert.deepEqual(shown(armedAtZero), shown(nothingArmed), 'a floor of 0 holds nothing back: the alert is the one a person with no Rescue sees');
+  assert.deepEqual(shown(nothingArmed), [32], '90% of 36, a whole AUSD, rounded down');
+  assert.equal(nothingArmed.amounts[0]!.freeAfterCNS, ausd(4));
+  // Armed with the default floor: 36 free is all inside the 100 kept, so nothing is offered that cannot be paid for.
+  assert.deepEqual(shown(suggestAmounts(position({ ...base, reserved: 100 }))), []);
+});

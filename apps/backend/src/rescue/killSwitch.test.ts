@@ -68,7 +68,7 @@ function rig(stores?: { automation: InMemoryAutomationStore; rescueStore: InMemo
   const logs: string[] = [];
   const engine = new RescueEngine({ armProblem: (rule) => control.armProblem(rule), store: rescueStore, automation, account: () => account, notify: async () => {}, logger: { info: () => {}, warn: () => {} }, now: () => clock.t, remeasureMs: 0, transientHoldMs: 0 });
   const killSwitch = new KillSwitch({ automation, rescueStore, rescueEngine: engine, log: (l) => logs.push(l), now: () => clock.t, settleWaitMs: 2_000 });
-  const control = new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat, acct) => tg === 7 && chat === 7 && acct === 710, alertPctOf: () => 4, snapshot: () => account.snapshot() });
+  const control = new RescueControlService({ store: rescueStore, automation, collateralDecimals: 6, signer: new ArmSigner('11'.repeat(32)), isLinked: (tg, chat, acct) => tg === 7 && chat === 7 && acct === 710, alertPctOf: () => 4, floorOf: () => 100_000_000n, snapshot: () => account.snapshot() });
   const look = async () => {
     await engine.tick();
     clock.t += 1_000;

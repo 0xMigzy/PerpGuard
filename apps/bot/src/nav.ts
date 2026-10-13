@@ -108,6 +108,10 @@ export type Route =
   | { readonly to: 'warn-set'; readonly level: number }
   /** 🔔 A custom alert distance, typed. */
   | { readonly to: 'alert-custom' }
+  /** 🛟 The Rescue floor (the free balance Rescue never spends): the screen, a preset, a typed amount. */
+  | { readonly to: 'floor-ask' }
+  | { readonly to: 'floor-set'; readonly level: number }
+  | { readonly to: 'floor-custom' }
   /** 🔔 Dismiss a manual alert: its buttons go, its words stay, nothing is sent. */
   | { readonly to: 'dismiss' }
   | { readonly to: 'disconnect-ask' }
@@ -194,6 +198,9 @@ const CODE: Readonly<Record<RouteName, string>> = {
   'warn-ask': 'sw',
   'warn-set': 'sv',
   'alert-custom': 'acu',
+  'floor-ask': 'sf',
+  'floor-set': 'sfv',
+  'floor-custom': 'sfc',
   dismiss: 'dm',
   'disconnect-ask': 'dq',
   disconnect: 'dx',
@@ -213,6 +220,7 @@ const ARG: Partial<Record<RouteName, 'accountId' | 'marketId' | 'level'>> = {
   'watch-id': 'accountId',
   position: 'marketId',
   'warn-set': 'level',
+  'floor-set': 'level',
   'rescue-pos': 'marketId',
   'rescue-cfg': 'marketId',
   'rescue-amt': 'level',

@@ -439,7 +439,7 @@ const pushedTargets = new Set<string>();
   pushed('watched wallet: warning level', 'watch-only', r.html, kb(r.links), 'a watched position crosses one of the chat\'s warning levels');
 }
 {
-  const rule = { id: 3, accountId: 710, marketId: 16, symbol: 'BTC', positionId: 1, triggerPct: 0.05, amountCNS: 100_000_000n, maxRescues: 2, maxTotalCNS: 200_000_000n, minRemainingCNS: 500_000_000n, cooldownMs: 900_000, rescueCount: 1, totalRescuedCNS: 100_000_000n, enabled: true, pausedReason: undefined, lastAttemptAtMs: 0, lastNotice: undefined, createdAtMs: 0, armedBy: 7, armedChat: 7, armedAtMs: 0, armProof: 'x' } as RescueRule;
+  const rule = { id: 3, accountId: 710, marketId: 16, symbol: 'BTC', positionId: 1, triggerPct: 0.05, amountCNS: 100_000_000n, maxRescues: 2, maxTotalCNS: 200_000_000n, minRemainingCNS: 100_000_000n, cooldownMs: 900_000, rescueCount: 1, totalRescuedCNS: 100_000_000n, enabled: true, pausedReason: undefined, lastAttemptAtMs: 0, lastNotice: undefined, createdAtMs: 0, armedBy: 7, armedChat: 7, armedAtMs: 0, armProof: 'x' } as RescueRule;
   const a = dangerAssessment();
   const notices: RescueNotice[] = [
     { kind: 'rescued', rule, triggerDistancePct: 0.049, appliedCNS: 100_000_000n, marginBeforeCNS: 2_810_000_000n, marginAfterCNS: 2_910_000_000n, distanceAfterPct: 0.061, receiptDisagreed: true, txHash: `0x${'c0de'.repeat(16)}` },

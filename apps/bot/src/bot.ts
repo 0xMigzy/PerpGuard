@@ -42,6 +42,8 @@ import {
   positionsScreen,
   sendingScreen,
   settingsScreen,
+  rescueFloorScreen,
+  RESCUE_FLOOR_ZERO,
   warnAskScreen,
 } from './account.ts';
 import { InMemoryAccountSettingsStore, type AccountSettingsStore } from './settings.ts';
@@ -50,6 +52,7 @@ import { esc, networkName, pct, withBadge } from '@perpguard/backend/alerts/plai
 import { actionTxLine } from '@perpguard/backend/alerts/provenance';
 import { kindFor } from '@perpguard/backend/alerts/rules';
 import { ALERT_DISTANCE_PRESETS, MAX_ALERT_DISTANCE_PCT, MIN_ALERT_DISTANCE_PCT, distanceLabel, parseAlertDistance } from '@perpguard/backend/manual/distance';
+import { RESCUE_FLOOR_PRESETS_AUSD, parseRescueFloor, rescueFloorCNS, rescueFloorLabel } from '@perpguard/backend/rescue/floor';
 import { OFF_LEVEL, decodeNav, decodeNavTap, encodeNav, isNavShaped, isPublicRoute, type Route } from './nav.ts';
 import { EXECUTION_UNKNOWN, executionState, type ExecutionState } from './trading.ts';
 import {
@@ -252,7 +255,7 @@ export interface BotDeps {
   readonly killSwitch?: KillSwitchControl;
   /** 🚪 Close everything, on the 🆘 Emergency screen. Absent: the screen offers the stop only. */
   readonly emergency?: EmergencyControl;
-  /** Held back from an account's free balance: Rescue in flight and the largest armed "minimum remaining". Absent: nothing. */
+  /** Held back from an account's free balance: Rescue in flight, and the account's Rescue floor while a rule is armed. Absent: nothing. */
   readonly reserved?: (accountId: number) => bigint;
   readonly now?: () => number;
   /**
@@ -345,6 +348,21 @@ export function createBot(deps: BotDeps): Bot {
     await deps.rescue?.followAlertDistance?.(accountId, alertPct / 100);
     return true;
   }
+  /**
+   * 🛟 THE RESCUE FLOOR: saves the free balance Rescue never spends. Nothing else to move: the backend reads the
+   * setting at every decision, so rules already on follow it at once. False, and nothing changed, when it could
+   * not be saved.
+   */
+  async function saveRescueFloor(accountId: number, rescueFloorAusd: number): Promise<boolean> {
+    try {
+      await settings.set(accountId, { ...settings.get(accountId), rescueFloorAusd });
+    } catch {
+      return false;
+    }
+    return true;
+  }
+  /** What a saved floor means, in one line. At 0 it is the whole sentence, never just "Saved". */
+  const floorSaved = (ausd: number): string => (ausd === 0 ? `Saved: 0 AUSD. ${RESCUE_FLOOR_ZERO}` : `Saved: Rescue always leaves ${rescueFloorLabel(ausd)} free.`);
   /** One pending retry per chat, person and market: minted when its confirm screen is shown, consumed by the tap. */
   const retryRequests = new Map<string, string>();
   /** 🚪 Close position: the request each confirmation stands for, by chat, person and market; minted when shown, run at most once. */
@@ -941,6 +959,27 @@ export function createBot(deps: BotDeps): Bot {
       await sendScreen(ctx, settingsScreen(verdict.link.accountId, settings.get(verdict.link.accountId), deps.tradingNetwork));
       return;
     }
+    if (question?.kind === 'rescue-floor') {
+      const verdict = authorise(deps.links, telegramUserId, chatId);
+      if (!verdict.ok) {
+        questions.close(chatId, telegramUserId);
+        await ctx.reply(verdict.text);
+        return;
+      }
+      const parsed = parseRescueFloor(text);
+      if ('error' in parsed) {
+        await ctx.reply(parsed.error, { reply_markup: { force_reply: true, input_field_placeholder: '100' } });
+        return;
+      }
+      questions.close(chatId, telegramUserId);
+      if (!(await saveRescueFloor(verdict.link.accountId, parsed.ausd))) {
+        await ctx.reply('I could not save that, so nothing changed. Try again in a moment.');
+        return;
+      }
+      await ctx.reply(floorSaved(parsed.ausd));
+      await sendScreen(ctx, settingsScreen(verdict.link.accountId, settings.get(verdict.link.accountId), deps.tradingNetwork));
+      return;
+    }
     if (question?.kind === 'rescue-amount') {
       await handleRescueAnswer(ctx, text);
       return;
@@ -1395,6 +1434,34 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.reply(`Alert me at what distance from liquidation? Send a percentage between ${MIN_ALERT_DISTANCE_PCT} and ${MAX_ALERT_DISTANCE_PCT}, like 4 or 3.5.`, { reply_markup: { force_reply: true, input_field_placeholder: '4' } });
         return;
       }
+      case 'floor-ask':
+        await ctx.answerCallbackQuery();
+        await showScreen(ctx, rescueFloorScreen(settings.get(account.accountId).rescueFloorAusd));
+        return;
+      case 'floor-set': {
+        const chosen = RESCUE_FLOOR_PRESETS_AUSD[route.level];
+        if (chosen === undefined) {
+          await answer(ctx, 'I do not know that setting.');
+          return;
+        }
+        if (!(await saveRescueFloor(account.accountId, chosen))) {
+          await answer(ctx, 'I could not save that, so nothing changed. Try again in a moment.');
+          return;
+        }
+        await ctx.answerCallbackQuery({ text: floorSaved(chosen).slice(0, 190) });
+        // The floor's own screen again, so at 0 what it means is on screen and not only in a toast.
+        await showScreen(ctx, rescueFloorScreen(chosen));
+        return;
+      }
+      case 'floor-custom': {
+        const chatId = ctx.chat?.id;
+        if (chatId === undefined) return;
+        await ctx.answerCallbackQuery();
+        amounts.delete(telegramUserId);
+        questions.ask(chatId, telegramUserId, { kind: 'rescue-floor' });
+        await ctx.reply('How much free balance should Rescue always leave? Send a whole amount in AUSD, 0 or more, like 0, 36 or 250.', { reply_markup: { force_reply: true, input_field_placeholder: '100' } });
+        return;
+      }
       default:
         await answer(ctx, 'That screen is not available.');
     }
@@ -1602,10 +1669,12 @@ export function createBot(deps: BotDeps): Bot {
     const market = deps.configs.get(a.marketId);
     if (market === undefined || a.positionId === undefined) return undefined;
     const triggerPct = settings.get(account.accountId).alertPct / 100;
+    // THE FLOOR IS THE ACCOUNT'S SETTING, re-read like the trigger: a draft only shows it, and the backend reads it again itself.
+    const minRemainingCNS = rescueFloorCNS(settings.get(account.accountId).rescueFloorAusd, market.collateralDecimals);
     const held = drafts.get(chatId, telegramUserId);
-    if (held !== undefined && held.marketId === a.marketId && held.positionId === a.positionId) return { ...held, triggerPct };
+    if (held !== undefined && held.marketId === a.marketId && held.positionId === a.positionId) return { ...held, triggerPct, minRemainingCNS };
     const rule = deps.rescue!.rules(account.accountId).find((r) => r.marketId === a.marketId && r.positionId === a.positionId);
-    const fresh = { ...freshDraft(a, rule, market.collateralDecimals), triggerPct, amountCNS: rule?.amountCNS ?? RESCUE_DEFAULTS.amountAusd * unitOf(market.collateralDecimals) };
+    const fresh = { ...freshDraft(a, rule, market.collateralDecimals, minRemainingCNS), triggerPct, amountCNS: rule?.amountCNS ?? RESCUE_DEFAULTS.amountAusd * unitOf(market.collateralDecimals) };
     drafts.set(chatId, telegramUserId, fresh);
     return fresh;
   }
@@ -1719,7 +1788,9 @@ export function createBot(deps: BotDeps): Bot {
           await answer(ctx, "Execution isn't authorized on this account, so Rescue couldn't act. Fix it under 🔐 Trading account first.");
           return;
         }
-        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d) }, { telegramUserId, chatId }, { fromNextCrossing: route.to === 'rescue-on-next' });
+        // The floor shown is the account's setting NOW; the backend reads the setting itself and ignores this one.
+        const minRemainingCNS = rescueFloorCNS(settings.get(account.accountId).rescueFloorAusd, d.collateralDecimals);
+        const result = await control.enable(account.accountId, { ...d, maxTotalCNS: capOf(d), minRemainingCNS }, { telegramUserId, chatId }, { fromNextCrossing: route.to === 'rescue-on-next' });
         if (!result.ok) {
           await answer(ctx, result.text);
           return;

@@ -18,8 +18,8 @@
  *     rounded UP to two significant figures. THE LARGER is TWICE it, shown
  *     first. So the smaller is half the larger, and both land clear.
  *   - SPENDABLE is the free balance floor minus what is reserved: a Rescue
- *     top-up in flight, and the largest "minimum remaining" among the
- *     account's armed Rescue rules. The larger is never more than 90% of it
+ *     top-up in flight, and the account's Rescue floor (its own setting,
+ *     `rescue/floor.ts`) while a Rescue rule is armed. The larger is never more than 90% of it
  *     (a whole AUSD, rounded down), so something is left for fees and the next
  *     alert; when that cap bites, the smaller stays half of it.
  *   - THE SMALLER IS HIDDEN when it would land short of the clear level (the
@@ -62,7 +62,7 @@ export interface SuggestInput {
   readonly alertFraction: number;
   /** The free balance floor, in collateral units; undefined when it cannot be read. */
   readonly freeFloorCNS: bigint | undefined;
-  /** What is held back from it: Rescue in flight, plus the largest armed "minimum remaining". */
+  /** What is held back from it: Rescue in flight, plus the account's Rescue floor while a rule is armed. */
   readonly reservedCNS?: bigint;
   /** One whole AUSD in collateral units (10 ** decimals). */
   readonly unitCNS: bigint;

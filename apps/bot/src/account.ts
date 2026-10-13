@@ -18,6 +18,7 @@ import { formatPricePNS } from '@perpguard/backend/alerts/render';
 import { dot, esc, fromLiquidation, held, networkName, pct, positionName, shortDistance, signedPnl } from '@perpguard/backend/alerts/plain';
 import { isBlind, type RiskAssessment } from '@perpguard/backend/risk';
 import { ALERT_DISTANCE_PRESETS, distanceLabel } from '@perpguard/backend/manual/distance';
+import { RESCUE_FLOOR_PRESETS_AUSD, rescueFloorLabel } from '@perpguard/backend/rescue/floor';
 import type { FreeBalanceReading } from './balance.ts';
 import type { Suggestions } from './suggestedAmounts.ts';
 import type { ExecutionOutcome } from './actions.ts';
@@ -234,7 +235,7 @@ export interface ConfirmInput {
   readonly cancelData: string;
   /** Things to read before confirming; never refusals. */
   readonly notes?: readonly string[];
-  /** Held back from the free balance: Rescue in flight and the largest armed "minimum remaining". */
+  /** Held back from the free balance: Rescue in flight, and the account's Rescue floor while a rule is armed. */
   readonly reservedCNS?: bigint | undefined;
 }
 
@@ -355,6 +356,7 @@ export function settingsScreen(accountId: number, settings: AccountSettings, net
     html: `⚙️ <b>SETTINGS</b> · ${networkName(network)} #${accountId}`,
     buttons: [
       [{ text: `🔔 Alert me at: ${distanceLabel(settings.alertPct)} from liquidation`, route: { to: 'warn-ask' } }],
+      [{ text: settings.rescueFloorAusd === 0 ? '🛟 Rescue keeps: nothing back (0 AUSD)' : `🛟 Rescue keeps: ${rescueFloorLabel(settings.rescueFloorAusd)} free`, route: { to: 'floor-ask' } }],
       [{ text: '← Back', route: { to: 'home' } }],
     ],
   };
@@ -375,6 +377,33 @@ export function warnAskScreen(currentPct: number): Screen {
     buttons: [
       ALERT_DISTANCE_PRESETS.map((p, i): Button => ({ text: `${p === currentPct ? '✅ ' : ''}${p}%`, route: { to: 'warn-set', level: i } })),
       [{ text: `🎛 Custom distance${(ALERT_DISTANCE_PRESETS as readonly number[]).includes(currentPct) ? '' : ` (now ${distanceLabel(currentPct)})`}`, route: { to: 'alert-custom' } }],
+      [{ text: '← Back', route: { to: 'settings' } }],
+    ],
+  };
+}
+
+/**
+ * THE RESCUE FLOOR (owner, 13 Oct 2026): the free balance Rescue never
+ * spends, one number per account. AT 0 THE SCREEN SAYS WHAT THAT MEANS, in
+ * the words under the heading and not only on the button.
+ */
+export const RESCUE_FLOOR_ZERO = 'Rescue may spend your entire free balance, up to the limits you set on each rule (the amount, the number of top-ups, the total).';
+
+export function rescueFloorScreen(currentAusd: number): Screen {
+  const presets = RESCUE_FLOOR_PRESETS_AUSD as readonly number[];
+  const lines = [
+    '🛟 <b>How much free balance should Rescue always leave?</b>',
+    'Rescue waits, and tells you, when a top-up would take your free balance below this. It never sends a smaller amount instead.',
+    'It applies to every position Rescue is on, at once. Your own top-ups are not limited by it.',
+    '',
+    currentAusd === 0 ? `⚠️ <b>Now: 0 AUSD.</b> ${RESCUE_FLOOR_ZERO}` : `Now: <b>${rescueFloorLabel(currentAusd)}</b>.`,
+  ];
+  if (currentAusd !== 0) lines.push(`At 0: ${RESCUE_FLOOR_ZERO}`);
+  return {
+    html: lines.join('\n'),
+    buttons: [
+      presets.map((p, i): Button => ({ text: `${p === currentAusd ? '✅ ' : ''}${p.toLocaleString('en-US')}`, route: { to: 'floor-set', level: i } })),
+      [{ text: `🎛 Custom amount${presets.includes(currentAusd) ? '' : ` (now ${rescueFloorLabel(currentAusd)})`}`, route: { to: 'floor-custom' } }],
       [{ text: '← Back', route: { to: 'settings' } }],
     ],
   };
