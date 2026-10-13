@@ -5,7 +5,7 @@
 <h1>PerpGuard</h1>
 
 <p>
-<b>Most liquidations on Perpl were preventable.</b><br>
+<b>Two in three liquidations on Perpl hit accounts holding enough to stop them.</b><br>
 PerpGuard watches your positions, warns you before the line, and tops up margin on a tap — from Telegram.
 </p>
 
@@ -207,7 +207,7 @@ pnpm test        # node:test across every package and app
 pnpm typecheck
 ```
 
-1,596 tests, all passing on 10 Oct 2026. CI runs both and a clean web build on every push.
+1,656 tests, all passing on 13 Oct 2026. CI runs both and a clean web build on every push.
 
 ## After the hackathon
 
