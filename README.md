@@ -25,7 +25,7 @@
 
 Perpl uses isolated margin: each position carries its own collateral, and the account's free balance is never used to save it. So traders get liquidated while holding spare AUSD that would have kept the position open, because nobody was watching.
 
-Since Perpl launched on 11 Feb 2026, 2,426 of 3,653 mainnet liquidations (66.4%) hit accounts whose free balance could have covered the top-up that would have kept the position above maintenance margin. Over the last 30 days: 428 of 634 (67.5%).
+From Perpl's launch on 11 Feb 2026 to 13 Oct 2026, 2,444 of 3,682 mainnet liquidations (66.4%) hit accounts whose free balance could have covered the top-up that would have kept the position above maintenance margin. Over the 30 days to 13 Oct 2026: 371 of 552 (67.2%).
 
 ![A trader's page on perpguard.app showing how many of their liquidations were rescuable](docs/images/trader-card.png)
 *A trader's page: their liquidations over the window, and how many their free balance could have prevented.*

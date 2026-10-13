@@ -132,9 +132,12 @@ the gap PerpGuard exists for.
   failure. The full-history index starts at the Exchange's deployment, so today
   nothing is unjudgeable. The old index, which started at block 100,000,000, had
   18 such liquidations over 30 days.
-- **Always quoted with its window.** At block 109,704,977 (1 Oct 2026): 467 of
-  637 over 30 days (73.3%), and 2,318 of 3,463 since Feb 11, 2026 (66.9%).
-  `docs/liquidation-finding-2026-10-01.md` has the monthly breakdown.
+- **Always quoted with its window.** Computed 13 Oct 2026, 12:15 UTC: 371 of
+  552 over the 30 days to 13 Oct 2026 (67.2%), and 2,444 of 3,682 from Feb 11,
+  2026 to 13 Oct 2026 (66.4%). At block 109,704,977 (1 Oct 2026) the same two
+  windows read 467 of 637 (73.3%) and 2,318 of 3,463 (66.9%);
+  `docs/liquidation-finding-2026-10-01.md` has that reading's monthly
+  breakdown.
 - **Not the same as "had a balance".** `hadSpareBalance` is true for any balance
   above zero, dust included: when last measured it was true for 654 of 654
   mainnet liquidations, the smallest balance being 0.00024 AUSD. It is a per-liquidation

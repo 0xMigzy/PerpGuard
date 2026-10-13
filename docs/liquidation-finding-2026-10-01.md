@@ -4,6 +4,12 @@ Captured at 20:39 UTC on 1 October 2026, before the site moved to the
 full-history index, by `apps/backend/src/scripts/compare-indexes.ts` (the
 backend's own analytics code, run against both index schemas at once).
 
+**Every figure below is the 1 October reading and is kept as captured.** The
+windows have moved on since. Computed 13 Oct 2026, 12:15 UTC, the site shows
+2,444 of 3,682 (66.4%) from 11 Feb 2026 to 13 Oct 2026, and 371 of 552 (67.2%)
+over the 30 days to 13 Oct 2026. Quote a figure from this page only with its
+1 October window.
+
 "Rescuable" means the trader's free AUSD, at the moment of liquidation, would
 have covered the top-up that kept the position above maintenance margin. The
 rate is always over the JUDGEABLE denominator: liquidations of positions

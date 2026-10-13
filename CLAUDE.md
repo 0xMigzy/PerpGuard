@@ -15,8 +15,10 @@ liquidated while holding plenty of spare AUSD. PerpGuard watches each position,
 warns before liquidation, and lets the user add margin or close in one tap.
 
 THE NUMBER WE QUOTE IS `rescuableLiquidationCount`, ALWAYS WITH ITS WINDOW:
-2,318 of 3,463 mainnet liquidations (66.9%) since Perpl launched on 11 Feb
-2026, and 467 of 637 (73.3%) over 30 days (`docs/liquidation-finding-2026-10-01.md`)
+2,444 of 3,682 mainnet liquidations (66.4%) from Perpl's launch on 11 Feb
+2026 to 13 Oct 2026, and 371 of 552 (67.2%) over the 30 days to 13 Oct 2026
+(the live site, computed 13 Oct 2026 12:15 UTC; the 1 Oct reading, 2,318 of
+3,463 and 467 of 637, is kept in `docs/liquidation-finding-2026-10-01.md`)
 — liquidations where the trader's free AUSD would have covered the top-up that
 kept the position above maintenance margin. Nothing is excluded: the index runs
 from the Exchange's deployment block, so every liquidation can be judged. If a
@@ -28,7 +30,8 @@ account holds, not a flow; summing it over liquidations counts the same money
 once per liquidation (#4734: 23 rescuable, its balance counted 23 times; the
 "7.38M AUSD spare" tile was this). Sum across ACCOUNTS, or use a per-event
 ratio: the cover ratio, the median of free balance / shortfall across
-rescuable liquidations (187x over 2,344, full history, 4 Oct 2026). The
+rescuable liquidations (178x over 2,444, full history, 13 Oct 2026; it read
+187x over 2,344 on 4 Oct). The
 indexer's `spareBalanceAtLiquidationCNS` running totals are that same sum and
 are never served.
 
@@ -1527,9 +1530,11 @@ rename it or change its env, or Envio may reset the schema. The old live
 index (schema `public`, from block 100,000,000, unit `perpguard-indexer`)
 is stopped and disabled; its schema is kept for rollback until the owner
 says drop it. "All" is named from the index's real start ("since Feb 11,
-2026"), never "all time" on trust. The rescuable finding over all time
-is 2,318 of 3,463 (66.9%) against 467 of 637 (73.3%) over 30 days, captured
-in `docs/liquidation-finding-2026-10-01.md`; always quote one with its window.
+2026"), never "all time" on trust. The rescuable finding from 11 Feb to
+13 Oct 2026 is 2,444 of 3,682 (66.4%) against 371 of 552 (67.2%) over the 30
+days to 13 Oct 2026; at the cutover it was 2,318 of 3,463 (66.9%) against 467
+of 637 (73.3%), captured in `docs/liquidation-finding-2026-10-01.md`. Always
+quote one with its window.
 - BLINDNESS IS ONE STATE PER ACCOUNT, NEWS ONLY AFTER A MINUTE (owner, 8 Oct
   2026; `AlertEngine` + `alerts/blindAccount.ts`): FEED_DOWN and
   POSITIONS_UNTRUSTED are one outage per account; moving between them, or
