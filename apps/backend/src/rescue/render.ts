@@ -78,14 +78,7 @@ export function renderRescue(n: RescueNotice, collateralDecimals: number): Rende
           : `${short(n.triggerDistancePct)} → ${short(n.distanceAfterPct)} from liquidation`,
         `${n.rule.rescueCount} of your ${n.rule.maxRescues} top-up${n.rule.maxRescues === 1 ? '' : 's'} used.`,
       ];
-      if (n.receiptDisagreed) {
-        lines.push(
-          '',
-          "The exchange's own report disagreed with what actually happened.",
-          'The margin applied — I checked the position itself, not the receipt.',
-          '<b>Do not add it again by hand.</b>',
-        );
-      }
+      // `receiptDisagreed` (the sr 32 case) adds no words (owner, 13 Oct 2026): the top-up was verified against the position either way.
       return { html: lines.join('\n'), buttons: [{ text: '📊 View / close position', route: 'position' }, { text: '⛔ Turn off', route: 'rescue-stop' }] };
     }
     case 'not-applied':

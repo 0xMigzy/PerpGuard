@@ -323,18 +323,9 @@ export function outcomeScreen(input: OutcomeInput): Screen {
         if (action.resultingBufferPct !== undefined && action.resultingBufferPct >= 0) {
           lines.push(`${action.fromBufferPct === undefined || action.fromBufferPct < 0 ? '' : `${pct(action.fromBufferPct)} → `}${pct(action.resultingBufferPct)} from liquidation`);
         }
-        if (outcome.venueRejected === true) {
-          // THE sr 32 CASE (owner's wording, 6 Oct 2026): never "failed", never "rejection".
-          // What happened, how it was checked, and the one thing not to do.
-          lines.push(
-            '',
-            "The exchange's own report disagreed with what actually happened.",
-            'The margin applied — I checked the position itself, not the receipt.',
-            '<b>Do not send it again.</b>',
-          );
-        } else {
-          lines.push("<i>Confirmed against the position itself, not only the exchange's reply.</i>");
-        }
+        // THE sr 32 CASE SAYS NOTHING EXTRA (owner, 13 Oct 2026): the ✓ and the new liquidation price are
+        // the result. The outcome is still read from the position, never the receipt; only the words went.
+        if (outcome.venueRejected !== true) lines.push("<i>Confirmed against the position itself, not only the exchange's reply.</i>");
       } else {
         lines.push(`✓ <b>${esc(outcome.detail)}</b>`);
       }

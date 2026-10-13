@@ -31,12 +31,13 @@ test('MY POSITIONS: a blind position shows no figure at all; every position has 
   assert.equal(many.buttons.length, 11 + 1);
 });
 
-test('THE sr 32 OUTCOME: success first, then the disagreement in words, never "failed" or "rejection", and do not send it again', async () => {
+test('THE sr 32 OUTCOME IS THE SUCCESS AND NOTHING MORE: no word about the exchange\'s report, never "failed" or "rejection"', async () => {
   const { outcomeScreen } = await import('./account.ts');
   const market = CONFIGS.get(base.marketId)!;
   const action = { type: 'add-margin' as const, intent: 'custom' as const, marketId: base.marketId, symbol: 'BTC', positionId: 1, amountCNS: 100_000_000n, label: 'x' };
   const html = outcomeScreen({ action, market, assessment: base, outcome: { kind: 'applied', detail: 'done', venueRejected: true } } as never).html;
   assert.match(html, /^✓ <b>Added 100 AUSD to BTC long<\/b>/);
-  assert.match(html, /\n\nThe exchange's own report disagreed with what actually happened\.\nThe margin applied — I checked the position itself, not the receipt\.\n<b>Do not send it again\.<\/b>$/);
+  assert.equal(html, '✓ <b>Added 100 AUSD to BTC long</b>');
+  assert.doesNotMatch(html, /disagreed|receipt|report|send it again/i);
   assert.doesNotMatch(html, /failed|rejection|rejected/i);
 });

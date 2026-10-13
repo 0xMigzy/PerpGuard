@@ -1066,10 +1066,14 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   IN PLACE, so Send cannot be tapped twice; Cancel deletes the token; Send
   again only after a reconciled not-applied. The send path is the existing
   one: one in flight, reconciled against the position's margin, never re-sent
-  on `sr 32`. The `sr 32` outcome (owner's wording, 6 Oct 2026) leads with
-  the success, then "The exchange's own report disagreed with what actually
-  happened. The margin applied — I checked the position itself, not the
-  receipt. Do not send it again." Never "failed", never "rejection".
+  on `sr 32`. THE `sr 32` OUTCOME IS THE SUCCESS AND NOTHING
+  MORE (owner, 13 Oct 2026): the ✓ line, the new liquidation price and the
+  distance. The three lines about the exchange's report disagreeing ("…I
+  checked the position itself, not the receipt. Do not send it again.") are
+  GONE from the add-margin result and from Rescue's "rescued" message: the
+  result already reads as a success. ONLY THE WORDS WENT: the outcome is
+  still read from the position, never the receipt, and never re-sent. Never
+  "failed", never "rejection".
 - 🔴 THE KILL SWITCH (Phase 20, spec 54-57, 59, 80) STOPS AUTOMATION AND
   LEAVES POSITIONS OPEN (`apps/backend/src/rescue/killSwitch.ts`, bot half
   `apps/bot/src/killSwitch.ts`). Stop writes the persisted flag
@@ -1182,7 +1186,7 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     tap carries no stopCheck: the switch stops automation, never the person.
   - ONE AUTOMATION PER ACCOUNT: `automation_state.mode` moves NONE <->
     LIQUIDATION_RESCUE by compare-and-set.
-  - Messages: rescued (spec 44, verified figures; the `sr 32` lines when the
+  - Messages: rescued (spec 44, verified figures; nothing extra when the
     receipt disagreed), not landed, paused, held (once per reason; transient
     reasons only after 30 s), ended, and THE HANDOVER when limits are spent
     and it is still falling: rescues used, total added, distance, PerpGuard

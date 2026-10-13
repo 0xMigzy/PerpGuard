@@ -158,7 +158,9 @@ test('THE LIVE-FIRE SHAPE: 25 AUSD at a 4% trigger, sr 32, one send, applied off
   assert.equal(n.kind, 'rescued');
   const html = renderRescue(n, 6).html;
   assert.match(html, /^🛟 <b>Added 25 AUSD to BTC<\/b>\n[\d.]+% → 5\.0% from liquidation\n1 of your 2 top-ups used\./);
-  assert.match(html, /The margin applied — I checked the position itself, not the receipt\./);
+  // The receipt said rejected; the message says only what was verified, with no word about the receipt.
+  assert.equal(n.kind === 'rescued' && n.receiptDisagreed, true);
+  assert.doesNotMatch(html, /disagreed|receipt|by hand/i);
   assert.doesNotMatch(html, /failed|rejection/i);
 });
 
