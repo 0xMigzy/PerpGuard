@@ -1,17 +1,16 @@
 <div align="center">
 
-<img src="brand/perpguard-logo-192.png" width="96" height="96" alt="PerpGuard">
+<img src="brand/perpguard-logo.png" width="96" alt="PerpGuard">
 
 <h1>PerpGuard</h1>
 
-<p>
-<b>Two in three liquidations on Perpl hit accounts holding enough to stop them.</b><br>
-PerpGuard watches your positions, warns you before the line, and tops up margin on a tap — from Telegram.
-</p>
+<p><b>Two in three liquidations on Perpl hit accounts holding enough to stop them.</b></p>
+
+<p>PerpGuard watches your positions, warns you before liquidation, and tops up margin with one tap in Telegram.</p>
 
 <p>
 <a href="https://perpguard.app"><img src="https://img.shields.io/badge/mainnet-live-22c55e?style=flat-square&labelColor=161b22" alt="mainnet: live"></a>
-<a href="https://testnet.perpguard.app"><img src="https://img.shields.io/badge/testnet-try%20it%20free-8b5cf6?style=flat-square&labelColor=161b22" alt="testnet: try it free"></a>
+<a href="https://testnet.perpguard.app/bot/guide"><img src="https://img.shields.io/badge/testnet-try%20it%20free-8b5cf6?style=flat-square&labelColor=161b22" alt="testnet: try it free"></a>
 <a href="https://t.me/PerpGuardBot"><img src="https://img.shields.io/badge/telegram-%40PerpGuardBot-26a5e4?style=flat-square&labelColor=161b22" alt="telegram: @PerpGuardBot"></a>
 <a href="https://github.com/0xMigzy/PerpGuard/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/0xMigzy/PerpGuard/ci.yml?branch=main&label=ci&style=flat-square&labelColor=161b22" alt="ci status"></a>
 <img src="https://img.shields.io/badge/tests-1%2C662-22c55e?style=flat-square&labelColor=161b22" alt="tests: 1,662">
