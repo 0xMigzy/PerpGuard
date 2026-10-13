@@ -2638,36 +2638,52 @@ const equityOfLinked = async (accountId: number): Promise<EquityReading> => {
   const reading = await equityOf5213(5213);
   return reading.kind === 'ok' ? { ...reading, accountId } : reading;
 };
-const accountRows = (h: Harness): string[][] => (lastScreen(h.telegram).payload["reply_markup"] as InlineKeyboard).inline_keyboard.map((row) => row.map((b) => b.text));
+const rowsNow = (h: Harness): string[][] => (lastScreen(h.telegram).payload['reply_markup'] as InlineKeyboard).inline_keyboard.map((row) => row.map((b) => b.text));
+const SIX = [['👁 Watch & Alerts', '📊 My positions'], ['🛟 Rescue', '🔐 Trading account'], ['🆘 Kill switch', '⚙️ Settings']];
+const wired = { rescue: { stopped: () => false, rules: () => [], otherAutomation: () => undefined } as never, killSwitch: { stopped: () => false, changedAtMs: () => undefined } as never };
 
-test('💰 EQUITY ON 🔐 TRADING ACCOUNT (mainnet): beside 📊 My positions on a new first row; the buttons that were there keep their order', async () => {
-  const before = harness({ tradingNetwork: 'mainnet' });
-  await tapNav(before, { to: 'account' });
-  const without = accountRows(before);
-  const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked });
-  await tapNav(h, { to: 'account' });
-  assert.deepEqual(accountRows(h), [['📊 My positions', '💰 Equity'], ...without]);
+test('🏠 HOME ON MAINNET IS SEVEN BUTTONS (layout C): the top row unmoved, 💰 Equity beside 🛟 Rescue, 🆘 Kill switch alone on the last row', async () => {
+  const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked, ...wired });
+  await tapNav(h, { to: 'home' });
+  assert.deepEqual(rowsNow(h), [['👁 Watch & Alerts', '📊 My positions'], ['💰 Equity', '🛟 Rescue'], ['🔐 Trading account', '⚙️ Settings'], ['🆘 Kill switch']]);
 });
 
-test("💰 EQUITY, THE CONNECTED ACCOUNT: one tap, no input, /equity's own reply word for word, and the way back to Trading account", async () => {
+test('🏠 HOME ON TESTNET STAYS THE SIX: no 💰 Equity, since /equity reads the mainnet index, where a testnet account number is somebody else', async () => {
+  const h = harness({ equity: equityOfLinked, ...wired });
+  await tapNav(h, { to: 'home' });
+  assert.deepEqual(rowsNow(h), SIX);
+  // A hand-made tap shows home again and no figure.
+  await tapNav(h, { to: 'my-equity' });
+  assert.deepEqual(rowsNow(h), SIX);
+  assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /AUSD/);
+});
+
+test('🏠 HOME ON MAINNET WITH NO EQUITY READER is the six too: no button for what cannot answer', async () => {
+  const h = harness({ tradingNetwork: 'mainnet', ...wired });
+  await tapNav(h, { to: 'home' });
+  assert.deepEqual(rowsNow(h), SIX);
+});
+
+test("💰 EQUITY, THE CONNECTED ACCOUNT: one tap, no input, /equity's own reply word for word, and ← Back returns to home", async () => {
   const h = harness({ tradingNetwork: 'mainnet', equity: equityOfLinked });
   h.resolver.answers.set(String(OWNER_ACCOUNT), { accountId: OWNER_ACCOUNT, address: undefined, resolvedBy: 'index' });
   await tapNav(h, { to: 'my-equity' });
   const screen = lastScreen(h.telegram);
   assert.match(String(screen.payload['text']), new RegExp(`^💰 <b>#${OWNER_ACCOUNT} · equity 15,346\\.00 AUSD</b>`));
-  assert.deepEqual(keyboardOf(screen).map((b) => b.text), ['← Back']);
+  const back = (screen.payload['reply_markup'] as InlineKeyboard).inline_keyboard.flat();
+  assert.deepEqual(back.map((b) => b.text), ['← Back']);
+  assert.deepEqual(decodeNavTapForTest(String((back[0] as { callback_data?: string }).callback_data)), { to: 'home' });
   assert.equal(h.telegram.calls.some((c) => 'force_reply' in ((c.payload['reply_markup'] as object | undefined) ?? {})), false, 'nothing is asked');
   await h.bot.handleUpdate(messageUpdate(`/equity ${OWNER_ACCOUNT}`));
   assert.equal(texts(h.telegram).at(-1), String(screen.payload['text']));
 });
 
-test('💰 EQUITY IS NOT OFFERED ON TESTNET: /equity reads the mainnet index, where a testnet account number is somebody else; a hand-made tap shows no figure', async () => {
-  const h = harness({ equity: equityOfLinked });
-  await tapNav(h, { to: 'account' });
-  assert.equal(accountRows(h).flat().includes('💰 Equity'), false);
-  await tapNav(h, { to: 'my-equity' });
-  assert.match(String(lastScreen(h.telegram).payload['text']), /^🔐 <b>TRADING ACCOUNT<\/b>/);
-  assert.doesNotMatch(String(lastScreen(h.telegram).payload['text']), /AUSD/);
+test('🔐 TRADING ACCOUNT carries no 💰 Equity and no 📊 My positions, on either network: the screen is what it was', async () => {
+  for (const tradingNetwork of ['mainnet', 'testnet'] as const) {
+    const h = harness({ tradingNetwork, equity: equityOfLinked });
+    await tapNav(h, { to: 'account' });
+    assert.deepEqual(rowsNow(h), [['🔌 Disconnect #710'], ['📖 Setup guide'], ['← Back']]);
+  }
 });
 
 test('💰 EQUITY of the connected account is not for an unlinked chat: its tap is refused and shows no figure', async () => {

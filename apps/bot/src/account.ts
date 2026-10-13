@@ -323,9 +323,9 @@ export function outcomeScreen(input: OutcomeInput): Screen {
         if (action.resultingBufferPct !== undefined && action.resultingBufferPct >= 0) {
           lines.push(`${action.fromBufferPct === undefined || action.fromBufferPct < 0 ? '' : `${pct(action.fromBufferPct)} → `}${pct(action.resultingBufferPct)} from liquidation`);
         }
-        // THE sr 32 CASE SAYS NOTHING EXTRA (owner, 13 Oct 2026): the ✓ and the new liquidation price are
-        // the result. The outcome is still read from the position, never the receipt; only the words went.
-        if (outcome.venueRejected !== true) lines.push("<i>Confirmed against the position itself, not only the exchange's reply.</i>");
+        // THE RESULT IS THE ✓, THE NEW LIQUIDATION PRICE AND THE DISTANCE, whatever the exchange's receipt said
+        // (owner, 13 Oct 2026). No word about how it was checked: the outcome is still read from the position,
+        // never the receipt; only the words went.
       } else {
         lines.push(`✓ <b>${esc(outcome.detail)}</b>`);
       }

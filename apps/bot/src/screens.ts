@@ -99,6 +99,11 @@ export interface HomeInput {
   readonly rescue?: boolean;
   /** The Kill Switch is built and wired, so a linked chat gets its button. */
   readonly killSwitch?: boolean;
+  /**
+   * 💰 Equity for the connected account (owner, 13 Oct 2026). True only where /equity can answer for it: a
+   * MAINNET link, since /equity reads the mainnet index and a testnet account's number is somebody else's there.
+   */
+  readonly equity?: boolean;
 }
 
 const TITLE = '🛡 <b>PERPGUARD</b>';
@@ -153,20 +158,21 @@ export function homeScreen(input: HomeInput): Screen {
   if (watching !== undefined) lines.push(watching);
   if (index !== undefined) lines.push('', index);
 
-  const buttons: Button[][] = [
-    [
-      { text: '👁 Watch & Alerts', route: { to: 'watch-menu' } },
-      { text: '📊 My positions', route: { to: 'positions' } },
-    ],
-    [
-      ...(input.rescue === true ? [{ text: '🛟 Rescue', route: { to: 'rescue' } } as Button] : []),
-      { text: '🔐 Trading account', route: { to: 'account' } },
-    ],
-    [
-      ...(input.killSwitch === true ? [{ text: '🆘 Kill switch', route: { to: 'kill' } } as Button] : []),
-      { text: '⚙️ Settings', route: { to: 'settings' } },
-    ],
+  const top: Button[] = [
+    { text: '👁 Watch & Alerts', route: { to: 'watch-menu' } },
+    { text: '📊 My positions', route: { to: 'positions' } },
   ];
+  const rescue: Button[] = input.rescue === true ? [{ text: '🛟 Rescue', route: { to: 'rescue' } }] : [];
+  const kill: Button[] = input.killSwitch === true ? [{ text: '🆘 Kill switch', route: { to: 'kill' } }] : [];
+  const account: Button = { text: '🔐 Trading account', route: { to: 'account' } };
+  const settingsButton: Button = { text: '⚙️ Settings', route: { to: 'settings' } };
+  // SEVEN BUTTONS (mainnet, owner's layout C, 13 Oct 2026): Equity opens row two beside Rescue, and the Kill
+  // switch has the last row to itself. It only opens its screen: stopping takes two more taps there.
+  // SIX (testnet, where /equity cannot answer for the account): the 8 Oct grid, unchanged.
+  const buttons: Button[][] =
+    input.equity === true
+      ? [top, [{ text: '💰 Equity', route: { to: 'my-equity' } }, ...rescue], [account, settingsButton], ...(kill.length === 0 ? [] : [kill])]
+      : [top, [...rescue, account], [...kill, settingsButton]];
   return { html: lines.join('\n'), buttons };
 }
 
@@ -275,12 +281,6 @@ export interface AccountScreenInput {
   readonly guideUrl?: string | undefined;
   /** TWO BOTS, ONE PER NETWORK: the other network's bot, named on this screen with a link to it. Absent: one deployment. */
   readonly peer?: PeerBot | undefined;
-  /**
-   * 💰 Equity for the connected account (owner, 13 Oct 2026), beside 📊 My positions on a row of its own above
-   * the rest. True only where /equity can answer for this account: a MAINNET link, since /equity reads the
-   * mainnet index and a testnet account's number is somebody else's account there.
-   */
-  readonly equity?: boolean | undefined;
 }
 
 /** The other deployment's bot (12 Oct 2026): mainnet is @PerpGuardBot, testnet is @PerpGuardTestnetBot. */
@@ -365,7 +365,6 @@ export function accountScreen(input: AccountScreenInput): Screen {
   return {
     html: lines.join('\n'),
     buttons: [
-      ...(input.equity === true ? [[{ text: '📊 My positions', route: { to: 'positions' } } as Button, { text: '💰 Equity', route: { to: 'my-equity' } } as Button]] : []),
       ...(fixable ? [[{ text: '🔑 Enter a new API key', route: { to: 'connect-key' } } as Button]] : []),
       [{ text: `🔌 Disconnect #${input.accountId}`, route: { to: 'disconnect-ask' } }],
       ...guideRow(input.guideUrl),

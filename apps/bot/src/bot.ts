@@ -530,6 +530,7 @@ export function createBot(deps: BotDeps): Bot {
             },
       rescue: deps.rescue !== undefined && link !== undefined,
       killSwitch: deps.killSwitch !== undefined && link !== undefined,
+      equity: link !== undefined && equityAnswersFor(link),
       tradingNetwork: deps.tradingNetwork,
       assessments: [...own, ...subs.flatMap((sub) => watchedAssessments(sub.accountId))],
     });
@@ -560,7 +561,6 @@ export function createBot(deps: BotDeps): Bot {
       linkedAtMs: link.linkedAtMs,
       guideUrl,
       peer: deps.peerBot,
-      equity: equityAnswersFor(link),
     });
   };
 
@@ -1200,11 +1200,11 @@ export function createBot(deps: BotDeps): Bot {
         await ctx.answerCallbackQuery();
         const link = linkHere(telegramUserId, chatId);
         if (link === undefined || !equityAnswersFor(link)) {
-          await showScreen(ctx, tradingAccount(chatId, telegramUserId));
+          await showScreen(ctx, home(chatId, telegramUserId));
           return;
         }
         const reply = await equityOf(link.accountId);
-        await showScreen(ctx, { html: reply.ok ? reply.html : esc(reply.text), buttons: [[{ text: '← Back', route: { to: 'account' } }]] });
+        await showScreen(ctx, { html: reply.ok ? reply.html : esc(reply.text), buttons: [[{ text: '← Back', route: { to: 'home' } }]] });
         return;
       }
       case 'account':

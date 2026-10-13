@@ -842,7 +842,8 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   buttons, 👁 Watch & Alerts and 🔐 Trading account. Home, connected: the
   account in four lines (🔗 testnet #24, Execution, Automation, Alerts) and six
   buttons: 👁 Watch & Alerts | 📊 My positions, 🛟 Rescue | 🔐 Trading account,
-  🆘 Kill switch | ⚙️ Settings. AN UNBUILT FEATURE HAS NO BUTTON; a test walks
+  🆘 Kill switch | ⚙️ Settings (the testnet bot; MAINNET HAS SEVEN, with 💰
+  Equity: see /equity below). AN UNBUILT FEATURE HAS NO BUTTON; a test walks
   every screen and fails on any label for one. LABELS: sentence case; 📊 View /
   close position for one (10 Oct 2026: the same words on the alert, Rescue's
   messages and the partial-close result), 📊 My positions for the list; 🗑 Stop watching; 🎛 Custom
@@ -923,15 +924,23 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
     ONE PATH (`equityOf` in `bot.ts`) for the command, the button and the
     typed answer, so the text is the same word for word; the button's screen
     adds only ← Back. The menu's description is "Check any account's equity".
-  - 💰 EQUITY FOR THE CONNECTED ACCOUNT is on 🔐 Trading account (owner,
-    13 Oct 2026): a new FIRST row, [📊 My positions | 💰 Equity], above the
-    buttons that were there, whose order did not move. One tap, no input:
-    route `my-equity` (not public; the link is read at tap time, no session
+  - 💰 EQUITY FOR THE CONNECTED ACCOUNT IS ON HOME, MAINNET ONLY (owner,
+    13 Oct 2026; it was on 🔐 Trading account for one local commit, and that
+    screen is back to exactly what it was). MAINNET HOME IS SEVEN BUTTONS,
+    the owner's layout C: 👁 Watch & Alerts | 📊 My positions, 💰 Equity |
+    🛟 Rescue, 🔐 Trading account | ⚙️ Settings, then 🆘 Kill switch ALONE on
+    the last row. TESTNET HOME STAYS THE SIX (the 8 Oct grid): /equity reads
+    the mainnet index, and a testnet account's number is somebody else's
+    account there (`equityAnswersFor`), so there is no button, and a
+    hand-made tap shows home and no figure. One tap, no input: route
+    `my-equity` (not public; the link is read at tap time, no session
     needed) calls the same `equityOf`, so the text is /equity's word for
-    word, with ← Back to Trading account. MAINNET LINKS ONLY
-    (`equityAnswersFor`): /equity reads the mainnet index, and a testnet
-    account's number is somebody else's account there, so the testnet bot
-    shows no such row and a hand-made tap shows no figure. `/positions`, `/status`, `/cancel`, `/unwatch`,
+    word, with ← Back to home.
+  - THE FULL-WIDTH 🆘 KILL SWITCH ONLY OPENS ITS SCREEN (checked 13 Oct
+    2026 when it got a row to itself): nothing stops on that tap. Stopping
+    automation is two more taps (Stop automation only -> 🆘 Yes, stop
+    automation), stop everything two more (🆘 Stop everything -> the cost ->
+    🆘 Yes, stop everything). Never make the home button act. `/positions`, `/status`, `/cancel`, `/unwatch`,
   `/watching` and `/unlink` are gone; their jobs are buttons.
 - NAVIGATION HAS ITS OWN CALLBACK NAMESPACE (`apps/bot/src/nav.ts`,
   `n1:<code>[:<id>]`), strict both ways and never decodable as an action. The
@@ -1082,7 +1091,10 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   GONE from the add-margin result and from Rescue's "rescued" message: the
   result already reads as a success. ONLY THE WORDS WENT: the outcome is
   still read from the position, never the receipt, and never re-sent. Never
-  "failed", never "rejection".
+  "failed", never "rejection". The italic "Confirmed against the position
+  itself, not only the exchange's reply." that ended the result when the
+  receipt agreed is gone too (owner, 13 Oct 2026): one result, whatever the
+  receipt said.
 - 🔴 THE KILL SWITCH (Phase 20, spec 54-57, 59, 80) STOPS AUTOMATION AND
   LEAVES POSITIONS OPEN (`apps/backend/src/rescue/killSwitch.ts`, bot half
   `apps/bot/src/killSwitch.ts`). Stop writes the persisted flag
