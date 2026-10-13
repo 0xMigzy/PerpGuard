@@ -37,6 +37,24 @@ For anyone trading on Perpl, and for anyone who wants to watch an account on Per
 <img src="docs/images/telegram-alert.png" width="380" alt="A PerpGuard alert in Telegram"><br>
 *The alert: the position, its margin and free balance, and two top-ups, each showing the distance it buys.*
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/alert-to-tx.png" width="420" alt="A Telegram alert saying a BTC long is 2.7% from liquidation, with two top-up buttons, followed by the result of adding 7 AUSD and a transaction link"><br>
+<em>A mainnet liquidation warning, the pre-calculated top-up amounts, and the result with its on-chain transaction link.</em>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/home-mainnet.png" width="420" alt="The PerpGuard bot's home screen for mainnet account 69, with seven buttons"><br>
+<em>The bot's home screen on mainnet.</em>
+</td>
+</tr>
+</table>
+
+<img src="docs/screenshots/two-bots.png" width="686" alt="Two Telegram bots in a list: PerpGuard, and PerpGuard | Testnet"><br>
+<em>The two bots in Telegram: PerpGuard for mainnet, and PerpGuard | Testnet.</em>
+
 ## What it does
 
 ![The PerpGuard Overview page](docs/images/dashboard.png)
