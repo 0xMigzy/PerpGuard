@@ -1,9 +1,10 @@
 # PerpGuard
 
 Real-time risk monitoring for Perpl traders on Monad: liquidation alerts,
-stress tests, and a kill switch.
+stress tests, and a kill switch. Analytics read Monad mainnet; actions (add
+margin, reduce, close, Rescue, the kill switch) run on BOTH networks, one
+deployment each: mainnet with real funds, and testnet.
 
-Hackathon deadline: Oct 14 2026, 04:59 GMT+1. Submit by the evening of Oct 13.
 Track: Onchain Finance & Trading. Bounties: Envio (indexing), Perpl analytics
 and risk, Perpl API, Dynamic (auth, wallet connect, and the typed-data
 signature on /link that creates the Perpl trade-only key; built, no new work).
@@ -48,8 +49,10 @@ the balance, not that an alert would have arrived in time. See `docs/notes/accam
 
 NEVER quote `liquidationsWithSpareBalanceCount` or `hadSpareBalance` as a
 headline. That flag is `freeBalanceBeforeCNS > 0`, so it counts dust: it is true
-for 654 of 654 mainnet liquidations, the smallest balance being 0.00024 AUSD and
-137 of them under 1 AUSD. 100% reads as a broken indexer, not as a finding. It
+for 3,675 of 3,682 mainnet liquidations (99.8%; full history, 11 Feb to 13 Oct
+2026, read 14 Oct 2026), the smallest balance being 0.000046 AUSD and 952 of
+them under 1 AUSD; the other 7 held exactly zero. (Over the old 30-day index it
+was 654 of 654.) 99.8% reads as a broken indexer, not as a finding. It
 stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all.
 
 ## Critical domain facts
@@ -430,8 +433,11 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
   12 Oct 2026; until then no page named a network): `NETWORK_SPLIT` in
   `apps/web/src/lib/botPreview.ts`, a small muted line under the heading on
   Overview and on /bot (`PageHeader`'s `note`): "Analytics: Monad mainnet,
-  every block since launch. Actions: Monad testnet." One constant; no banner,
-  no box, no other network labelling on a page.
+  every block since launch. Actions: <this deployment's chain>." It is
+  `networkSplit(TRADING)` from `tradingNetwork.ts`, so perpguard.app ends in
+  "Actions: Monad mainnet." and testnet.perpguard.app in "Actions: Monad
+  testnet." One constant; no banner, no box, no other network labelling on a
+  page.
 - SIX SECTIONS, in this order, Overview as the landing page: Overview,
   Markets, Traders, Liquidations, Risk, Bot (`/bot`; `/alerts` redirects to it
   permanently: the page was Alerts until 5 Oct 2026). `docs/frontend-mockup.html` is
@@ -740,8 +746,10 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   `withBadge` in `apps/backend/src/alerts/plain.ts`). CHROME is the banner and
   the headings and tag lines that name an account's network: "📊 MY POSITIONS
   · TESTNET #24", "⚙️ SETTINGS · TESTNET #24", "🔗 TESTNET #24", "👁 MAINNET
-  #4855". PROSE STAYS LOWERCASE, like the website: "Not actionable on
-  testnet: …", "This bot acts on testnet. Mainnet is @PerpGuardBot.",
+  #4855". (The examples here are the TESTNET bot's; the mainnet bot prints the
+  same with the names swapped: "· MAINNET #69", "This bot acts on mainnet.
+  Testnet is @PerpGuardTestnetBot.") PROSE STAYS LOWERCASE, like the website:
+  "Not actionable on testnet: …", "This bot acts on testnet. Mainnet is @PerpGuardBot.",
   "connected on mainnet, but PerpGuard trades on testnet here", "Connected
   testnet #24.", "the mainnet index". (For a few hours on 12 Oct prose was
   uppercase too; the owner took it back.)
@@ -843,7 +851,8 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   Home, nothing connected: "🛡 PERPGUARD / I message you before a Perpl
   position gets liquidated. / Send me any address or account number…" and two
   buttons, 👁 Watch & Alerts and 🔐 Trading account. Home, connected: the
-  account in four lines (🔗 testnet #24, Execution, Automation, Alerts) and six
+  account in four lines (🔗 TESTNET #24 on the testnet bot, 🔗 MAINNET #69 on
+  the mainnet one; Execution, Automation, Alerts) and six
   buttons: 👁 Watch & Alerts | 📊 My positions, 🛟 Rescue | 🔐 Trading account,
   🆘 Kill switch | ⚙️ Settings (the testnet bot; MAINNET HAS SEVEN, with 💰
   Equity: see /equity below). AN UNBUILT FEATURE HAS NO BUTTON; a test walks
@@ -1057,8 +1066,8 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
 - 🔐 TRADING ACCOUNT (owner, 8 Oct 2026): not connected, what connecting does
   and 🔗 Connect wallet / 🔑 Enter API key, both through the one-time code and
   the HTTPS page (🔑 opens it with `via=key`: the key form, focused).
-  Connected: 🔗 testnet #24, Execution, "Connected 8 Oct, 06:48", 🔌
-  Disconnect #24. DISCONNECT IS ON THE SCREEN WHENEVER ANYTHING IS HELD
+  Connected: the account's tag (🔗 TESTNET #24, or 🔗 MAINNET and its number
+  on the mainnet bot), Execution, "Connected 8 Oct, 06:48", 🔌 Disconnect #24. DISCONNECT IS ON THE SCREEN WHENEVER ANYTHING IS HELD
   (8 Oct 2026): a link, a key, or a WALLET PROOF WITH NO LINK (until then a
   wallet-only proof could not be undone from the bot). Its routes are public
   and read only the tapper's own records at tap time, so a dead session
@@ -1073,12 +1082,16 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   key is deleted": the key itself stays on the person's Perpl profile (Perpl
   has no API to revoke one), named by its label when PerpGuard created it
   ("…listed on your Perpl profile as 'PerpGuard · 8 Oct 2026'. Remove it at
-  testnet.perpl.xyz/apikeys."). And only when it is: the sealed key is deleted FIRST and the Postgres
+  <this deployment's Perpl site>/apikeys.": testnet.perpl.xyz on the testnet
+  bot, app.perpl.xyz on the mainnet one). And only when it is: the sealed key is deleted FIRST and the Postgres
   delete is awaited (`KeyStore.deleteConfirmed`); if it cannot be confirmed,
   nothing changes and the reply says so (owner, 8 Oct 2026). THE LINK STORES ITS
   NETWORK (`account_links.network`); a link from another network is refused by
-  name. MAINNET TRADING IS OFF unless `PERPGUARD_MAINNET_TRADING=1`: the
-  registry refuses every session, monitoring is unaffected.
+  name. MAINNET TRADING IS ON FOR THE MAINNET DEPLOYMENT, AND THE SWITCH IS
+  `PERPGUARD_MAINNET_TRADING=1` in its `.env` (set since the 12 Oct 2026
+  split). It is a guard, not the default: a backend on mainnet WITHOUT it
+  logs a warning, the registry refuses every session, and monitoring is
+  unaffected. The testnet deployment never needs it.
 - ADDING MARGIN: every amount (on View position, on the alert) is an action
   token; its tap shows "⚠️ Add 100 AUSD to BTC long?" with the before and
   after for margin, liquidation price, distance and free balance (the
@@ -1453,9 +1466,17 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
   that cannot say where it is, or cannot switch, is still asked to sign.
   Unit-tested; the real wallet prompts can only be seen on the live sites.
 - A WALLET WHOSE ACCOUNT IS ON THE OTHER NETWORK IS TOLD SO BY NAME
-  (`lookupElsewhere`, the analytics network): "This wallet owns Perpl account
-  #4855 on mainnet. PerpGuard acts on testnet only for now". Nothing is ever
-  linked there. Found when the owner's Rabby wallet (mainnet #4855, nothing
+  (`lookupElsewhere`, which asks the OTHER trading network's Exchange:
+  mainnet from the testnet deployment, testnet from the mainnet one) AND SENT
+  TO THAT NETWORK'S BOT: "This wallet owns Perpl account #4855 on mainnet.
+  This bot acts on testnet only. To connect that account, open @PerpGuardBot,
+  the mainnet bot." A MAINNET account is also offered "You can watch it
+  instead…"; a testnet account is not (the watch tier reads the mainnet
+  index); either way it ends "Or sign with the wallet that owns your account
+  on <this network>." Nothing is linked on THIS deployment for an account on
+  the other network; it links on its own bot. (With no `PEER_BOT_USERNAME`
+  the middle sentence falls back to "Actions are <network> only for now, so
+  it cannot be linked to act on.") Found when the owner's Rabby wallet (mainnet #4855, nothing
   on testnet) was refused as owning "no account".
 - EVERY PAGE OUTCOME LOGS a line with the client (user-agent, named; iOS
   in-app Safari is indistinguishable from Safari and is said so) and an
@@ -1543,12 +1564,22 @@ Postgres. Dynamic (connect-only) for the wallet on /link; the proof is verified 
 - Commit after each working step.
 
 ## Current phase
-Day 6 (Oct 1): the web app is the six public, read-only sections above,
-served by the analytics API behind a stale-while-revalidate cache; the
-Telegram bot has the public watch tier beside the linked tier and the
-backend runs one session per linked account behind `AccountRegistry`,
-with proof-based `/link` (wallet or sealed API key) feeding it; processes
-run under systemd (`deploy/systemd/`). Actions live in the Telegram bot.
+14 Oct 2026, submission day. TWO DEPLOYMENTS ARE LIVE, one per network
+(@PerpGuardBot on perpguard.app, mainnet, real funds; @PerpGuardTestnetBot on
+testnet.perpguard.app), each its own backend, database and encryption key
+under systemd (`deploy/systemd/`). MAINNET ACTIONS ARE PROVEN ON CHAIN
+(12 Oct 2026, account #69): an 11.5 AUSD add-margin that came back
+`st 7 / sr 32` and applied in full (tx `0x1926fd3c…3f9c`, block 112,885,275)
+and two closes, each result ending in its transaction. THE BUILDER CODE IS
+BOUND at enrolment, fee ceiling 0, to every key the mainnet deployment creates
+through the wallet signature, seen on the key at app.perpl.xyz/apikeys. THE
+RESCUE FLOOR IS ONE SETTING PER ACCOUNT (13 Oct 2026, default 100 AUSD, any
+value from 0). Unchanged underneath: the web app is the six public, read-only
+sections above, served by the analytics API behind a stale-while-revalidate
+cache; the bot has the public watch tier beside the linked tier; the backend
+runs one session per linked account behind `AccountRegistry`, fed by
+proof-based `/link` (one wallet signature, or a pasted API key). Every action
+happens in the Telegram bot.
 
 THE INDEX IS FULL HISTORY (cut over 1 Oct 2026, 20:47 UTC). The backend
 reads schema `perpguard_full`, indexed from the Exchange's deployment block

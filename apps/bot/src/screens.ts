@@ -118,7 +118,7 @@ export function indexLine(health: IndexerHealth | undefined): string | undefined
   return `⚠️ Index ${esc(health.state)}${behind}: watched figures may be late.`;
 }
 
-/** `🔗 testnet #24`: the network, said once. */
+/** `🔗 TESTNET #24` on the testnet bot, `🔗 MAINNET #69` on the mainnet one: the account's network, uppercase (`networkName`), said once. */
 export const accountTag = (network: NetworkName | undefined, accountId: number): string => `🔗 ${networkName(network)} #${accountId}`;
 
 /**
