@@ -14,7 +14,7 @@
 <a href="https://t.me/PerpGuardBot"><img src="https://img.shields.io/badge/telegram-%40PerpGuardBot-26a5e4?style=flat-square&labelColor=161b22" alt="telegram: @PerpGuardBot"></a>
 <a href="https://github.com/0xMigzy/PerpGuard/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/0xMigzy/PerpGuard/ci.yml?branch=main&label=ci&style=flat-square&labelColor=161b22" alt="ci status"></a>
 <img src="https://img.shields.io/badge/tests-1%2C680-22c55e?style=flat-square&labelColor=161b22" alt="tests: 1,680">
-<img src="https://img.shields.io/badge/indexed-84M%20events-7c3aed?style=flat-square&labelColor=161b22" alt="indexed: 84M events">
+<img src="https://img.shields.io/badge/indexed-85M%20events-7c3aed?style=flat-square&labelColor=161b22" alt="indexed: 85M events">
 <img src="https://img.shields.io/badge/built%20for-Monad%20Metropolis-836ef9?style=flat-square&labelColor=161b22" alt="built for: Monad Metropolis">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-64748b?style=flat-square&labelColor=161b22" alt="license: MIT"></a>
 </p>
@@ -104,7 +104,7 @@ What each deployment stores, for how long, and what Disconnect deletes is on its
 
 **Events.** 42 of the Exchange's 204 event types are handled: market listings and margin parameters, accounts and deposits, every position change, margin added and removed, liquidations and other forced exits, maker and taker fills, mark updates, and funding settlements. How each one is handled is listed in `apps/indexer/docs/EVENTS.md`.
 
-**Scale.** On 9 Oct 2026, at block 111,884,822, Envio had processed 83.0 million events. The index held 7,563,875 positions and 3,653 liquidations.
+**Scale.** On 14 Oct 2026 at 01:21 UTC, at block 113,194,373, Envio had processed 85,243,770 events and the index held 3,682 liquidations. The position count was last read on 9 Oct 2026: 7,563,875.
 
 **What it stores** (`apps/indexer/schema.graphql`): markets, traders, positions, fills, liquidations, margin actions, collateral flows, funding events, and per-day aggregates by market and by trader.
 
@@ -121,7 +121,7 @@ Every figure on the site names its window, and [/status](https://perpguard.app/s
 
 **Funding settles every 2,580 seconds, about 43 minutes, not hourly.** That is `funding_interval_sec` on all 11 markets in Perpl's live context. Over the last 24 hours the index recorded 512 settlement intervals with a median of 2,588 s (range 2,587 to 2,592).
 
-**Adding margin reports failure while applying in full, on testnet and on mainnet.** On Perpl testnet, `IncreasePositionCollateral` returned `st: 7 Failed, sr: 32 OrderDescIdTooLow` while the margin was credited to the micro, four times out of four (29 to 30 Sep 2026; frames in `fixtures/live-action-run-testnet.json`, table in `docs/evidence.md`). On mainnet it did the same on the one top-up measured: on 12 Oct 2026 at 23:25:17 UTC an 11.5 AUSD top-up came back `st: 7 Failed, sr: 32` while the position's margin went from 17.416539 to 28.916539 AUSD, in transaction `0x1926fd3cb0a44f5aa21b736a11b656627d89e1ff0809436a7c71d9bb449d3f9c`, block 112,885,275. PerpGuard therefore judges a top-up by the position's margin before and after, never by the receipt, and never re-sends on that report.
+**Adding margin reports failure while applying in full, on testnet and on mainnet.** On Perpl testnet, `IncreasePositionCollateral` returned `st: 7 Failed, sr: 32 OrderDescIdTooLow` while the margin was credited to the micro, four times out of four (29 to 30 Sep 2026; frames in `fixtures/live-action-run-testnet.json`, table in `docs/evidence.md`). On mainnet, from 12 Oct 2026 23:25 UTC to 13 Oct 2026 20:08 UTC, PerpGuard sent 10 top-ups on account #69: 8 came back `st: 7 Failed, sr: 32`, 2 timed out with no report, and all 10 were credited in full, by exactly the amount sent, with none sent twice (the mainnet deployment's `action_log`). The first: on 12 Oct 2026 at 23:25:17 UTC an 11.5 AUSD top-up came back `st: 7 Failed, sr: 32` while the position's margin went from 17.416539 to 28.916539 AUSD, in transaction `0x1926fd3cb0a44f5aa21b736a11b656627d89e1ff0809436a7c71d9bb449d3f9c`, block 112,885,275. PerpGuard therefore judges a top-up by the position's margin before and after, never by the receipt, and never re-sends on that report.
 
 **Not every trader's books reconcile.** For the top 10 accounts by 30-day net P&L, the replay rebuilds each balance from indexed events and compares it with the index's own (free balance plus open margin). Four have more than 3,000 opens in 30 days and are not replayed. Of the other six, one matches exactly (#4532) and five do not, by 2,007.39, 1,077.22, 12.30, −10.42 and −9.42 AUSD. The page says NOT RECONCILED, with the gap, before any figure.
 

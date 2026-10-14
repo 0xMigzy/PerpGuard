@@ -121,6 +121,8 @@ The close's margin before and after is not given: the log records size for a clo
 
 **The wider record.** From 12 Oct 2026 20:18 UTC to 13 Oct 2026 20:08 UTC the mainnet deployment logged 20 actions on account #69: 10 add-margin, 9 full closes and 1 partial close. All 20 were judged applied from the position. Of the 10 add-margins, 8 came back from Perpl as `st 7 / sr 32` and 2 timed out with no report; all 10 were credited in full, by exactly the amount sent, and none was sent twice.
 
+**Automatic Rescue on mainnet.** Three of those ten add-margins were sent by the Rescue engine, not by a tap on an amount, with real funds, on 13 Oct 2026 at 20:00:51, 20:03:02 and 20:08:08 UTC (`rescue_attempts` on the mainnet deployment; `action_log` rows 17, 18 and 20). Each added 10 AUSD to a BTC position on account #69 that had reached 2.73%, 2.70% and 2.69% from liquidation, and left it 8.74%, 8.71% and 8.70% away. Each came back `st 7 / sr 32`, was verified against the position's margin about 3 seconds after it was sent, and was credited in full. Each rule had been armed by a tap in the linked chat between 1 and 34 seconds before it fired, so the account's owner was present: these show the engine sending and verifying a top-up with no tap on the top-up itself, not a rescue that ran with nobody there.
+
 **Limit of this evidence.** One account, one market. The raw order-update frames were not captured to a fixture on mainnet, so Perpl's report is as the venue adapter decoded it. Verbatim frames exist for testnet only (`fixtures/live-action-run-testnet.json`, `docs/evidence.md`).
 
 ## 7. The Perpl builder code

@@ -164,9 +164,12 @@ stays in the schema as a DIAGNOSTIC for reading one liquidation, and that is all
     venue said it had failed. Same rule as a cancel timeout, for the same reason.
   - And never report the failure to the user either: telling someone their
     rescue failed when it worked is how they double it by hand.
-  - MAINNET DOES THE SAME (12 Oct 2026, account #69): an 11.5 AUSD top-up
-    came back `st 7 / sr 32` and applied in full, 17.416539 -> 28.916539, tx
-    `0x1926fd3c…3f9c`, block 112,885,275. One measurement.
+  - MAINNET DOES THE SAME: 10 add-margins on account #69 from 12 Oct 2026
+    23:25 UTC to 13 Oct 2026 20:08 UTC (the mainnet `action_log`): 8 came
+    back `st 7 / sr 32`, 2 timed out with no `mt: 24` at all, and ALL 10
+    APPLIED IN FULL, by exactly the amount sent, none sent twice. The first:
+    11.5 AUSD, 17.416539 -> 28.916539, tx `0x1926fd3c…3f9c`, block
+    112,885,275. One account, one market (BTC).
   See `docs/evidence.md` and `pnpm risk:live`.
 - THE `sr 32` LIE IS SPECIFIC TO `t: 6`. `t: 3`/`t: 4` CloseLong/CloseShort report
   their outcome TRUTHFULLY on `mt: 24`: `st: 4 Filled, sr: 43 TakerOrderFilled` on
@@ -1570,7 +1573,13 @@ testnet.perpguard.app), each its own backend, database and encryption key
 under systemd (`deploy/systemd/`). MAINNET ACTIONS ARE PROVEN ON CHAIN
 (12 Oct 2026, account #69): an 11.5 AUSD add-margin that came back
 `st 7 / sr 32` and applied in full (tx `0x1926fd3c…3f9c`, block 112,885,275)
-and two closes, each result ending in its transaction. THE BUILDER CODE IS
+and two closes, each result ending in its transaction. AUTOMATIC RESCUE HAS
+RUN ON MAINNET WITH REAL FUNDS: three of the ten mainnet add-margins on #69
+(13 Oct 2026, 20:00:51, 20:03:02 and 20:08:08 UTC; `rescue_attempts`, rules
+6, 7 and 9) were sent by the Rescue engine with no tap on the top-up, 10 AUSD
+each, at 2.7% from liquidation, landing 8.7% away, each `st 7 / sr 32` and
+applied in full. NOT UNATTENDED: each rule was armed by the owner's tap 1 to
+34 seconds before it fired. THE BUILDER CODE IS
 BOUND at enrolment, fee ceiling 0, to every key the mainnet deployment creates
 through the wallet signature, seen on the key at app.perpl.xyz/apikeys. THE
 RESCUE FLOOR IS ONE SETTING PER ACCOUNT (13 Oct 2026, default 100 AUSD, any
