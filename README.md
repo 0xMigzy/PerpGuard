@@ -233,7 +233,11 @@ pnpm typecheck
 
 ## Monad Metropolis
 
-Track 01, Onchain Finance & Trading. Bounties: Envio, Perpl analytics and risk, Perpl API, Dynamic.
+Entered in track 01, Onchain Finance & Trading.
+
+Bounties: Perpl "Best Analytics / Risk Tool", Perpl API, Envio, Dynamic.
+
+How each brief is covered: [docs/submission.md](docs/submission.md)
 
 Built during the hackathon: the first commit is dated 26 Sep 2026, and no commit is dated earlier. The only files that predate it are the ones others wrote, listed under Credits.
 
